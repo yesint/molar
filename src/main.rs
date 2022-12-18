@@ -1,5 +1,8 @@
-use pteros::PdbFile;
+use pteros::MolFileHandler;
 
 fn main() {
-    let mut pdb = PdbFile::new().open_read("colored.pdb").read();
+    let f = MolFileHandler::new("colored.pdb").read_structure().unwrap();
+    for a in f.atoms {
+        println!("{:?}",a);
+    }
 }

@@ -151,8 +151,17 @@ static int read_pdb_structure(void *mydata, int *optflags,
       if (pdb->idxmap != NULL && atomserial < 100000) {
         pdb->idxmap[atomserial] = i; /* record new serial number translation */ 
       }
- 
+
+      /*====================================================================*/
+      /* Fix for reading hexadecimal resids which are written by VMD itself */
+      /*====================================================================*/
       atom->resid = atoi(ridstr);
+      // Try to scan hexadecimal string if zero is returned
+      if(!atom->resid){
+        int res = sscanf(ridstr, "%05x", &atom->resid);
+        if(res<=0) atom->resid=0; // If can't convert we give up and return zero
+      }
+      /*====================================================================*/
 
       /* determine atomic number from the element symbol */
       pteidx = get_pte_idx_from_string(elementsymbol);
