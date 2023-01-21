@@ -128,7 +128,7 @@ impl MolFileHandler<'_> {
         }
     }
     
-    // Returns number of atoms
+    
     fn open_read(&mut self) -> Result<(),Box<dyn error::Error>> {
         // Open file and get file pointer
         // Prepare c-strings for file opening
@@ -172,10 +172,10 @@ impl MolFileHandler<'_> {
     pub fn read_structure(&mut self) -> Result<Structure,Box<dyn error::Error>> {
         // Open file for reading
         match self.mode {
-            OpenMode::None => self.open_read(), // Open file
-            OpenMode::Read => Ok(()),
+            OpenMode::None => self.open_read()?, // Open file
+            OpenMode::Read => (),
             OpenMode::Write => Err("File is already opened for writing")?,
-        };
+        }
 
         let mut optflags: i32 = 0;
         let el: molfile_atom_t = Default::default();
