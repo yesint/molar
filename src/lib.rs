@@ -127,8 +127,7 @@ impl MolFileHandler<'_> {
             natoms: 0
         }
     }
-    
-    
+    // 
     fn open_read(&mut self) -> Result<(),Box<dyn error::Error>> {
         // Open file and get file pointer
         // Prepare c-strings for file opening
@@ -151,7 +150,7 @@ impl MolFileHandler<'_> {
         Ok(())
     }
 
-    fn open_write(&mut self, natoms: i32) {
+    fn open_write(&mut self, natoms: i32) -> Result<(),Box<dyn error::Error>>  {
         // Open file and get file pointer
         // Prepare c-strings for file opening
         let f_type = CString::new("").unwrap(); // Not used
@@ -163,10 +162,12 @@ impl MolFileHandler<'_> {
         };
 
         if self.file_handle == ptr::null_mut() {
-            panic!("Can't open file {} for writing!",self.file_name);
+            Err(format!("Can't open file {} for writing!",self.file_name))?;
         }
 
         self.mode = OpenMode::Write;
+
+        Ok(())
     }
     
     pub fn read_structure(&mut self) -> Result<Structure,Box<dyn error::Error>> {
@@ -174,16 +175,16 @@ impl MolFileHandler<'_> {
         match self.mode {
             OpenMode::None => self.open_read()?, // Open file
             OpenMode::Read => (),
-            OpenMode::Write => Err("File is already opened for writing")?,
+            OpenMode::Write => Err("Can't read structure, file is already opened for writing")?,
         }
 
         let mut optflags: i32 = 0;
         let el: molfile_atom_t = Default::default();
-        let mut atoms = vec![el; self.natoms];
+        let mut vmd_atoms = vec![el; self.natoms];
 
         let ret = unsafe{
             self.plugin.read_structure.unwrap()
-            (self.file_handle, &mut optflags, atoms.as_mut_ptr()) 
+            (self.file_handle, &mut optflags, vmd_atoms.as_mut_ptr()) 
         };
 
         if ret != MOLFILE_SUCCESS {
@@ -193,7 +194,7 @@ impl MolFileHandler<'_> {
         // Convert to Structure
         let mut structure: Structure = Default::default();
         structure.atoms.reserve(self.natoms);
-        for ref at in atoms {
+        for ref at in vmd_atoms {
             let atom = Atom {
                 name: c_buf_to_ascii_str(&at.name)?,
                 resid: at.resid as isize,
@@ -217,11 +218,10 @@ impl MolFileHandler<'_> {
         }
 
         let mut st: State = Default::default();
-        st.coords = vec![[0.0,0.0,0.0]; self.natoms as usize]; 
+        st.coords = vec![[0.0,0.0,0.0]; self.natoms]; 
 
-        //let mut coord = vec![0.0; 3*self.natoms as usize];
         let mut ts = molfile_timestep_t{
-            coords: st.coords.as_mut_ptr().cast::<f32>(),
+            coords: st.coords.as_mut_ptr().cast::<f32>(), // ptr to plain f32 array
             velocities: ptr::null_mut(),
             A: 0.0, B: 0.0, C: 0.0, alpha: 0.0, beta: 0.0, gamma: 0.0,
             physical_time: 0.0,
@@ -237,9 +237,6 @@ impl MolFileHandler<'_> {
             MOLFILE_EOF => (), // return without reading
             _ => Err("Error reading PDB timestep!")?,
         }
-
-        // Convert to pteros data structures
-         
 
         Ok(st)
     }
