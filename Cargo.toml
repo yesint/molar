@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 ascii = "1.1"
+anyhow = "1.0"
 
 [build-dependencies]
 cmake = "0.1"
