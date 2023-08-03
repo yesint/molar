@@ -67,10 +67,17 @@ pub trait MolfileStructure {
     fn write_structure(&self, data: &Structure) -> Result<()>;
 }
 
-pub trait MolfileSingleFrame {
-    fn read_state(&mut self) -> Result<Option<State>>;
+pub trait MolfileMultiFrame {
+    fn read_next_state(&mut self) -> Result<Option<State>>;
+    fn write_next_state(&self, data: &State) -> Result<()>;
+}
+
+pub trait MolfileSingleFrame: MolfileMultiFrame {
+    fn read_state(&mut self) -> Result<State>;
     fn write_state(&self, data: &State) -> Result<()>;
 }
+
+
 
 enum OpenMode {
     Read,
@@ -176,6 +183,7 @@ impl VmdMolFileHandler<'_> {
 
         Ok(())
     }
+
 }
 
 impl MolfileStructure for VmdMolFileHandler<'_> {
@@ -191,9 +199,9 @@ impl MolfileStructure for VmdMolFileHandler<'_> {
         let el: molfile_atom_t = Default::default();
         let mut vmd_atoms = vec![el; self.natoms];
 
-        let ret = unsafe{
+        let ret = unsafe {
             self.plugin.read_structure.unwrap()
-            (self.file_handle, &mut optflags, vmd_atoms.as_mut_ptr()) 
+            (self.file_handle, &mut optflags, vmd_atoms.as_mut_ptr())
         };
 
         if ret != MOLFILE_SUCCESS {
@@ -203,7 +211,7 @@ impl MolfileStructure for VmdMolFileHandler<'_> {
         // Convert to Structure
         let mut structure: Structure = Default::default();
         structure.atoms.reserve(self.natoms);
-        for ref at in atoms {
+        for ref at in vmd_atoms {
             structure.atoms.push(Atom {
                 name: c_buf_to_ascii_str(&at.name),
                 resid: at.resid as isize,
@@ -222,8 +230,9 @@ impl MolfileStructure for VmdMolFileHandler<'_> {
     }
 }
 
-impl MolfileSingleFrame for VmdMolFileHandler<'_> {
-    fn read_state(&mut self) -> Result<Option<State>> {
+
+impl MolfileMultiFrame for VmdMolFileHandler<'_> {
+    fn read_next_state(&mut self) -> Result<Option<State>> {
         // Open file for reading
         match self.mode {
             OpenMode::None => bail!("Can't read state before structure"),
@@ -236,9 +245,9 @@ impl MolfileSingleFrame for VmdMolFileHandler<'_> {
         //st.coords = vec![[0.0, 0.0, 0.0]; self.natoms as usize];
         
         // Allocate storage for coordinates, but don't initialize them
+        // This doesn't waste time for initialization, which will be overwritten anyway
         st.coords = Vec::with_capacity(self.natoms as usize);
-
-        //let mut coord = vec![0.0; 3*self.natoms as usize];
+        
         let mut ts = molfile_timestep_t {
             coords: st.coords.as_mut_ptr().cast::<f32>(), // Raw ptr to allocated storage
             velocities: ptr::null_mut(),
@@ -251,6 +260,7 @@ impl MolfileSingleFrame for VmdMolFileHandler<'_> {
             physical_time: 0.0,
         };
 
+        // Read the time step
         let ret = unsafe {
             self.plugin.read_next_timestep.unwrap()(
                 self.file_handle,
@@ -258,21 +268,40 @@ impl MolfileSingleFrame for VmdMolFileHandler<'_> {
                 &mut ts,
             )
         };
+        
+        // In case of successfull read populate rust State
+        if ret == MOLFILE_SUCCESS {
+            // C function populated the coordinates, set the vector size for Rust
+            unsafe {
+                st.coords.set_len(self.natoms as usize)
+            }
 
-        // C function populated the coordinates, set the vector size for Rust
-        unsafe {st.coords.set_len(self.natoms as usize)}
+            //TODO: set time and box in st
+        }
 
         match ret {
             MOLFILE_SUCCESS => Ok(Some(st)),
             MOLFILE_EOF => Ok(None),
-            _ => bail!("Error reading PDB timestep!"),
+            _ => bail!("Error reading timestep!"),
         }
+    }
+
+    fn write_next_state(&self, data: &State) -> Result<()> {
+        Ok(())
+    }
+}
+
+
+impl MolfileSingleFrame for VmdMolFileHandler<'_> {
+    fn read_state(&mut self) -> Result<State> {
+        return self.read_next_state()?.ok_or(anyhow!("Error reading single time step"));
     }
 
     fn write_state(&self, data: &State) -> Result<()> {
         Ok(())
     }
 }
+
 
 impl Drop for VmdMolFileHandler<'_> {
     fn drop(&mut self) {

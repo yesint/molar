@@ -10,13 +10,14 @@ fn main() {
 
     for _i in 0..2 {
         let st = h.read_state().unwrap();
-        if let Some(s) = st {
-            println!("{}", s.coords.len());
-            for c in s.coords {
+        
+        //if let Some(s) = st {
+            println!("{}", st.coords.len());
+            for c in st.coords {
                 println!("{:?}",c);
             }
-        } else {
-            println!("EOF reached");
-        }
+        //} else {
+        //    println!("EOF reached");
+        //}
     }
 }
