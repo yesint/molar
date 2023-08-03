@@ -189,10 +189,11 @@ impl MolfileStructure for VmdMolFileHandler<'_> {
 
         let mut optflags: i32 = 0;
         let el: molfile_atom_t = Default::default();
-        let mut atoms = vec![el; self.natoms];
+        let mut vmd_atoms = vec![el; self.natoms];
 
-        let ret = unsafe {
-            self.plugin.read_structure.unwrap()(self.file_handle, &mut optflags, atoms.as_mut_ptr())
+        let ret = unsafe{
+            self.plugin.read_structure.unwrap()
+            (self.file_handle, &mut optflags, vmd_atoms.as_mut_ptr()) 
         };
 
         if ret != MOLFILE_SUCCESS {
