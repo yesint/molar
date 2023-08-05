@@ -1,5 +1,5 @@
-use pteros::VmdMolFileHandler;
-use pteros::{MolfileSingleFrame, MolfileStructure};
+use pteros::io::*;
+//use pteros::{MolfileSingleFrame, MolfileStructure};
 
 fn main() {
     let mut h = VmdMolFileHandler::new("colored.pdb");
