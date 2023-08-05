@@ -1,17 +1,19 @@
-use super::xdrfile_bindings::{matrix, xdrfile_close, xdrfile_open, XDRFILE,
-    xdr_xtc_get_natoms,xtc_get_next_frame_number,xtc_get_current_frame_number,
-    xdr_xtc_estimate_dt,xdr_xtc_get_last_frame_number, xdr_xtc_get_last_frame_time, exdrOK};
+use super::xdrfile_bindings::*;
+use super::MolfileMultiFrame;
 
-use std::ptr;
+use crate::core::State;
+
+use anyhow::{bail, Result};
 use std::ffi::CString;
-use anyhow::{Result, bail};
+use std::ptr;
 
 pub struct XtcFileHandler {
     handle: *mut XDRFILE,
     pbox: matrix,
     file_name: String,
-    steps_per_frame: u32,
-    num_frames: u32,
+    natoms: usize,
+    steps_per_frame: usize,
+    num_frames: usize,
     is_random_access: bool,
     dt: f32,
     max_t: f32,
@@ -23,6 +25,7 @@ impl XtcFileHandler {
             handle: ptr::null_mut(),
             pbox: Default::default(),
             file_name: fname.to_owned(),
+            natoms: 0,
             steps_per_frame: 0,
             num_frames: 0,
             is_random_access: true,
@@ -31,64 +34,68 @@ impl XtcFileHandler {
         }
     }
 
-    fn open_read(&mut self) -> Result<()> {
+    pub fn open_read(&mut self) -> Result<()> {
         let f_name = CString::new(self.file_name.clone()).unwrap();
         let mode = CString::new("r").unwrap();
-        self.handle = unsafe{ xdrfile_open(f_name.as_ptr(), mode.as_ptr()) };
+        self.handle = unsafe { xdrfile_open(f_name.as_ptr(), mode.as_ptr()) };
 
         if self.handle == ptr::null_mut() {
             bail!("Can't open file {} for reading!", self.file_name);
         }
 
         // Extract number of atoms
-        let mut natoms: i32 = 0;
-        let ok = unsafe{ xdr_xtc_get_natoms(self.handle, &mut natoms) } as u32;
-        if ok!=exdrOK {
-            bail!("Can't read XTC number of atoms");
+        let mut n_at: i32 = 0;
+        let ok = unsafe { xdr_xtc_get_natoms(self.handle, &mut n_at) } as u32;
+        if ok != 1 {
+            // 1 is success for this function, f*ing idiots!
+            bail!("Can't read XTC number of atoms {} {}", ok, n_at);
         }
+
+        self.natoms = n_at as usize;
 
         // XTC file contains step number in terms of simulation steps, not saved frames
         // So we have to extract conversion factor
-        let next = unsafe{ xtc_get_next_frame_number(self.handle,natoms) };
+        let next = unsafe { xtc_get_next_frame_number(self.handle, n_at) };
         let mut b_ok: bool = false;
-        let cur = unsafe{ xtc_get_current_frame_number(self.handle,natoms,&mut b_ok) };
-        if cur<0 || next<0 || !b_ok {
+        let cur = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut b_ok) };
+        if cur < 0 || next < 0 || !b_ok {
             bail!("Can't detect number of steps per frame");
         }
-        if cur==next {
+        if cur == next {
             println!("It seems that there is only one frame in this trajectory");
             self.steps_per_frame = 1;
         } else {
-            self.steps_per_frame = (next-cur) as u32;
+            self.steps_per_frame = (next - cur) as usize;
         }
 
         // Get total number of frames in the trajectory
-        let n_frames = unsafe {
-            xdr_xtc_get_last_frame_number(self.handle,natoms,&mut b_ok)
-        };
+        let n_frames = unsafe { xdr_xtc_get_last_frame_number(self.handle, n_at, &mut b_ok) };
 
         if !b_ok {
             bail!("Can't get number of frames");
         }
 
-        if n_frames<0 {
-            println!("Weird XTC file: negative number of frames returned ({})!",n_frames);
+        if n_frames < 0 {
+            println!(
+                "Weird XTC file: negative number of frames returned ({})!",
+                n_frames
+            );
             // Disable random access
             self.is_random_access = false;
         }
 
-        self.num_frames = n_frames as u32 / self.steps_per_frame;
+        self.num_frames = n_frames as usize / self.steps_per_frame;
 
         // Get time step
-        self.dt = unsafe { xdr_xtc_estimate_dt(self.handle,natoms,&mut b_ok) };
+        self.dt = unsafe { xdr_xtc_estimate_dt(self.handle, n_at, &mut b_ok) };
 
         if !b_ok {
             println!("Can't get time step");
             self.dt = -1.0;
         }
 
-        self.max_t = unsafe{ xdr_xtc_get_last_frame_time(self.handle,natoms,&mut b_ok) };
-        if !b_ok || self.max_t<0.0 {
+        self.max_t = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut b_ok) };
+        if !b_ok || self.max_t < 0.0 {
             println!("Can't get last frame time");
             self.max_t = -1.0;
         }
@@ -97,24 +104,64 @@ impl XtcFileHandler {
             println!("Random access operations disabled for this trajectory");
         }
 
-        //LOG()->debug("There are {} frames, max_t={}, dt={}",
-        //             xtc->num_frames,
-        //             xtc->max_t ? fmt::format("{}",xtc->max_t) : "N/A",
-        //             xtc->dt ? fmt::format("{}",xtc->dt) : "N/A");
+        println!(
+            "File: {}, natoms={}, nframes={}, max_t={}, dt={}",
+            self.file_name, self.natoms, self.num_frames, self.max_t, self.dt
+        );
 
         Ok(())
     }
-
-
 }
 
 impl Drop for XtcFileHandler {
     fn drop(&mut self) {
         if self.handle != ptr::null_mut() {
-            let ok = unsafe{ xdrfile_close(self.handle) } as u32;
+            let ok = unsafe { xdrfile_close(self.handle) } as u32;
             if ok != exdrOK {
                 panic!("Error closing XTC file!")
             }
         }
+    }
+}
+
+impl MolfileMultiFrame for XtcFileHandler {
+
+    #[allow(non_upper_case_globals)]
+    fn read_next_state(&mut self) -> Result<Option<State>> {
+        let mut st: State = Default::default();
+        // Prepare variables
+        let mut box_: matrix = Default::default();
+        let mut prec: f32 = 0.0;
+
+        // Allocate storage for coordinates, but don't initialize them
+        // This doesn't waste time for initialization, which will be overwritten anyway
+        st.coords = Vec::with_capacity(self.natoms);
+
+        let ok = unsafe {
+            read_xtc(
+                self.handle,
+                self.natoms as i32,
+                &mut st.step,
+                &mut st.time,
+                box_.as_mut_ptr(),
+                st.coords.as_mut_ptr().cast::<rvec>(),
+                &mut prec,
+            )
+        };
+
+        if ok as u32 == exdrOK {
+            // C function populated the coordinates, set the vector size for Rust
+            unsafe { st.coords.set_len(self.natoms) }
+        }
+
+        match ok as u32 {
+            exdrOK => Ok(Some(st)),
+            exdrENDOFFILE => Ok(None),
+            _ => bail!("Error reading timestep!"),
+        }
+    }
+
+    fn write_next_state(&self, data: &State) -> Result<()> {
+        Ok(())
     }
 }
