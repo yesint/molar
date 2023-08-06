@@ -1,11 +1,10 @@
+use super::{FileHandler, IoSingleFrame, IoStructure, IoTraj};
 use crate::core::*;
 use ascii::AsciiString;
-use super::{OpenMode,MolfileStructure,MolfileSingleFrame,MolfileMultiFrame};
-
 
 use crate::io::molfile_bindings::{
-    dcd_get_plugin_ptr, molfile_atom_t, molfile_plugin_t, molfile_timestep_t, pdb_get_plugin_ptr,
-    xyz_get_plugin_ptr, MOLFILE_EOF, MOLFILE_SUCCESS,
+    dcd_get_plugin_ptr, molfile_atom_t, molfile_plugin_t, molfile_timestep_t, 
+    pdb_get_plugin_ptr, xyz_get_plugin_ptr, MOLFILE_EOF, MOLFILE_SUCCESS,
 };
 
 use std::ffi::{c_void, CStr, CString};
@@ -15,7 +14,46 @@ use std::default::Default;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
+use nalgebra::Matrix3;
+//use num_traits::pow::Pow;
 
+fn box_from_vmd(a: f32, b: f32, c: f32, alpha: f32, beta: f32, gamma: f32) -> Matrix3<f32> {
+    let mut box_ = Matrix3::<f32>::zeros();
+
+    box_[(0,0)] = a;
+
+    if alpha != 90.0 || beta != 90.0 || gamma != 90.0 {
+        let cosa = if alpha != 90.0 {
+            alpha.to_radians().cos()
+        } else {
+            0.0
+        };
+        let cosb = if beta != 90.0 {
+            beta.to_radians().cos()
+        } else {
+            0.0
+        };
+        let (sing, cosg) = if gamma != 90.0 {
+            gamma.to_radians().sin_cos()
+        } else {
+            (1.0, 0.0)
+        };
+        box_[(0,1)] = b * cosg;
+        box_[(1,1)] = b * sing;
+        box_[(0,2)] = c * cosb;
+        box_[(1,2)] = c * (cosa - cosb * cosg) / sing;
+        box_[(2,2)] = (c * c - box_[(0,2)].powf(2.0) - box_[(1,2)].powf(2.0)).sqrt();
+    } else {
+        box_[(1,1)] = b;
+        box_[(2,2)] = c;
+    }
+    box_ / 10.0 // Convert to nm
+}
+
+enum OpenMode {
+    Read,
+    Write,
+}
 
 pub struct VmdMolFileHandler<'a> {
     // File
@@ -35,9 +73,9 @@ fn c_buf_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
     s
 }
 
-#[doc = "Universal handler of different file formats"]
+#[doc = "Universal handler of different VMD molfile file formats"]
 impl VmdMolFileHandler<'_> {
-    pub fn new(fname: &str) -> Self {
+    fn new(fname: &str) -> Self {
         // Get extention
         let ext = Path::new(fname)
             .extension()
@@ -63,22 +101,20 @@ impl VmdMolFileHandler<'_> {
         // which is only visible in actuall call to write.
         // For reading we can open, but for consistency we'll defer it as well.
 
-        // Return file handler
         VmdMolFileHandler {
             file_name: fname.to_owned(),
             plugin,
             file_handle: ptr::null_mut(),
-            mode: OpenMode::None, // Not opened yet
+            mode: OpenMode::Read, // Defaults to read
             natoms: 0,
         }
     }
 
-    // Returns number of atoms
     fn open_read(&mut self) -> Result<()> {
         // Open file and get file pointer
         // Prepare c-strings for file opening
-        let f_type = CString::new("").unwrap(); // Not used
-        let f_name = CString::new(self.file_name.clone()).unwrap();
+        let f_type = CString::new("")?; // Not used
+        let f_name = CString::new(self.file_name.clone())?;
 
         let mut n: i32 = 0;
         self.file_handle = unsafe {
@@ -96,15 +132,15 @@ impl VmdMolFileHandler<'_> {
         Ok(())
     }
 
-    fn open_write(&mut self, natoms: i32) -> Result<()> {
+    fn open_write(&mut self) -> Result<()> {
         // Open file and get file pointer
         // Prepare c-strings for file opening
-        let f_type = CString::new("").unwrap(); // Not used
-        let f_name = CString::new(self.file_name.clone()).unwrap();
+        let f_type = CString::new("")?; // Not used
+        let f_name = CString::new(self.file_name.clone())?;
 
         self.file_handle = unsafe {
             self.plugin.open_file_write.unwrap() // get function ptr
-                (f_name.as_ptr(), f_type.as_ptr(), natoms) // Call function
+                (f_name.as_ptr(), f_type.as_ptr(), self.natoms as i32) // Call function
         };
 
         if self.file_handle == ptr::null_mut() {
@@ -115,25 +151,34 @@ impl VmdMolFileHandler<'_> {
 
         Ok(())
     }
-
 }
 
-impl MolfileStructure for VmdMolFileHandler<'_> {
-    fn read_structure(&mut self) -> Result<Structure> {
-        // Open file for reading
-        match self.mode {
-            OpenMode::None => self.open_read()?, // Open file
-            OpenMode::Read => (),
-            OpenMode::Write => bail!("File is already opened for writing"),
-        }
+impl FileHandler for VmdMolFileHandler<'_> {
+    fn new_reader(fname: &str) -> Self {
+        let mut instance = Self::new(fname);
+        instance.open_read().unwrap();
+        instance
+    }
 
+    fn new_writer(fname: &str) -> Self {
+        let mut instance = Self::new(fname);
+        instance.open_write().unwrap();
+        instance
+    }
+}
+
+impl IoStructure for VmdMolFileHandler<'_> {
+    fn read_structure(&mut self) -> Result<Structure> {
         let mut optflags: i32 = 0;
         let el: molfile_atom_t = Default::default();
         let mut vmd_atoms = vec![el; self.natoms];
 
         let ret = unsafe {
-            self.plugin.read_structure.unwrap()
-            (self.file_handle, &mut optflags, vmd_atoms.as_mut_ptr())
+            self.plugin.read_structure.unwrap()(
+                self.file_handle,
+                &mut optflags,
+                vmd_atoms.as_mut_ptr(),
+            )
         };
 
         if ret != MOLFILE_SUCCESS {
@@ -162,26 +207,17 @@ impl MolfileStructure for VmdMolFileHandler<'_> {
     }
 }
 
-impl MolfileMultiFrame for VmdMolFileHandler<'_> {
+impl IoTraj for VmdMolFileHandler<'_> {
     fn read_next_state(&mut self) -> Result<Option<State>> {
-        // Open file for reading
-        match self.mode {
-            OpenMode::None => bail!("Can't read state before structure"),
-            OpenMode::Read => (),
-            OpenMode::Write => bail!("File is already opened for writing"),
-        }
+        let mut state: State = Default::default();
 
-        let mut st: State = Default::default();
-                
-        //st.coords = vec![[0.0, 0.0, 0.0]; self.natoms as usize];
-        
         // Allocate storage for coordinates, but don't initialize them
         // This doesn't waste time for initialization, which will be overwritten anyway
-        st.coords = Vec::with_capacity(self.natoms as usize);
-        
+        state.coords = Vec::with_capacity(self.natoms as usize);
+
         let mut ts = molfile_timestep_t {
-            coords: st.coords.as_mut_ptr().cast::<f32>(), // Raw ptr to allocated storage
-            velocities: ptr::null_mut(),
+            coords: state.coords.as_mut_ptr().cast::<f32>(), // Raw ptr to allocated storage
+            velocities: ptr::null_mut(),                     // Don't read velocities
             A: 0.0,
             B: 0.0,
             C: 0.0,
@@ -193,25 +229,21 @@ impl MolfileMultiFrame for VmdMolFileHandler<'_> {
 
         // Read the time step
         let ret = unsafe {
-            self.plugin.read_next_timestep.unwrap()(
-                self.file_handle,
-                self.natoms.try_into().unwrap(),
-                &mut ts,
-            )
+            self.plugin.read_next_timestep.unwrap()(self.file_handle, self.natoms as i32, &mut ts)
         };
-        
+
         // In case of successfull read populate rust State
         if ret == MOLFILE_SUCCESS {
             // C function populated the coordinates, set the vector size for Rust
-            unsafe {
-                st.coords.set_len(self.natoms as usize)
-            }
-
-            //TODO: set time and box in st
+            unsafe { state.coords.set_len(self.natoms as usize) }
+            // Convert the box
+            state.box_ = box_from_vmd(ts.A, ts.B, ts.C, ts.alpha, ts.beta, ts.gamma);
+            // time
+            state.time = ts.physical_time as f32;
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(Some(st)),
+            MOLFILE_SUCCESS => Ok(Some(state)),
             MOLFILE_EOF => Ok(None),
             _ => bail!("Error reading timestep!"),
         }
@@ -222,17 +254,17 @@ impl MolfileMultiFrame for VmdMolFileHandler<'_> {
     }
 }
 
-
-impl super::MolfileSingleFrame for VmdMolFileHandler<'_> {
+impl super::IoSingleFrame for VmdMolFileHandler<'_> {
     fn read_state(&mut self) -> Result<State> {
-        return self.read_next_state()?.ok_or(anyhow!("Error reading single time step"));
+        return self
+            .read_next_state()?
+            .ok_or(anyhow!("Error reading single time step"));
     }
 
     fn write_state(&mut self, data: &State) -> Result<()> {
         Ok(())
     }
 }
-
 
 impl Drop for VmdMolFileHandler<'_> {
     fn drop(&mut self) {
@@ -244,7 +276,6 @@ impl Drop for VmdMolFileHandler<'_> {
                 OpenMode::Write => unsafe {
                     self.plugin.close_file_write.unwrap()(self.file_handle)
                 },
-                OpenMode::None => panic!("This should never happen!"),
             };
         }
     }
