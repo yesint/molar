@@ -303,8 +303,8 @@ extern "C" {
         natoms: ::std::os::raw::c_int,
         step: ::std::os::raw::c_int,
         time: f32,
-        box_: *mut [f32; 3usize],
-        x: *mut rvec,
+        box_: *const [f32; 3usize],
+        x: *const rvec,
         prec: f32,
     ) -> ::std::os::raw::c_int;
 }

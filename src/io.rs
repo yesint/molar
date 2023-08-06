@@ -29,15 +29,15 @@ pub enum OpenMode {
 // Traits for different file types
 pub trait MolfileStructure {
     fn read_structure(&mut self) -> Result<Structure>;
-    fn write_structure(&self, data: &Structure) -> Result<()>;
+    fn write_structure(&mut self, data: &Structure) -> Result<()>;
 }
 
 pub trait MolfileMultiFrame {
     fn read_next_state(&mut self) -> Result<Option<State>>;
-    fn write_next_state(&self, data: &State) -> Result<()>;
+    fn write_next_state(&mut self, data: &State) -> Result<()>;
 }
 
 pub trait MolfileSingleFrame: MolfileMultiFrame {
     fn read_state(&mut self) -> Result<State>;
-    fn write_state(&self, data: &State) -> Result<()>;
+    fn write_state(&mut self, data: &State) -> Result<()>;
 }

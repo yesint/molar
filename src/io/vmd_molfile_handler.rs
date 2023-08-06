@@ -157,7 +157,7 @@ impl MolfileStructure for VmdMolFileHandler<'_> {
         Ok(structure)
     }
 
-    fn write_structure(&self, data: &Structure) -> Result<()> {
+    fn write_structure(&mut self, data: &Structure) -> Result<()> {
         Ok(())
     }
 }
@@ -217,7 +217,7 @@ impl MolfileMultiFrame for VmdMolFileHandler<'_> {
         }
     }
 
-    fn write_next_state(&self, data: &State) -> Result<()> {
+    fn write_next_state(&mut self, data: &State) -> Result<()> {
         Ok(())
     }
 }
@@ -228,7 +228,7 @@ impl super::MolfileSingleFrame for VmdMolFileHandler<'_> {
         return self.read_next_state()?.ok_or(anyhow!("Error reading single time step"));
     }
 
-    fn write_state(&self, data: &State) -> Result<()> {
+    fn write_state(&mut self, data: &State) -> Result<()> {
         Ok(())
     }
 }

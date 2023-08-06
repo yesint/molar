@@ -25,12 +25,14 @@ fn test_pdb() {
 fn test_xtc() {
     let mut h = XtcFileHandler::new("no_ATP.xtc");
     h.open_read().unwrap();
-    let st = h.read_next_state().unwrap();
-    if let Some(s) = st {
-        println!("{}", s.coords.len());
-        for c in s.coords {
-            println!("{:?}",c);
-        }
+    let st = h.read_next_state().unwrap().unwrap();
+    println!("{}", st.coords.len());
+    println!("{:?}",st.box_);
+    
+    let mut wh = XtcFileHandler::new("new.xtc");
+    wh.open_write().unwrap();
+    for i in 0..10 {
+        wh.write_next_state(&st);
     }
 }
 

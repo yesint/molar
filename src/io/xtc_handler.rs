@@ -9,7 +9,6 @@ use std::ptr;
 
 pub struct XtcFileHandler {
     handle: *mut XDRFILE,
-    pbox: matrix,
     file_name: String,
     natoms: usize,
     steps_per_frame: usize,
@@ -17,13 +16,13 @@ pub struct XtcFileHandler {
     is_random_access: bool,
     dt: f32,
     max_t: f32,
+    step: i32,
 }
 
 impl XtcFileHandler {
     pub fn new(fname: &str) -> Self {
         XtcFileHandler {
             handle: ptr::null_mut(),
-            pbox: Default::default(),
             file_name: fname.to_owned(),
             natoms: 0,
             steps_per_frame: 0,
@@ -31,6 +30,7 @@ impl XtcFileHandler {
             is_random_access: true,
             dt: 0.0,
             max_t: 0.0,
+            step: 0,
         }
     }
 
@@ -111,6 +111,19 @@ impl XtcFileHandler {
 
         Ok(())
     }
+
+
+    pub fn open_write(&mut self) -> Result<()> {
+        let f_name = CString::new(self.file_name.clone()).unwrap();
+        let mode = CString::new("w").unwrap();
+        self.handle = unsafe { xdrfile_open(f_name.as_ptr(), mode.as_ptr()) };
+
+        if self.handle == ptr::null_mut() {
+            bail!("Can't open file {} for writing!", self.file_name);
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for XtcFileHandler {
@@ -130,9 +143,7 @@ impl MolfileMultiFrame for XtcFileHandler {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         let mut st: State = Default::default();
         // Prepare variables
-        let mut box_: matrix = Default::default();
         let mut prec: f32 = 0.0;
-
         // Allocate storage for coordinates, but don't initialize them
         // This doesn't waste time for initialization, which will be overwritten anyway
         st.coords = Vec::with_capacity(self.natoms);
@@ -141,9 +152,9 @@ impl MolfileMultiFrame for XtcFileHandler {
             read_xtc(
                 self.handle,
                 self.natoms as i32,
-                &mut st.step,
+                &mut self.step,
                 &mut st.time,
-                box_.as_mut_ptr(),
+                st.box_.as_mut_ptr().cast::<[f32;3]>(),
                 st.coords.as_mut_ptr().cast::<rvec>(),
                 &mut prec,
             )
@@ -152,8 +163,10 @@ impl MolfileMultiFrame for XtcFileHandler {
         if ok as u32 == exdrOK {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { st.coords.set_len(self.natoms) }
+            // Convert box to column-major form.
+            st.box_.transpose_mut();
         }
-
+        
         match ok as u32 {
             exdrOK => Ok(Some(st)),
             exdrENDOFFILE => Ok(None),
@@ -161,7 +174,27 @@ impl MolfileMultiFrame for XtcFileHandler {
         }
     }
 
-    fn write_next_state(&self, data: &State) -> Result<()> {
+
+    fn write_next_state(&mut self, st: &State) -> Result<()> {
+        let box_ = st.box_.transpose();
+        let ok = unsafe {
+            write_xtc(
+                self.handle,
+                st.coords.len() as i32,
+                self.step,
+                st.time,
+                box_.as_ptr().cast::<[f32;3]>(),
+                st.coords.as_ptr().cast::<rvec>(),
+                1000.0,
+            )
+        };
+
+        if ok as u32 == exdrOK {
+            bail!("Unable to write time step {} to XTC file!",self.step);
+        }
+
+        self.step+=1;
+
         Ok(())
     }
 }
