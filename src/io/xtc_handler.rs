@@ -1,5 +1,5 @@
+use super::{FileHandler,IoTraj};
 use super::xdrfile_bindings::*;
-use super::MolfileMultiFrame;
 
 use crate::core::State;
 
@@ -19,8 +19,22 @@ pub struct XtcFileHandler {
     step: i32,
 }
 
+fn open_xdr_file(fname: &str, mode: &str) -> Result<*mut XDRFILE> {
+    let c_name = CString::new(fname.clone()).unwrap();
+    let c_mode = CString::new(mode).unwrap();
+    let handle = unsafe {
+        xdrfile_open(c_name.as_ptr(), c_mode.as_ptr())
+    };
+
+    if handle == ptr::null_mut() {
+        bail!("Can't open file {} in mode {}!", fname, mode);
+    }
+
+    Ok(handle)
+}
+
 impl XtcFileHandler {
-    pub fn new(fname: &str) -> Self {
+    fn new(fname: &str) -> Self {    
         XtcFileHandler {
             handle: ptr::null_mut(),
             file_name: fname.to_owned(),
@@ -34,14 +48,8 @@ impl XtcFileHandler {
         }
     }
 
-    pub fn open_read(&mut self) -> Result<()> {
-        let f_name = CString::new(self.file_name.clone()).unwrap();
-        let mode = CString::new("r").unwrap();
-        self.handle = unsafe { xdrfile_open(f_name.as_ptr(), mode.as_ptr()) };
-
-        if self.handle == ptr::null_mut() {
-            bail!("Can't open file {} for reading!", self.file_name);
-        }
+    fn open_read(&mut self) -> Result<()> {
+        self.handle = open_xdr_file(&self.file_name,"r")?;
 
         // Extract number of atoms
         let mut n_at: i32 = 0;
@@ -113,18 +121,27 @@ impl XtcFileHandler {
     }
 
 
-    pub fn open_write(&mut self) -> Result<()> {
-        let f_name = CString::new(self.file_name.clone()).unwrap();
-        let mode = CString::new("w").unwrap();
-        self.handle = unsafe { xdrfile_open(f_name.as_ptr(), mode.as_ptr()) };
-
-        if self.handle == ptr::null_mut() {
-            bail!("Can't open file {} for writing!", self.file_name);
-        }
-
+    fn open_write(&mut self) -> Result<()> {
+        self.handle = open_xdr_file(&self.file_name,"w")?;
         Ok(())
     }
 }
+
+
+impl FileHandler for XtcFileHandler {
+    fn new_reader(fname: &str) -> Self {
+        let mut instance = Self::new(fname);
+        instance.open_read().unwrap();
+        instance
+    }
+
+    fn new_writer(fname: &str) -> Self {
+        let mut instance = Self::new(fname);
+        instance.open_write().unwrap();
+        instance
+    }
+}
+
 
 impl Drop for XtcFileHandler {
     fn drop(&mut self) {
@@ -137,7 +154,7 @@ impl Drop for XtcFileHandler {
     }
 }
 
-impl MolfileMultiFrame for XtcFileHandler {
+impl IoTraj for XtcFileHandler {
 
     #[allow(non_upper_case_globals)]
     fn read_next_state(&mut self) -> Result<Option<State>> {
@@ -189,8 +206,8 @@ impl MolfileMultiFrame for XtcFileHandler {
             )
         };
 
-        if ok as u32 == exdrOK {
-            bail!("Unable to write time step {} to XTC file!",self.step);
+        if ok as u32 != exdrOK {
+            bail!("Unable to write time step {} to XTC file! Return code: {}",self.step,ok);
         }
 
         self.step+=1;

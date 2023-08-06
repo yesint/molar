@@ -20,24 +20,24 @@ pub mod xtc_handler;
 pub use xtc_handler::XtcFileHandler;
 
 
-pub enum OpenMode {
-    Read,
-    Write,
-    None,
+// Traits for file handler
+pub trait FileHandler {
+    fn new_reader(fname: &str) -> Self;
+    fn new_writer(fname: &str) -> Self;
 }
 
 // Traits for different file types
-pub trait MolfileStructure {
+pub trait IoStructure {
     fn read_structure(&mut self) -> Result<Structure>;
     fn write_structure(&mut self, data: &Structure) -> Result<()>;
 }
 
-pub trait MolfileMultiFrame {
+pub trait IoTraj {
     fn read_next_state(&mut self) -> Result<Option<State>>;
     fn write_next_state(&mut self, data: &State) -> Result<()>;
 }
 
-pub trait MolfileSingleFrame: MolfileMultiFrame {
+pub trait IoSingleFrame {
     fn read_state(&mut self) -> Result<State>;
     fn write_state(&mut self, data: &State) -> Result<()>;
 }
