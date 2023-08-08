@@ -1,4 +1,4 @@
-use crate::core::{structure::Structure,state::State};
+use crate::core::{Structure,State};
 use anyhow::Result;
 
 #[allow(dead_code)]

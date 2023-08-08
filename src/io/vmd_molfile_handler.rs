@@ -50,6 +50,7 @@ fn box_from_vmd(a: f32, b: f32, c: f32, alpha: f32, beta: f32, gamma: f32) -> Ma
     box_ / 10.0 // Convert to nm
 }
 
+
 enum OpenMode {
     Read,
     Write,
@@ -188,15 +189,27 @@ impl IoStructure for VmdMolFileHandler<'_> {
         // Convert to Structure
         let mut structure: Structure = Default::default();
         structure.atoms.reserve(self.natoms);
+
         for ref at in vmd_atoms {
-            structure.atoms.push(Atom {
+            let mut new_atom = Atom {
                 name: c_buf_to_ascii_str(&at.name),
                 resid: at.resid as isize,
                 resname: c_buf_to_ascii_str(&at.resname),
                 chain: c_buf_to_ascii_str(&at.chain).first().unwrap(),
-                mass: at.mass,
                 charge: at.charge,
-            });
+                occupancy: at.occupancy,
+                bfactor: at.bfactor,
+                ..Default::default()
+            };
+            // See if the element number and mass are set
+            // and guess if required
+            if at.atomicnumber == 0 || at.mass==0.0 {
+                new_atom.guess_element_from_name();
+            } else {
+                new_atom.atomic_number = at.atomicnumber;
+                new_atom.mass = at.mass;
+            }
+            structure.atoms.push(new_atom);
         }
 
         Ok(structure)
