@@ -1,4 +1,4 @@
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::{Matrix3, Vector3, Point3};
 use anyhow::{Result,bail};
 
 pub struct PeriodicBox {
@@ -68,19 +68,57 @@ impl PeriodicBox {
         Self::new(m)
     }
 
-    fn wrap_vector(&self, vec: &Vector3<f32>, pbc: &[i32;3] = [1,1,1]) -> Vector3<f32> {
+    fn wrap_vector(&self, vec: &Vector3<f32>) -> Vector3<f32> {
         if self.is_rectangular {
-            return vec;
+            return vec.clone();
         } else {
             // Get vector in box fractional coordinates
-            let box_vec = self.inv*vec;
-            for i=0..3 {
-                if pbc[i] !=0 {
-                    box_vec[i] -= round(box_vec[i]);
-                }
+            let mut box_vec = self.inv*vec;
+            for i in 0..3 {
+                box_vec[i] -= box_vec[i].round();
             }
-            return _box*d;
+            return self.matrix * box_vec;
         }
     }
+
+
+    fn wrap_vector_dims(&self, vec: &Vector3<f32>, pbc_dims: &[i32;3]) -> Vector3<f32> {
+        if self.is_rectangular {
+            return vec.clone();
+        } else {
+            // Get vector in box fractional coordinates
+            let mut box_vec = self.inv*vec;
+            for i in 0..3 {
+                if pbc_dims[i] !=0 {
+                    box_vec[i] -= box_vec[i].round();
+                }
+            }
+            return self.matrix * box_vec;
+        }
+    }
+
+    fn wrap_point(&self, point: &Point3<f32>) -> Point3<f32> {
+        if self.is_rectangular {
+            return point.clone();
+        } else {
+            // Get vector in box fractional coordinates
+            let mut box_vec = self.inv*point;
+            for i in 0..3 {
+                box_vec[i] -= box_vec[i].round();
+            }
+            return self.matrix * box_vec;
+        }
+    }
+
+
+
+    fn closest_image(&self, point: &Point3<f32>, target: &Point3<f32>) -> Point3<f32> {
+        target + self.wrap_vector(&(point-target))
+    }
+
+    fn closest_image_dims(&self, point: &Point3<f32>, target: &Point3<f32>, pbc_dims: &[i32;3]) -> Point3<f32> {
+        target + self.wrap_vector_dims(&(point-target), pbc_dims)
+    }
+
 
 }
