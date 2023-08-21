@@ -1,0 +1,55 @@
+// Terminals
+WHITESPACE = _{ " "|"\t" }
+uint = @{ ASCII_DIGIT+ }
+int = @{ ("-"|"+")? ~ uint }
+float = @{
+	(int~("."~int)? | ("-"|"+")~"."~int)
+	~ (("e"|"E")~int)? 
+}
+
+// Keywords
+int_keyword_expr = { int_keyword ~ int_val+ }
+int_keyword = { "resid" | "resindex" | "index" }
+int_val = _{ int_range | int }
+int_range = { int ~ ":" ~ int }
+
+str_keyword_expr = { str_keyword ~ str_val+ }
+str_keyword = {"name"|"resname"|"chain"}
+str_val = _{ regex | str }
+regex = { PUSH("'"|"\"") ~ (!PEEK ~ ANY)+ ~ POP }
+str = @{ !("and"|"or") ~ (!(" "|"'"|"\"") ~ ANY)+ }
+
+keyword_expr = _{int_keyword_expr | str_keyword_expr}
+
+// Atom properties
+numeric_atom_prop = {"x" | "y" | "z" | "occ" | "beta"}
+
+// Math
+mul = { "*" }
+div = { "/" }
+plus = { "+" }
+minus = { "-" }
+mul_div_operator = _{mul|div}
+plus_minus_operator = _{plus|minus}
+plus_minus = {mul_div ~ (plus_minus_operator ~ mul_div)*}
+mul_div = {power ~ (mul_div_operator ~ power)*}
+power = {unary_minus ~ ("^" ~ int)?}
+unary_minus = { (!float ~ minus)? ~ paren_expr }
+paren_expr = _{ primary | "(" ~ plus_minus ~ ")" }
+primary = _{float | numeric_atom_prop}
+math_expr = _{plus_minus}
+
+// Comparisons
+comparison_expr = {math_expr ~ (comp_operator ~ math_expr){1,2}}
+comp_operator = {"<="|">="|"<"|">"|"="|"!="}
+
+// Logic
+logical_expr = {logical_not ~ (logical_operator ~ logical_not)*}
+logical_not_operator = { "not" }
+logical_not = {logical_not_operator? ~ logical_operand}
+logical_operand = {comparison_expr | keyword_expr | "(" ~ logical_expr ~ ")"}
+logical_operator = {"and"|"or"}
+
+selection = _{SOI ~ keyword_expr ~ EOI}
+
+test = _{SOI~logical_expr~EOI}
