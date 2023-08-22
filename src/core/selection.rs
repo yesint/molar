@@ -6,9 +6,9 @@ use nalgebra::{Point3, Vector3};
 use regex::bytes::Regex;
 
 #[derive(Debug, PartialEq)]
-enum IntKeywordValue {
-    Single(i32),
-    Range(i32, i32),
+pub enum IntKeywordValue {
+    Int(i32),
+    IntRange(i32, i32),
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,6 +66,63 @@ pub enum LogicalNode {
     Comparison(ComparisonNode),
 }
 
+use super::structure::Structure;
+use super::state::State;
+use std::collections::HashSet;
+
+struct AstApplyData<'a> {
+    structure: &'a Structure,
+    state: &'a State,
+    subset: HashSet<usize>,
+}
+
+/*
+impl LogicalNode {
+    fn apply(&self,data: &AstApplyData) -> Result<HashSet<usize>> {
+        match self {
+            Self::Not(node) => node.apply(data),
+            Self::Or(a,b) => {
+                Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect())
+            },
+            Self::And(a,b) => {
+                Ok(a.apply(data)?.intersection(&b.apply(data)?).cloned().collect())
+            },
+            Self::Keyword(node) => node.apply(data),
+            Self::Comparison(node) => node.apply(data)
+        }
+    }
+}
+
+impl KeywordNode {
+    fn apply(&self,data: &AstApplyData) -> Result<HashSet<usize>> {
+        let mut res = HashSet::<usize>::new();
+        match self {
+            Self::Chain(node) => {
+                for (i,a) in data.structure.atoms.iter().enumerate() {
+                    for val in node {
+                        match val {
+                            StrKeywordValue::Str(s) => {
+                                if s.chars().next().unwrap() == a.chain {
+                                    res.insert(i);
+                                }
+                            }
+                            StrKeywordValue::Regex(_) => unreachable!()
+                        }
+                        
+                    }
+                }
+                Ok(res)
+            }
+        }
+    }
+}
+*/
+//fn apply_ast(ast: &LogicalNode) -> Result<Vec<u32>> {
+    //use array_tool::vec::{Intersect,Union};
+    
+//}
+
+
 peg::parser! {
     grammar selection_parser() for str {
 
@@ -98,21 +155,35 @@ peg::parser! {
 
         rule int_range() -> IntKeywordValue
             = i1:int() ":" i2:int()
-            { IntKeywordValue::Range(i1,i2) }
+            { IntKeywordValue::IntRange(i1,i2) }
 
         rule int_single() -> IntKeywordValue
             = i:int()
-            { IntKeywordValue::Single(i) }
+            { IntKeywordValue::Int(i) }
 
         pub rule str_keyword_expr() -> KeywordNode
         = s:$("name" / "resname" / "chain") __
             v:((str_value() / regex_value()) ++ __)
-        {
+        {?
             match s {
-                "name" => KeywordNode::Name(v),
-                "resname" => KeywordNode::Resname(v),
-                "chain" => KeywordNode::Chain(v),
-                _ => unreachable!()
+                "name" => Ok(KeywordNode::Name(v)),
+                "resname" => Ok(KeywordNode::Resname(v)),
+                "chain" => {
+                    for el in &v[..] {
+                        match el {
+                            StrKeywordValue::Str(s) => {
+                                if s.len() != 1 {
+                                    return Err("Chain has to be a single char")
+                                }
+                            }
+                            StrKeywordValue::Regex(_) => {
+                                return Err("Chain can't match a regex")
+                            }
+                        }
+                    }
+                    Ok(KeywordNode::Chain(v))
+                },
+                _ => Err(unreachable!())
             }
         }
 
@@ -145,6 +216,8 @@ peg::parser! {
             ['z'|'Z'] { MathNode::Z }
             ("occupancy" / "occ") { MathNode::Occupancy }
             ("bfactor" / "beta") { MathNode::Bfactor }
+            // TODO:
+            // v:distance_expr() {v}
             "(" _ e:math_expr() _ ")" { e }
           }
 
@@ -220,13 +293,16 @@ peg::parser! {
 
         pub rule logical_expr() -> LogicalNode
         = precedence!{
-        x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
-        x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
+            x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
+            x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
             "not" _ v:@ { LogicalNode::Not(Box::new(v)) }
-        --
-        v:keyword_expr() { LogicalNode::Keyword(v) }
-        v:comparison_expr() { LogicalNode::Comparison(v) }
-        "(" _ e:logical_expr() _ ")" { e }
+            //TODO:
+            // v:by_expr() {LogicalNode::By(v)}
+            // v:within_expr() {LogicalNode::Within(v)}
+            --
+            v:keyword_expr() { LogicalNode::Keyword(v) }
+            v:comparison_expr() { LogicalNode::Comparison(v) }
+            "(" _ e:logical_expr() _ ")" { e }
         }
 
     } // grammar
@@ -244,7 +320,7 @@ mod tests {
 
     #[test]
     pub fn test_str_keyword_expr() {
-        let res = selection_parser::str_keyword_expr("name CA 'C.*B'");
+        let res = selection_parser::str_keyword_expr("chain Cf A");
         println!("{:?}", res);
     }
 
@@ -263,6 +339,8 @@ mod tests {
     #[test]
     pub fn test_comparison() {
         let res = selection_parser::comparison_expr("(x +4 )< x");
-        println!("{:?}", res);
+        println!("{:#?}", res);
+
+        
     }
 }

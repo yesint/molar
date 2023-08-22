@@ -12,6 +12,7 @@ nalgebra = "0.32"
 nalgebra-lapack = "0.24"
 peg = "0.8.1"
 regex = "1.9.3"
+array_tool = "~1.0.3"
 
 [build-dependencies]
 cmake = "0.1"
