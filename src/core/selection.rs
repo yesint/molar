@@ -66,14 +66,71 @@ pub enum LogicalNode {
     Comparison(ComparisonNode),
 }
 
-use super::structure::Structure;
+use super::atom::Atom;
 use super::state::State;
+use super::structure::{self, Structure};
 use std::collections::HashSet;
 
-struct AstApplyData<'a> {
+type SubsetType = HashSet<usize>;
+
+struct Selection<'a> {
     structure: &'a Structure,
     state: &'a State,
-    subset: HashSet<usize>,
+    subset: Option<SubsetType>,
+    cur_iter_index: usize,
+}
+
+impl<'a> Selection<'a> {
+    fn new(structure: &'a Structure, state: &'a State) -> Result<Self> {
+        if structure.atoms.len() != state.coords.len() {
+            bail!(
+                "There are {} atoms but {} positions",
+                structure.atoms.len(),
+                state.coords.len()
+            );
+        }
+
+        Ok(Self {
+            structure,
+            state,
+            subset: None,
+            cur_iter_index: 0,
+        })
+    }
+
+    fn len(&self) -> usize {
+        match &self.subset {
+            Some(s) => s.len(),
+            None => self.structure.atoms.len()
+        }
+    }
+}
+
+struct SelectionAtomHandler<'a> {
+    atom: &'a Atom,
+    pos: &'a [f32; 3],
+}
+
+impl<'a> Iterator for Selection<'a> {
+    type Item = SelectionAtomHandler<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur_iter_index == self.len() {
+            None
+        } else {
+            let ind = match &self.subset {
+                Some(s) => self.subset.iter().next(),
+                None => self.cur_iter_index,
+            };
+            let ret = Self::Item {
+                atom: &self.structure.atoms[ind],
+                pos: &self.state.coords[ind],
+            };
+            
+            self.cur_iter_index += 1;
+            Some(ret)
+        }
+    }
 }
 
 /*
@@ -108,7 +165,7 @@ impl KeywordNode {
                             }
                             StrKeywordValue::Regex(_) => unreachable!()
                         }
-                        
+
                     }
                 }
                 Ok(res)
@@ -118,10 +175,9 @@ impl KeywordNode {
 }
 */
 //fn apply_ast(ast: &LogicalNode) -> Result<Vec<u32>> {
-    //use array_tool::vec::{Intersect,Union};
-    
-//}
+//use array_tool::vec::{Intersect,Union};
 
+//}
 
 peg::parser! {
     grammar selection_parser() for str {
@@ -228,7 +284,7 @@ peg::parser! {
             //comparison_gt3() / comparison_lt3() /
             comparison_eq() / comparison_neq() /
             comparison_gt() / comparison_geq() /
-            comparison_lt() / comparison_leq() 
+            comparison_lt() / comparison_leq()
             ) {v}
 
         rule comparison_eq() -> ComparisonNode
@@ -237,21 +293,21 @@ peg::parser! {
                 Box::new(ComparisonNode::Math(a)),
                 Box::new(ComparisonNode::Math(b))
             ) }
-        
+
         rule comparison_neq() -> ComparisonNode
         = a:math_expr() _ "!=" _ b:math_expr()
         { ComparisonNode::Neq(
                 Box::new(ComparisonNode::Math(a)),
                 Box::new(ComparisonNode::Math(b))
             ) }
-        
+
         rule comparison_gt() -> ComparisonNode
         = a:math_expr() _ ">" _ b:math_expr()
         { ComparisonNode::Gt(
                 Box::new(ComparisonNode::Math(a)),
                 Box::new(ComparisonNode::Math(b))
             ) }
-        
+
         rule comparison_geq() -> ComparisonNode
         = a:math_expr() _ ">=" _ b:math_expr()
         { ComparisonNode::Geq(
@@ -265,7 +321,7 @@ peg::parser! {
                 Box::new(ComparisonNode::Math(a)),
                 Box::new(ComparisonNode::Math(b))
             ) }
-        
+
         rule comparison_leq() -> ComparisonNode
         = a:math_expr() _ "<=" _ b:math_expr()
         { ComparisonNode::Leq(
@@ -280,7 +336,7 @@ peg::parser! {
                 Box::new(ComparisonNode::Math(b)),
                 Box::new(ComparisonNode::Math(c))
             ) }
-        
+
         rule comparison_lt3() -> ComparisonNode
         = a:math_expr() _ "<" _ b:math_expr() _ "<" _ c:math_expr()
         { ComparisonNode::Lt3(
@@ -288,7 +344,7 @@ peg::parser! {
                 Box::new(ComparisonNode::Math(b)),
                 Box::new(ComparisonNode::Math(c))
             ) }
-    
+
         // Logic
 
         pub rule logical_expr() -> LogicalNode
@@ -340,7 +396,5 @@ mod tests {
     pub fn test_comparison() {
         let res = selection_parser::comparison_expr("(x +4 )< x");
         println!("{:#?}", res);
-
-        
     }
 }

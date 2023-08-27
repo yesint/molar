@@ -68,7 +68,7 @@ impl PeriodicBox {
         Self::new(m)
     }
 
-    fn wrap_vector(&self, vec: &Vector3<f32>) -> Vector3<f32> {
+    fn wrap_vector(&self, vec: Vector3<f32>) -> Vector3<f32> {
         if self.is_rectangular {
             return vec.clone();
         } else {
@@ -82,7 +82,7 @@ impl PeriodicBox {
     }
 
 
-    fn wrap_vector_dims(&self, vec: &Vector3<f32>, pbc_dims: &[i32;3]) -> Vector3<f32> {
+    fn wrap_vector_dims(&self, vec: Vector3<f32>, pbc_dims: &[i32;3]) -> Vector3<f32> {
         if self.is_rectangular {
             return vec.clone();
         } else {
@@ -97,9 +97,9 @@ impl PeriodicBox {
         }
     }
 
-    fn wrap_point(&self, point: &Point3<f32>) -> Point3<f32> {
+    fn wrap_point(&self, point: Point3<f32>) -> Point3<f32> {
         if self.is_rectangular {
-            return point.clone();
+            return point;
         } else {
             // Get vector in box fractional coordinates
             let mut box_vec = self.inv*point;
@@ -113,11 +113,11 @@ impl PeriodicBox {
 
 
     fn closest_image(&self, point: &Point3<f32>, target: &Point3<f32>) -> Point3<f32> {
-        target + self.wrap_vector(&(point-target))
+        target + self.wrap_vector(point-target)
     }
 
     fn closest_image_dims(&self, point: &Point3<f32>, target: &Point3<f32>, pbc_dims: &[i32;3]) -> Point3<f32> {
-        target + self.wrap_vector_dims(&(point-target), pbc_dims)
+        target + self.wrap_vector_dims(point-target, pbc_dims)
     }
 
 
