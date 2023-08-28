@@ -2,6 +2,7 @@ mod atom;
 mod structure;
 mod state;
 mod periodic_box;
+#[allow(dead_code)]
 mod selection;
 
 pub use {
