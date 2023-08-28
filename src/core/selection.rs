@@ -1,7 +1,8 @@
 use std::default;
+use std::path::Iter;
 
 use anyhow::{bail, Result};
-use ascii::AsciiString;
+use ascii::{AsciiString,AsciiStr};
 use nalgebra::{Point3, Vector3};
 use regex::bytes::Regex;
 
@@ -11,10 +12,10 @@ pub enum IntKeywordValue {
     IntRange(i32, i32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum StrKeywordValue {
     Str(AsciiString),
-    Regex(AsciiString),
+    Regex(Regex),
 }
 
 #[derive(Debug, PartialEq)]
@@ -34,19 +35,18 @@ pub enum MathNode {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ComparisonNode {
-    Math(MathNode),
-    Eq(Box<Self>, Box<Self>),
-    Neq(Box<Self>, Box<Self>),
-    Gt(Box<Self>, Box<Self>),
-    Geq(Box<Self>, Box<Self>),
-    Lt(Box<Self>, Box<Self>),
-    Leq(Box<Self>, Box<Self>),
-    Lt3(Box<Self>, Box<Self>, Box<Self>),
-    Gt3(Box<Self>, Box<Self>, Box<Self>),
+pub enum ComparisonNode {    
+    Eq(Box<MathNode>, Box<MathNode>),
+    Neq(Box<MathNode>, Box<MathNode>),
+    Gt(Box<MathNode>, Box<MathNode>),
+    Geq(Box<MathNode>, Box<MathNode>),
+    Lt(Box<MathNode>, Box<MathNode>),
+    Leq(Box<MathNode>, Box<MathNode>),
+    Lt3(Box<MathNode>, Box<MathNode>, Box<MathNode>),
+    Gt3(Box<MathNode>, Box<MathNode>, Box<MathNode>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum KeywordNode {
     Name(Vec<StrKeywordValue>),
     Resname(Vec<StrKeywordValue>),
@@ -57,7 +57,7 @@ pub enum KeywordNode {
     Index(Vec<IntKeywordValue>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum LogicalNode {
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
@@ -66,106 +66,177 @@ pub enum LogicalNode {
     Comparison(ComparisonNode),
 }
 
-use super::atom::Atom;
+use super::structure::{Structure, self};
 use super::state::State;
-use super::structure::{self, Structure};
+use super::atom::Atom;
 use std::collections::HashSet;
 
 type SubsetType = HashSet<usize>;
 
-struct Selection<'a> {
+#[derive(Debug, Clone)]
+struct ApplyData<'a> {
     structure: &'a Structure,
     state: &'a State,
-    subset: Option<SubsetType>,
-    cur_iter_index: usize,
+    subset: SubsetType,    
 }
 
-impl<'a> Selection<'a> {
+impl<'a> ApplyData<'a> {
     fn new(structure: &'a Structure, state: &'a State) -> Result<Self> {
         if structure.atoms.len() != state.coords.len() {
-            bail!(
-                "There are {} atoms but {} positions",
-                structure.atoms.len(),
-                state.coords.len()
-            );
+            bail!("There are {} atoms but {} positions",structure.atoms.len(),state.coords.len());
         }
 
         Ok(Self {
             structure,
-            state,
-            subset: None,
-            cur_iter_index: 0,
+            state, 
+            subset: SubsetType::from_iter(0..structure.atoms.len()),
         })
     }
 
-    fn len(&self) -> usize {
-        match &self.subset {
-            Some(s) => s.len(),
-            None => self.structure.atoms.len()
+    fn new_with_subset(structure: &'a Structure, state: &'a State, subset: &SubsetType) -> Result<Self> {
+        if structure.atoms.len() != state.coords.len() {
+            bail!("There are {} atoms but {} positions",structure.atoms.len(),state.coords.len());
         }
+
+        Ok(Self {
+            structure,
+            state, 
+            subset: subset.clone(),
+        })
     }
-}
 
-struct SelectionAtomHandler<'a> {
-    atom: &'a Atom,
-    pos: &'a [f32; 3],
-}
 
-impl<'a> Iterator for Selection<'a> {
-    type Item = SelectionAtomHandler<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.cur_iter_index == self.len() {
-            None
-        } else {
-            let ind = match &self.subset {
-                Some(s) => self.subset.iter().next(),
-                None => self.cur_iter_index,
-            };
-            let ret = Self::Item {
-                atom: &self.structure.atoms[ind],
-                pos: &self.state.coords[ind],
-            };
-            
-            self.cur_iter_index += 1;
-            Some(ret)
-        }
+    fn len(&self) -> usize {
+        self.subset.len()
     }
 }
 
 /*
+struct ApplyDataIterator<'a> {
+    atom: &'a Atom,
+    pos: &'a [f32;3],
+}
+
+impl<'a> Iterator for ApplyData<'a> {
+    type Item = ApplyDataIterator<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        
+            let ind = match self.subset {
+                Some(s) => s.iter().next().unwrap(),
+                None => &self.iter_pos,
+            }
+
+            ApplyDataIterator {
+                atom: &self.structure.atoms[ind],
+                pos: &self.state.coords[ind],
+            }
+        
+    }
+}
+*/
+
 impl LogicalNode {
-    fn apply(&self,data: &AstApplyData) -> Result<HashSet<usize>> {
+    /*
+    fn is_coord_dependent(&self) -> bool {
+        match self {
+            Self::Not(node) => node.is_coord_dependent(),
+            Self::Or(a,b) => a.is_coord_dependent() || b.is_coord_dependent(),
+            Self::And(a,b) => a.is_coord_dependent() || b.is_coord_dependent(),
+            Self::Keyword(node) => node.is_coord_dependent(),
+            Self::Comparison(node) =>  node.is_coord_dependent()
+        }
+    }
+    */
+
+    fn apply(&self,data: &ApplyData) -> Result<SubsetType> {
         match self {
             Self::Not(node) => node.apply(data),
             Self::Or(a,b) => {
                 Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect())
             },
             Self::And(a,b) => {
-                Ok(a.apply(data)?.intersection(&b.apply(data)?).cloned().collect())
+                let a_res = a.apply(data)?;
+                let b_data = ApplyData::new_with_subset(data.structure, data.state, &a_res)?;
+                Ok(a_res.intersection(&b.apply(&b_data)?).cloned().collect())
             },
             Self::Keyword(node) => node.apply(data),
-            Self::Comparison(node) => node.apply(data)
+            Self::Comparison(node) => node.apply(data),
         }
     }
 }
 
-impl KeywordNode {
-    fn apply(&self,data: &AstApplyData) -> Result<HashSet<usize>> {
-        let mut res = HashSet::<usize>::new();
-        match self {
-            Self::Chain(node) => {
-                for (i,a) in data.structure.atoms.iter().enumerate() {
-                    for val in node {
-                        match val {
-                            StrKeywordValue::Str(s) => {
-                                if s.chars().next().unwrap() == a.chain {
-                                    res.insert(i);
-                                }
-                            }
-                            StrKeywordValue::Regex(_) => unreachable!()
-                        }
 
+impl KeywordNode {
+
+    fn map_str_values(&self, data: &ApplyData, values: &Vec<StrKeywordValue>, f: fn(&Atom)->&AsciiString) -> SubsetType {
+        let mut res = SubsetType::new();
+        for (i,a) in data.structure.atoms.iter().enumerate() {
+            for val in values {
+                match val {
+                    StrKeywordValue::Str(s) => {
+                        if s == f(a) { res.insert(i); }
+                    }
+                    StrKeywordValue::Regex(r) => {
+                        if r.is_match(f(a).as_bytes()) { res.insert(i); }
+                    }
+                }
+            }
+        }
+        res
+    }
+
+    fn map_int_values(&self, data: &ApplyData, values: &Vec<IntKeywordValue>, f: fn(&Atom,usize)->i32) -> SubsetType {
+        let mut res = SubsetType::new();
+        for (i,a) in data.structure.atoms.iter().enumerate() {
+            for val in values {
+                match val {
+                    IntKeywordValue::Int(v) => {
+                        if *v == f(a,i) { res.insert(i); }
+                    }
+                    IntKeywordValue::IntRange(b,e) => {
+                        if *b<f(a,i) && f(a,i)<*e { res.insert(i); }
+                    }
+                }
+            }
+        }
+        res
+    }
+
+    fn apply(&self,data: &ApplyData) -> Result<SubsetType> {
+        
+        match self {
+            Self::Name(values) => {
+                Ok(self.map_str_values(data, values, |a:&Atom| &a.name ))
+            },
+            Self::Resname(values) => {
+                Ok(self.map_str_values(data, values, |a:&Atom| &a.resname ))
+            },
+            Self::Resid(values) => {
+                Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resid as i32))
+            },
+            Self::Resindex(values) => {
+                Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resindex as i32 ))
+            },
+            Self::Index(values) => {
+                Ok(self.map_int_values(data, values, |_a:&Atom,i:usize| i as i32))
+            },
+            Self::Chain(values) => {
+                let mut res = SubsetType::new();
+                // Sanity check
+                //for val in values {
+                //    if val.len() !=1 { bail!("Chain has to be one character, given {val}") }
+                //}
+                for (i,a) in data.structure.atoms.iter().enumerate() {
+                    for val in values {
+                        match val {                            
+                            StrKeywordValue::Str(s) => {
+                                if s.chars().next().unwrap() == a.chain { res.insert(i); }
+                            }
+                            StrKeywordValue::Regex(r) => {
+                                bail!("Can't use regex with chains, given {r}")
+                            }
+                        }
                     }
                 }
                 Ok(res)
@@ -173,11 +244,51 @@ impl KeywordNode {
         }
     }
 }
-*/
-//fn apply_ast(ast: &LogicalNode) -> Result<Vec<u32>> {
-//use array_tool::vec::{Intersect,Union};
 
+
+impl MathNode {
+    fn eval(&self,data: &ApplyData, i: usize) -> Result<f32> {
+        match self {
+            Self::Float(v) => Ok(v),
+            Self::X => Ok(data.state.coords[i][0]),
+            Self::Y => Ok(data.state.coords[i][1]),
+            Self::Z => Ok(data.state.coords[i][2]),
+            Self::Bfactor => Ok(data.structure.atoms[i].bfactor),
+            Self::Occupancy => Ok(data.structure.atoms[i].occupancy),
+            Self::Plus(a,b) => Ok(a.eval(data,i)?+b.eval(data,i)?),
+            Self::Minus(a,b) => Ok(a.eval(data,i)?-b.eval(data,i)?),
+            Self::Mul(a,b) => Ok(a.eval(data,i)?*b.eval(data,i)?),
+            Self::Div(a,b) => {
+                let b_val = b.eval(data,i)?;
+                if b_val==0.0 {bail!("Division by zero at atom {i}")}
+                Ok(a.eval(data,i)?/b_val)
+            },
+            Self::Pow(a,b) => Ok(a.eval(data,i)?.powf(b.eval(data,i)?)),
+            Self::Neg(v) => Ok(-v.eval(data,i)?),            
+        }
+    }
+}
+
+
+impl ComparisonNode {
+    
+    fn apply(&self,data: &ApplyData) -> Result<SubsetType> {
+        let mut res = SubsetType::new();
+        match self {            
+            Self::Eq(a,b)=>{
+                for (i,at) in data.structure.atoms.iter().enumerate() {                    
+                    if a.eval(data,i)? == b.eval(data,i)? { res.insert(i); }
+                }
+                Ok(res)
+            }
+        }
+    }
+}
+//fn apply_ast(ast: &LogicalNode) -> Result<Vec<u32>> {
+    //use array_tool::vec::{Intersect,Union};
+    
 //}
+
 
 peg::parser! {
     grammar selection_parser() for str {
@@ -248,7 +359,12 @@ peg::parser! {
 
         rule regex_value() -> StrKeywordValue
         = "'" s:$((!"'" [_])+) "'"
-        { StrKeywordValue::Regex(AsciiString::from_ascii(s).unwrap()) }
+        {?
+            match Regex::new(&format!("^{s}$")) {
+                Ok(r) => Ok(StrKeywordValue::Regex(r)),
+                Err(_) => Err("Invalid regex value"),
+            }            
+        }
 
         rule str_value() -> StrKeywordValue
         = !("and"/"or") s:$((![' '|'\''|'"'] [_])+)
@@ -284,67 +400,67 @@ peg::parser! {
             //comparison_gt3() / comparison_lt3() /
             comparison_eq() / comparison_neq() /
             comparison_gt() / comparison_geq() /
-            comparison_lt() / comparison_leq()
+            comparison_lt() / comparison_leq() 
             ) {v}
 
         rule comparison_eq() -> ComparisonNode
         = a:math_expr() _ "==" _ b:math_expr()
           { ComparisonNode::Eq(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b))
+                Box::new(a),
+                Box::new(b)
             ) }
-
+        
         rule comparison_neq() -> ComparisonNode
         = a:math_expr() _ "!=" _ b:math_expr()
         { ComparisonNode::Neq(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b))
+                Box::new(a),
+                Box::new(b)
             ) }
-
+        
         rule comparison_gt() -> ComparisonNode
         = a:math_expr() _ ">" _ b:math_expr()
         { ComparisonNode::Gt(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b))
+                Box::new(a),
+                Box::new(b)
             ) }
-
+        
         rule comparison_geq() -> ComparisonNode
         = a:math_expr() _ ">=" _ b:math_expr()
         { ComparisonNode::Geq(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b))
+                Box::new(a),
+                Box::new(b)
             ) }
 
         rule comparison_lt() -> ComparisonNode
         = a:math_expr() _ "<" _ b:math_expr()
         { ComparisonNode::Lt(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b))
+                Box::new(a),
+                Box::new(b)
             ) }
-
+        
         rule comparison_leq() -> ComparisonNode
         = a:math_expr() _ "<=" _ b:math_expr()
         { ComparisonNode::Leq(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b))
+                Box::new(a),
+                Box::new(b)
             ) }
 
         rule comparison_gt3() -> ComparisonNode
         = a:math_expr() _ ">" _ b:math_expr() _ ">" _ c:math_expr()
         { ComparisonNode::Gt3(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b)),
-                Box::new(ComparisonNode::Math(c))
+                Box::new(a),
+                Box::new(b),
+                Box::new(c)
             ) }
-
+        
         rule comparison_lt3() -> ComparisonNode
         = a:math_expr() _ "<" _ b:math_expr() _ "<" _ c:math_expr()
         { ComparisonNode::Lt3(
-                Box::new(ComparisonNode::Math(a)),
-                Box::new(ComparisonNode::Math(b)),
-                Box::new(ComparisonNode::Math(c))
+                Box::new(a),
+                Box::new(b),
+                Box::new(c)
             ) }
-
+    
         // Logic
 
         pub rule logical_expr() -> LogicalNode
@@ -396,5 +512,7 @@ mod tests {
     pub fn test_comparison() {
         let res = selection_parser::comparison_expr("(x +4 )< x");
         println!("{:#?}", res);
+
+        
     }
 }
