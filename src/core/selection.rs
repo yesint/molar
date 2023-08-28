@@ -36,12 +36,12 @@ pub enum MathNode {
 
 #[derive(Debug, PartialEq)]
 pub enum ComparisonNode {    
-    Eq(Box<MathNode>, Box<MathNode>),
-    Neq(Box<MathNode>, Box<MathNode>),
-    Gt(Box<MathNode>, Box<MathNode>),
-    Geq(Box<MathNode>, Box<MathNode>),
-    Lt(Box<MathNode>, Box<MathNode>),
-    Leq(Box<MathNode>, Box<MathNode>),
+    Eq(MathNode, MathNode),
+    Neq(MathNode, MathNode),
+    Gt(MathNode, MathNode),
+    Geq(MathNode, MathNode),
+    Lt(MathNode, MathNode),
+    Leq(MathNode, MathNode),
     //Lt3(Box<MathNode>, Box<MathNode>, Box<MathNode>),
     //Gt3(Box<MathNode>, Box<MathNode>, Box<MathNode>),
 }
@@ -146,18 +146,19 @@ impl KeywordNode {
 
     fn map_str_values(&self, data: &ApplyData, values: &Vec<StrKeywordValue>, f: fn(&Atom)->&AsciiString) -> SubsetType {
         let mut res = SubsetType::new();
-        for (i,a) in data.structure.atoms.iter().enumerate() {
+        for ind in data.subset.iter().cloned() {
+            let a = &data.structure.atoms[ind];
             for val in values {
                 match val {
                     StrKeywordValue::Str(s) => {
                         if s == f(a) {
-                            res.insert(i);
+                            res.insert(ind);
                             break;
                         }
                     }
                     StrKeywordValue::Regex(r) => {
                         if r.is_match(f(a).as_bytes()) {
-                            res.insert(i);
+                            res.insert(ind);
                             break;
                         }
                     }
@@ -169,18 +170,20 @@ impl KeywordNode {
 
     fn map_int_values(&self, data: &ApplyData, values: &Vec<IntKeywordValue>, f: fn(&Atom,usize)->i32) -> SubsetType {
         let mut res = SubsetType::new();
-        for (i,a) in data.structure.atoms.iter().enumerate() {
+        for ind in data.subset.iter().cloned() {
+            let a = &data.structure.atoms[ind];
             for val in values {
                 match *val {
                     IntKeywordValue::Int(v) => {
-                        if v == f(a,i) {
-                            res.insert(i);
+                        if v == f(a,ind) {
+                            res.insert(ind);
                             break;
                         }
                     }
                     IntKeywordValue::IntRange(b,e) => {
-                        if b<=f(a,i) && f(a,i)<=e {
-                            res.insert(i);
+                        let val = f(a,ind);
+                        if b<=val && val<=e {
+                            res.insert(ind);
                             break;
                         }
                     }
@@ -254,8 +257,8 @@ impl ComparisonNode {
     
     fn eval_op(data: &ApplyData, v1: &MathNode, v2: &MathNode, op: fn(f32,f32)->bool) -> Result<SubsetType> {
         let mut res = SubsetType::new();
-        for i in data.subset.iter() {
-            if op(v1.eval(data,*i)?, v2.eval(data,*i)?) { res.insert(*i); }
+        for i in data.subset.iter().cloned() {
+            if op(v1.eval(data,i)?, v2.eval(data,i)?) { res.insert(i); }
         }
         Ok(res)
     }
@@ -287,7 +290,7 @@ peg::parser! {
     grammar selection_parser() for str {
 
         rule _ = (" " / "\t")* // Optional whitespace
-        rule __ = (" " / "\t")+ //Mandatory whitespace
+        rule __ = (" " / "\t")+ // Mandatory whitespace
 
         rule uint() -> u32
             = n:$(['0'..='9']+)
@@ -389,72 +392,18 @@ peg::parser! {
 
         // Comparisons
         pub rule comparison_expr() -> ComparisonNode
-        = v:(
-            //comparison_gt3() / comparison_lt3() /
-            comparison_eq() / comparison_neq() /
-            comparison_gt() / comparison_geq() /
-            comparison_lt() / comparison_leq() 
-            ) {v}
+        = a:math_expr() _ op:$("=="/"!="/"<="/"<"/">="/">") _ b:math_expr() {
+            match op {
+                "==" => { ComparisonNode::Eq(a,b) },
+                "!=" => { ComparisonNode::Neq(a,b) },
+                "<=" => { ComparisonNode::Leq(a,b) },
+                "<" => { ComparisonNode::Lt(a,b) },
+                ">=" => { ComparisonNode::Geq(a,b) },
+                ">" => { ComparisonNode::Gt(a,b) },
+                _ => unreachable!(),
+            }
+        }
 
-        rule comparison_eq() -> ComparisonNode
-        = a:math_expr() _ "==" _ b:math_expr()
-          { ComparisonNode::Eq(
-                Box::new(a),
-                Box::new(b)
-            ) }
-        
-        rule comparison_neq() -> ComparisonNode
-        = a:math_expr() _ "!=" _ b:math_expr()
-        { ComparisonNode::Neq(
-                Box::new(a),
-                Box::new(b)
-            ) }
-        
-        rule comparison_gt() -> ComparisonNode
-        = a:math_expr() _ ">" _ b:math_expr()
-        { ComparisonNode::Gt(
-                Box::new(a),
-                Box::new(b)
-            ) }
-        
-        rule comparison_geq() -> ComparisonNode
-        = a:math_expr() _ ">=" _ b:math_expr()
-        { ComparisonNode::Geq(
-                Box::new(a),
-                Box::new(b)
-            ) }
-
-        rule comparison_lt() -> ComparisonNode
-        = a:math_expr() _ "<" _ b:math_expr()
-        { ComparisonNode::Lt(
-                Box::new(a),
-                Box::new(b)
-            ) }
-        
-        rule comparison_leq() -> ComparisonNode
-        = a:math_expr() _ "<=" _ b:math_expr()
-        { ComparisonNode::Leq(
-                Box::new(a),
-                Box::new(b)
-            ) }
-
-        /*
-        rule comparison_gt3() -> ComparisonNode
-        = a:math_expr() _ ">" _ b:math_expr() _ ">" _ c:math_expr()
-        { ComparisonNode::Gt3(
-                Box::new(a),
-                Box::new(b),
-                Box::new(c)
-            ) }
-        
-        rule comparison_lt3() -> ComparisonNode
-        = a:math_expr() _ "<" _ b:math_expr() _ "<" _ c:math_expr()
-        { ComparisonNode::Lt3(
-                Box::new(a),
-                Box::new(b),
-                Box::new(c)
-            ) }
-        */
         // Logic
 
         pub rule logical_expr() -> LogicalNode
