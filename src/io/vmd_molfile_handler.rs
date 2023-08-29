@@ -193,7 +193,7 @@ impl IoStructure for VmdMolFileHandler<'_> {
         for ref at in vmd_atoms {
             let mut new_atom = Atom {
                 name: c_buf_to_ascii_str(&at.name),
-                resid: at.resid as isize,
+                resid: at.resid,
                 resname: c_buf_to_ascii_str(&at.resname),
                 chain: c_buf_to_ascii_str(&at.chain).first().unwrap(),
                 charge: at.charge,
@@ -206,7 +206,7 @@ impl IoStructure for VmdMolFileHandler<'_> {
             if at.atomicnumber == 0 || at.mass==0.0 {
                 new_atom.guess_element_from_name();
             } else {
-                new_atom.atomic_number = at.atomicnumber;
+                new_atom.atomic_number = at.atomicnumber as usize;
                 new_atom.mass = at.mass;
             }
             structure.atoms.push(new_atom);

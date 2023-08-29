@@ -1,10 +1,18 @@
-use std::default;
-use std::path::Iter;
-
 use anyhow::{bail, Result};
 use ascii::{AsciiString,AsciiStr};
 use nalgebra::{Point3, Vector3};
 use regex::bytes::Regex;
+
+use super::structure::Structure;
+use super::state::State;
+use super::atom::Atom;
+use std::collections::HashSet;
+
+
+//##############################
+//#  AST node types 
+//##############################
+
 
 #[derive(Debug, PartialEq)]
 pub enum IntKeywordValue {
@@ -66,11 +74,12 @@ pub enum LogicalNode {
     Comparison(ComparisonNode),
 }
 
-use super::structure::Structure;
-use super::state::State;
-use super::atom::Atom;
-use std::collections::HashSet;
 
+//##############################
+//#  AST application stuff
+//##############################
+
+// Intermediate index type for applying AST
 type SubsetType = HashSet<usize>;
 
 #[derive(Debug, Clone)]
@@ -80,20 +89,8 @@ pub struct ApplyData<'a> {
     subset: SubsetType,    
 }
 
-impl<'a> ApplyData<'a> {
-    fn new(structure: &'a Structure, state: &'a State) -> Result<Self> {
-        if structure.atoms.len() != state.coords.len() {
-            bail!("There are {} atoms but {} positions",structure.atoms.len(),state.coords.len());
-        }
-
-        Ok(Self {
-            structure,
-            state, 
-            subset: SubsetType::from_iter(0..structure.atoms.len()),
-        })
-    }
-
-    fn new_with_subset(structure: &'a Structure, state: &'a State, subset: &SubsetType) -> Result<Self> {
+impl<'a> ApplyData<'a> {    
+    fn new(structure: &'a Structure, state: &'a State, subset: &SubsetType) -> Result<Self> {
         if structure.atoms.len() != state.coords.len() {
             bail!("There are {} atoms but {} positions",structure.atoms.len(),state.coords.len());
         }
@@ -110,6 +107,10 @@ impl<'a> ApplyData<'a> {
         self.subset.len()
     }
 }
+
+//###################################
+//#  AST nodes logic implementation
+//###################################
 
 impl LogicalNode {
     /*
@@ -132,7 +133,7 @@ impl LogicalNode {
             },
             Self::And(a,b) => {
                 let a_res = a.apply(data)?;
-                let b_data = ApplyData::new_with_subset(data.structure, data.state, &a_res)?;
+                let b_data = ApplyData::new(data.structure, data.state, &a_res)?;
                 Ok(a_res.intersection(&b.apply(&b_data)?).cloned().collect())
             },
             Self::Keyword(node) => node.apply(data),
@@ -202,7 +203,7 @@ impl KeywordNode {
                 Ok(self.map_str_values(data, values, |a:&Atom| &a.resname ))
             },
             Self::Resid(values) => {
-                Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resid as i32))
+                Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resid))
             },
             Self::Resindex(values) => {
                 Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resindex as i32 ))
@@ -280,11 +281,10 @@ impl ComparisonNode {
         }
     }
 }
-//fn apply_ast(ast: &LogicalNode) -> Result<Vec<u32>> {
-    //use array_tool::vec::{Intersect,Union};
-    
-//}
 
+//##############################
+//#  Grammar
+//##############################
 
 peg::parser! {
     grammar selection_parser() for str {
@@ -405,7 +405,6 @@ peg::parser! {
         }
 
         // Logic
-
         pub rule logical_expr() -> LogicalNode
         = precedence!{
             x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
@@ -423,13 +422,18 @@ peg::parser! {
     } // grammar
 } // parser
 
+//##############################
+//#  Public interface
+//##############################
+
+// Alias for top-level rule
 pub type SelectionAst = LogicalNode;
 
 pub fn generate_ast(sel_str: &str) -> Result<SelectionAst> {
     Ok(selection_parser::logical_expr(sel_str)?)
 }
 
-pub fn apply_ast(ast: &SelectionAst, structure: &Structure, state: &State) -> Result<Vec<usize>> {
+pub fn apply_ast_whole(ast: &SelectionAst, structure: &Structure, state: &State) -> Result<Vec<usize>> {
     let data = ApplyData {
         structure,
         state,
@@ -438,9 +442,22 @@ pub fn apply_ast(ast: &SelectionAst, structure: &Structure, state: &State) -> Re
     Ok( Vec::<usize>::from_iter(ast.apply(&data)?.into_iter()) )
 }
 
+pub fn apply_ast_subset(ast: &SelectionAst, structure: &Structure, state: &State, subset: &Vec<usize>) -> Result<Vec<usize>> {
+    let data = ApplyData {
+        structure,
+        state,
+        subset: SubsetType::from_iter(subset.iter().cloned())
+    };
+    Ok( Vec::<usize>::from_iter(ast.apply(&data)?.into_iter()) )
+}
+
+//##############################
+//#  Tests
+//##############################
+
 #[cfg(test)]
 mod tests {
-    use super::{selection_parser, generate_ast, apply_ast};
+    use super::{selection_parser, generate_ast, apply_ast_whole};
     use crate::io::*;
 
     #[test]
@@ -480,7 +497,7 @@ mod tests {
         let state = h.read_state().unwrap();
 
         let ast = generate_ast("name N and resid 1:5 and x<20").expect("Error generating AST");
-        let mut index = apply_ast(&ast, &structure, &state).expect("Error applying");
+        let mut index = apply_ast_whole(&ast, &structure, &state).expect("Error applying");
         index.sort();
 
         println!("index: {:?}",index);

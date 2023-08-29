@@ -6,10 +6,10 @@ pub struct Atom {
     // Mandatory fields
     pub name: AsciiString,
     pub resname: AsciiString,
-    pub resid: isize, // Could be negative
+    pub resid: i32, // Could be negative
     pub resindex: usize,
     // Atom physical properties from topology
-    pub atomic_number: i32,
+    pub atomic_number: usize,
     pub mass: f32,
     pub charge: f32,
     pub type_name: AsciiString,
