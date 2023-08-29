@@ -129,16 +129,16 @@ impl XtcFileHandler {
 
 
 impl FileHandler for XtcFileHandler {
-    fn new_reader(fname: &str) -> Self {
+    fn new_reader(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
-        instance.open_read().unwrap();
-        instance
+        instance.open_read()?;
+        Ok(instance)
     }
 
-    fn new_writer(fname: &str) -> Self {
+    fn new_writer(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
-        instance.open_write().unwrap();
-        instance
+        instance.open_write()?;
+        Ok(instance)
     }
 }
 

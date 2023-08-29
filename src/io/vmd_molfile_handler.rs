@@ -76,7 +76,8 @@ fn c_buf_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
 
 #[doc = "Universal handler of different VMD molfile file formats"]
 impl VmdMolFileHandler<'_> {
-    fn new(fname: &str) -> Self {
+
+    fn new(fname: &str) -> Result<Self> {
         // Get extention
         let ext = Path::new(fname)
             .extension()
@@ -92,23 +93,23 @@ impl VmdMolFileHandler<'_> {
                 "pdb" => pdb_get_plugin_ptr(),
                 "xyz" => xyz_get_plugin_ptr(),
                 "dcd" => dcd_get_plugin_ptr(),
-                &_ => panic!("Unrecognized extention {ext}!"),
+                &_ => bail!("Unrecognized extention {ext}!"),
             }
             .as_ref()
             .unwrap()
         };
 
-        // We can't open file here because for writing we need to know natoms,
+        // We can't open file100 here because for writing we need to know natoms,
         // which is only visible in actuall call to write.
         // For reading we can open, but for consistency we'll defer it as well.
 
-        VmdMolFileHandler {
+        Ok(VmdMolFileHandler {
             file_name: fname.to_owned(),
             plugin,
             file_handle: ptr::null_mut(),
             mode: OpenMode::Read, // Defaults to read
             natoms: 0,
-        }
+        })
     }
 
     fn open_read(&mut self) -> Result<()> {
@@ -155,16 +156,16 @@ impl VmdMolFileHandler<'_> {
 }
 
 impl FileHandler for VmdMolFileHandler<'_> {
-    fn new_reader(fname: &str) -> Self {
-        let mut instance = Self::new(fname);
-        instance.open_read().unwrap();
-        instance
+    fn new_reader(fname: &str) -> Result<Self> {
+        let mut instance = Self::new(fname)?;
+        instance.open_read()?;
+        Ok(instance)
     }
 
-    fn new_writer(fname: &str) -> Self {
-        let mut instance = Self::new(fname);
-        instance.open_write().unwrap();
-        instance
+    fn new_writer(fname: &str) -> Result<Self> {
+        let mut instance = Self::new(fname)?;
+        instance.open_write()?;
+        Ok(instance)
     }
 }
 

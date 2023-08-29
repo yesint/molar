@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     pub fn test_apply() {
-        let mut h = VmdMolFileHandler::new_reader("colored.pdb");
+        let mut h = VmdMolFileHandler::new_reader("colored.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_state().unwrap();
 
