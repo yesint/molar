@@ -37,8 +37,10 @@ fn test_xtc() {
 }
 
 fn main() {
-    let h = get_reader("colored.pdb").unwrap();
-    let hh = &&*h as &dyn IoStructure;
-    let structure = hh.read_structure("colored.pdb").unwrap();
+    let h = FileHandler::new_reader("colored.pdb").unwrap();
+    if let FileHandler::Pdb(mut e) = h {
+        let st = e.read_structure().unwrap();
+        println!("{}",st.atoms.len());
+    }
 
 }

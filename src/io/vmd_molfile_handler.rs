@@ -1,6 +1,8 @@
-use super::{FileHandler, IoSingleFrame, IoStructure, IoTraj};
+use super::{IoFileOpener, IoStructure, IoState};
 use crate::core::*;
 use ascii::AsciiString;
+
+use crate::io::get_ext;
 
 use crate::io::molfile_bindings::{
     dcd_get_plugin_ptr, molfile_atom_t, molfile_plugin_t, molfile_timestep_t, 
@@ -78,17 +80,11 @@ fn c_buf_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
 impl VmdMolFileHandler<'_> {
 
     fn new(fname: &str) -> Result<Self> {
-        // Get extention
-        let ext = Path::new(fname)
-            .extension()
-            .expect("File with extension expected!")
-            .to_str()
-            .unwrap();
-
         // Get plugin pointer
         // C funtion registers plugin on first call
         // and returns stored pointer on later invocations
         let plugin = unsafe {
+            let ext = get_ext(fname)?; 
             match ext {
                 "pdb" => pdb_get_plugin_ptr(),
                 "xyz" => xyz_get_plugin_ptr(),
@@ -99,7 +95,7 @@ impl VmdMolFileHandler<'_> {
             .unwrap()
         };
 
-        // We can't open file100 here because for writing we need to know natoms,
+        // We can't open file here because for writing we need to know natoms,
         // which is only visible in actuall call to write.
         // For reading we can open, but for consistency we'll defer it as well.
 
@@ -155,7 +151,7 @@ impl VmdMolFileHandler<'_> {
     }
 }
 
-impl FileHandler for VmdMolFileHandler<'_> {
+impl IoFileOpener for VmdMolFileHandler<'_> {
     fn new_reader(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname)?;
         instance.open_read()?;
@@ -172,8 +168,8 @@ impl FileHandler for VmdMolFileHandler<'_> {
 impl IoStructure for VmdMolFileHandler<'_> {
     fn read_structure(&mut self) -> Result<Structure> {
         let mut optflags: i32 = 0;
-        let el: molfile_atom_t = Default::default();
-        let mut vmd_atoms = vec![el; self.natoms];
+        // Prepare array of atoms
+        let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
 
         let ret = unsafe {
             self.plugin.read_structure.unwrap()(
@@ -186,6 +182,9 @@ impl IoStructure for VmdMolFileHandler<'_> {
         if ret != MOLFILE_SUCCESS {
             bail!("Plugin error reading structure!");
         }
+
+        // C function populated the atoms, set the vector size for Rust
+        unsafe { vmd_atoms.set_len(self.natoms) }
 
         // Convert to Structure
         let mut structure: Structure = Default::default();
@@ -221,7 +220,7 @@ impl IoStructure for VmdMolFileHandler<'_> {
     }
 }
 
-impl IoTraj for VmdMolFileHandler<'_> {
+impl IoState for VmdMolFileHandler<'_> {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         let mut state: State = Default::default();
 
@@ -268,7 +267,8 @@ impl IoTraj for VmdMolFileHandler<'_> {
     }
 }
 
-impl super::IoSingleFrame for VmdMolFileHandler<'_> {
+/*
+impl IoSingleFrame for VmdMolFileHandler<'_> {
     fn read_state(&mut self) -> Result<State> {
         return self
             .read_next_state()?
@@ -279,6 +279,7 @@ impl super::IoSingleFrame for VmdMolFileHandler<'_> {
         Ok(())
     }
 }
+*/
 
 impl Drop for VmdMolFileHandler<'_> {
     fn drop(&mut self) {

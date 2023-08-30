@@ -494,7 +494,7 @@ mod tests {
     pub fn test_apply() {
         let mut h = VmdMolFileHandler::new_reader("colored.pdb").unwrap();
         let structure = h.read_structure().unwrap();
-        let state = h.read_state().unwrap();
+        let state = h.read_next_state().unwrap().unwrap();
 
         let ast = generate_ast("name N and resid 1:5 and x<20").expect("Error generating AST");
         let mut index = apply_ast_whole(&ast, &structure, &state).expect("Error applying");

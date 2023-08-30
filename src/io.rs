@@ -1,6 +1,6 @@
 use crate::core::{Structure,State};
-use anyhow::{Result,bail};
-use std::path::Path;
+use anyhow::{Result,bail,anyhow};
+use std::{path::Path, any};
 
 #[allow(dead_code)]
 #[allow(non_upper_case_globals)]
@@ -14,15 +14,21 @@ mod molfile_bindings;
 #[allow(non_snake_case)]
 mod xdrfile_bindings;
 
-pub mod vmd_molfile_handler;
+mod vmd_molfile_handler;
 pub use vmd_molfile_handler::VmdMolFileHandler;
 
-pub mod xtc_handler;
+mod xtc_handler;
 pub use xtc_handler::XtcFileHandler;
 
-
+struct FileContent {
+    atoms: bool,
+    bonds: bool,
+    coords: bool,
+    pbox: bool,
+    
+}
 // Traits for file handler
-pub trait FileHandler {
+pub trait IoFileOpener {
     fn new_reader(fname: &str) -> Result<Self> where Self: Sized;
     fn new_writer(fname: &str) -> Result<Self> where Self: Sized;
 }
@@ -33,39 +39,87 @@ pub trait IoStructure {
     fn write_structure(&mut self, data: &Structure) -> Result<()>;
 }
 
-pub trait IoTraj {
+pub trait IoState {
     fn read_next_state(&mut self) -> Result<Option<State>>;
     fn write_next_state(&mut self, data: &State) -> Result<()>;
 }
 
-pub trait IoSingleFrame {
-    fn read_state(&mut self) -> Result<State>;
-    fn write_state(&mut self, data: &State) -> Result<()>;
+pub enum FileHandler<'a> {
+    Pdb(VmdMolFileHandler<'a>),
+    Dcd(VmdMolFileHandler<'a>),
+    Xyz(VmdMolFileHandler<'a>),
+    Xtc(XtcFileHandler),
 }
 
-fn get_ext(fname: &str) -> &str {
+pub fn get_ext(fname: &str) -> Result<&str> {
     // Get extention
-    Path::new(fname)
-    .extension()
-    .expect("File with extension expected!")
-    .to_str()
-    .unwrap()
+    Ok(
+        Path::new(fname)
+        .extension().ok_or(anyhow!("File with extension expected, given {fname}"))?
+        .to_str().ok_or(anyhow!("Failed getting file extension from {fname}"))?
+    )
 }
 
-pub fn get_reader(fname: &str) -> Result<Box<dyn FileHandler>> {   
-    let ext = get_ext(fname);
-    match ext {
-        "pdb"|"xyz"|"dcd" => Ok(Box::new(VmdMolFileHandler::new_reader(fname)?)),
-        "xtc" => Ok(Box::new(XtcFileHandler::new_reader(fname)?)),
-        _ => bail!("Unrecognized extention {ext}!"),
-    }    
+
+impl<'a> IoFileOpener for FileHandler<'a> {
+    fn new_reader(fname: &str) -> Result<Self> {
+        let ext = get_ext(fname)?;
+        match ext {
+            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::new_reader(fname)?)),
+            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::new_reader(fname)?)),
+            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::new_reader(fname)?)),
+            "xtc" => Ok(Self::Xtc(XtcFileHandler::new_reader(fname)?)),
+            _ => bail!("Unrecognized extension {ext}"),
+        }
+    }
+
+    fn new_writer(fname: &str) -> Result<Self> {
+        let ext = get_ext(fname)?;
+        match ext {
+            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::new_writer(fname)?)),
+            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::new_writer(fname)?)),
+            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::new_writer(fname)?)),
+            "xtc" => Ok(Self::Xtc(XtcFileHandler::new_writer(fname)?)),
+            _ => bail!("Unrecognized extension {ext}"),
+        }
+    }
 }
 
-pub fn get_writer(fname: &str) -> Result<Box<dyn FileHandler>> {   
-    let ext = get_ext(fname);
-    match ext {
-        "pdb"|"xyz"|"dcd" => Ok(Box::new(VmdMolFileHandler::new_writer(fname)?)),
-        "xtc" => Ok(Box::new(XtcFileHandler::new_writer(fname)?)),
-        _ => bail!("Unrecognized extention {ext}!"),
-    }    
+impl<'a> IoStructure for FileHandler<'a> {
+    fn read_structure(&mut self) -> Result<Structure> {
+        match self {
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) => h.read_structure(),
+            _ => bail!("Unable to read structure"),
+        }
+    }
+
+    fn write_structure(&mut self,data: &Structure) -> Result<()> {
+        match self {
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) => h.write_structure(data),
+            _ => bail!("Unable to write structure"),
+        }
+    }
 }
+
+impl<'a> IoState for FileHandler<'a> {
+    fn read_next_state(&mut self) -> Result<Option<State>> {
+        match self {
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) | 
+            Self::Dcd(ref mut h) => h.read_next_state(),
+            Self::Xtc(ref mut h) => h.read_next_state(),
+        }
+    }
+
+    fn write_next_state(&mut self,data: &State) -> Result<()> {
+        match self {
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) | 
+            Self::Dcd(ref mut h) => h.write_next_state(data),
+            Self::Xtc(ref mut h) => h.write_next_state(data),
+        }
+    }
+}
+

@@ -1,9 +1,9 @@
-use super::{FileHandler,IoTraj};
+use super::{IoFileOpener,IoState};
 use super::xdrfile_bindings::*;
 
 use crate::core::State;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Result, anyhow};
 use std::ffi::CString;
 use std::ptr;
 
@@ -128,7 +128,7 @@ impl XtcFileHandler {
 }
 
 
-impl FileHandler for XtcFileHandler {
+impl IoFileOpener for XtcFileHandler {
     fn new_reader(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_read()?;
@@ -154,7 +154,7 @@ impl Drop for XtcFileHandler {
     }
 }
 
-impl IoTraj for XtcFileHandler {
+impl IoState for XtcFileHandler {
 
     #[allow(non_upper_case_globals)]
     fn read_next_state(&mut self) -> Result<Option<State>> {
@@ -215,3 +215,16 @@ impl IoTraj for XtcFileHandler {
         Ok(())
     }
 }
+
+/*
+impl IoSingleFrame for XtcFileHandler {
+    fn read_state(&mut self) -> Result<State> {
+        self.read_next_state()?
+            .ok_or(anyhow!("Error reading single time step"))
+    }
+
+    fn write_state(&mut self, data: &State) -> Result<()> {
+        self.write_next_state(data)
+    }
+}
+*/
