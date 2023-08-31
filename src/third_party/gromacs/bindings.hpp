@@ -1,0 +1,6 @@
+#include "gromacs/fileio/tpxio.h"
+#include "gromacs/mdtypes/inputrec.h"
+#include "gromacs/mdtypes/state.h"
+#include "gromacs/topology/topology.h"
+#include "gromacs/topology/mtop_util.h"
+#include "gromacs/topology/idef.h"

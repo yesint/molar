@@ -1,6 +1,7 @@
 use cmake::Config;
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
     // Run CMake for dependencies
     for dep_name in ["molfile","xdrfile"] {
         let dst = Config::new(format!("src/third_party/{dep_name}"))
@@ -15,4 +16,5 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", dst.display());
     println!("cargo:rustc-link-lib=static={}", "gromacs");
     println!("cargo:rustc-link-lib=static={}", "muparser");
+    //println!("cargo:rerun-if-changed={}", "src/third_party/gromacs/wrapper.cpp");
 }
