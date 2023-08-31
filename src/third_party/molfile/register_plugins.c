@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include "bindings.h" // Brings plugin pointer variables
 
-#define DECLARE_PLUGIN(name)\ 
+#define DECLARE_PLUGIN(name)\
     VMDPLUGIN_EXTERN int name##plugin_init();\
     VMDPLUGIN_EXTERN int name##plugin_register(void *v, vmdplugin_register_cb cb);\
     VMDPLUGIN_EXTERN int name##plugin_fini();\

@@ -1,0 +1,3 @@
+#pragma once
+
+#define GROMACS_VERSION @GROMACS_VERSION@
