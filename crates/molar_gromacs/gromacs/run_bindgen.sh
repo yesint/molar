@@ -1,7 +1,10 @@
 #!/bin/bash
 
+# To be run in the root of Gromacs source directory
+# bindings.hpp have to be copied or linked there
+
 bindgen --no-layout-tests --allowlist-type t_topology \
-bindings.hpp -o bindings.rs -- \
+bindings.hpp -o gromacs_bindings.rs -- -x c++ -std=c++17 \
 -I ./src \
 -I ./src/gromacs/utility/include \
 -I ./src/gromacs/math/include \

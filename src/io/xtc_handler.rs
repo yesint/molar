@@ -1,5 +1,5 @@
 use super::{IoFileOpener,IoState};
-use super::xdrfile_bindings::*;
+use molar_xdrfile::xdrfile_bindings::*;
 
 use crate::core::State;
 

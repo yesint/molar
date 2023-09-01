@@ -1,0 +1,13 @@
+[package]
+name = "molar_molfile"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+#molar = {path = "../..", version="0.1"}
+ascii.workspace = true
+anyhow.workspace = true
+
+[build-dependencies]
+cmake.workspace = true

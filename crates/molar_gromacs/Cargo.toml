@@ -1,0 +1,13 @@
+[package]
+name = "molar_gromacs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+ascii.workspace = true
+anyhow.workspace = true
+
+[build-dependencies]
+cmake.workspace = true
+bindgen = "0.66.1"

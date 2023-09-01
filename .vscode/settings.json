@@ -5,6 +5,10 @@
         "./Cargo.toml",
         "./Cargo.toml",
         "./Cargo.toml",
-        "./Cargo.toml"
+        "./Cargo.toml",
+        "./crates/molar_xdrfile/Cargo.toml",
+        "./crates/molar_xdrfile/Cargo.toml",
+        "./crates/molar_gromacs/Cargo.toml",
+        "./crates/molar_gromacs/Cargo.toml"
     ]
 }

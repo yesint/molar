@@ -4,7 +4,7 @@ use ascii::AsciiString;
 
 use crate::io::get_ext;
 
-use crate::io::molfile_bindings::{
+use molar_molfile::molfile_bindings::{
     dcd_get_plugin_ptr, molfile_atom_t, molfile_plugin_t, molfile_timestep_t, 
     pdb_get_plugin_ptr, xyz_get_plugin_ptr, MOLFILE_EOF, MOLFILE_SUCCESS,
 };

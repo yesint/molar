@@ -54,9 +54,10 @@ ExternalProject_add(Gromacs_external
                 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                 
-    #BUILD_COMMAND ${CMAKE_COMMAND} --build ${GROMACS_BINARY_DIR} -j 12
+    BUILD_COMMAND ${CMAKE_COMMAND} --build ${GROMACS_BINARY_DIR} -j
     # Copy compiled libs to the place where cargo sees them
     #INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${GROMACS_LIB_FILES} ${CMAKE_BINARY_DIR}/..
+    INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${GROMACS_LIB_FILES}
 )
 
@@ -70,10 +71,6 @@ set(GROMACS_INCLUDE_DIRECTORIS
     ${GROMACS_BINARY_DIR}/api/legacy/include   # For generated headers
 )
 set(GROMACS_LIBRARIES ${GROMACS_LIB_FILES})
-
-# Configure include file with Gromacs version
-#configure_file(${PROJECT_SOURCE_DIR}/gromacs_version_info.h.in
-#                ${CMAKE_BINARY_DIR}/gromacs_version_info.h @ONLY)
 
 #--------------------------------------------------------------------------------
 # Create a wrapper library

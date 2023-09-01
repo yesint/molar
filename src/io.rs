@@ -2,18 +2,6 @@ use crate::core::{Structure,State};
 use anyhow::{Result,bail,anyhow};
 use std::{path::Path, any};
 
-#[allow(dead_code)]
-#[allow(non_upper_case_globals)]
-#[allow(non_camel_case_types)]
-#[allow(non_snake_case)]
-mod molfile_bindings;
-
-#[allow(dead_code)]
-#[allow(non_upper_case_globals)]
-#[allow(non_camel_case_types)]
-#[allow(non_snake_case)]
-mod xdrfile_bindings;
-
 mod vmd_molfile_handler;
 pub use vmd_molfile_handler::VmdMolFileHandler;
 

@@ -1,4 +1,4 @@
-use pteros::io::*;
+use molar::io::*;
 //use pteros::{MolfileSingleFrame, MolfileStructure};
 
 #[test]
@@ -10,7 +10,7 @@ fn test_pdb() {
     }
 
     for _i in 0..2 {
-        let st = h.read_state().unwrap();
+        let st = h.read_next_state().unwrap().unwrap();
         
         //if let Some(s) = st {
             println!("{}", st.coords.len());
@@ -25,7 +25,7 @@ fn test_pdb() {
 
 #[test]
 fn test_xtc() {
-    let mut h = XtcFileHandler::new_reader("no_ATP.xtc").unwrap();
+    let mut h = XtcFileHandler::new_reader("tests/no_ATP.xtc").unwrap();
     let st = h.read_next_state().unwrap().unwrap();
     println!("{}", st.coords.len());
     println!("{:?}",st.box_);

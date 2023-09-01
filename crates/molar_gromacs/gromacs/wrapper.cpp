@@ -5,13 +5,13 @@
 #include "gromacs/topology/mtop_util.h"
 #include "gromacs/topology/idef.h"
 
-t_topology read_tpr() {
+t_topology read_tpr(char* fname) {
     t_inputrec ir;    
     gmx_mtop_t mtop;
     //t_topology top;
     t_state state;
 
-    read_tpx_state(fname.c_str(), &ir, &state, &mtop);
+    read_tpx_state(fname, &ir, &state, &mtop);
 
     return( gmx_mtop_t_to_t_topology(&mtop,false) );
 }
