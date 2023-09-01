@@ -8,6 +8,9 @@ pub use vmd_molfile_handler::VmdMolFileHandler;
 mod xtc_handler;
 pub use xtc_handler::XtcFileHandler;
 
+mod tpr_handler;
+pub use tpr_handler::TprFileHandler;
+
 struct FileContent {
     atoms: bool,
     bonds: bool,

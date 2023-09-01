@@ -70,7 +70,7 @@ pub struct VmdMolFileHandler<'a> {
 }
 
 // Helper convertion function from C-wrapped fixed-size string to AsciiString
-fn c_buf_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
+pub fn c_buf_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
     let cstr = unsafe { CStr::from_ptr(buf.as_ptr()).to_bytes() };
     let s = unsafe { AsciiString::from_ascii_unchecked(cstr) };
     s

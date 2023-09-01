@@ -1,17 +1,7 @@
-#include "gromacs/fileio/tpxio.h"
-#include "gromacs/mdtypes/inputrec.h"
-#include "gromacs/mdtypes/state.h"
-#include "gromacs/topology/topology.h"
-#include "gromacs/topology/mtop_util.h"
-#include "gromacs/topology/idef.h"
+#include "wrapper.hpp"
 
-t_topology read_tpr(char* fname) {
-    t_inputrec ir;    
+void read_tpr(const char* fname, t_topology* top, t_state* state, t_inputrec* ir) {
     gmx_mtop_t mtop;
-    //t_topology top;
-    t_state state;
-
-    read_tpx_state(fname, &ir, &state, &mtop);
-
-    return( gmx_mtop_t_to_t_topology(&mtop,false) );
+    read_tpx_state(fname, ir, state, &mtop);
+    *top = gmx_mtop_t_to_t_topology(&mtop,false);
 }
