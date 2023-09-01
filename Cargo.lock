@@ -120,6 +120,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5486aed0026218e61b8a01d5fbd5a0a134649abb71a0e53b7bc088529dced86e"
 
 [[package]]
+name = "molar"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "array_tool",
+ "ascii",
+ "cmake",
+ "nalgebra",
+ "nalgebra-lapack",
+ "peg",
+ "regex",
+]
+
+[[package]]
 name = "nalgebra"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -248,20 +262,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18fb31db3f9bddb2ea821cde30a9f70117e3f119938b5ee630b7403aa6e2ead9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "pteros"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "array_tool",
- "ascii",
- "cmake",
- "nalgebra",
- "nalgebra-lapack",
- "peg",
- "regex",
 ]
 
 [[package]]
