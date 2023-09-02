@@ -3,6 +3,7 @@ name = "molar_gromacs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+links = "stdc++"
 
 [dependencies]
 ascii.workspace = true
@@ -10,4 +11,4 @@ anyhow.workspace = true
 
 [build-dependencies]
 cmake.workspace = true
-bindgen = "0.66.1"
+#bindgen = "0.66.1"

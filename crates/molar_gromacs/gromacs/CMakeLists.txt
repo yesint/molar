@@ -1,7 +1,10 @@
 #
 # This file is a part of
 cmake_minimum_required(VERSION 3.18)
-project(gromacs_wrapper CXX)
+project(gromacs_wrapper LANGUAGES CXX C)
+
+set(CMAKE_CXX_STANDARD  20)
+set(CMAKE_C_STANDARD    99)
 
 # Set CPM cache location if not provide in the command line
 if(NOT CPM_SOURCE_CACHE)
@@ -27,11 +30,10 @@ set(GROMACS_LIB_FILES
 
 # Get actual gromacs version
 # Since Gromacs 2022.x version is stored in main CmakeLists file
-file(READ ${GROMACS_SOURCE_DIR}/CMakeLists.txt gmxinfofile)
-string(REGEX MATCH "Gromacs VERSION +([0-9]+)" match ${gmxinfofile})
-set(GROMACS_VERSION ${CMAKE_MATCH_1})
-
-message(STATUS "Gromacs version used: ${GROMACS_VERSION}")
+#file(READ ${GROMACS_SOURCE_DIR}/CMakeLists.txt gmxinfofile)
+#string(REGEX MATCH "Gromacs VERSION +([0-9]+)" match ${gmxinfofile})
+#set(GROMACS_VERSION ${CMAKE_MATCH_1})
+#message(STATUS "Gromacs version used: ${GROMACS_VERSION}")
 
 ExternalProject_add(Gromacs_external
     SOURCE_DIR ${GROMACS_SOURCE_DIR}
@@ -53,11 +55,10 @@ ExternalProject_add(Gromacs_external
                 -DCMAKE_BUILD_TYPE=Release
                 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-                
-    BUILD_COMMAND ${CMAKE_COMMAND} --build ${GROMACS_BINARY_DIR} -j
+
+    BUILD_COMMAND ${CMAKE_COMMAND} --build ${GROMACS_BINARY_DIR} -j 12
     # Copy compiled libs to the place where cargo sees them
-    #INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${GROMACS_LIB_FILES} ${CMAKE_BINARY_DIR}/..
-    INSTALL_COMMAND ""
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${GROMACS_LIB_FILES} ${CMAKE_BINARY_DIR}/..
     BUILD_BYPRODUCTS ${GROMACS_LIB_FILES}
 )
 
@@ -77,9 +78,13 @@ set(GROMACS_LIBRARIES ${GROMACS_LIB_FILES})
 #--------------------------------------------------------------------------------
 add_library(gromacs_wrapper STATIC wrapper.cpp)
 add_dependencies(gromacs_wrapper Gromacs_external)
-target_include_directories(gromacs_wrapper PRIVATE ${GROMACS_INCLUDE_DIRECTORIS})
-target_link_libraries(gromacs_wrapper PRIVATE ${GROMACS_LIBRARIES})
+target_include_directories(gromacs_wrapper PUBLIC ${GROMACS_INCLUDE_DIRECTORIS})
+target_link_libraries(gromacs_wrapper PUBLIC ${GROMACS_LIBRARIES})
 install(TARGETS gromacs_wrapper
     LIBRARY DESTINATION .
     ARCHIVE DESTINATION .
 )
+
+add_executable(gromacs_wrapper_test wrapper_test.cpp)
+target_link_libraries(gromacs_wrapper_test PRIVATE gromacs_wrapper)
+install(TARGETS gromacs_wrapper_test)

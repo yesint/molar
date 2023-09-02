@@ -37,10 +37,5 @@ fn test_xtc() {
 }
 
 fn main() {
-    let h = FileHandler::new_reader("colored.pdb").unwrap();
-    if let FileHandler::Pdb(mut e) = h {
-        let st = e.read_structure().unwrap();
-        println!("{}",st.atoms.len());
-    }
-
+    let h = TprFileHandler::new_reader("tests/topol.tpr");
 }
