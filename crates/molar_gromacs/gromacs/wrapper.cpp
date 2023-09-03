@@ -4,14 +4,14 @@
 
 TprHelper::TprHelper(const char *fname)
 {
-    gmx_mtop_t mtop;
     read_tpx_state(fname, &ir, &state, &mtop);
     top = gmx_mtop_t_to_t_topology(&mtop,true);
 }
 
-//TprHelper::~TprHelper()
-//{
-//}
+TprHelper::~TprHelper()
+{
+    done_top_mtop(&top,&mtop);
+}
 
 t_topology *TprHelper::get_top()
 {

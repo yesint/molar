@@ -21,6 +21,13 @@ impl TprFileHandler {
     }
 }
 
+impl Drop for TprFileHandler {
+    fn drop(&mut self) {
+        // Call destructor of C++ helper class
+        unsafe{self.handle.destruct()};
+    }
+}
+
 impl IoFileOpener for TprFileHandler {
     fn new_reader(fname: &str) -> Result<Self> {
         TprFileHandler::new(fname)        
