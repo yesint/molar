@@ -13,7 +13,7 @@ pub struct Atom {
     pub mass: f32,
     pub charge: f32,
     pub type_name: AsciiString,
-    pub type_id: i32,
+    pub type_id: u32,
     // Specific PDB fields
     pub chain: AsciiChar,
     pub bfactor: f32,

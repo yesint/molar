@@ -55,16 +55,19 @@ impl IoStructure for TprFileHandler {
         } else {
             None
         };
+        let gmx_atomtypes = unsafe{ std::slice::from_raw_parts(top.atoms.atomtype, natoms) };
         
         unsafe{
             for i in 0..natoms {
                 let name = c_ptr_to_ascii_str(*gmx_atomnames[i]);
                 let resi = gmx_atoms[i].resind as usize;
                 let resname = c_ptr_to_ascii_str(*gmx_resinfo[resi].name);
-                let mut chain = AsciiChar::from_ascii(gmx_resinfo[resi].chainid as u8).unwrap_or(AsciiChar::Space);
+                let mut chain = AsciiChar::from_ascii(gmx_resinfo[resi].chainid as u8)
+                    .unwrap_or(AsciiChar::Space);
                 if chain == AsciiChar::Null {
                     chain = AsciiChar::Space;
                 }
+                let type_name = c_ptr_to_ascii_str(*gmx_atomtypes[i]);
                 
                 let new_atom = Atom{
                     name,
@@ -74,6 +77,8 @@ impl IoStructure for TprFileHandler {
                     charge: gmx_atoms[i].q,
                     mass: gmx_atoms[i].m,
                     atomic_number: gmx_atoms[i].atomnumber as usize,
+                    type_id: gmx_atoms[i].type_ as u32,
+                    type_name,
                     occupancy: match gmx_pdbinfo {
                         Some(pdbinfo) => pdbinfo[i].occup,
                         None => 0.0
