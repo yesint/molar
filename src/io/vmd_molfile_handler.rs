@@ -70,7 +70,7 @@ pub struct VmdMolFileHandler<'a> {
 }
 
 // Helper convertion function from C-wrapped fixed-size string to AsciiString
-pub fn c_buf_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
+fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
     let cstr = unsafe { CStr::from_ptr(buf.as_ptr()).to_bytes() };
     let s = unsafe { AsciiString::from_ascii_unchecked(cstr) };
     s
@@ -192,10 +192,10 @@ impl IoStructure for VmdMolFileHandler<'_> {
 
         for ref at in vmd_atoms {
             let mut new_atom = Atom {
-                name: c_buf_to_ascii_str(&at.name),
+                name: char_slice_to_ascii_str(&at.name),
                 resid: at.resid,
-                resname: c_buf_to_ascii_str(&at.resname),
-                chain: c_buf_to_ascii_str(&at.chain).first().unwrap(),
+                resname: char_slice_to_ascii_str(&at.resname),
+                chain: char_slice_to_ascii_str(&at.chain).first().unwrap(),
                 charge: at.charge,
                 occupancy: at.occupancy,
                 bfactor: at.bfactor,
