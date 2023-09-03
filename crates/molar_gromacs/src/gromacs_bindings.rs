@@ -1744,12 +1744,15 @@ extern "C" {
     pub fn TprHelper_get_box(this: *mut TprHelper) -> *mut f32;
 }
 extern "C" {
-    #[link_name = "\u{1}_ZN9TprHelperC1EPKc"]
-    pub fn TprHelper_TprHelper(this: *mut TprHelper, fname: *const ::std::os::raw::c_char);
+    #[link_name = "\u{1}_ZN9TprHelper12get_atomnameEi"]
+    pub fn TprHelper_get_atomname(
+        this: *mut TprHelper,
+        ind: ::std::os::raw::c_int,
+    ) -> *mut ::std::os::raw::c_char;
 }
 extern "C" {
-    #[link_name = "\u{1}_ZN9TprHelperD1Ev"]
-    pub fn TprHelper_TprHelper_destructor(this: *mut TprHelper);
+    #[link_name = "\u{1}_ZN9TprHelperC1EPKc"]
+    pub fn TprHelper_TprHelper(this: *mut TprHelper, fname: *const ::std::os::raw::c_char);
 }
 impl TprHelper {
     #[inline]
@@ -1765,13 +1768,16 @@ impl TprHelper {
         TprHelper_get_box(self)
     }
     #[inline]
+    pub unsafe fn get_atomname(
+        &mut self,
+        ind: ::std::os::raw::c_int,
+    ) -> *mut ::std::os::raw::c_char {
+        TprHelper_get_atomname(self, ind)
+    }
+    #[inline]
     pub unsafe fn new(fname: *const ::std::os::raw::c_char) -> Self {
         let mut __bindgen_tmp = ::std::mem::MaybeUninit::uninit();
         TprHelper_TprHelper(__bindgen_tmp.as_mut_ptr(), fname);
         __bindgen_tmp.assume_init()
-    }
-    #[inline]
-    pub unsafe fn destruct(&mut self) {
-        TprHelper_TprHelper_destructor(self)
     }
 }

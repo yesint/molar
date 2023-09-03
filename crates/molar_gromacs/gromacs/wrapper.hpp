@@ -15,7 +15,8 @@ public:
     //~TprHelper();
     t_topology* get_top();
     float* get_atom_xyz(int ind);
-    float *get_box();
+    float* get_box();
+    char* get_atomname(int ind);
 private:
     t_topology top;
     t_state state;
