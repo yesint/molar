@@ -73,7 +73,7 @@ set(GROMACS_INCLUDE_DIRECTORIS
 )
 set(GROMACS_LIBRARIES ${GROMACS_LIB_FILES})
 
-# Ugly workaround to pass gromas source and bin location
+# Ugly workaround to pass gromacs source and bin location
 # to cargo by writing them to a text file
 configure_file(cmake_to_cargo.txt.in ${CMAKE_BINARY_DIR}/../cmake_to_cargo.txt)
 
