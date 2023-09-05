@@ -40,8 +40,11 @@ impl IoFileOpener for TprFileHandler {
 
 unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
     let cstr = CStr::from_ptr(ptr).to_bytes();
-    let s = AsciiString::from_ascii_unchecked(cstr);
-    s
+    AsciiString::from_ascii_unchecked(cstr)    
+}
+
+fn c_array_to_slice<'a,T>(ptr: *mut T, n: usize) -> &'a[T] {
+    unsafe{ std::slice::from_raw_parts(ptr, n) }
 }
 
 impl IoStructure for TprFileHandler {
@@ -53,9 +56,9 @@ impl IoStructure for TprFileHandler {
         let mut structure: Structure = Default::default();
         structure.atoms.reserve(natoms);
 
-        let gmx_atoms = unsafe{ std::slice::from_raw_parts(top.atoms.atom, natoms) };
-        let gmx_atomnames = unsafe{ std::slice::from_raw_parts(top.atoms.atomname, natoms) };
-        let gmx_resinfo = unsafe{ std::slice::from_raw_parts(top.atoms.resinfo, nres)};
+        let gmx_atoms = c_array_to_slice(top.atoms.atom, natoms);
+        let gmx_atomnames = c_array_to_slice(top.atoms.atomname, natoms);
+        let gmx_resinfo = c_array_to_slice(top.atoms.resinfo, nres);
         let gmx_pdbinfo: Option<&[t_pdbinfo]> =
         if top.atoms.pdbinfo != null_mut() {
             Some(unsafe{std::slice::from_raw_parts(top.atoms.pdbinfo, natoms)})
@@ -99,8 +102,8 @@ impl IoStructure for TprFileHandler {
                 
                 structure.atoms.push(new_atom);
                 
-            }
-        }
+            } //for
+        } //unsafe
 
         Ok(structure)
     }
