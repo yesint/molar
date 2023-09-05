@@ -29,7 +29,7 @@ fn main() {
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .allowlist_type("t_topology")
         .allowlist_type("TprHelper")
-        //.allowlist_function("drop_top_mtop")
+        .allowlist_var("F_.*")
         .opaque_type("std::.*")
         .opaque_type("t_state")
         .opaque_type("t_inputrec")

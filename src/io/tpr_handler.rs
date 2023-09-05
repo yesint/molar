@@ -7,7 +7,8 @@ use crate::io::get_ext;
 use anyhow::{anyhow, bail, Result};
 use nalgebra::Matrix3;
 use std::{ffi::{c_void, CStr, CString}, ptr::null_mut};
-use molar_gromacs::gromacs_bindings::{t_topology, TprHelper, t_pdbinfo};
+use molar_gromacs::gromacs_bindings::*;
+use std::collections::HashMap;
 
 
 pub struct TprFileHandler {
@@ -45,6 +46,14 @@ unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
 
 fn c_array_to_slice<'a,T>(ptr: *mut T, n: usize) -> &'a[T] {
     unsafe{ std::slice::from_raw_parts(ptr, n) }
+}
+
+#[derive(Clone)]
+enum IdefType {
+    Bond,
+    Angle,
+    Dihedral,
+    None,
 }
 
 impl IoStructure for TprFileHandler {
@@ -102,7 +111,25 @@ impl IoStructure for TprFileHandler {
                 
                 structure.atoms.push(new_atom);
                 
-            } //for
+            } //for atoms
+
+            // Parsing idef
+            let ntypes = top.idef.ntypes as usize;
+            let mut idef_types = vec![IdefType::None; ntypes];
+
+            for (i,t) in c_array_to_slice(top.idef.functype, ntypes).iter().enumerate() {
+                match *t as u32 {
+                    F_BONDS | F_G96BONDS | F_HARMONIC | F_FENEBONDS | F_CUBICBONDS
+                        | F_CONSTR |  F_CONSTRNC => idef_types[i]=IdefType::Bond,
+                    F_ANGLES | F_G96ANGLES | F_UREY_BRADLEY 
+                        | F_LINEAR_ANGLES | F_RESTRANGLES => idef_types[i]=IdefType::Angle,
+                    F_PDIHS | F_ANG => idef_types[i]=IdefType::Lj14,
+                    _ => idef_types[i]=IdefType::None,
+                }
+            }
+
+
+
         } //unsafe
 
         Ok(structure)
