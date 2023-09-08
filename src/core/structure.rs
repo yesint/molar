@@ -5,8 +5,7 @@ use super::Atom;
 pub struct Structure {
     pub atoms: Vec<Atom>,
     pub bonds: Vec<[usize; 2]>,
-    pub angles: Vec<[usize; 3]>,
-    pub dihedrals: Vec<[usize; 4]>,
+    pub molecules: Vec<[usize; 2]>,
 }
 
 impl Structure {

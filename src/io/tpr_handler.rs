@@ -48,13 +48,6 @@ fn c_array_to_slice<'a,T>(ptr: *mut T, n: usize) -> &'a[T] {
     unsafe{ std::slice::from_raw_parts(ptr, n) }
 }
 
-#[derive(Clone)]
-enum IdefType {
-    Bond,
-    Angle,
-    Dihedral,
-    None,
-}
 
 impl IoStructure for TprFileHandler {
     fn read_structure(&mut self) -> Result<Structure> {
@@ -69,12 +62,12 @@ impl IoStructure for TprFileHandler {
         let gmx_atomnames = c_array_to_slice(top.atoms.atomname, natoms);
         let gmx_resinfo = c_array_to_slice(top.atoms.resinfo, nres);
         let gmx_pdbinfo: Option<&[t_pdbinfo]> =
-        if top.atoms.pdbinfo != null_mut() {
-            Some(unsafe{std::slice::from_raw_parts(top.atoms.pdbinfo, natoms)})
-        } else {
-            None
-        };
-        let gmx_atomtypes = unsafe{ std::slice::from_raw_parts(top.atoms.atomtype, natoms) };
+            if top.atoms.pdbinfo != null_mut() {
+                Some(c_array_to_slice(top.atoms.pdbinfo, natoms))
+            } else {
+                None
+            };
+        let gmx_atomtypes = c_array_to_slice(top.atoms.atomtype, natoms);
         
         unsafe{
             for i in 0..natoms {
@@ -110,24 +103,43 @@ impl IoStructure for TprFileHandler {
                 };
                 
                 structure.atoms.push(new_atom);
-                
             } //for atoms
 
-            // Parsing idef
-            let ntypes = top.idef.ntypes as usize;
-            let mut idef_types = vec![IdefType::None; ntypes];
+            // Parsing idef for bonds
+            let functypes = c_array_to_slice(top.idef.functype,top.idef.ntypes as usize);
+            // Iterate over non-empty interaction lists 
+            for il in top.idef.il.iter().filter(|el| el.nr>0) {
+                let iatoms = c_array_to_slice(il.iatoms,il.nr as usize);
+                // We can check the first type only since we only
+                // need to evaluate the interaction type and not
+                // the concrete parameters for involved atoms
+                match functypes[iatoms[0] as usize] as u32 {
+                    F_BONDS | F_G96BONDS | F_HARMONIC 
+                    | F_FENEBONDS | F_CUBICBONDS
+                    | F_CONSTR |  F_CONSTRNC => {
+                        for el in iatoms.chunks_exact(3) {
+                            // el[0] is type and not needed
+                            structure.bonds.push([el[1] as usize, el[2] as usize]);
+                        }        
+                    },
+                    F_SETTLE => {
+                        for el in iatoms.chunks_exact(4){
+                            // el[0] is type and not needed
+                            // Each settle is 2 bonds
+                            structure.bonds.push([el[1] as usize, el[2] as usize]);
+                            structure.bonds.push([el[1] as usize, el[3] as usize]);
+                        }
+                    }
+                    _ => (),
+                } //match
+                
+            } //for
 
-            for (i,t) in c_array_to_slice(top.idef.functype, ntypes).iter().enumerate() {
-                match *t as u32 {
-                    F_BONDS | F_G96BONDS | F_HARMONIC | F_FENEBONDS | F_CUBICBONDS
-                        | F_CONSTR |  F_CONSTRNC => idef_types[i]=IdefType::Bond,
-                    F_ANGLES | F_G96ANGLES | F_UREY_BRADLEY 
-                        | F_LINEAR_ANGLES | F_RESTRANGLES => idef_types[i]=IdefType::Angle,
-                    F_PDIHS | F_ANG => idef_types[i]=IdefType::Lj14,
-                    _ => idef_types[i]=IdefType::None,
-                }
+            // Read molecules
+            let mol_index = c_array_to_slice(top.mols.index, top.mols.nr as usize);
+            for m in mol_index.chunks_exact(2) {
+                structure.molecules.push([m[0] as usize, m[1] as usize -1]);
             }
-
 
 
         } //unsafe
@@ -143,6 +155,8 @@ impl IoStructure for TprFileHandler {
 #[test]
 fn test_tpr() {
     let mut h = TprFileHandler::new_reader("tests/topol.tpr").unwrap();
-    let structure = h.read_structure();
-    println!("{:?}",structure);
+    let structure = h.read_structure().unwrap();
+    println!("natoms: {:?}",structure.atoms.len());
+    println!("nbonds: {:?}",structure.bonds.len());
+    println!("molecules: {:?}",structure.molecules.len());
 }
