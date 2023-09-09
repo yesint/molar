@@ -14,9 +14,10 @@ public:
     TprHelper(const char* fname);
     ~TprHelper();
     t_topology* get_top();
-    float* get_atom_xyz(int ind);
+    size_t get_natoms();
+    float* get_atom_xyz(size_t ind);
     float* get_box();
-    char* get_atomname(int ind);
+    char* get_atomname(size_t ind);
 private:
     gmx_mtop_t mtop;
     t_topology top;

@@ -11,27 +11,31 @@ pub use xtc_handler::XtcFileHandler;
 mod tpr_handler;
 pub use tpr_handler::TprFileHandler;
 
-struct FileContent {
-    atoms: bool,
-    bonds: bool,
-    coords: bool,
-    pbox: bool,
-    
-}
 // Traits for file handler
-pub trait IoFileOpener {
+pub trait IoReader {
     fn new_reader(fname: &str) -> Result<Self> where Self: Sized;
+}
+
+pub trait IoWriter {
     fn new_writer(fname: &str) -> Result<Self> where Self: Sized;
 }
 
 // Traits for different file types
-pub trait IoStructure {
+pub trait IoStructureReader {
     fn read_structure(&mut self) -> Result<Structure>;
+}
+
+pub trait IoStructureWriter {
     fn write_structure(&mut self, data: &Structure) -> Result<()>;
 }
 
-pub trait IoState {
+
+pub trait IoStateReader {
     fn read_next_state(&mut self) -> Result<Option<State>>;
+}
+
+
+pub trait IoStateWriter {
     fn write_next_state(&mut self, data: &State) -> Result<()>;
 }
 
@@ -40,6 +44,7 @@ pub enum FileHandler<'a> {
     Dcd(VmdMolFileHandler<'a>),
     Xyz(VmdMolFileHandler<'a>),
     Xtc(XtcFileHandler),
+    Tpr(TprFileHandler),
 }
 
 pub fn get_ext(fname: &str) -> Result<&str> {
@@ -52,7 +57,7 @@ pub fn get_ext(fname: &str) -> Result<&str> {
 }
 
 
-impl<'a> IoFileOpener for FileHandler<'a> {
+impl<'a> IoReader for FileHandler<'a> {
     fn new_reader(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
@@ -60,10 +65,13 @@ impl<'a> IoFileOpener for FileHandler<'a> {
             "dcd" => Ok(Self::Dcd(VmdMolFileHandler::new_reader(fname)?)),
             "xyz" => Ok(Self::Xyz(VmdMolFileHandler::new_reader(fname)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::new_reader(fname)?)),
+            "tpr" => Ok(Self::Tpr(TprFileHandler::new_reader(fname)?)),
             _ => bail!("Unrecognized extension {ext}"),
         }
     }
+}
 
+impl<'a> IoWriter for FileHandler<'a> {
     fn new_writer(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
@@ -76,7 +84,7 @@ impl<'a> IoFileOpener for FileHandler<'a> {
     }
 }
 
-impl<'a> IoStructure for FileHandler<'a> {
+impl<'a> IoStructureReader for FileHandler<'a> {
     fn read_structure(&mut self) -> Result<Structure> {
         match self {
             Self::Pdb(ref mut h) |
@@ -84,7 +92,9 @@ impl<'a> IoStructure for FileHandler<'a> {
             _ => bail!("Unable to read structure"),
         }
     }
+}
 
+impl<'a> IoStructureWriter for FileHandler<'a> {
     fn write_structure(&mut self,data: &Structure) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) |
@@ -94,23 +104,35 @@ impl<'a> IoStructure for FileHandler<'a> {
     }
 }
 
-impl<'a> IoState for FileHandler<'a> {
+impl<'a> IoStateReader for FileHandler<'a> {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) | 
             Self::Dcd(ref mut h) => h.read_next_state(),
             Self::Xtc(ref mut h) => h.read_next_state(),
+            Self::Tpr(ref mut h) => h.read_next_state(),
         }
     }
+}
 
+impl<'a> IoStateWriter for FileHandler<'a> {
     fn write_next_state(&mut self,data: &State) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) | 
             Self::Dcd(ref mut h) => h.write_next_state(data),
             Self::Xtc(ref mut h) => h.write_next_state(data),
+            _ => bail!("Unable to write state"),
         }
     }
 }
 
+#[test]
+fn test_read() {
+    use super::io::*;
+
+    let mut h = FileHandler::new_reader("tests/colored.pdb").unwrap();
+    let st = h.read_structure();
+    let fr = h.read_next_state();
+}

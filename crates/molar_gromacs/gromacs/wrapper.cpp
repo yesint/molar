@@ -18,7 +18,12 @@ t_topology *TprHelper::get_top()
     return &top;
 }
 
-float *TprHelper::get_atom_xyz(int ind)
+size_t TprHelper::get_natoms()
+{
+    return top.atoms.nr;
+}
+
+float *TprHelper::get_atom_xyz(size_t ind)
 {
     return (float*)&state.x[ind];
 }
@@ -28,7 +33,7 @@ float *TprHelper::get_box()
     return (float*)&state.box;
 }
 
-char *TprHelper::get_atomname(int ind)
+char *TprHelper::get_atomname(size_t ind)
 {
     return *(top.atoms.atomname[ind]);
 }

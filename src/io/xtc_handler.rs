@@ -1,4 +1,4 @@
-use super::{IoFileOpener,IoState};
+use super::{IoReader, IoStateReader, IoStateWriter, IoWriter};
 use molar_xdrfile::xdrfile_bindings::*;
 
 use crate::core::State;
@@ -128,20 +128,21 @@ impl XtcFileHandler {
 }
 
 
-impl IoFileOpener for XtcFileHandler {
+impl IoReader for XtcFileHandler {
     fn new_reader(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_read()?;
         Ok(instance)
     }
+}
 
+impl IoWriter for XtcFileHandler {
     fn new_writer(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_write()?;
         Ok(instance)
     }
 }
-
 
 impl Drop for XtcFileHandler {
     fn drop(&mut self) {
@@ -154,8 +155,7 @@ impl Drop for XtcFileHandler {
     }
 }
 
-impl IoState for XtcFileHandler {
-
+impl IoStateReader for XtcFileHandler {
     #[allow(non_upper_case_globals)]
     fn read_next_state(&mut self) -> Result<Option<State>> {
         let mut st: State = Default::default();
@@ -190,8 +190,9 @@ impl IoState for XtcFileHandler {
             _ => bail!("Error reading timestep!"),
         }
     }
+}
 
-
+impl IoStateWriter for XtcFileHandler {
     fn write_next_state(&mut self, st: &State) -> Result<()> {
         let box_ = st.box_.transpose();
         let ok = unsafe {

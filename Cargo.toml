@@ -32,4 +32,3 @@ nalgebra.workspace = true
 #nalgebra-lapack.workspace = true
 peg.workspace = true
 regex.workspace = true
-num = "0.4.1"

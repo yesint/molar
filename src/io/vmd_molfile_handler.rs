@@ -1,4 +1,4 @@
-use super::{IoFileOpener, IoStructure, IoState};
+use super::{IoReader, IoWriter, IoStructureReader, IoStateReader, IoStructureWriter, IoStateWriter};
 use crate::core::*;
 use ascii::AsciiString;
 
@@ -13,9 +13,8 @@ use std::ffi::{c_void, CStr, CString};
 use std::ptr;
 
 use std::default::Default;
-use std::path::Path;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use nalgebra::Matrix3;
 //use num_traits::pow::Pow;
 
@@ -151,13 +150,15 @@ impl VmdMolFileHandler<'_> {
     }
 }
 
-impl IoFileOpener for VmdMolFileHandler<'_> {
+impl IoReader for VmdMolFileHandler<'_> {
     fn new_reader(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname)?;
         instance.open_read()?;
         Ok(instance)
     }
+}
 
+impl IoWriter for VmdMolFileHandler<'_> {
     fn new_writer(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname)?;
         instance.open_write()?;
@@ -165,7 +166,7 @@ impl IoFileOpener for VmdMolFileHandler<'_> {
     }
 }
 
-impl IoStructure for VmdMolFileHandler<'_> {
+impl IoStructureReader for VmdMolFileHandler<'_> {
     fn read_structure(&mut self) -> Result<Structure> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
@@ -214,13 +215,15 @@ impl IoStructure for VmdMolFileHandler<'_> {
 
         Ok(structure)
     }
+}
 
+impl IoStructureWriter for VmdMolFileHandler<'_> {
     fn write_structure(&mut self, data: &Structure) -> Result<()> {
         Ok(())
     }
 }
 
-impl IoState for VmdMolFileHandler<'_> {
+impl IoStateReader for VmdMolFileHandler<'_> {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         let mut state: State = Default::default();
 
@@ -261,7 +264,9 @@ impl IoState for VmdMolFileHandler<'_> {
             _ => bail!("Error reading timestep!"),
         }
     }
+}
 
+impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state(&mut self, data: &State) -> Result<()> {
         Ok(())
     }
