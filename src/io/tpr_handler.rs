@@ -1,24 +1,25 @@
-use super::{IoFileOpener, IoStructure, IoState};
+use super::{IoWriter, IoReader, IoStructureReader, IoStateReader};
 use crate::core::*;
 use ascii::{AsciiString,AsciiChar};
 
-use crate::io::get_ext;
+use anyhow::{bail, Result};
 
-use anyhow::{anyhow, bail, Result};
-use nalgebra::Matrix3;
-use std::{ffi::{c_void, CStr, CString}, ptr::null_mut};
+use std::{ffi::{CStr, CString}, ptr::null_mut};
 use molar_gromacs::gromacs_bindings::*;
-use std::collections::HashMap;
 
 
 pub struct TprFileHandler {
     handle: TprHelper,
+    state_read: bool,
 }
 
 impl TprFileHandler {
     fn new(fname: &str) -> Result<Self> {
         let f_name = CString::new(fname.clone())?;
-        Ok(TprFileHandler { handle: unsafe{ TprHelper::new(f_name.as_ptr()) } })
+        Ok(TprFileHandler {
+            handle: unsafe{ TprHelper::new(f_name.as_ptr()) },
+            state_read: false,
+        })
     }
 }
 
@@ -29,11 +30,13 @@ impl Drop for TprFileHandler {
     }
 }
 
-impl IoFileOpener for TprFileHandler {
+impl IoReader for TprFileHandler {
     fn new_reader(fname: &str) -> Result<Self> {
         TprFileHandler::new(fname)        
     }
+}
 
+impl IoWriter for TprFileHandler {
     fn new_writer(fname: &str) -> Result<Self> {
         bail!("TPR files are not writable!")
     }
@@ -52,7 +55,7 @@ fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
 }
 
 
-impl IoStructure for TprFileHandler {
+impl IoStructureReader for TprFileHandler {
     fn read_structure(&mut self) -> Result<Structure> {
         let top = unsafe{ self.handle.get_top().as_ref().unwrap() };
         let natoms = top.atoms.nr as usize;
@@ -149,11 +152,33 @@ impl IoStructure for TprFileHandler {
 
         Ok(structure)
     }
+}
 
-    fn write_structure(&mut self, data: &Structure) -> Result<()> {
-        bail!("TPR files are not writable!")
+
+impl<'a> IoStateReader for TprFileHandler {
+    fn read_next_state(&mut self) -> Result<Option<State>> {
+        if self.state_read {
+            // State is read alredy, return EOF and fo nothing
+            return Ok(None);
+        }
+        
+        let mut st = State::default();
+        let natoms = unsafe{ self.handle.get_natoms() };
+        // Gromacs stores coordinates in TPR in internal non-standard vectors
+        // So we will need to copy them atom by atom
+        st.coords.resize(natoms, Default::default());
+        unsafe {
+            for i in 0..natoms {
+                st.coords[i] = c_array_to_slice(self.handle.get_atom_xyz(i),3usize).try_into()?;
+            }
+        }
+        
+        // Set a marker that state is already read
+        self.state_read = true;
+        Ok(Some(st))
     }
 }
+
 
 #[test]
 fn test_tpr() {
@@ -162,4 +187,7 @@ fn test_tpr() {
     println!("natoms: {:?}",structure.atoms.len());
     println!("nbonds: {:?}",structure.bonds.len());
     println!("molecules: {:?}",structure.molecules.len());
+
+    let state = h.read_next_state().unwrap().unwrap();
+    println!("state sz: {:?}",state.coords.len());
 }
