@@ -492,8 +492,8 @@ mod tests {
 
     #[test]
     pub fn test_apply() {
-        use crate::io::VmdMolFileHandler;
-        let mut h = VmdMolFileHandler::new_reader("colored.pdb").unwrap();
+        use crate::io::FileHandler;
+        let mut h = FileHandler::new_reader("colored.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
 

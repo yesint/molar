@@ -1,6 +1,6 @@
 use crate::core::{Structure,State};
 use anyhow::{Result,bail,anyhow};
-use std::{path::Path, any};
+use std::path::Path;
 
 mod vmd_molfile_handler;
 pub use vmd_molfile_handler::VmdMolFileHandler;
@@ -34,6 +34,12 @@ pub trait IoStateReader {
     fn read_next_state(&mut self) -> Result<Option<State>>;
 }
 
+impl<'a> Iterator for FileHandler<'a> {
+    type Item = State;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.read_next_state().expect("Error reading state")
+    }
+}
 
 pub trait IoStateWriter {
     fn write_next_state(&mut self, data: &State) -> Result<()>;
@@ -132,7 +138,10 @@ impl<'a> IoStateWriter for FileHandler<'a> {
 fn test_read() {
     use super::io::*;
 
-    let mut h = FileHandler::new_reader("tests/colored.pdb").unwrap();
-    let st = h.read_structure();
-    let fr = h.read_next_state();
+    let mut h = FileHandler::new_reader("tests/topol.tpr").unwrap();
+    let st = h.read_structure().unwrap();
+    //let fr = h.read_next_state();
+    for fr in h {
+        println!("{:?}",fr);
+    }
 }
