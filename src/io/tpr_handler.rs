@@ -44,8 +44,11 @@ unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
     AsciiString::from_ascii_unchecked(cstr)    
 }
 
-fn c_array_to_slice<'a,T>(ptr: *mut T, n: usize) -> &'a[T] {
-    unsafe{ std::slice::from_raw_parts(ptr, n) }
+fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
+    match n.try_into() {
+        Ok(sz) => unsafe{ std::slice::from_raw_parts(ptr,sz)  },
+        _ => panic!("Array size is not convertible to usize")
+    }
 }
 
 
@@ -106,10 +109,10 @@ impl IoStructure for TprFileHandler {
             } //for atoms
 
             // Parsing idef for bonds
-            let functypes = c_array_to_slice(top.idef.functype,top.idef.ntypes as usize);
+            let functypes = c_array_to_slice(top.idef.functype,top.idef.ntypes);
             // Iterate over non-empty interaction lists 
             for il in top.idef.il.iter().filter(|el| el.nr>0) {
-                let iatoms = c_array_to_slice(il.iatoms,il.nr as usize);
+                let iatoms = c_array_to_slice(il.iatoms,il.nr);
                 // We can check the first type only since we only
                 // need to evaluate the interaction type and not
                 // the concrete parameters for involved atoms
@@ -136,7 +139,7 @@ impl IoStructure for TprFileHandler {
             } //for
 
             // Read molecules
-            let mol_index = c_array_to_slice(top.mols.index, top.mols.nr as usize);
+            let mol_index = c_array_to_slice(top.mols.index, top.mols.nr);
             for m in mol_index.chunks_exact(2) {
                 structure.molecules.push([m[0] as usize, m[1] as usize -1]);
             }
