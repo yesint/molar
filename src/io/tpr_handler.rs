@@ -36,12 +36,6 @@ impl IoReader for TprFileHandler {
     }
 }
 
-impl IoWriter for TprFileHandler {
-    fn new_writer(fname: &str) -> Result<Self> {
-        bail!("TPR files are not writable!")
-    }
-}
-
 unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
     let cstr = CStr::from_ptr(ptr).to_bytes();
     AsciiString::from_ascii_unchecked(cstr)    
@@ -146,8 +140,6 @@ impl IoStructureReader for TprFileHandler {
             for m in mol_index.chunks_exact(2) {
                 structure.molecules.push([m[0] as usize, m[1] as usize -1]);
             }
-
-
         } //unsafe
 
         Ok(structure)
@@ -155,7 +147,7 @@ impl IoStructureReader for TprFileHandler {
 }
 
 
-impl<'a> IoStateReader for TprFileHandler {
+impl IoStateReader for TprFileHandler {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         if self.state_read {
             // State is read alredy, return EOF and fo nothing
