@@ -29,17 +29,34 @@ pub trait IoStructureWriter {
     fn write_structure(&mut self, data: &Structure) -> Result<()>;
 }
 
+// State iterator
+pub struct IoStateIterator<T> where T: IoStateReader {
+    reader: T,
+}
+
+impl<T> Iterator for IoStateIterator<T> where T: IoStateReader {
+    type Item = State;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.reader.read_next_state().expect("Error reading state")
+    }
+}
 
 pub trait IoStateReader {
     fn read_next_state(&mut self) -> Result<Option<State>>;
+
+    fn into_iter_states(self) -> IoStateIterator<Self> where Self: Sized {
+        IoStateIterator { reader: self }
+    }
 }
 
+/*
 impl<'a> Iterator for FileHandler<'a> {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.read_next_state().expect("Error reading state")
     }
 }
+*/
 
 pub trait IoStateWriter {
     fn write_next_state(&mut self, data: &State) -> Result<()>;
@@ -95,6 +112,7 @@ impl<'a> IoStructureReader for FileHandler<'a> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) => h.read_structure(),
+            Self::Tpr(ref mut h) => h.read_structure(),
             _ => bail!("Unable to read structure"),
         }
     }
@@ -139,9 +157,11 @@ fn test_read() {
     use super::io::*;
 
     let mut h = FileHandler::new_reader("tests/topol.tpr").unwrap();
+    
     let st = h.read_structure().unwrap();
-    //let fr = h.read_next_state();
-    for fr in h {
+       
+    
+    for fr in h.into_iter_states() {
         println!("{:?}",fr);
     }
 }
