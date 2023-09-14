@@ -49,15 +49,6 @@ pub trait IoStateReader {
     }
 }
 
-/*
-impl<'a> Iterator for FileHandler<'a> {
-    type Item = State;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.read_next_state().expect("Error reading state")
-    }
-}
-*/
-
 pub trait IoStateWriter {
     fn write_next_state(&mut self, data: &State) -> Result<()>;
 }

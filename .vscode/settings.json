@@ -11,5 +11,8 @@
         "./crates/molar_gromacs/Cargo.toml",
         "./crates/molar_gromacs/Cargo.toml",
         "./crates/molar_gromacs/Cargo.toml"
-    ]
+    ],
+    "files.associations": {
+        "vector": "cpp"
+    }
 }
