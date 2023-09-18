@@ -95,6 +95,7 @@ impl<'a> IoStructureReader for FileHandler<'a> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) => h.read_structure(),
+            Self::Tpr(ref mut h) => h.read_structure(),
             _ => bail!("Unable to read structure"),
         }
     }
