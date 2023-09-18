@@ -1,6 +1,6 @@
 use super::{IoReader, IoWriter, IoStructureReader, IoStateReader, IoStructureWriter, IoStateWriter};
 use crate::core::*;
-use ascii::AsciiString;
+use ascii::{AsciiString,AsciiStr};
 
 use crate::io::get_ext;
 
@@ -11,6 +11,7 @@ use molar_molfile::molfile_bindings::{
 
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
+use std::iter::zip;
 
 use std::default::Default;
 
@@ -74,6 +75,12 @@ fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
     let s = unsafe { AsciiString::from_ascii_unchecked(cstr) };
     s
 }
+
+fn char_slice_to_ascii_slice(buf: &[::std::os::raw::c_char]) -> &AsciiStr {
+    let cstr = unsafe { CStr::from_ptr(buf.as_ptr()).to_bytes() };
+    unsafe { AsciiStr::from_ascii_unchecked(cstr) }
+}
+
 
 #[doc = "Universal handler of different VMD molfile file formats"]
 impl VmdMolFileHandler<'_> {
@@ -219,6 +226,32 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
 
 impl IoStructureWriter for VmdMolFileHandler<'_> {
     fn write_structure(&mut self, data: &Structure) -> Result<()> {
+        let vmd_atoms = Vec::<molfile_atom_t>::with_capacity(data.atoms.len());
+        for ref vmd_at in zip(vmd_atoms) {
+            let a = char_slice_to_ascii_slice(&vmd_at.name);
+        }
+
+        for(int i=0; i<sel.size(); ++i){
+            strcpy( atoms[i].name, sel.name(i).c_str() );
+            strcpy( atoms[i].resname, sel.resname(i).c_str() );
+            atoms[i].resid = sel.resid(i);
+            //stringstream ss;
+            //ss << sel.chain(i);
+            //strcpy( atoms[i].chain, ss.str().c_str() );
+            atoms[i].chain[0] = sel.chain(i);
+            atoms[i].chain[1] = '\0';
+            atoms[i].occupancy = sel.occupancy(i);
+            atoms[i].bfactor = sel.beta(i);
+            atoms[i].mass = sel.mass(i);
+            atoms[i].charge = sel.charge(i);
+            atoms[i].atomicnumber = sel.atomic_number(i);
+
+            // For MOL2 we also need to set atom type as a string
+            strcpy( atoms[i].type, sel.element_name(i).c_str() );
+        }
+        int flags = MOLFILE_OCCUPANCY | MOLFILE_BFACTOR | MOLFILE_ATOMICNUMBER
+                    | MOLFILE_CHARGE | MOLFILE_MASS;
+        plugin->write_structure(handle,flags,&atoms.front());
         Ok(())
     }
 }
@@ -266,25 +299,14 @@ impl IoStateReader for VmdMolFileHandler<'_> {
     }
 }
 
+
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state(&mut self, data: &State) -> Result<()> {
+        
         Ok(())
     }
 }
 
-/*
-impl IoSingleFrame for VmdMolFileHandler<'_> {
-    fn read_state(&mut self) -> Result<State> {
-        return self
-            .read_next_state()?
-            .ok_or(anyhow!("Error reading single time step"));
-    }
-
-    fn write_state(&mut self, data: &State) -> Result<()> {
-        Ok(())
-    }
-}
-*/
 
 impl Drop for VmdMolFileHandler<'_> {
     fn drop(&mut self) {
