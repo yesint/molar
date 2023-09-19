@@ -9,7 +9,7 @@ pub struct Atom {
     pub resid: i32, // Could be negative
     pub resindex: usize,
     // Atom physical properties from topology
-    pub atomic_number: usize,
+    pub atomic_number: u8,
     pub mass: f32,
     pub charge: f32,
     pub type_name: AsciiString,

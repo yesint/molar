@@ -4,58 +4,20 @@ use ascii::{AsciiString,AsciiStr};
 
 use crate::io::get_ext;
 
-use molar_molfile::molfile_bindings::{
-    dcd_get_plugin_ptr, molfile_atom_t, molfile_plugin_t, molfile_timestep_t, 
-    pdb_get_plugin_ptr, xyz_get_plugin_ptr, MOLFILE_EOF, MOLFILE_SUCCESS,
-};
+use molar_molfile::molfile_bindings::*;
 
 use std::ffi::{c_void, CStr, CString};
-use std::ptr;
-use std::iter::zip;
+use std::ptr::{self, null_mut};
 
 use std::default::Default;
 
 use anyhow::{bail, Result};
 use nalgebra::Matrix3;
-//use num_traits::pow::Pow;
-
-fn box_from_vmd(a: f32, b: f32, c: f32, alpha: f32, beta: f32, gamma: f32) -> Matrix3<f32> {
-    let mut box_ = Matrix3::<f32>::zeros();
-
-    box_[(0,0)] = a;
-
-    if alpha != 90.0 || beta != 90.0 || gamma != 90.0 {
-        let cosa = if alpha != 90.0 {
-            alpha.to_radians().cos()
-        } else {
-            0.0
-        };
-        let cosb = if beta != 90.0 {
-            beta.to_radians().cos()
-        } else {
-            0.0
-        };
-        let (sing, cosg) = if gamma != 90.0 {
-            gamma.to_radians().sin_cos()
-        } else {
-            (1.0, 0.0)
-        };
-        box_[(0,1)] = b * cosg;
-        box_[(1,1)] = b * sing;
-        box_[(0,2)] = c * cosb;
-        box_[(1,2)] = c * (cosa - cosb * cosg) / sing;
-        box_[(2,2)] = (c * c - box_[(0,2)].powf(2.0) - box_[(1,2)].powf(2.0)).sqrt();
-    } else {
-        box_[(1,1)] = b;
-        box_[(2,2)] = c;
-    }
-    box_ / 10.0 // Convert to nm
-}
-
 
 enum OpenMode {
     Read,
     Write,
+    None,
 }
 
 pub struct VmdMolFileHandler<'a> {
@@ -109,7 +71,7 @@ impl VmdMolFileHandler<'_> {
             file_name: fname.to_owned(),
             plugin,
             file_handle: ptr::null_mut(),
-            mode: OpenMode::Read, // Defaults to read
+            mode: OpenMode::None,
             natoms: 0,
         })
     }
@@ -136,11 +98,14 @@ impl VmdMolFileHandler<'_> {
         Ok(())
     }
 
-    fn open_write(&mut self) -> Result<()> {
+    fn open_write(&mut self, natoms: usize) -> Result<()> {
         // Open file and get file pointer
         // Prepare c-strings for file opening
         let f_type = CString::new("")?; // Not used
         let f_name = CString::new(self.file_name.clone())?;
+
+        // Set number of atoms
+        self.natoms = natoms;
 
         self.file_handle = unsafe {
             self.plugin.open_file_write.unwrap() // get function ptr
@@ -168,7 +133,9 @@ impl IoReader for VmdMolFileHandler<'_> {
 impl IoWriter for VmdMolFileHandler<'_> {
     fn new_writer(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname)?;
-        instance.open_write()?;
+        // We can't open for writing here because we don't know
+        // the number of atoms to write yet. Defer it to 
+        // actual writing operation
         Ok(instance)
     }
 }
@@ -214,7 +181,7 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
             if at.atomicnumber == 0 || at.mass==0.0 {
                 new_atom.guess_element_from_name();
             } else {
-                new_atom.atomic_number = at.atomicnumber as usize;
+                new_atom.atomic_number = at.atomicnumber as u8;
                 new_atom.mass = at.mass;
             }
             structure.atoms.push(new_atom);
@@ -224,35 +191,58 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
     }
 }
 
+fn copy_str_to_c_buffer(st: &AsciiStr, cstr: &mut [i8]){
+    let n = st.len();
+    if n+1 >= cstr.len(){
+        panic!("VMD fixed size field is too short!");
+    }
+    for i in 0..n {
+        cstr[i] = st[i] as i8;
+    }
+    cstr[n+1] = '\0' as i8;
+}
+
 impl IoStructureWriter for VmdMolFileHandler<'_> {
     fn write_structure(&mut self, data: &Structure) -> Result<()> {
-        let vmd_atoms = Vec::<molfile_atom_t>::with_capacity(data.atoms.len());
-        for ref vmd_at in zip(vmd_atoms) {
-            let a = char_slice_to_ascii_slice(&vmd_at.name);
+        // First check if the file is already opened. If not, open it
+        match self.mode {
+            OpenMode::None => self.open_write(data.atoms.len())?,
+            OpenMode::Write => if data.atoms.len() != self.natoms {
+                bail!("Provided {} atoms for {} coordinates!",data.atoms.len(),self.natoms);
+            },
+            OpenMode::Read => unreachable!(),
         }
 
-        for(int i=0; i<sel.size(); ++i){
-            strcpy( atoms[i].name, sel.name(i).c_str() );
-            strcpy( atoms[i].resname, sel.resname(i).c_str() );
-            atoms[i].resid = sel.resid(i);
-            //stringstream ss;
-            //ss << sel.chain(i);
-            //strcpy( atoms[i].chain, ss.str().c_str() );
-            atoms[i].chain[0] = sel.chain(i);
-            atoms[i].chain[1] = '\0';
-            atoms[i].occupancy = sel.occupancy(i);
-            atoms[i].bfactor = sel.beta(i);
-            atoms[i].mass = sel.mass(i);
-            atoms[i].charge = sel.charge(i);
-            atoms[i].atomicnumber = sel.atomic_number(i);
-
-            // For MOL2 we also need to set atom type as a string
-            strcpy( atoms[i].type, sel.element_name(i).c_str() );
+        let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(data.atoms.len());
+        for at in data.atoms.iter() {
+            let mut vmd_at = molfile_atom_t::default();
+            copy_str_to_c_buffer(&at.name, &mut vmd_at.name);
+            copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname);
+            vmd_at.resid = at.resid;
+            vmd_at.chain[0] = at.chain as i8;
+            vmd_at.chain[1] = '\0' as i8;
+            vmd_at.occupancy = at.occupancy;
+            vmd_at.bfactor = at.bfactor;
+            vmd_at.mass = at.mass;
+            vmd_at.charge = at.charge;
+            vmd_at.atomicnumber = at.atomic_number as i32;
+            vmd_atoms.push(vmd_at);
         }
-        int flags = MOLFILE_OCCUPANCY | MOLFILE_BFACTOR | MOLFILE_ATOMICNUMBER
+
+        let flags: u32 = MOLFILE_OCCUPANCY | MOLFILE_BFACTOR | MOLFILE_ATOMICNUMBER
                     | MOLFILE_CHARGE | MOLFILE_MASS;
-        plugin->write_structure(handle,flags,&atoms.front());
-        Ok(())
+        let ret = unsafe{
+            self.plugin.write_structure.unwrap()(
+                self.file_handle,
+                flags as i32,
+                vmd_atoms.as_ptr()
+            )
+        };
+
+        match ret {
+            MOLFILE_SUCCESS => Ok(()),
+            _ => bail!("Error writing structure")
+        }
     }
 }
 
@@ -286,7 +276,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { state.coords.set_len(self.natoms as usize) }
             // Convert the box
-            state.box_ = box_from_vmd(ts.A, ts.B, ts.C, ts.alpha, ts.beta, ts.gamma);
+            state.box_ = PeriodicBox::new_from_vectors_angles(ts.A, ts.B, ts.C, ts.alpha, ts.beta, ts.gamma)?;
             // time
             state.time = ts.physical_time as f32;
         }
@@ -302,8 +292,50 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state(&mut self, data: &State) -> Result<()> {
+        // First check if the file is already opened. If not, open it
+        match self.mode {
+            OpenMode::None => self.open_write(data.coords.len())?,
+            OpenMode::Write => if data.coords.len() != self.natoms {
+                bail!("Provided {} coordinates for {} atoms!",data.coords.len(),self.natoms);
+            },
+            OpenMode::Read => unreachable!(),
+        }
+
+        // Buffer for coordinates allocated on heap
+        let mut buf = Vec::<f32>::with_capacity(3*self.natoms);
+        // Fill the buffer and convert to angstroms
+        for i in 0..self.natoms {
+            for dim in 0..3 {
+                buf.push( data.coords[i][dim]*10.0 );
+            }
+        }
+        //Box::into_raw(test) as *mut _ 
         
-        Ok(())
+        // Periodic box
+        let (box_vec,box_ang) = data.box_.to_vectors_angles();
+
+        let ts = molfile_timestep_t{
+            coords: buf.as_mut_ptr(),
+            velocities: null_mut(),
+            A: box_vec[0]*10.0,
+            B: box_vec[1]*10.0,
+            C: box_vec[2]*10.0,
+            alpha: box_ang[0],
+            beta: box_ang[1],
+            gamma: box_ang[2],
+            physical_time: data.time as f64,
+        };
+
+        //std::mem::forget(buf);
+
+        let ret = unsafe {
+            self.plugin.write_timestep.unwrap()(self.file_handle,&ts)
+        };
+
+        match ret {
+            MOLFILE_SUCCESS => Ok(()),
+            _ => bail!("Error writing timestep!"),
+        }
     }
 }
 
@@ -318,6 +350,7 @@ impl Drop for VmdMolFileHandler<'_> {
                 OpenMode::Write => unsafe {
                     self.plugin.close_file_write.unwrap()(self.file_handle)
                 },
+                OpenMode::None => (),
             };
         }
     }

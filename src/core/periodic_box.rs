@@ -1,6 +1,7 @@
 use nalgebra::{Matrix3, Vector3, Point3};
 use anyhow::{Result,bail};
 
+#[derive(Debug,Default)]
 pub struct PeriodicBox {
     matrix: Matrix3<f32>,
     inv: Matrix3<f32>,
@@ -8,7 +9,7 @@ pub struct PeriodicBox {
 }
 
 impl PeriodicBox {
-    fn new(matrix: Matrix3<f32>) -> Result<Self> {
+    pub fn new(matrix: Matrix3<f32>) -> Result<Self> {
         // Sanity check
         for col in matrix.column_iter() {
             if col.norm() == 0.0 { bail!("Three non-zero periodic box vector required! Given {}",matrix) }
@@ -26,7 +27,7 @@ impl PeriodicBox {
         })
     }
 
-    fn new_from_vectors_angles(a: f32, b: f32, c: f32, alpha: f32, beta: f32, gamma: f32) -> Result<Self> {
+    pub fn new_from_vectors_angles(a: f32, b: f32, c: f32, alpha: f32, beta: f32, gamma: f32) -> Result<Self> {
         let mut m = Matrix3::<f32>::zeros();
     
         if a==0.0 || b==0.0 || c==0.0 {
@@ -68,7 +69,41 @@ impl PeriodicBox {
         Self::new(m)
     }
 
-    fn wrap_vector(&self, vec: Vector3<f32>) -> Vector3<f32> {
+    pub fn to_vectors_angles(&self) -> (Vector3<f32>,Vector3<f32>) {
+        let mut vectors = Vector3::<f32>::zeros();
+        let mut angles = Vector3::<f32>::zeros();
+
+        let vx = self.matrix.column(0);
+        let vy = self.matrix.column(1);
+        let vz = self.matrix.column(2);
+
+        angles[0] = if vy.norm_squared() * vz.norm_squared() != 0.0 {
+            vy.angle(&vz).to_degrees()
+        } else {
+            90.0
+        };
+
+        angles[1] = if vx.norm_squared() * vz.norm_squared() != 0.0 {
+            vx.angle(&vz).to_degrees()
+        } else {
+            90.0
+        };
+
+        angles[2] = if vx.norm_squared() * vy.norm_squared() != 0.0 {
+            vx.angle(&vy).to_degrees()
+        } else {
+            90.0
+        };
+        
+        vectors[0] = vx.norm();
+        vectors[1] = vy.norm();
+        vectors[2] = vz.norm();
+
+        (vectors,angles)
+    }
+    
+
+    pub fn wrap_vector(&self, vec: Vector3<f32>) -> Vector3<f32> {
         if self.is_rectangular {
             return vec.clone();
         } else {
@@ -82,7 +117,7 @@ impl PeriodicBox {
     }
 
 
-    fn wrap_vector_dims(&self, vec: Vector3<f32>, pbc_dims: &[i32;3]) -> Vector3<f32> {
+    pub fn wrap_vector_dims(&self, vec: Vector3<f32>, pbc_dims: &[i32;3]) -> Vector3<f32> {
         if self.is_rectangular {
             return vec.clone();
         } else {
@@ -97,7 +132,7 @@ impl PeriodicBox {
         }
     }
 
-    fn wrap_point(&self, point: Point3<f32>) -> Point3<f32> {
+    pub fn wrap_point(&self, point: Point3<f32>) -> Point3<f32> {
         if self.is_rectangular {
             return point;
         } else {
@@ -112,12 +147,16 @@ impl PeriodicBox {
 
 
 
-    fn closest_image(&self, point: &Point3<f32>, target: &Point3<f32>) -> Point3<f32> {
+    pub fn closest_image(&self, point: &Point3<f32>, target: &Point3<f32>) -> Point3<f32> {
         target + self.wrap_vector(point-target)
     }
 
-    fn closest_image_dims(&self, point: &Point3<f32>, target: &Point3<f32>, pbc_dims: &[i32;3]) -> Point3<f32> {
+    pub fn closest_image_dims(&self, point: &Point3<f32>, target: &Point3<f32>, pbc_dims: &[i32;3]) -> Point3<f32> {
         target + self.wrap_vector_dims(point-target, pbc_dims)
+    }
+
+    pub fn get_matrix(&self) -> Matrix3<f32> {
+        self.matrix
     }
 
 

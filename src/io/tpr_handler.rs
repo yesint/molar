@@ -3,6 +3,7 @@ use crate::core::*;
 use ascii::{AsciiString,AsciiChar};
 
 use anyhow::{bail, Result};
+use nalgebra::{Matrix,Matrix3};
 
 use std::{ffi::{CStr, CString}, ptr::null_mut};
 use molar_gromacs::gromacs_bindings::*;
@@ -88,7 +89,7 @@ impl IoStructureReader for TprFileHandler {
                     chain,
                     charge: gmx_atoms[i].q,
                     mass: gmx_atoms[i].m,
-                    atomic_number: gmx_atoms[i].atomnumber as usize,
+                    atomic_number: gmx_atoms[i].atomnumber as u8,
                     type_id: gmx_atoms[i].type_ as u32,
                     type_name,
                     occupancy: match gmx_pdbinfo {
@@ -164,6 +165,13 @@ impl IoStateReader for TprFileHandler {
                 st.coords[i] = c_array_to_slice(self.handle.get_atom_xyz(i),3usize).try_into()?;
             }
         }
+
+        // Box is stored as column-major matrix
+        let sl = unsafe{
+            std::slice::from_raw_parts(self.handle.get_box(), 9)
+        };
+        let m = Matrix3::from_column_slice(sl);
+        st.box_ = PeriodicBox::new(m)?;
         
         // Set a marker that state is already read
         self.state_read = true;

@@ -533,6 +533,7 @@ static int write_timestep(void *v, const molfile_timestep_t *ts) {
 	    fprintf(stderr, "PDB WRITE ERROR: Position, occupancy, or b-factor (beta) for atom %d\n", i);
       fprintf(stderr, "                 cannot be written in PDB format.\n");
       fprintf(stderr, "                 File will be truncated.\n");
+      fprintf(stderr,"%f %f %f",pos[0],pos[1],pos[2]);
       return MOLFILE_ERROR;
     }
 

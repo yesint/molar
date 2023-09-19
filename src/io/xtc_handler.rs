@@ -1,7 +1,8 @@
 use super::{IoReader, IoStateReader, IoStateWriter, IoWriter};
 use molar_xdrfile::xdrfile_bindings::*;
+use nalgebra::Matrix3;
 
-use crate::core::State;
+use crate::core::{State, PeriodicBox};
 
 use anyhow::{bail, Result, anyhow};
 use std::ffi::CString;
@@ -164,6 +165,7 @@ impl IoStateReader for XtcFileHandler {
         // Allocate storage for coordinates, but don't initialize them
         // This doesn't waste time for initialization, which will be overwritten anyway
         st.coords = Vec::with_capacity(self.natoms);
+        let mut box_matrix = Matrix3::<f32>::zeros();
 
         let ok = unsafe {
             read_xtc(
@@ -171,7 +173,7 @@ impl IoStateReader for XtcFileHandler {
                 self.natoms as i32,
                 &mut self.step,
                 &mut st.time,
-                st.box_.as_mut_ptr().cast::<[f32;3]>(),
+                box_matrix.as_mut_ptr().cast::<[f32;3]>(),
                 st.coords.as_mut_ptr().cast::<rvec>(),
                 &mut prec,
             )
@@ -179,9 +181,10 @@ impl IoStateReader for XtcFileHandler {
 
         if ok as u32 == exdrOK {
             // C function populated the coordinates, set the vector size for Rust
-            unsafe { st.coords.set_len(self.natoms) }
+            unsafe { st.coords.set_len(self.natoms) };
             // Convert box to column-major form.
-            st.box_.transpose_mut();
+            box_matrix.transpose_mut();
+            st.box_ = PeriodicBox::new(box_matrix)?;
         }
         
         match ok as u32 {
@@ -194,7 +197,7 @@ impl IoStateReader for XtcFileHandler {
 
 impl IoStateWriter for XtcFileHandler {
     fn write_next_state(&mut self, st: &State) -> Result<()> {
-        let box_ = st.box_.transpose();
+        let box_ = st.box_.get_matrix().transpose();
         let ok = unsafe {
             write_xtc(
                 self.handle,

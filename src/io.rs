@@ -148,11 +148,16 @@ fn test_read() {
     use super::io::*;
 
     let mut h = FileHandler::new_reader("tests/topol.tpr").unwrap();
+    let mut w = FileHandler::new_writer("tests/1.pdb").unwrap();
     
+
     let st = h.read_structure().unwrap();
-       
-    
+    println!("{:?}",st.atoms);
+
     for fr in h.into_iter_states() {
-        println!("{:?}",fr);
+        //println!("{:?}",fr);
+        w.write_structure(&st).unwrap();
+        w.write_next_state(&fr).unwrap();
+        w.write_next_state(&fr).unwrap();
     }
 }
