@@ -162,7 +162,8 @@ impl IoStateReader for TprFileHandler {
         st.coords.resize(natoms, Default::default());
         unsafe {
             for i in 0..natoms {
-                st.coords[i].copy_from_slice( c_array_to_slice(self.handle.get_atom_xyz(i),3usize) );
+                // We are passinh coords of point
+                st.coords[i].coords.copy_from_slice( c_array_to_slice(self.handle.get_atom_xyz(i),3usize) );
             }
         }
 
@@ -171,7 +172,7 @@ impl IoStateReader for TprFileHandler {
             std::slice::from_raw_parts(self.handle.get_box(), 9)
         };
         let m = Matrix3::from_column_slice(sl);
-        st.box_ = PeriodicBox::new(m)?;
+        st.box_ = PeriodicBox::from_matrix(m)?;
         
         // Set a marker that state is already read
         self.state_read = true;

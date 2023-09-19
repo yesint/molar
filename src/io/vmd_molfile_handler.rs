@@ -12,7 +12,6 @@ use std::ptr::{self, null_mut};
 use std::default::Default;
 
 use anyhow::{bail, Result};
-use nalgebra::Matrix3;
 
 enum OpenMode {
     Read,
@@ -37,12 +36,6 @@ fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
     let s = unsafe { AsciiString::from_ascii_unchecked(cstr) };
     s
 }
-
-fn char_slice_to_ascii_slice(buf: &[::std::os::raw::c_char]) -> &AsciiStr {
-    let cstr = unsafe { CStr::from_ptr(buf.as_ptr()).to_bytes() };
-    unsafe { AsciiStr::from_ascii_unchecked(cstr) }
-}
-
 
 #[doc = "Universal handler of different VMD molfile file formats"]
 impl VmdMolFileHandler<'_> {
@@ -132,7 +125,7 @@ impl IoReader for VmdMolFileHandler<'_> {
 
 impl IoWriter for VmdMolFileHandler<'_> {
     fn new_writer(fname: &str) -> Result<Self> {
-        let mut instance = Self::new(fname)?;
+        let instance = Self::new(fname)?;
         // We can't open for writing here because we don't know
         // the number of atoms to write yet. Defer it to 
         // actual writing operation
@@ -191,15 +184,15 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
     }
 }
 
-fn copy_str_to_c_buffer(st: &AsciiStr, cstr: &mut [i8]){
+fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]){
     let n = st.len();
-    if n+1 >= cstr.len(){
+    if n+1 >= cbuf.len(){
         panic!("VMD fixed size field is too short!");
     }
     for i in 0..n {
-        cstr[i] = st[i] as i8;
+        cbuf[i] = st[i] as i8;
     }
-    cstr[n+1] = '\0' as i8;
+    cbuf[n+1] = '\0' as i8;
 }
 
 impl IoStructureWriter for VmdMolFileHandler<'_> {
@@ -276,7 +269,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { state.coords.set_len(self.natoms as usize) }
             // Convert the box
-            state.box_ = PeriodicBox::new_from_vectors_angles(ts.A, ts.B, ts.C, ts.alpha, ts.beta, ts.gamma)?;
+            state.box_ = PeriodicBox::from_vectors_angles(ts.A, ts.B, ts.C, ts.alpha, ts.beta, ts.gamma)?;
             // time
             state.time = ts.physical_time as f32;
         }

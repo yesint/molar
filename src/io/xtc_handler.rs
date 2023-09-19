@@ -4,7 +4,7 @@ use nalgebra::Matrix3;
 
 use crate::core::{State, PeriodicBox};
 
-use anyhow::{bail, Result, anyhow};
+use anyhow::{bail, Result};
 use std::ffi::CString;
 use std::ptr;
 
@@ -184,7 +184,7 @@ impl IoStateReader for XtcFileHandler {
             unsafe { st.coords.set_len(self.natoms) };
             // Convert box to column-major form.
             box_matrix.transpose_mut();
-            st.box_ = PeriodicBox::new(box_matrix)?;
+            st.box_ = PeriodicBox::from_matrix(box_matrix)?;
         }
         
         match ok as u32 {
@@ -219,16 +219,3 @@ impl IoStateWriter for XtcFileHandler {
         Ok(())
     }
 }
-
-/*
-impl IoSingleFrame for XtcFileHandler {
-    fn read_state(&mut self) -> Result<State> {
-        self.read_next_state()?
-            .ok_or(anyhow!("Error reading single time step"))
-    }
-
-    fn write_state(&mut self, data: &State) -> Result<()> {
-        self.write_next_state(data)
-    }
-}
-*/
