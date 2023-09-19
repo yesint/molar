@@ -162,7 +162,7 @@ impl IoStateReader for TprFileHandler {
         st.coords.resize(natoms, Default::default());
         unsafe {
             for i in 0..natoms {
-                st.coords[i] = c_array_to_slice(self.handle.get_atom_xyz(i),3usize).try_into()?;
+                st.coords[i].copy_from_slice( c_array_to_slice(self.handle.get_atom_xyz(i),3usize) );
             }
         }
 

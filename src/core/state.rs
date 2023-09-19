@@ -1,8 +1,9 @@
 use super::PeriodicBox;
+use nalgebra::Vector3;
 
 #[derive(Debug, Default)]
 pub struct State {
-    pub coords: Vec<[f32; 3]>,
+    pub coords: Vec<Vector3<f32>>,
     pub time: f32,
     pub box_: PeriodicBox, 
 }
