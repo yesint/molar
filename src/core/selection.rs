@@ -134,25 +134,25 @@ impl LogicalNode {
     }
     */
 
-    fn map_same_prop<T>(&self, data: &ApplyData, inner: &SubsetType, prop_fn: fn(&Atom)->T) -> Result<SubsetType> 
-    where T: Eq+std::hash::Hash {
+    fn map_same_prop<'a,T>(&self, data: &'a ApplyData, inner: &SubsetType, prop_fn: fn(&'a Atom)->&'a T) -> SubsetType 
+    where T: Eq+std::hash::Hash+Copy {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        for el in inner {
-            properties.insert(prop_fn(&data.structure.atoms[*el]));
+        for el in inner.iter().cloned() {
+            properties.insert(*prop_fn(&data.structure.atoms[el]));
         }
         
         // Now loop over current cubset and add all atoms with the same property
         let mut res = SubsetType::new();
-        for el in data.subset.iter() {
+        for el in data.subset.iter().cloned() {
             for prop in properties.iter() {
-                if prop_fn(&data.structure.atoms[*el]) == *prop {
-                    res.insert(*el);
+                if prop_fn(&data.structure.atoms[el]) == prop {
+                    res.insert(el);
                     break;
                 }
             }
         }
-        Ok(res)
+        res
     }
 
 
@@ -173,10 +173,11 @@ impl LogicalNode {
             Self::Comparison(node) => node.apply(data),
             Self::Same(prop,node) => {
                 let inner = node.apply(data)?;
-                // Collect unique values of prop
-                //prop_values = HashSet<>
-                //TODO
-                Ok(SubsetType::default())
+                let res = match prop {
+                    SameProp::Residue => self.map_same_prop(data, &inner, |at| &at.resindex),
+                    SameProp::Chain => self.map_same_prop(data, &inner, |at| &at.chain),
+                };
+                Ok(res)
             },
         }
     }
@@ -237,19 +238,19 @@ impl KeywordNode {
     fn apply(&self,data: &ApplyData) -> Result<SubsetType> {  
         match self {
             Self::Name(values) => {
-                Ok(self.map_str_values(data, values, |a:&Atom| &a.name ))
+                Ok(self.map_str_values(data, values, |a| &a.name ))
             },
             Self::Resname(values) => {
-                Ok(self.map_str_values(data, values, |a:&Atom| &a.resname ))
+                Ok(self.map_str_values(data, values, |a| &a.resname ))
             },
             Self::Resid(values) => {
-                Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resid))
+                Ok(self.map_int_values(data, values, |a,_i| a.resid))
             },
             Self::Resindex(values) => {
-                Ok(self.map_int_values(data, values, |a:&Atom,_i:usize| a.resindex as i32 ))
+                Ok(self.map_int_values(data, values, |a,_i| a.resindex as i32 ))
             },
             Self::Index(values) => {
-                Ok(self.map_int_values(data, values, |_a:&Atom,i:usize| i as i32))
+                Ok(self.map_int_values(data, values, |_a,i| i as i32))
             },
             Self::Chain(values) => {
                 let mut res = SubsetType::new();
