@@ -93,7 +93,8 @@ type SubsetType = HashSet<usize>;
 pub struct ApplyData<'a> {
     structure: &'a Structure,
     state: &'a State,
-    subset: SubsetType,    
+    subset: SubsetType,
+      
 }
 
 impl<'a> ApplyData<'a> {    
@@ -113,6 +114,7 @@ impl<'a> ApplyData<'a> {
     fn len(&self) -> usize {
         self.subset.len()
     }
+
 }
 
 //###################################
@@ -172,9 +174,9 @@ impl LogicalNode {
             Self::Same(prop,node) => {
                 let inner = node.apply(data)?;
                 // Collect unique values of prop
-                prop_values = HashSet<>
+                //prop_values = HashSet<>
                 //TODO
-                Ok()
+                Ok(SubsetType::default())
             },
         }
     }
