@@ -56,10 +56,6 @@ impl VmdMolFileHandler<'_> {
             .unwrap()
         };
 
-        // We can't open file here because for writing we need to know natoms,
-        // which is only visible in actuall call to write.
-        // For reading we can open, but for consistency we'll defer it as well.
-
         Ok(VmdMolFileHandler {
             file_name: fname.to_owned(),
             plugin,
@@ -70,11 +66,11 @@ impl VmdMolFileHandler<'_> {
     }
 
     fn open_read(&mut self) -> Result<()> {
-        // Open file and get file pointer
         // Prepare c-strings for file opening
         let f_type = CString::new("")?; // Not used
         let f_name = CString::new(self.file_name.clone())?;
-
+        
+        // Open file and get file pointer
         let mut n: i32 = 0;
         self.file_handle = unsafe {
             self.plugin.open_file_read.unwrap() // get function ptr
@@ -87,12 +83,10 @@ impl VmdMolFileHandler<'_> {
         }
 
         self.mode = OpenMode::Read;
-
         Ok(())
     }
 
     fn open_write(&mut self, natoms: usize) -> Result<()> {
-        // Open file and get file pointer
         // Prepare c-strings for file opening
         let f_type = CString::new("")?; // Not used
         let f_name = CString::new(self.file_name.clone())?;
@@ -100,6 +94,7 @@ impl VmdMolFileHandler<'_> {
         // Set number of atoms
         self.natoms = natoms;
 
+        // Open file and get file handle
         self.file_handle = unsafe {
             self.plugin.open_file_write.unwrap() // get function ptr
                 (f_name.as_ptr(), f_type.as_ptr(), self.natoms as i32) // Call function
@@ -113,6 +108,19 @@ impl VmdMolFileHandler<'_> {
 
         Ok(())
     }
+
+    fn try_open_write(&mut self, natoms: usize) -> Result<()>{
+        match self.mode {
+            OpenMode::None => self.open_write(natoms),
+            OpenMode::Write => if natoms != self.natoms {
+                bail!("Number of atoms mismatch: given {}, file opened for writing with {}!",natoms,self.natoms)
+            } else {
+                Ok(())
+            },
+            OpenMode::Read => unreachable!(),
+        }
+    }
+
 }
 
 impl IoReader for VmdMolFileHandler<'_> {
@@ -158,26 +166,26 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
         let mut structure: Structure = Default::default();
         structure.atoms.reserve(self.natoms);
 
-        for ref at in vmd_atoms {
-            let mut new_atom = Atom {
-                name: char_slice_to_ascii_str(&at.name),
-                resid: at.resid,
-                resname: char_slice_to_ascii_str(&at.resname),
-                chain: char_slice_to_ascii_str(&at.chain).first().unwrap(),
-                charge: at.charge,
-                occupancy: at.occupancy,
-                bfactor: at.bfactor,
+        for ref vmd_at in vmd_atoms {
+            let mut at = Atom {
+                name: char_slice_to_ascii_str(&vmd_at.name),
+                resid: vmd_at.resid,
+                resname: char_slice_to_ascii_str(&vmd_at.resname),
+                chain: char_slice_to_ascii_str(&vmd_at.chain).first().unwrap(),
+                charge: vmd_at.charge,
+                occupancy: vmd_at.occupancy,
+                bfactor: vmd_at.bfactor,
                 ..Default::default()
             };
             // See if the element number and mass are set
             // and guess if required
-            if at.atomicnumber == 0 || at.mass==0.0 {
-                new_atom.guess_element_from_name();
+            if vmd_at.atomicnumber == 0 || vmd_at.mass==0.0 {
+                at.guess_element_and_mass_from_name();
             } else {
-                new_atom.atomic_number = at.atomicnumber as u8;
-                new_atom.mass = at.mass;
+                at.atomic_number = vmd_at.atomicnumber as u8;
+                at.mass = vmd_at.mass;
             }
-            structure.atoms.push(new_atom);
+            structure.atoms.push(at);
         }
 
         Ok(structure)
@@ -197,14 +205,8 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]){
 
 impl IoStructureWriter for VmdMolFileHandler<'_> {
     fn write_structure(&mut self, data: &Structure) -> Result<()> {
-        // First check if the file is already opened. If not, open it
-        match self.mode {
-            OpenMode::None => self.open_write(data.atoms.len())?,
-            OpenMode::Write => if data.atoms.len() != self.natoms {
-                bail!("Provided {} atoms for {} coordinates!",data.atoms.len(),self.natoms);
-            },
-            OpenMode::Read => unreachable!(),
-        }
+        // Open file if not yet opened
+        self.try_open_write(data.atoms.len())?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(data.atoms.len());
         for at in data.atoms.iter() {
@@ -285,14 +287,8 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state(&mut self, data: &State) -> Result<()> {
-        // First check if the file is already opened. If not, open it
-        match self.mode {
-            OpenMode::None => self.open_write(data.coords.len())?,
-            OpenMode::Write => if data.coords.len() != self.natoms {
-                bail!("Provided {} coordinates for {} atoms!",data.coords.len(),self.natoms);
-            },
-            OpenMode::Read => unreachable!(),
-        }
+        // Open file if not yet opened
+        self.try_open_write(data.coords.len())?;
 
         // Buffer for coordinates allocated on heap
         let mut buf = Vec::<f32>::with_capacity(3*self.natoms);

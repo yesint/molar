@@ -25,7 +25,7 @@ impl Atom {
         Default::default()
     }
 
-    pub fn guess_element_from_name(&mut self) {
+    pub fn guess_element_and_mass_from_name(&mut self) {
         (self.atomic_number, self.mass) = match
             self.name.as_str()
             .trim_start_matches(char::is_numeric)

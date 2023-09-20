@@ -147,17 +147,18 @@ impl<'a> IoStateWriter for FileHandler<'a> {
 fn test_read() {
     use super::io::*;
 
-    let mut h = FileHandler::new_reader("tests/topol.tpr").unwrap();
+    let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
     let mut w = FileHandler::new_writer("tests/1.pdb").unwrap();
     
 
-    let st = h.read_structure().unwrap();
+    let st = r.read_structure().unwrap();
     println!("{:?}",st.atoms);
 
-    for fr in h.into_iter_states() {
+    for fr in r.into_iter_states() {
         //println!("{:?}",fr);
         w.write_structure(&st).unwrap();
         w.write_next_state(&fr).unwrap();
+        w.write_structure(&st).unwrap();
         w.write_next_state(&fr).unwrap();
     }
 }
