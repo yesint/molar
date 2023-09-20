@@ -342,7 +342,7 @@ peg::parser! {
             { n.parse().unwrap() }
 
         rule float() -> MathNode
-            = n:$((int() ("." int())? / ("-"/"+") "." int()) (("e"/"E") int())?)
+            = n:$((int() ("." uint())? / ("-"/"+") "." uint()) (("e"/"E") int())?)
             { MathNode::Float(n.parse().unwrap()) }
 
         pub rule int_keyword_expr() -> KeywordNode
@@ -412,7 +412,7 @@ peg::parser! {
         = precedence!{
             x:(@) _ "+" _ y:@ { MathNode::Plus(Box::new(x),Box::new(y)) }
             x:(@) _ "-" _ y:@ { MathNode::Minus(Box::new(x),Box::new(y)) }
-                  "-" _ v:@ { MathNode::Neg(Box::new(v)) }
+                    "-" _ v:@ { MathNode::Neg(Box::new(v)) }
             --
             x:(@) _ "*" _ y:@ { MathNode::Mul(Box::new(x),Box::new(y)) }
             x:(@) _ "/" _ y:@ { MathNode::Div(Box::new(x),Box::new(y)) }
