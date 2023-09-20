@@ -66,12 +66,19 @@ pub enum KeywordNode {
 }
 
 #[derive(Debug)]
+pub enum SameProp {
+    Residue,
+    Chain,
+}
+
+#[derive(Debug)]
 pub enum LogicalNode {
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
     And(Box<Self>, Box<Self>),
     Keyword(KeywordNode),
     Comparison(ComparisonNode),
+    Same(SameProp,Box<Self>),
 }
 
 
@@ -125,9 +132,33 @@ impl LogicalNode {
     }
     */
 
+    fn map_same_prop<T>(&self, data: &ApplyData, inner: &SubsetType, prop_fn: fn(&Atom)->T) -> Result<SubsetType> 
+    where T: Eq+std::hash::Hash {
+        // Collect all properties from the inner
+        let mut properties = HashSet::<T>::new();
+        for el in inner {
+            properties.insert(prop_fn(&data.structure.atoms[*el]));
+        }
+        
+        // Now loop over current cubset and add all atoms with the same property
+        let mut res = SubsetType::new();
+        for el in data.subset.iter() {
+            for prop in properties.iter() {
+                if prop_fn(&data.structure.atoms[*el]) == *prop {
+                    res.insert(*el);
+                    break;
+                }
+            }
+        }
+        Ok(res)
+    }
+
+
     pub fn apply(&self,data: &ApplyData) -> Result<SubsetType> {
         match self {
-            Self::Not(node) => node.apply(data),
+            Self::Not(node) => {
+                Ok(data.subset.difference(&node.apply(data)?).cloned().collect())
+            },
             Self::Or(a,b) => {
                 Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect())
             },
@@ -138,6 +169,13 @@ impl LogicalNode {
             },
             Self::Keyword(node) => node.apply(data),
             Self::Comparison(node) => node.apply(data),
+            Self::Same(prop,node) => {
+                let inner = node.apply(data)?;
+                // Collect unique values of prop
+                prop_values = HashSet<>
+                //TODO
+                Ok()
+            },
         }
     }
 }
@@ -404,14 +442,24 @@ peg::parser! {
             }
         }
 
+        // By expressions
+        pub rule same_expr() -> SameProp
+        = "same" __ t:$(("residue" / "chain")) __ "as" {
+            match t {
+                "residue" => SameProp::Residue,
+                "chain" => SameProp::Chain,
+                _ => unreachable!(),
+            }
+        }
+
         // Logic
         pub rule logical_expr() -> LogicalNode
         = precedence!{
             x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
             x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
             "not" _ v:@ { LogicalNode::Not(Box::new(v)) }
+            t:same_expr() _ v:@ { LogicalNode::Same(t,Box::new(v)) }
             //TODO:
-            // v:by_expr() {LogicalNode::By(v)}
             // v:within_expr() {LogicalNode::Within(v)}
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
