@@ -32,3 +32,4 @@ nalgebra.workspace = true
 #nalgebra-lapack.workspace = true
 peg.workspace = true
 regex.workspace = true
+lazy_static = "1.4.0"

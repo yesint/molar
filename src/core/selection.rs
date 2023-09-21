@@ -490,7 +490,9 @@ pub fn apply_ast_whole(ast: &SelectionAst, structure: &Structure, state: &State)
         state,
         subset: SubsetType::from_iter(0..structure.atoms.len())
     };
-    Ok( Vec::<usize>::from_iter(ast.apply(&data)?.into_iter()) )
+    let mut index = Vec::<usize>::from_iter(ast.apply(&data)?.into_iter());
+    index.sort();
+    Ok( index )
 }
 
 pub fn apply_ast_subset(ast: &SelectionAst, structure: &Structure, state: &State, subset: &Vec<usize>) -> Result<Vec<usize>> {
@@ -509,8 +511,30 @@ pub fn apply_ast_subset(ast: &SelectionAst, structure: &Structure, state: &State
 #[cfg(test)]
 mod tests {
     use super::{selection_parser, generate_ast, apply_ast_whole};
-    use crate::io::*;
+    use crate::{io::*, core::Structure,core::State};
+    use lazy_static::lazy_static;
 
+    fn read_test_pdb() -> (Structure,State) {
+        let mut h = FileHandler::new_reader("triclinic.pdb").unwrap();
+        let structure = h.read_structure().unwrap();
+        let state = h.read_next_state().unwrap().unwrap();
+        (structure,state)
+    }
+
+    // Read the test PDB file once and provide the content for tests
+    lazy_static! {
+        static ref SS: (Structure,State) = read_test_pdb();
+    }
+
+    fn get_selection_index(sel_str: &str) -> Vec<usize> {
+        let ast = generate_ast(sel_str).expect("Error generating AST");
+        apply_ast_whole(&ast, &SS.0, &SS.1).expect("Error applying AST")
+    }
+
+    //include!()
+
+    //----------------------------------------------------------------------
+    
     #[test]
     pub fn test_int_keyword_expr() {
         let res = selection_parser::int_keyword_expr("index 1  2 3:4 5");
@@ -554,4 +578,6 @@ mod tests {
 
         println!("index: {:?}",index);
     }
+
+ 
 }

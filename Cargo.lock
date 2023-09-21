@@ -191,6 +191,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ascii",
+ "lazy_static",
  "molar_gromacs",
  "molar_molfile",
  "molar_xdrfile",
