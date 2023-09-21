@@ -188,6 +188,9 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
             structure.atoms.push(at);
         }
 
+        // Assign resindexes
+        structure.assign_resindex();
+
         Ok(structure)
     }
 }

@@ -143,6 +143,9 @@ impl IoStructureReader for TprFileHandler {
             }
         } //unsafe
 
+        // Assign resindexes
+        structure.assign_resindex();
+        
         Ok(structure)
     }
 }

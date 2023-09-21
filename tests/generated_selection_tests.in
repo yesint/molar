@@ -1,0 +1,25 @@
+
+    #[test]
+    fn selection_test_0 () {
+        let answer: Vec<usize> =
+        "4 23 42 62 76 98 112 134 145 161 176 196 210 230 241 254 266 280 296 312 333 345 355 375 391 405 419 436 451 461 474 488 502 517 533 554 570 592 616 638 658 680 687 711 723 742 763 777 797 809 816 826 845 858 880 891 905 923 935 949 961 981 992 1003 1013 1035 1054 1069 1085 1096 1115 1134 1156 1163 1175 1185 1196 1215 1237 1254 1266 1288 1299 1311 1321 1337 1348 1365 1379 1386 1399 1420 1434 1444 1459 1475 1489 1504 1523 1537 1561 1576 1583 1598 1612 1631 1650 1665 1684 1706 1727 1751 1767"
+        .split(" ").map(|x| x.parse::<usize>().unwrap()).collect();
+        assert_eq!(get_selection_index("name CA"),answer);
+    }
+    
+    #[test]
+    fn selection_test_1 () {
+        let answer: Vec<usize> =
+        "143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 31573 31574 31575"
+        .split(" ").map(|x| x.parse::<usize>().unwrap()).collect();
+        assert_eq!(get_selection_index("resid 10"),answer);
+    }
+    
+    #[test]
+    fn selection_test_2 () {
+        let answer: Vec<usize> =
+        "143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158"
+        .split(" ").map(|x| x.parse::<usize>().unwrap()).collect();
+        assert_eq!(get_selection_index("same residue as (name CA and resid 10)"),answer);
+    }
+    

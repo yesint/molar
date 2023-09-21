@@ -515,7 +515,7 @@ mod tests {
     use lazy_static::lazy_static;
 
     fn read_test_pdb() -> (Structure,State) {
-        let mut h = FileHandler::new_reader("triclinic.pdb").unwrap();
+        let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
         (structure,state)
@@ -531,7 +531,7 @@ mod tests {
         apply_ast_whole(&ast, &SS.0, &SS.1).expect("Error applying AST")
     }
 
-    //include!()
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/generated_selection_tests.in"));
 
     //----------------------------------------------------------------------
     
@@ -564,20 +564,5 @@ mod tests {
         let res = selection_parser::comparison_expr("(x +4 )< x");
         println!("{:#?}", res);   
     }
-
-    #[test]
-    pub fn test_apply() {
-        use crate::io::FileHandler;
-        let mut h = FileHandler::new_reader("colored.pdb").unwrap();
-        let structure = h.read_structure().unwrap();
-        let state = h.read_next_state().unwrap().unwrap();
-
-        let ast = generate_ast("name N and resid 1:5 and x<20").expect("Error generating AST");
-        let mut index = apply_ast_whole(&ast, &structure, &state).expect("Error applying");
-        index.sort();
-
-        println!("index: {:?}",index);
-    }
-
  
 }
