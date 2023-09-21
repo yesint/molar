@@ -1,6 +1,6 @@
 use super::{IoReader, IoStateReader, IoStateWriter, IoWriter};
 use molar_xdrfile::xdrfile_bindings::*;
-use nalgebra::Matrix3;
+use nalgebra::{Matrix3, Point3};
 
 use crate::core::{State, PeriodicBox};
 
@@ -196,16 +196,39 @@ impl IoStateReader for XtcFileHandler {
 }
 
 impl IoStateWriter for XtcFileHandler {
-    fn write_next_state(&mut self, st: &State) -> Result<()> {
-        let box_ = st.box_.get_matrix().transpose();
+    fn write_next_state_subset(&mut self, data: &State, 
+            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()> 
+    {
+        let N = subset_indexes.len();
+
+        // Box have to be transposed because XTC contains row-major box
+        let box_ = data.box_.get_matrix().transpose();
+
+        // Coordinate buffer
+        let mut buf = Vec::<Point3<f32>>::new();
+        // Pointer to coordinates
+        let mut coord_ptr: *const Point3<f32> = data.coords.as_ptr();
+
+        // If not all coordinates are written we have to extract them
+        // to a buffer instead of passing the pointer to original coords
+        if N != data.coords.len() {
+            // Fill the buffer
+            buf.reserve(N);
+            for ind in subset_indexes {
+                buf.push(data.coords[ind]);
+            }
+            // Reset the pointer to buffer
+            coord_ptr = buf.as_ptr();
+        }
+
         let ok = unsafe {
             write_xtc(
                 self.handle,
-                st.coords.len() as i32,
+                N as i32,
                 self.step,
-                st.time,
+                data.time,
                 box_.as_ptr().cast::<[f32;3]>(),
-                st.coords.as_ptr().cast::<rvec>(),
+                coord_ptr.cast::<rvec>(),
                 1000.0,
             )
         };

@@ -11,7 +11,9 @@ pub use xtc_handler::XtcFileHandler;
 mod tpr_handler;
 pub use tpr_handler::TprFileHandler;
 
-// Traits for file handler
+//===============================
+// Traits for file opening 
+//===============================
 pub trait IoReader {
     fn new_reader(fname: &str) -> Result<Self> where Self: Sized;
 }
@@ -20,16 +22,47 @@ pub trait IoWriter {
     fn new_writer(fname: &str) -> Result<Self> where Self: Sized;
 }
 
-// Traits for different file types
-pub trait IoStructureReader {
+//===============================
+// Traits for Structure IO
+//===============================
+pub trait IoStructureReader: IoReader {
     fn read_structure(&mut self) -> Result<Structure>;
 }
 
-pub trait IoStructureWriter {
-    fn write_structure(&mut self, data: &Structure) -> Result<()>;
+pub trait IoStructureWriter: IoWriter {
+    fn write_structure_subset(&mut self, data: &Structure,
+        subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>;
+    
+    // Default implementation with all indexes
+    fn write_structure(&mut self, data: &Structure) -> Result<()> {
+        self.write_structure_subset(data, 0..data.atoms.len())
+    }
 }
 
-// State iterator
+//===============================
+// Traits for State IO
+//===============================
+pub trait IoStateReader: IoReader {
+    fn read_next_state(&mut self) -> Result<Option<State>>;
+
+    fn into_iter_states(self) -> IoStateIterator<Self> where Self: Sized {
+        IoStateIterator { reader: self }
+    }
+}
+
+pub trait IoStateWriter: IoWriter {
+    fn write_next_state_subset(&mut self, data: &State, 
+        subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>;
+
+    // Default implementation with all indexes
+    fn write_next_state(&mut self, data: &State) -> Result<()> {
+        self.write_next_state_subset(data, 0..data.coords.len())
+    }
+}
+
+//==================================================================
+// Iterator over the frames for any type implementing IoStateReader
+//==================================================================
 pub struct IoStateIterator<T> where T: IoStateReader {
     reader: T,
 }
@@ -41,17 +74,9 @@ impl<T> Iterator for IoStateIterator<T> where T: IoStateReader {
     }
 }
 
-pub trait IoStateReader {
-    fn read_next_state(&mut self) -> Result<Option<State>>;
-
-    fn into_iter_states(self) -> IoStateIterator<Self> where Self: Sized {
-        IoStateIterator { reader: self }
-    }
-}
-
-pub trait IoStateWriter {
-    fn write_next_state(&mut self, data: &State) -> Result<()>;
-}
+//================================
+// General type for file handlers
+//================================
 
 pub enum FileHandler<'a> {
     Pdb(VmdMolFileHandler<'a>),
@@ -110,10 +135,12 @@ impl<'a> IoStructureReader for FileHandler<'a> {
 }
 
 impl<'a> IoStructureWriter for FileHandler<'a> {
-    fn write_structure(&mut self,data: &Structure) -> Result<()> {
+    fn write_structure_subset(&mut self, data: &Structure,
+            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>
+    {
         match self {
             Self::Pdb(ref mut h) |
-            Self::Xyz(ref mut h) => h.write_structure(data),
+            Self::Xyz(ref mut h) => h.write_structure_subset(data,subset_indexes),
             _ => bail!("Unable to write structure"),
         }
     }
@@ -132,12 +159,14 @@ impl<'a> IoStateReader for FileHandler<'a> {
 }
 
 impl<'a> IoStateWriter for FileHandler<'a> {
-    fn write_next_state(&mut self,data: &State) -> Result<()> {
+    fn write_next_state_subset(&mut self, data: &State, 
+            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>
+    {    
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) | 
-            Self::Dcd(ref mut h) => h.write_next_state(data),
-            Self::Xtc(ref mut h) => h.write_next_state(data),
+            Self::Dcd(ref mut h) => h.write_next_state_subset(data,subset_indexes),
+            Self::Xtc(ref mut h) => h.write_next_state_subset(data,subset_indexes),
             _ => bail!("Unable to write state"),
         }
     }

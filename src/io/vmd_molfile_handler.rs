@@ -207,12 +207,16 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]){
 }
 
 impl IoStructureWriter for VmdMolFileHandler<'_> {
-    fn write_structure(&mut self, data: &Structure) -> Result<()> {
+    fn write_structure_subset(&mut self, data: &Structure,
+            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>
+    {
+        let n = subset_indexes.len();
         // Open file if not yet opened
-        self.try_open_write(data.atoms.len())?;
+        self.try_open_write(n)?;
 
-        let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(data.atoms.len());
-        for at in data.atoms.iter() {
+        let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
+        for ind in subset_indexes {
+            let at = &data.atoms[ind];
             let mut vmd_at = molfile_atom_t::default();
             copy_str_to_c_buffer(&at.name, &mut vmd_at.name);
             copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname);
@@ -289,19 +293,22 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 
 
 impl IoStateWriter for VmdMolFileHandler<'_> {
-    fn write_next_state(&mut self, data: &State) -> Result<()> {
+    fn write_next_state_subset(&mut self, data: &State, 
+        subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()> 
+    {
+        let n = subset_indexes.len();
+
         // Open file if not yet opened
-        self.try_open_write(data.coords.len())?;
+        self.try_open_write(n)?;
 
         // Buffer for coordinates allocated on heap
-        let mut buf = Vec::<f32>::with_capacity(3*self.natoms);
+        let mut buf = Vec::<f32>::with_capacity(3*n);
         // Fill the buffer and convert to angstroms
-        for i in 0..self.natoms {
+        for ind in subset_indexes {
             for dim in 0..3 {
-                buf.push( data.coords[i][dim]*10.0 );
+                buf.push( data.coords[ind][dim]*10.0 );
             }
         }
-        //Box::into_raw(test) as *mut _ 
         
         // Periodic box
         let (box_vec,box_ang) = data.box_.to_vectors_angles();
@@ -329,6 +336,7 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
             _ => bail!("Error writing timestep!"),
         }
     }
+
 }
 
 
