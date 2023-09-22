@@ -4,6 +4,15 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
+license.workspace = true
+description = "VMD molfile FFI bindings for molar"
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/molar_molfile"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
 [dependencies]
 ascii.workspace = true
 anyhow.workspace = true

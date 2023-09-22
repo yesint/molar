@@ -5,10 +5,20 @@ edition.workspace = true
 authors.workspace = true
 links = "stdc++"
 
+license.workspace = true
+description = "Gromacs FFI bindings for molar"
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/molar_gromacs"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+
 [dependencies]
 ascii.workspace = true
 anyhow.workspace = true
 
 [build-dependencies]
 cmake.workspace = true
-bindgen = "0.66.1"
+bindgen = "0.68.1"
