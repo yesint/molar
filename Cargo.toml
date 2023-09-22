@@ -4,6 +4,14 @@
 version = "0.1.0"
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
+license = "Artistic License 2.0"
+description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
+homepage = "https://github.com/yesint/molar"
+repository = "https://github.com/yesint/molar"
+documentation = "https://docs.rs/molar"
+readme = "README.md"
+keywords = ["MD", "molecular dyanamics", "science", "trajectory", "modeling"]
+categories = ["science", "simulation", "external-ffi-bindings"]
 
 [workspace.dependencies]
 ascii = "1.1"
