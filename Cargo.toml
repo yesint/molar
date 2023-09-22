@@ -5,7 +5,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
 license = "Artistic License 2.0"
-description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
 homepage = "https://github.com/yesint/molar"
 repository = "https://github.com/yesint/molar"
 documentation = "https://docs.rs/molar"
@@ -27,6 +26,20 @@ name = "molar"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+
+license.workspace = true
+description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
+homepage.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+
+exclude = [
+    "tests/*.xtc",    
+]
 
 [dependencies]
 # Workspace member crates
