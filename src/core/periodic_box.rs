@@ -111,9 +111,7 @@ impl PeriodicBox {
         } else {
             // Get vector in box fractional coordinates
             let mut box_vec = self.inv*vec;
-            for i in 0..3 {
-                box_vec[i] -= box_vec[i].round();
-            }
+            box_vec.apply(|v|{*v -= v.round();});
             return self.matrix * box_vec;
         }
     }
@@ -146,5 +144,12 @@ impl PeriodicBox {
         self.matrix
     }
 
+    pub fn to_box_coords(&self, vec: &Vector3<f32>) -> Vector3<f32> {
+        self.inv * vec
+    }
+
+    pub fn to_lab_coords(&self, vec: &Vector3<f32>) -> Vector3<f32> {
+        self.matrix * vec
+    }
 
 }

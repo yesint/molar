@@ -15,6 +15,6 @@ Molar is currently in early alpha stage.
 #### Currently implemented features
 * Reading and writing PDB and XTC files.
 * Reading Gromacs TPR files.
-* Selections using the syntaxys similar to VMD and Pteros.
+* Selections using the syntaxis similar to VMD and Pteros.
 * Automatic seamless compiling and linking with VMD molfile and xdrfile libraries and the git version of Gromacs.
 
