@@ -4,7 +4,7 @@
 version = "0.1.0"
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
-license = "Artistic License 2.0"
+license = "Artistic-2.0"
 homepage = "https://github.com/yesint/molar"
 repository = "https://github.com/yesint/molar"
 documentation = "https://docs.rs/molar"
