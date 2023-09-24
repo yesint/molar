@@ -1,4 +1,7 @@
+use std::ops::Mul;
+
 use anyhow::{Result,bail};
+use nalgebra::Normed;
 use crate::core::{Vector3f,Matrix3f,Pos};
 
 #[derive(Debug,Default)]
@@ -8,7 +11,7 @@ pub struct PeriodicBox {
     is_rectangular: bool,
 }
 
-pub type PbcDims = [u8;3];
+pub type PbcDims = [bool;3];
 
 impl PeriodicBox {
     pub fn from_matrix(matrix: Matrix3f) -> Result<Self> {
@@ -123,7 +126,7 @@ impl PeriodicBox {
             // Get vector in box fractional coordinates
             let mut box_vec = self.inv*vec;
             for i in 0..3 {
-                if pbc_dims[i] !=0 {
+                if pbc_dims[i] {
                     box_vec[i] -= box_vec[i].round();
                 }
             }
@@ -149,6 +152,21 @@ impl PeriodicBox {
 
     pub fn to_lab_coords(&self, vec: &Vector3f) -> Vector3f {
         self.matrix * vec
+    }
+
+    pub fn get_extents(&self) -> Vector3f {
+        Vector3f::from_iterator(
+            self.matrix.column_iter()
+            .map(|c| c.norm())
+        )
+    }
+
+    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc: &PbcDims) -> f32 {
+        self.wrap_vector_dims(&(p2-p1), pbc).norm_squared()
+    }
+
+    pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: &PbcDims) -> f32 {
+        self.distance_squared(p1, p2, pbc).sqrt()
     }
 
 }

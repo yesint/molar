@@ -197,6 +197,7 @@ dependencies = [
  "molar_xdrfile",
  "nalgebra",
  "ndarray",
+ "num-traits",
  "peg",
  "regex",
 ]

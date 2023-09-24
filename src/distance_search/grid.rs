@@ -1,12 +1,14 @@
 use ndarray::Array3;
-use std::iter::zip;
-use crate::core::{PeriodicBox, PbcDims, Pos, Vector3f, IndexIterator, PosIterator};
+use crate::core::{PeriodicBox, PbcDims, Pos, Vector3f};
 
+pub type CellLoc = nalgebra::Vector3<usize>;
 
 #[derive(Debug,Clone,Default)]
-struct GridCell {
+pub struct GridCell {
     ids: Vec<usize>,
     coords: Vec<Pos>,
+    // Vector of search results for this cell
+    found: Vec<usize>,
 }
 
 impl GridCell {
@@ -21,7 +23,7 @@ impl GridCell {
 }
 
 #[derive(Debug,Clone)]
-struct Grid {
+pub struct Grid {
     data: Array3<GridCell>,
 }
 
@@ -29,6 +31,7 @@ pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize,&'a Pos)> {}
 impl<'a,T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize,&'a Pos)> {}
 
 impl Grid {
+    
     fn new(x_sz: usize, y_sz: usize, z_sz: usize) -> Self {
         Self {
             data: Array3::<GridCell>::from_shape_simple_fn(
@@ -38,7 +41,7 @@ impl Grid {
         }
     }
 
-    fn populate<'a>(&mut self, 
+    fn populate<'a>(&mut self,
         id_pos: impl IdPosIterator<'a>,
         lower: &Vector3f,
         upper: &Vector3f) 
@@ -75,7 +78,7 @@ impl Grid {
                 let n = (dim[d] as f32 * rel[d]).floor() as isize;
                 // If dimension in not periodic and 
                 // out of bounds - skip the point
-                if pbc_dims[d]==0 && (n>dim[d] as isize || n<0) {
+                if pbc_dims[d] && (n>dim[d] as isize || n<0) {
                     continue 'outer;
                 }
                 // Correct for possible minor numeric errors
@@ -84,7 +87,24 @@ impl Grid {
             self.data[ind].add(id,pos);
         }
     }
+
 }
+
+// Implement indexing for Grid
+impl std::ops::Index<&CellLoc> for Grid {
+    type Output = GridCell;
+
+    fn index(&self, index: &CellLoc) -> &Self::Output {
+        &self.data[(index.x,index.y,index.z)]
+    }
+}
+
+impl std::ops::IndexMut<&CellLoc> for Grid {
+    fn index_mut(&mut self, index: &CellLoc) -> &mut Self::Output {
+        &mut self.data[(index.x,index.y,index.z)]
+    }
+}
+
 
 #[test]
 fn test_grid() {
@@ -96,6 +116,6 @@ fn test_grid() {
     let mut gr = Grid::new(10,10,10);
     gr.populate_periodic(
         zip(0..st.coords.len(),st.coords.iter()),
-        &st.box_, [1u8,1,1]
+        &st.box_, [true,true,true]
     );
 }

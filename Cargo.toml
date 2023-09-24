@@ -55,3 +55,4 @@ peg.workspace = true
 regex.workspace = true
 lazy_static = "1.4.0"
 ndarray = "0.15.6"
+num-traits = "0.2.16"
