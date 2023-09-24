@@ -294,7 +294,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state_subset(&mut self, data: &State, 
-        subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()> 
+        subset_indexes: impl IndexIterator) -> Result<()> 
     {
         let n = subset_indexes.len();
 

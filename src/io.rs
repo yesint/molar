@@ -1,14 +1,14 @@
-use crate::core::{Structure,State};
+use crate::core::{Structure,State,IndexIterator};
 use anyhow::{Result,bail,anyhow};
 use std::path::Path;
 
 mod vmd_molfile_handler;
-pub use vmd_molfile_handler::VmdMolFileHandler;
-
 mod xtc_handler;
-pub use xtc_handler::XtcFileHandler;
-
 mod tpr_handler;
+
+// Reexports
+pub use vmd_molfile_handler::VmdMolFileHandler;
+pub use xtc_handler::XtcFileHandler;
 pub use tpr_handler::TprFileHandler;
 
 //===============================
@@ -31,7 +31,7 @@ pub trait IoStructureReader: IoReader {
 
 pub trait IoStructureWriter: IoWriter {
     fn write_structure_subset(&mut self, data: &Structure,
-        subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>;
+        subset_indexes: impl IndexIterator) -> Result<()>;
     
     // Default implementation with all indexes
     fn write_structure(&mut self, data: &Structure) -> Result<()> {
@@ -52,7 +52,7 @@ pub trait IoStateReader: IoReader {
 
 pub trait IoStateWriter: IoWriter {
     fn write_next_state_subset(&mut self, data: &State, 
-        subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>;
+        subset_indexes: impl IndexIterator) -> Result<()>;
 
     // Default implementation with all indexes
     fn write_next_state(&mut self, data: &State) -> Result<()> {
@@ -177,7 +177,7 @@ fn test_read() {
     use super::io::*;
 
     let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
-    let mut w = FileHandler::new_writer("tests/1.pdb").unwrap();
+    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"),"/1.pdb")).unwrap();
     
 
     let st = r.read_structure().unwrap();
@@ -187,7 +187,7 @@ fn test_read() {
         //println!("{:?}",fr);
         w.write_structure(&st).unwrap();
         w.write_next_state(&fr).unwrap();
-        w.write_structure(&st).unwrap();
-        w.write_next_state(&fr).unwrap();
+        //w.write_structure(&st).unwrap();
+        //w.write_next_state_subset(&fr,0..10).unwrap();
     }
 }

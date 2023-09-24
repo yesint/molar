@@ -5,7 +5,7 @@ use nalgebra::Point3;
 pub struct State {
     pub coords: Vec<Point3<f32>>,
     pub time: f32,
-    pub box_: PeriodicBox, 
+    pub box_: PeriodicBox,
 }
 
 impl State {
@@ -13,3 +13,4 @@ impl State {
         Default::default()
     }
 }
+

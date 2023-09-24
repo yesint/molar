@@ -1,16 +1,16 @@
 use ndarray::Array3;
 use std::iter::zip;
-use crate::core::{PeriodicBox, PbcDims, Point3f, Vector3f};
+use crate::core::{PeriodicBox, PbcDims, Pos, Vector3f, IndexIterator, PosIterator};
 
 
 #[derive(Debug,Clone,Default)]
 struct GridCell {
     ids: Vec<usize>,
-    coords: Vec<Point3f>,
+    coords: Vec<Pos>,
 }
 
 impl GridCell {
-    fn add(&mut self, id: usize, coord: &Point3f) {
+    fn add(&mut self, id: usize, coord: &Pos) {
         self.ids.push(id);
         self.coords.push(coord.clone());
     }
@@ -25,6 +25,9 @@ struct Grid {
     data: Array3<GridCell>,
 }
 
+pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize,&'a Pos)> {}
+impl<'a,T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize,&'a Pos)> {}
+
 impl Grid {
     fn new(x_sz: usize, y_sz: usize, z_sz: usize) -> Self {
         Self {
@@ -35,43 +38,41 @@ impl Grid {
         }
     }
 
-    fn populate(&mut self, 
-        ids: impl ExactSizeIterator<Item = usize>,
-        coords: impl ExactSizeIterator<Item = Point3f>,
+    fn populate<'a>(&mut self, 
+        id_pos: impl IdPosIterator<'a>,
         lower: &Vector3f,
         upper: &Vector3f) 
     {
         let dim = self.data.raw_dim();
         let dim_sz = upper-lower;
-        'outer: for (id,ref crd) in zip(ids,coords) {
+        'outer: for (id, pos) in id_pos {
             let mut ind = [0usize,0,0];
             for d in 0..3 {
-                let n = (dim[d] as f32 * (crd[d]-lower[d])/dim_sz[d]).floor() as isize;
+                let n = (dim[d] as f32 * (pos[d]-lower[d])/dim_sz[d]).floor() as isize;
                 if n<0 || n>=dim[d] as isize {
                     continue 'outer;
                 } else {
                     ind[d] = n as usize;
                 }
             }
-            self.data[ind].add(id,crd);
+            self.data[ind].add(id,pos);
         }
     }
 
 
-    fn populate_periodic(&mut self, 
-        ids: impl ExactSizeIterator<Item = usize>,
-        coords: impl ExactSizeIterator<Item = Point3f>,
+    fn populate_periodic<'a>(&mut self, 
+        id_pos: impl IdPosIterator<'a>,
         box_: &PeriodicBox, 
         pbc_dims: PbcDims)
     {
         let dim = self.data.raw_dim();
         
-        'outer: for (id,ref crd) in zip(ids,coords) {
-            let wrapped = box_.wrap_vector_dims(&crd.coords,&pbc_dims);
+        'outer: for (id, pos) in id_pos {
+            let wrapped = box_.wrap_vector_dims(&pos.coords,&pbc_dims);
             let rel = box_.to_box_coords(&wrapped);
             let mut ind = [0usize,0,0];
             for d in 0..3 {
-                let mut n = (dim[d] as f32 * rel[d]).floor() as isize;
+                let n = (dim[d] as f32 * rel[d]).floor() as isize;
                 // If dimension in not periodic and 
                 // out of bounds - skip the point
                 if pbc_dims[d]==0 && (n>dim[d] as isize || n<0) {
@@ -80,7 +81,21 @@ impl Grid {
                 // Correct for possible minor numeric errors
                 ind[d] = n.clamp(0, dim[d] as isize - 1) as usize;
             }
-            self.data[ind].add(id,crd);
+            self.data[ind].add(id,pos);
         }
     }
+}
+
+#[test]
+fn test_grid() {
+    use crate::io::*;
+    use std::iter::zip;
+    let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
+    let st = r.read_next_state().unwrap().unwrap();
+
+    let mut gr = Grid::new(10,10,10);
+    gr.populate_periodic(
+        zip(0..st.coords.len(),st.coords.iter()),
+        &st.box_, [1u8,1,1]
+    );
 }
