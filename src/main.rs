@@ -23,6 +23,7 @@ fn test_pdb() {
     }
 }
 
+#[cfg(feature = "gromacs")]
 #[test]
 fn test_xtc() {
     let mut h = XtcFileHandler::new_reader("tests/no_ATP.xtc").unwrap();

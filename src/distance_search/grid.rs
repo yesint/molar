@@ -43,6 +43,10 @@ where
         let d = self.0.raw_dim();
         [d[0],d[1],d[2]]
     }
+
+    pub fn iter(&self) -> ndarray::iter::IndexedIter<'_, T, ndarray::Dim<[usize; 3]>> {
+        self.0.indexed_iter()
+    }
 }
 
 impl Grid<GridCellData> {
@@ -111,7 +115,7 @@ impl<T> std::ops::IndexMut<&CellLoc> for Grid<T> {
 fn test_grid() {
     use crate::io::*;
     use std::iter::zip;
-    let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
+    let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
     let mut gr = Grid::new([10, 10, 10]);

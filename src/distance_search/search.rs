@@ -59,6 +59,7 @@ impl SearcherSingleGrid {
             periodic_dims: self.periodic_dims,
             parent_searcher: self
         };
+                
         // Perform a search
         driver.search();
     }

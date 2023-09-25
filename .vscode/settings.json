@@ -16,6 +16,7 @@
         "./Cargo.toml",
         "./Cargo.toml",
         "./Cargo.toml",
+        "./Cargo.toml",
         "./Cargo.toml"
     ],
     "files.associations": {
