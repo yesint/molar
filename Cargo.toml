@@ -36,7 +36,6 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 
-
 exclude = [
     "tests/*.xtc",    
 ]
@@ -45,7 +44,7 @@ exclude = [
 # Workspace member crates
 molar_molfile = {path = "crates/molar_molfile", version="0.1"}
 molar_xdrfile = {path = "crates/molar_xdrfile", version="0.1"}
-molar_gromacs = {path = "crates/molar_gromacs", version="0.1"}
+molar_gromacs = {path = "crates/molar_gromacs", version="0.1", optional = true}
 # Normal dependencies
 ascii.workspace = true
 anyhow.workspace = true
@@ -56,3 +55,6 @@ regex.workspace = true
 lazy_static = "1.4.0"
 ndarray = "0.15.6"
 num-traits = "0.2.16"
+
+[features]
+gromacs = ["dep:molar_gromacs"]
