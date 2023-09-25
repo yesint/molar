@@ -4,11 +4,14 @@ use std::path::Path;
 
 mod vmd_molfile_handler;
 mod xtc_handler;
+
+#[cfg(feature = "gromacs")]
 mod tpr_handler;
 
 // Reexports
 pub use vmd_molfile_handler::VmdMolFileHandler;
 pub use xtc_handler::XtcFileHandler;
+#[cfg(feature = "gromacs")]
 pub use tpr_handler::TprFileHandler;
 
 //===============================
@@ -83,6 +86,7 @@ pub enum FileHandler<'a> {
     Dcd(VmdMolFileHandler<'a>),
     Xyz(VmdMolFileHandler<'a>),
     Xtc(XtcFileHandler),
+    #[cfg(feature = "gromacs")]
     Tpr(TprFileHandler),
 }
 
@@ -104,6 +108,7 @@ impl<'a> IoReader for FileHandler<'a> {
             "dcd" => Ok(Self::Dcd(VmdMolFileHandler::new_reader(fname)?)),
             "xyz" => Ok(Self::Xyz(VmdMolFileHandler::new_reader(fname)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::new_reader(fname)?)),
+            #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::Tpr(TprFileHandler::new_reader(fname)?)),
             _ => bail!("Unrecognized extension {ext}"),
         }
@@ -128,6 +133,7 @@ impl<'a> IoStructureReader for FileHandler<'a> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) => h.read_structure(),
+            #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read_structure(),
             _ => bail!("Unable to read structure"),
         }
@@ -153,6 +159,7 @@ impl<'a> IoStateReader for FileHandler<'a> {
             Self::Xyz(ref mut h) | 
             Self::Dcd(ref mut h) => h.read_next_state(),
             Self::Xtc(ref mut h) => h.read_next_state(),
+            #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read_next_state(),
         }
     }

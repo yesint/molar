@@ -4,7 +4,7 @@ use anyhow::{Result,bail};
 use nalgebra::Normed;
 use crate::core::{Vector3f,Matrix3f,Pos};
 
-#[derive(Debug,Default)]
+#[derive(Debug,Default,Clone)]
 pub struct PeriodicBox {
     matrix: Matrix3f,
     inv: Matrix3f,

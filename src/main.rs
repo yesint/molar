@@ -37,5 +37,5 @@ fn test_xtc() {
 }
 
 fn main() {
-    let h = TprFileHandler::new_reader("tests/topol.tpr");
+    //let h = TprFileHandler::new_reader("tests/topol.tpr");
 }
