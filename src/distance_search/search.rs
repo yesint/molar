@@ -3,12 +3,6 @@ use crate::core::{IndexIterator, PbcDims, PeriodicBox, State, Vector3f, Pos};
 use nalgebra::Vector3;
 use num_traits::clamp_min;
 
-struct CellPair {
-    c1: CellLoc,
-    c2: CellLoc,
-    wrapped: PbcDims,
-}
-
 trait GridSearchable {
     fn process_cell_pair(&mut self, pair: CellPair);
 }
@@ -170,28 +164,6 @@ where
     periodic_dims: PbcDims,
 }
 
-pub static STENCIL: [[Vector3<usize>; 2]; 14] = [
-    // Center
-    [Vector3::new(0, 0, 0), Vector3::new(0, 0, 0)],
-    // Edges
-    [Vector3::new(0, 0, 0), Vector3::new(1, 0, 0)], //X
-    [Vector3::new(0, 0, 0), Vector3::new(0, 1, 0)], //Y
-    [Vector3::new(0, 0, 0), Vector3::new(0, 0, 1)], //Z
-    // Face angles
-    [Vector3::new(0, 0, 0), Vector3::new(1, 1, 0)], //XY
-    [Vector3::new(0, 0, 0), Vector3::new(1, 0, 1)], //XZ
-    [Vector3::new(0, 0, 0), Vector3::new(0, 1, 1)], //YZ
-    // Far angle
-    [Vector3::new(0, 0, 0), Vector3::new(1, 1, 1)], //XYZ
-    // Face-diagonals
-    [Vector3::new(1, 0, 0), Vector3::new(0, 1, 0)], // XY
-    [Vector3::new(1, 0, 0), Vector3::new(0, 0, 1)], // XZ
-    [Vector3::new(0, 1, 0), Vector3::new(0, 0, 1)], // YZ
-    // Cross-diagonals
-    [Vector3::new(1, 1, 0), Vector3::new(0, 0, 1)], // XY-Z
-    [Vector3::new(1, 0, 1), Vector3::new(0, 1, 0)], // XZ-Y
-    [Vector3::new(0, 1, 1), Vector3::new(1, 0, 0)], // YZ-X
-];
 
 fn grid_size_from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> [usize; 3] {
     let mut res = [0, 0, 0];
@@ -215,59 +187,7 @@ impl<'a, T> SearchDriver<'a, T>
 where
     T: GridSearchable + 'a,
 {
-    fn validate_cell_pair(&self, mut pair: CellPair) -> Option<CellPair> {
-        for d in 0..3 {
-            let sz = self.grid_size[d];
-            let pbc = self.periodic_dims[d];
-            match sz {
-                // Corner cases:
-                1 => {
-                    // Always ignore any pairs beyond limits (only 0 allowed)
-                    if pair.c1[d] != 0 || pair.c2[d] != 0 {
-                        return None;
-                    }
-                    // For only one posisble valid pair 0:0 set periodicity
-                    if pbc {
-                        pair.wrapped[d] = true;
-                    }
-                }
-                2 => {
-                    // Always ignore any pairs beyond limits
-                    if pair.c1[d] >= sz || pair.c2[d] >= sz {
-                        return None;
-                    }
-                    // Set periodicity for 0:1 and 1:0 valid pairs
-                    // For 0:0 and 1:1 pairs no periodicity is needed
-                    if pbc && pair.c1[d] != pair.c2[d] {
-                        pair.wrapped[d] = true;
-                    }
-                }
-                // Usual case
-                _ => {
-                    if pair.c1[d] >= sz {
-                        // point beyond the right edge
-                        if pbc {
-                            pair.c1[d] = pair.c1[d] % sz; // Wrap this dimension
-                            pair.wrapped[d] = true;
-                        } else {
-                            return None; // don't use this pair
-                        }
-                    }
-
-                    if pair.c2[d] >= sz {
-                        // point beyond the right edge
-                        if pbc {
-                            pair.c2[d] = pair.c2[d] % sz; // Wrap this dimension
-                            pair.wrapped[d] = true;
-                        } else {
-                            return None; // don't use this pair
-                        }
-                    }
-                }
-            };
-        }
-        Some(pair)
-    }
+    
 
     fn index_to_pos(&self, ind: usize) -> Vector3<usize> {
         // i = z+Nz*y+Nz*Ny*x

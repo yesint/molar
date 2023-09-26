@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
-use ascii::{AsciiString,AsciiStr};
-use nalgebra::{Point3, Vector3};
+use ascii::AsciiString;
 use regex::bytes::Regex;
 
 use super::structure::Structure;

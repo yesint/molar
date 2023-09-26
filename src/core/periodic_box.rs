@@ -1,7 +1,4 @@
-use std::ops::Mul;
-
 use anyhow::{Result,bail};
-use nalgebra::Normed;
 use crate::core::{Vector3f,Matrix3f,Pos};
 
 #[derive(Debug,Default,Clone)]
