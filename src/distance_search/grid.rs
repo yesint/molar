@@ -1,5 +1,5 @@
-use nalgebra::Vector3;
 use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
+use nalgebra::Vector3;
 
 pub type CellLoc = nalgebra::Vector3<usize>;
 
@@ -23,7 +23,7 @@ impl GridCellData {
 
 //================================================================================================
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 struct CellPair {
     c1: CellLoc,
     c2: CellLoc,
@@ -62,7 +62,6 @@ pub static STENCIL: [[Vector3<usize>; 2]; 14] = [
     [Vector3::new(1, 0, 1), Vector3::new(0, 1, 0)], // XZ-Y
     [Vector3::new(0, 1, 1), Vector3::new(1, 0, 0)], // YZ-X
 ];
-
 
 impl CellPairIter {
     fn new(grid_size: &[usize; 3], periodic_dims: &PbcDims) -> Self {
@@ -147,12 +146,15 @@ impl CellPairIter {
     }
 
     fn next_cell(&self) -> Option<CellLoc> {
-        if self.grid_loc[0] == self.grid_size[0]-1 
-        && self.grid_loc[1] == self.grid_size[1]-1
-        && self.grid_loc[2] == self.grid_size[2]-1 {
+        if self.grid_loc[0] == self.grid_size[0] - 1
+            && self.grid_loc[1] == self.grid_size[1] - 1
+            && self.grid_loc[2] == self.grid_size[2] - 1
+        {
             return None;
         }
-        Some(CellLoc::from_fn(|d,_| (self.grid_loc[d]+1) % self.grid_size[d]))
+        Some(CellLoc::from_fn(|d, _| {
+            (self.grid_loc[d] + 1) % self.grid_size[d]
+        }))
     }
 }
 
@@ -175,9 +177,9 @@ impl Iterator for CellPairIter {
 }
 
 #[derive(Debug, Clone)]
-pub struct Grid<T>{
+pub struct Grid<T> {
     data: ndarray::Array3<T>,
-    periodic_dims: PbcDims,
+    pbc: Option<(PeriodicBox, PbcDims)>,
 }
 
 pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
@@ -187,26 +189,36 @@ impl<T> Grid<T>
 where
     T: Default,
 {
-    pub fn new(sz: [usize;3]) -> Self {
-        Self{
-            data: ndarray::Array3::<T>::from_shape_simple_fn(
-            sz,|| T::default()),
-            periodic_dims: [false,false,false],
+    pub fn new(sz: [usize; 3]) -> Self {
+        Self {
+            data: ndarray::Array3::<T>::from_shape_simple_fn(sz, || T::default()),
+            pbc: None,
         }
     }
 
-    pub fn dim(&self) -> [usize;3] {
+    pub fn dim(&self) -> [usize; 3] {
         let d = self.data.dim();
-        [d.0,d.1,d.2]
+        [d.0, d.1, d.2]
     }
 
     pub fn cell_pair_iter(&self) -> CellPairIter {
-        CellPairIter::new(&self.dim(),&self.periodic_dims)
+        CellPairIter::new(
+            &self.dim(),
+            match self.pbc {
+                Some((_, pbc_dims)) => &pbc_dims,
+                None => &[false, false, false],
+            },
+        )
     }
 }
 
 impl Grid<GridCellData> {
-    pub fn populate<'a>(&mut self, id_pos: impl IdPosIterator<'a>, lower: &Vector3f, upper: &Vector3f) {
+    pub fn populate<'a>(
+        &mut self,
+        id_pos: impl IdPosIterator<'a>,
+        lower: &Vector3f,
+        upper: &Vector3f,
+    ) {
         let dim = self.dim();
         let dim_sz = upper - lower;
         'outer: for (id, pos) in id_pos {
@@ -247,7 +259,7 @@ impl Grid<GridCellData> {
             }
             self.data[ind].add(id, pos);
         }
-        self.periodic_dims = pbc_dims.clone();
+        self.pbc = Some((box_.clone(),pbc_dims.clone()));
     }
 }
 
