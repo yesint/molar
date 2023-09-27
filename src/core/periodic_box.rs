@@ -36,7 +36,7 @@ impl PeriodicBox {
             bail!("Box vectors have to be non-zero! ({} {} {})",a,b,c);
         }
 
-        if alpha<60.0 || b<60.0 || c<60.0 {
+        if alpha<60.0 || beta<60.0 || gamma<60.0 {
             bail!("Box angles should be >= 60 deg! ({} {} {})",alpha,beta,gamma);
         }
 
@@ -158,8 +158,8 @@ impl PeriodicBox {
         )
     }
 
-    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc: &PbcDims) -> f32 {
-        self.wrap_vector_dims(&(p2-p1), pbc).norm_squared()
+    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: &PbcDims) -> f32 {
+        self.wrap_vector_dims(&(p2-p1), pbc_dims).norm_squared()
     }
 
     pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: &PbcDims) -> f32 {

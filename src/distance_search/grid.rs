@@ -1,5 +1,6 @@
 use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
 use nalgebra::Vector3;
+use ndarray::{Array3, iter::IndexedIter};
 
 pub type CellLoc = nalgebra::Vector3<usize>;
 
@@ -24,20 +25,28 @@ impl GridCellData {
 //================================================================================================
 
 #[derive(Debug, Clone)]
-struct CellPair {
-    c1: CellLoc,
-    c2: CellLoc,
-    wrapped: PbcDims,
+pub struct CellPair {
+    pub c1: CellLoc,
+    pub c2: CellLoc,
+    pub wrapped: PbcDims,
 }
 
+#[derive(Debug, Clone)]
+pub struct GridPbc {
+    pub box_: PeriodicBox,
+    pub dims: PbcDims,
+}
 // Iterator over cell pairs in the grid of given size and periodicity
-struct CellPairIter {
+
+pub struct CellPairIter {
     grid_size: [usize; 3],
     periodic_dims: PbcDims,
     // Current grid location
     grid_loc: CellLoc,
-    // Current buffer of pairs
+    // Iterator over buffer of pairs for current central cell
     buf_iter: <Vec<CellPair> as IntoIterator>::IntoIter,
+    // Iterator over grid
+    //grid_iter: IndexedIter<'a,GridCellData,[usize;3]>,
 }
 
 pub static STENCIL: [[Vector3<usize>; 2]; 14] = [
@@ -65,12 +74,14 @@ pub static STENCIL: [[Vector3<usize>; 2]; 14] = [
 
 impl CellPairIter {
     fn new(grid_size: &[usize; 3], periodic_dims: &PbcDims) -> Self {
-        Self {
+        let mut ret = Self {
             grid_size: *grid_size,
             periodic_dims: *periodic_dims,
             buf_iter: Vec::new().into_iter(),
             grid_loc: CellLoc::zeros(),
-        }
+        };
+        ret.generate_pairs_around_cell();
+        ret
     }
 
     fn validate_cell_pair(&self, mut pair: CellPair) -> Option<CellPair> {
@@ -145,16 +156,20 @@ impl CellPairIter {
         self.buf_iter = buf.into_iter();
     }
 
-    fn next_cell(&self) -> Option<CellLoc> {
-        if self.grid_loc[0] == self.grid_size[0] - 1
-            && self.grid_loc[1] == self.grid_size[1] - 1
-            && self.grid_loc[2] == self.grid_size[2] - 1
-        {
-            return None;
+    fn next_cell(&mut self) -> Option<CellLoc> {
+        self.grid_loc[2]+=1;
+        if self.grid_loc[2]==self.grid_size[2] {
+            self.grid_loc[2]=0;
+            self.grid_loc[1]+=1;
+            if self.grid_loc[1]==self.grid_size[1] {
+                self.grid_loc[1]=0;
+                self.grid_loc[0]+=1;
+                if self.grid_loc[0]==self.grid_size[0] {
+                    return None;
+                }
+            }    
         }
-        Some(CellLoc::from_fn(|d, _| {
-            (self.grid_loc[d] + 1) % self.grid_size[d]
-        }))
+        Some(self.grid_loc)
     }
 }
 
@@ -162,15 +177,16 @@ impl Iterator for CellPairIter {
     type Item = CellPair;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let ret = self.buf_iter.next();
-        if let None = ret {
+        let mut ret = self.buf_iter.next();
+        while let None = ret {
             // End of buffer reached, go to the next cell
             match self.next_cell() {
                 Some(c) => self.grid_loc = c,
                 None => return None, // The end of grid reached
             }
-            // Generate new buffer
+            // Generate new buffer and return its iterator
             self.generate_pairs_around_cell();
+            ret = self.buf_iter.next();
         };
         ret
     }
@@ -178,8 +194,8 @@ impl Iterator for CellPairIter {
 
 #[derive(Debug, Clone)]
 pub struct Grid<T> {
-    data: ndarray::Array3<T>,
-    pbc: Option<(PeriodicBox, PbcDims)>,
+    pub data: ndarray::Array3<T>,
+    pub pbc: Option<GridPbc>,
 }
 
 pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
@@ -204,8 +220,8 @@ where
     pub fn cell_pair_iter(&self) -> CellPairIter {
         CellPairIter::new(
             &self.dim(),
-            match self.pbc {
-                Some((_, pbc_dims)) => &pbc_dims,
+            match self.pbc.as_ref() {
+                Some(pbc) => &pbc.dims,
                 None => &[false, false, false],
             },
         )
@@ -259,7 +275,10 @@ impl Grid<GridCellData> {
             }
             self.data[ind].add(id, pos);
         }
-        self.pbc = Some((box_.clone(),pbc_dims.clone()));
+        self.pbc = Some(GridPbc {
+            box_: box_.clone(),
+            dims: pbc_dims.clone(),
+        });
     }
 }
 

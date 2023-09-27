@@ -1,6 +1,8 @@
-use super::{IoReader, IoWriter, IoStructureReader, IoStateReader, IoStructureWriter, IoStateWriter};
+use super::{
+    IoReader, IoStateReader, IoStateWriter, IoStructureReader, IoStructureWriter, IoWriter,
+};
 use crate::core::*;
-use ascii::{AsciiString,AsciiStr};
+use ascii::{AsciiStr, AsciiString};
 
 use crate::io::get_ext;
 
@@ -39,13 +41,12 @@ fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
 
 #[doc = "Universal handler of different VMD molfile file formats"]
 impl VmdMolFileHandler<'_> {
-
     fn new(fname: &str) -> Result<Self> {
         // Get plugin pointer
         // C funtion registers plugin on first call
         // and returns stored pointer on later invocations
         let plugin = unsafe {
-            let ext = get_ext(fname)?; 
+            let ext = get_ext(fname)?;
             match ext {
                 "pdb" => pdb_get_plugin_ptr(),
                 "xyz" => xyz_get_plugin_ptr(),
@@ -69,7 +70,7 @@ impl VmdMolFileHandler<'_> {
         // Prepare c-strings for file opening
         let f_type = CString::new("")?; // Not used
         let f_name = CString::new(self.file_name.clone())?;
-        
+
         // Open file and get file pointer
         let mut n: i32 = 0;
         self.file_handle = unsafe {
@@ -109,18 +110,23 @@ impl VmdMolFileHandler<'_> {
         Ok(())
     }
 
-    fn try_open_write(&mut self, natoms: usize) -> Result<()>{
+    fn try_open_write(&mut self, natoms: usize) -> Result<()> {
         match self.mode {
             OpenMode::None => self.open_write(natoms),
-            OpenMode::Write => if natoms != self.natoms {
-                bail!("Number of atoms mismatch: given {}, file opened for writing with {}!",natoms,self.natoms)
-            } else {
-                Ok(())
-            },
+            OpenMode::Write => {
+                if natoms != self.natoms {
+                    bail!(
+                        "Number of atoms mismatch: given {}, file opened for writing with {}!",
+                        natoms,
+                        self.natoms
+                    )
+                } else {
+                    Ok(())
+                }
+            }
             OpenMode::Read => unreachable!(),
         }
     }
-
 }
 
 impl IoReader for VmdMolFileHandler<'_> {
@@ -135,7 +141,7 @@ impl IoWriter for VmdMolFileHandler<'_> {
     fn new_writer(fname: &str) -> Result<Self> {
         let instance = Self::new(fname)?;
         // We can't open for writing here because we don't know
-        // the number of atoms to write yet. Defer it to 
+        // the number of atoms to write yet. Defer it to
         // actual writing operation
         Ok(instance)
     }
@@ -179,7 +185,7 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
             };
             // See if the element number and mass are set
             // and guess if required
-            if vmd_at.atomicnumber == 0 || vmd_at.mass==0.0 {
+            if vmd_at.atomicnumber == 0 || vmd_at.mass == 0.0 {
                 at.guess_element_and_mass_from_name();
             } else {
                 at.atomic_number = vmd_at.atomicnumber as u8;
@@ -195,21 +201,23 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
     }
 }
 
-fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]){
+fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
     let n = st.len();
-    if n+1 >= cbuf.len(){
+    if n + 1 >= cbuf.len() {
         panic!("VMD fixed size field is too short!");
     }
     for i in 0..n {
         cbuf[i] = st[i] as i8;
     }
-    cbuf[n+1] = '\0' as i8;
+    cbuf[n + 1] = '\0' as i8;
 }
 
 impl IoStructureWriter for VmdMolFileHandler<'_> {
-    fn write_structure_subset(&mut self, data: &Structure,
-            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>
-    {
+    fn write_structure_subset(
+        &mut self,
+        data: &Structure,
+        subset_indexes: impl ExactSizeIterator<Item = usize>,
+    ) -> Result<()> {
         let n = subset_indexes.len();
         // Open file if not yet opened
         self.try_open_write(n)?;
@@ -231,19 +239,18 @@ impl IoStructureWriter for VmdMolFileHandler<'_> {
             vmd_atoms.push(vmd_at);
         }
 
-        let flags: u32 = MOLFILE_OCCUPANCY | MOLFILE_BFACTOR | MOLFILE_ATOMICNUMBER
-                    | MOLFILE_CHARGE | MOLFILE_MASS;
-        let ret = unsafe{
-            self.plugin.write_structure.unwrap()(
-                self.file_handle,
-                flags as i32,
-                vmd_atoms.as_ptr()
-            )
+        let flags: u32 = MOLFILE_OCCUPANCY
+            | MOLFILE_BFACTOR
+            | MOLFILE_ATOMICNUMBER
+            | MOLFILE_CHARGE
+            | MOLFILE_MASS;
+        let ret = unsafe {
+            self.plugin.write_structure.unwrap()(self.file_handle, flags as i32, vmd_atoms.as_ptr())
         };
 
         match ret {
             MOLFILE_SUCCESS => Ok(()),
-            _ => bail!("Error writing structure")
+            _ => bail!("Error writing structure"),
         }
     }
 }
@@ -278,9 +285,20 @@ impl IoStateReader for VmdMolFileHandler<'_> {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { state.coords.set_len(self.natoms as usize) }
             // Convert the box
-            state.box_ = PeriodicBox::from_vectors_angles(ts.A, ts.B, ts.C, ts.alpha, ts.beta, ts.gamma)?;
+            state.box_ = PeriodicBox::from_vectors_angles(
+                ts.A * 0.1,
+                ts.B * 0.1,
+                ts.C * 0.1,
+                ts.alpha,
+                ts.beta,
+                ts.gamma,
+            )?;
             // time
             state.time = ts.physical_time as f32;
+            // Convert to nm
+            for c in state.coords.iter_mut() {
+                c.coords *= 0.1;
+            }
         }
 
         match ret {
@@ -291,34 +309,35 @@ impl IoStateReader for VmdMolFileHandler<'_> {
     }
 }
 
-
 impl IoStateWriter for VmdMolFileHandler<'_> {
-    fn write_next_state_subset(&mut self, data: &State, 
-        subset_indexes: impl IndexIterator) -> Result<()> 
-    {
+    fn write_next_state_subset(
+        &mut self,
+        data: &State,
+        subset_indexes: impl IndexIterator,
+    ) -> Result<()> {
         let n = subset_indexes.len();
 
         // Open file if not yet opened
         self.try_open_write(n)?;
 
         // Buffer for coordinates allocated on heap
-        let mut buf = Vec::<f32>::with_capacity(3*n);
+        let mut buf = Vec::<f32>::with_capacity(3 * n);
         // Fill the buffer and convert to angstroms
         for ind in subset_indexes {
             for dim in 0..3 {
-                buf.push( data.coords[ind][dim]*10.0 );
+                buf.push(data.coords[ind][dim] * 10.0);
             }
         }
-        
-        // Periodic box
-        let (box_vec,box_ang) = data.box_.to_vectors_angles();
 
-        let ts = molfile_timestep_t{
+        // Periodic box
+        let (box_vec, box_ang) = data.box_.to_vectors_angles();
+
+        let ts = molfile_timestep_t {
             coords: buf.as_mut_ptr(),
             velocities: null_mut(),
-            A: box_vec[0]*10.0,
-            B: box_vec[1]*10.0,
-            C: box_vec[2]*10.0,
+            A: box_vec[0] * 10.0,
+            B: box_vec[1] * 10.0,
+            C: box_vec[2] * 10.0,
             alpha: box_ang[0],
             beta: box_ang[1],
             gamma: box_ang[2],
@@ -327,26 +346,20 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
 
         //std::mem::forget(buf);
 
-        let ret = unsafe {
-            self.plugin.write_timestep.unwrap()(self.file_handle,&ts)
-        };
+        let ret = unsafe { self.plugin.write_timestep.unwrap()(self.file_handle, &ts) };
 
         match ret {
             MOLFILE_SUCCESS => Ok(()),
             _ => bail!("Error writing timestep!"),
         }
     }
-
 }
-
 
 impl Drop for VmdMolFileHandler<'_> {
     fn drop(&mut self) {
         if self.file_handle != ptr::null_mut() {
             match self.mode {
-                OpenMode::Read => unsafe {
-                    self.plugin.close_file_read.unwrap()(self.file_handle)
-                },
+                OpenMode::Read => unsafe { self.plugin.close_file_read.unwrap()(self.file_handle) },
                 OpenMode::Write => unsafe {
                     self.plugin.close_file_write.unwrap()(self.file_handle)
                 },
