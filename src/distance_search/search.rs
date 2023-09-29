@@ -149,20 +149,6 @@ pub struct SearcherDoubleGrid {
     cutoff: f32,
 }
 
-pub struct SearcherDoubleGridBuilder {
-    cutoff: f32,
-    state1: &State,
-    subset1: impl IndexIterator,
-    state2: &State,
-    subset2: impl IndexIterator,
-    lower: &Vector3f,
-    upper: &Vector3f,
-    periodic_dims: &PbcDims,
-}
-
-impl SearcherDoubleGridBuilder {
-    fn 
-}
 
 
 impl SearcherDoubleGrid {
