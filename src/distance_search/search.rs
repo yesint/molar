@@ -149,6 +149,22 @@ pub struct SearcherDoubleGrid {
     cutoff: f32,
 }
 
+pub struct SearcherDoubleGridBuilder {
+    cutoff: f32,
+    state1: &State,
+    subset1: impl IndexIterator,
+    state2: &State,
+    subset2: impl IndexIterator,
+    lower: &Vector3f,
+    upper: &Vector3f,
+    periodic_dims: &PbcDims,
+}
+
+impl SearcherDoubleGridBuilder {
+    fn 
+}
+
+
 impl SearcherDoubleGrid {
     pub fn from_state_subset(
         cutoff: f32,
@@ -189,7 +205,7 @@ impl SearcherDoubleGrid {
             &periodic_dims,
         );
 
-        grid1.populate_periodic(
+        grid2.populate_periodic(
             subset2.map(|i| (i, &state2.coords[i])),
             &state1.box_, // The same box as the first grid!
             &periodic_dims,
@@ -210,7 +226,7 @@ impl SearcherDoubleGrid {
     }
 
     // Main search function
-    pub fn search(&self) -> Vec<ValidPair> {
+    pub fn search<T: SearchOutputType>(&self) -> Vec<T> {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid1.pbc.as_ref() {
             Some(pbc) => pbc.dims,
@@ -219,7 +235,7 @@ impl SearcherDoubleGrid {
 
         // Get periodic or non-periodic distance function
         let dist_func = match self.grid1.pbc.as_ref() {
-            Some(pbc) => Self::dist_periodic,
+            Some(_) => Self::dist_periodic,
             None => Self::dist_non_periodic,
         };
 
@@ -237,18 +253,18 @@ impl SearcherDoubleGrid {
             v1
         })
             .flatten()
-            .collect::<Vec<ValidPair>>()
+            .collect::<Vec<T>>()
     }
 
-    fn search_cell_pair(
+    fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
         dist_func: fn(&Self, &Pos, &Pos) -> f32,
-    ) -> Vec<ValidPair> {
+    ) -> Vec<T> {
         let n1 = self.grid1[&pair.c1].len();
         let n2 = self.grid2[&pair.c2].len();
 
-        let mut found = Vec::<ValidPair>::new();
+        let mut found = Vec::<T>::new();
 
         // Nothing to do if cell is empty
         if n1 * n2 == 0 {
@@ -263,11 +279,7 @@ impl SearcherDoubleGrid {
                 let p2 = &self.grid2[&pair.c2].coords[j];
                 let dist = dist_func(self, p1, p2);
                 if dist <= cutoff2 {
-                    found.push(ValidPair {
-                        i: self.grid1[&pair.c1].ids[i],
-                        j: self.grid2[&pair.c2].ids[j],
-                        d: dist.sqrt(),
-                    });
+                    found.push(T::from_search_results(i, j, dist));
                 }
             }
         }
@@ -275,6 +287,24 @@ impl SearcherDoubleGrid {
         found
     }
 }
+
+trait SearchOutputType {
+    fn from_search_results(i:usize,j:usize,d:f32) -> Self;
+}
+
+impl SearchOutputType for usize {
+    fn from_search_results(i:usize,j:usize,d:f32) -> Self {
+        i
+    }
+}
+
+impl SearchOutputType for ValidPair {
+    fn from_search_results(i:usize,j:usize,d:f32) -> Self {
+        Self{i,j,d}
+    }
+}
+
+//==================================================================
 
 fn grid_size_from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> [usize; 3] {
     let mut res = [0, 0, 0];
@@ -285,14 +315,17 @@ fn grid_size_from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> [usize;
     res
 }
 
-pub fn grid_size(cutoff: f32, min: &Vector3f, max: &Vector3f) -> [usize; 3] {
+fn grid_size(cutoff: f32, min: &Vector3f, max: &Vector3f) -> [usize; 3] {
     grid_size_from_cutoff_and_extents(cutoff, &(max - min))
 }
 
 // Periodic variant
-pub fn grid_size_periodic(cutoff: f32, box_: &PeriodicBox) -> [usize; 3] {
+fn grid_size_periodic(cutoff: f32, box_: &PeriodicBox) -> [usize; 3] {
     grid_size_from_cutoff_and_extents(cutoff, &box_.get_extents())
 }
+
+//============================================================================
+// Tests
 
 #[test]
 fn test_single_periodic() {
@@ -346,6 +379,6 @@ fn test_double_periodic() {
         0..st.coords.len(),
         &[true,true,true],        
     );
-    let found = searcher.search();
+    let found: Vec<usize> = searcher.search();
     println!("{:?}", found.len())
 }
