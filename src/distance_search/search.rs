@@ -116,7 +116,7 @@ impl SearcherSingleGrid {
                         found.push(ValidPair {
                             i: self.grid[&pair.c1].ids[i],
                             j: self.grid[&pair.c1].ids[j],
-                            d: dist,
+                            d: dist.sqrt(),
                         });
                     }
                 }
@@ -132,7 +132,7 @@ impl SearcherSingleGrid {
                         found.push(ValidPair {
                             i: self.grid[&pair.c1].ids[i],
                             j: self.grid[&pair.c2].ids[j],
-                            d: dist,
+                            d: dist.sqrt(),
                         });
                     }
                 }
@@ -227,10 +227,15 @@ impl SearcherDoubleGrid {
         let iter = CellPairIter::new(&self.grid1.dim(), &periodic_dims);
 
         // We first search for pair c1->grid1; c2->grid2
-        // then for the opposite pair c2->grid1; c1->grid2
-        // grid1 always goes first
-        iter.map(|pair| self.search_cell_pair(pair, dist_func))
-            .map(|pair| self.search_cell_pair(pair.swap(), dist_func))
+        // then for the swapped pair c2->grid1; c1->grid2
+        // grid1 always goes first        
+        iter.map(|pair|{
+            let swapped_pair = pair.swaped();
+            let mut v1 = self.search_cell_pair(pair, dist_func);
+            let v2 = self.search_cell_pair(swapped_pair, dist_func);
+            v1.extend(v2);
+            v1
+        })
             .flatten()
             .collect::<Vec<ValidPair>>()
     }
@@ -261,7 +266,7 @@ impl SearcherDoubleGrid {
                     found.push(ValidPair {
                         i: self.grid1[&pair.c1].ids[i],
                         j: self.grid2[&pair.c2].ids[j],
-                        d: dist,
+                        d: dist.sqrt(),
                     });
                 }
             }
@@ -321,6 +326,25 @@ fn test_single_non_periodic() {
         0..st.coords.len(),
         &Vector3f::new(0.0,0.0,0.0),
         &Vector3f::new(1.0,1.0,1.0),
+    );
+    let found = searcher.search();
+    println!("{:?}", found.len())
+}
+
+#[test]
+fn test_double_periodic() {
+    use crate::io::*;
+    use std::iter::zip;
+    let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+    let st = r.read_next_state().unwrap().unwrap();    
+
+    let mut searcher = SearcherDoubleGrid::from_state_subset_periodic(
+        0.3,
+        &st,
+        0..st.coords.len(),
+        &st,
+        0..st.coords.len(),
+        &[true,true,true],        
     );
     let found = searcher.search();
     println!("{:?}", found.len())

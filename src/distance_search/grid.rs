@@ -34,6 +34,14 @@ pub struct CellPair {
     pub wrapped: PbcDims,
 }
 
+impl CellPair {
+    pub fn swaped(&self) -> CellPair {
+        let mut ret = self.clone();
+        std::mem::swap(&mut ret.c1, &mut ret.c2);
+        ret
+    }
+}
+
 // Periodicity stuff for searching
 #[derive(Debug, Clone)]
 pub struct GridPbc {
