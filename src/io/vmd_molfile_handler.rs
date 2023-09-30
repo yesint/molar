@@ -292,7 +292,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
                 ts.alpha,
                 ts.beta,
                 ts.gamma,
-            )?;
+            ).ok();
             // time
             state.time = ts.physical_time as f32;
             // Convert to nm
@@ -330,7 +330,10 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
         }
 
         // Periodic box
-        let (box_vec, box_ang) = data.box_.to_vectors_angles();
+        let (box_vec, box_ang) = match data.box_.as_ref() {
+            Some(b) => b.to_vectors_angles(),
+            None => (Vector3f::zeros(),Vector3f::zeros()),
+        };
 
         let ts = molfile_timestep_t {
             coords: buf.as_mut_ptr(),

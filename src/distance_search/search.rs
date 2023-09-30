@@ -42,12 +42,12 @@ impl SearcherSingleGrid {
         periodic_dims: &PbcDims,
     ) -> Self {
         // Get grid dimensions
-        let grid_sz = grid_size_periodic(cutoff, &state.box_);
+        let grid_sz = grid_size_periodic(cutoff, &state.box_.as_ref().unwrap());
         let mut grid = Grid::<GridCellData>::new(grid_sz);
 
         grid.populate_periodic(
             subset.map(|i| (i, &state.coords[i])),
-            &state.box_,
+            &state.box_.as_ref().unwrap(),
             &periodic_dims,
         );
         // Create an instance
@@ -181,19 +181,19 @@ impl SearcherDoubleGrid {
         periodic_dims: &PbcDims,
     ) -> Self {
         // Get grid dimensions
-        let grid_sz = grid_size_periodic(cutoff, &state1.box_);
+        let grid_sz = grid_size_periodic(cutoff, &state1.box_.as_ref().unwrap());
         let mut grid1 = Grid::<GridCellData>::new(grid_sz);
         let mut grid2 = Grid::<GridCellData>::new(grid_sz);
 
         grid1.populate_periodic(
             subset1.map(|i| (i, &state1.coords[i])),
-            &state1.box_,
+            &state1.box_.as_ref().unwrap(),
             &periodic_dims,
         );
 
         grid2.populate_periodic(
             subset2.map(|i| (i, &state2.coords[i])),
-            &state1.box_, // The same box as the first grid!
+            &state1.box_.as_ref().unwrap(), // The same box as the first grid!
             &periodic_dims,
         );
         // Create an instance

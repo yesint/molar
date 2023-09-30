@@ -184,7 +184,7 @@ impl IoStateReader for XtcFileHandler {
             unsafe { st.coords.set_len(self.natoms) };
             // Convert box to column-major form.
             box_matrix.transpose_mut();
-            st.box_ = PeriodicBox::from_matrix(box_matrix)?;
+            st.box_ = PeriodicBox::from_matrix(box_matrix).ok();
         }
         
         match ok as u32 {
@@ -202,7 +202,10 @@ impl IoStateWriter for XtcFileHandler {
         let N = subset_indexes.len();
 
         // Box have to be transposed because XTC contains row-major box
-        let box_ = data.box_.get_matrix().transpose();
+        let box_ = match data.box_.as_ref() {
+            Some(b) => b.get_matrix().transpose(),
+            None => Matrix3::<f32>::zeros(),
+        };
 
         // Coordinate buffer
         let mut buf = Vec::<Point3<f32>>::new();

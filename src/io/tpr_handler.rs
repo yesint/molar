@@ -175,7 +175,7 @@ impl IoStateReader for TprFileHandler {
             std::slice::from_raw_parts(self.handle.get_box(), 9)
         };
         let m = Matrix3::from_column_slice(sl);
-        st.box_ = PeriodicBox::from_matrix(m)?;
+        st.box_ = PeriodicBox::from_matrix(m).ok();
         
         // Set a marker that state is already read
         self.state_read = true;
