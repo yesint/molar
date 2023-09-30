@@ -1,4 +1,4 @@
-use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
+use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator};
 use nalgebra::Vector3;
 use ndarray::{Array3, iter::IndexedIter};
 
@@ -57,9 +57,6 @@ pub struct Grid<T> {
     pub data: ndarray::Array3<T>,
     pub pbc: Option<GridPbc>,
 }
-
-pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
-impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'a Pos)> {}
 
 impl<T> Grid<T>
 where

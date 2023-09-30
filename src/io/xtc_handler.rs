@@ -150,7 +150,7 @@ impl Drop for XtcFileHandler {
         if self.handle != ptr::null_mut() {
             let ok = unsafe { xdrfile_close(self.handle) } as u32;
             if ok != exdrOK {
-                panic!("Error closing XTC file!")
+                panic!("Error closing XTC file {}!",self.file_name)
             }
         }
     }

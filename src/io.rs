@@ -142,7 +142,7 @@ impl<'a> IoStructureReader for FileHandler<'a> {
 
 impl<'a> IoStructureWriter for FileHandler<'a> {
     fn write_structure_subset(&mut self, data: &Structure,
-            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>
+            subset_indexes: impl IndexIterator) -> Result<()>
     {
         match self {
             Self::Pdb(ref mut h) |
@@ -167,7 +167,7 @@ impl<'a> IoStateReader for FileHandler<'a> {
 
 impl<'a> IoStateWriter for FileHandler<'a> {
     fn write_next_state_subset(&mut self, data: &State, 
-            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()>
+            subset_indexes: impl IndexIterator) -> Result<()>
     {    
         match self {
             Self::Pdb(ref mut h) |
