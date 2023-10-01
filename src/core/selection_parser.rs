@@ -2,16 +2,14 @@ use anyhow::{bail, Result};
 use ascii::AsciiString;
 use regex::bytes::Regex;
 
-use super::structure::Structure;
-use super::state::State;
 use super::atom::Atom;
+use super::state::State;
+use super::structure::Structure;
 use std::collections::HashSet;
 
-
 //##############################
-//#  AST node types 
+//#  AST node types
 //##############################
-
 
 #[derive(Debug, PartialEq)]
 pub enum IntKeywordValue {
@@ -42,7 +40,7 @@ pub enum MathNode {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ComparisonNode {    
+pub enum ComparisonNode {
     Eq(MathNode, MathNode),
     Neq(MathNode, MathNode),
     Gt(MathNode, MathNode),
@@ -77,9 +75,8 @@ pub enum LogicalNode {
     And(Box<Self>, Box<Self>),
     Keyword(KeywordNode),
     Comparison(ComparisonNode),
-    Same(SameProp,Box<Self>),
+    Same(SameProp, Box<Self>),
 }
-
 
 //##############################
 //#  AST application stuff
@@ -93,27 +90,28 @@ pub struct ApplyData<'a> {
     structure: &'a Structure,
     state: &'a State,
     subset: SubsetType,
-      
 }
 
-impl<'a> ApplyData<'a> {    
+impl<'a> ApplyData<'a> {
     fn new(structure: &'a Structure, state: &'a State, subset: &SubsetType) -> Result<Self> {
         if structure.atoms.len() != state.coords.len() {
-            bail!("There are {} atoms but {} positions",structure.atoms.len(),state.coords.len());
+            bail!(
+                "There are {} atoms but {} positions",
+                structure.atoms.len(),
+                state.coords.len()
+            );
         }
 
         Ok(Self {
             structure,
-            state, 
+            state,
             subset: subset.clone(),
         })
     }
 
-
     fn len(&self) -> usize {
         self.subset.len()
     }
-
 }
 
 //###################################
@@ -133,14 +131,21 @@ impl LogicalNode {
     }
     */
 
-    fn map_same_prop<'a,T>(&self, data: &'a ApplyData, inner: &SubsetType, prop_fn: fn(&'a Atom)->&'a T) -> SubsetType 
-    where T: Eq+std::hash::Hash+Copy {
+    fn map_same_prop<'a, T>(
+        &self,
+        data: &'a ApplyData,
+        inner: &SubsetType,
+        prop_fn: fn(&'a Atom) -> &'a T,
+    ) -> SubsetType
+    where
+        T: Eq + std::hash::Hash + Copy,
+    {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
         for el in inner.iter().cloned() {
             properties.insert(*prop_fn(&data.structure.atoms[el]));
         }
-        
+
         // Now loop over current cubset and add all atoms with the same property
         let mut res = SubsetType::new();
         for el in data.subset.iter().cloned() {
@@ -154,38 +159,40 @@ impl LogicalNode {
         res
     }
 
-
-    pub fn apply(&self,data: &ApplyData) -> Result<SubsetType> {
+    pub fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
-            Self::Not(node) => {
-                Ok(data.subset.difference(&node.apply(data)?).cloned().collect())
-            },
-            Self::Or(a,b) => {
-                Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect())
-            },
-            Self::And(a,b) => {
+            Self::Not(node) => Ok(data
+                .subset
+                .difference(&node.apply(data)?)
+                .cloned()
+                .collect()),
+            Self::Or(a, b) => Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect()),
+            Self::And(a, b) => {
                 let a_res = a.apply(data)?;
                 let b_data = ApplyData::new(data.structure, data.state, &a_res)?;
                 Ok(a_res.intersection(&b.apply(&b_data)?).cloned().collect())
-            },
+            }
             Self::Keyword(node) => node.apply(data),
             Self::Comparison(node) => node.apply(data),
-            Self::Same(prop,node) => {
+            Self::Same(prop, node) => {
                 let inner = node.apply(data)?;
                 let res = match prop {
                     SameProp::Residue => self.map_same_prop(data, &inner, |at| &at.resindex),
                     SameProp::Chain => self.map_same_prop(data, &inner, |at| &at.chain),
                 };
                 Ok(res)
-            },
+            }
         }
     }
 }
 
-
 impl KeywordNode {
-
-    fn map_str_values(&self, data: &ApplyData, values: &Vec<StrKeywordValue>, f: fn(&Atom)->&AsciiString) -> SubsetType {
+    fn map_str_values(
+        &self,
+        data: &ApplyData,
+        values: &Vec<StrKeywordValue>,
+        f: fn(&Atom) -> &AsciiString,
+    ) -> SubsetType {
         let mut res = SubsetType::new();
         for ind in data.subset.iter().cloned() {
             let a = &data.structure.atoms[ind];
@@ -209,21 +216,26 @@ impl KeywordNode {
         res
     }
 
-    fn map_int_values(&self, data: &ApplyData, values: &Vec<IntKeywordValue>, f: fn(&Atom,usize)->i32) -> SubsetType {
+    fn map_int_values(
+        &self,
+        data: &ApplyData,
+        values: &Vec<IntKeywordValue>,
+        f: fn(&Atom, usize) -> i32,
+    ) -> SubsetType {
         let mut res = SubsetType::new();
         for ind in data.subset.iter().cloned() {
             let a = &data.structure.atoms[ind];
             for val in values {
                 match *val {
                     IntKeywordValue::Int(v) => {
-                        if v == f(a,ind) {
+                        if v == f(a, ind) {
                             res.insert(ind);
                             break;
                         }
                     }
-                    IntKeywordValue::IntRange(b,e) => {
-                        let val = f(a,ind);
-                        if b<=val && val<=e {
+                    IntKeywordValue::IntRange(b, e) => {
+                        let val = f(a, ind);
+                        if b <= val && val <= e {
                             res.insert(ind);
                             break;
                         }
@@ -234,32 +246,26 @@ impl KeywordNode {
         res
     }
 
-    fn apply(&self,data: &ApplyData) -> Result<SubsetType> {  
+    fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
-            Self::Name(values) => {
-                Ok(self.map_str_values(data, values, |a| &a.name ))
-            },
-            Self::Resname(values) => {
-                Ok(self.map_str_values(data, values, |a| &a.resname ))
-            },
-            Self::Resid(values) => {
-                Ok(self.map_int_values(data, values, |a,_i| a.resid))
-            },
+            Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
+            Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
+            Self::Resid(values) => Ok(self.map_int_values(data, values, |a, _i| a.resid)),
             Self::Resindex(values) => {
-                Ok(self.map_int_values(data, values, |a,_i| a.resindex as i32 ))
-            },
-            Self::Index(values) => {
-                Ok(self.map_int_values(data, values, |_a,i| i as i32))
-            },
+                Ok(self.map_int_values(data, values, |a, _i| a.resindex as i32))
+            }
+            Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
                 let mut res = SubsetType::new();
-                for (i,a) in data.structure.atoms.iter().enumerate() {
+                for (i, a) in data.structure.atoms.iter().enumerate() {
                     for val in values {
-                        match val {                            
+                        match val {
                             StrKeywordValue::Str(s) => {
-                                if s.chars().next().unwrap() == a.chain { res.insert(i); }
-                            },
-                            _ => unreachable!()
+                                if s.chars().next().unwrap() == a.chain {
+                                    res.insert(i);
+                                }
+                            }
+                            _ => unreachable!(),
                         }
                     }
                 }
@@ -269,9 +275,8 @@ impl KeywordNode {
     }
 }
 
-
 impl MathNode {
-    fn eval(&self,data: &ApplyData, i: usize) -> Result<f32> {
+    fn eval(&self, data: &ApplyData, i: usize) -> Result<f32> {
         match self {
             Self::Float(v) => Ok(*v),
             Self::X => Ok(data.state.coords[i][0]),
@@ -279,45 +284,46 @@ impl MathNode {
             Self::Z => Ok(data.state.coords[i][2]),
             Self::Bfactor => Ok(data.structure.atoms[i].bfactor),
             Self::Occupancy => Ok(data.structure.atoms[i].occupancy),
-            Self::Plus(a,b) => Ok(a.eval(data,i)?+b.eval(data,i)?),
-            Self::Minus(a,b) => Ok(a.eval(data,i)?-b.eval(data,i)?),
-            Self::Mul(a,b) => Ok(a.eval(data,i)?*b.eval(data,i)?),
-            Self::Div(a,b) => {
-                let b_val = b.eval(data,i)?;
-                if b_val==0.0 {bail!("Division by zero at atom {i}")}
-                Ok(a.eval(data,i)?/b_val)
-            },
-            Self::Pow(a,b) => Ok(a.eval(data,i)?.powf(b.eval(data,i)?)),
-            Self::Neg(v) => Ok(-v.eval(data,i)?),            
+            Self::Plus(a, b) => Ok(a.eval(data, i)? + b.eval(data, i)?),
+            Self::Minus(a, b) => Ok(a.eval(data, i)? - b.eval(data, i)?),
+            Self::Mul(a, b) => Ok(a.eval(data, i)? * b.eval(data, i)?),
+            Self::Div(a, b) => {
+                let b_val = b.eval(data, i)?;
+                if b_val == 0.0 {
+                    bail!("Division by zero at atom {i}")
+                }
+                Ok(a.eval(data, i)? / b_val)
+            }
+            Self::Pow(a, b) => Ok(a.eval(data, i)?.powf(b.eval(data, i)?)),
+            Self::Neg(v) => Ok(-v.eval(data, i)?),
         }
     }
 }
 
-
 impl ComparisonNode {
-    
-    fn eval_op(data: &ApplyData, v1: &MathNode, v2: &MathNode, op: fn(f32,f32)->bool) -> Result<SubsetType> {
+    fn eval_op(
+        data: &ApplyData,
+        v1: &MathNode,
+        v2: &MathNode,
+        op: fn(f32, f32) -> bool,
+    ) -> Result<SubsetType> {
         let mut res = SubsetType::new();
         for i in data.subset.iter().cloned() {
-            if op(v1.eval(data,i)?, v2.eval(data,i)?) { res.insert(i); }
+            if op(v1.eval(data, i)?, v2.eval(data, i)?) {
+                res.insert(i);
+            }
         }
         Ok(res)
     }
 
-    fn apply(&self,data: &ApplyData) -> Result<SubsetType> {
-        match self {            
-            Self::Eq(v1,v2) => 
-                Self::eval_op(data, v1, v2, |a,b| a==b),
-            Self::Neq(v1,v2) => 
-                Self::eval_op(data, v1, v2, |a,b| a!=b),
-            Self::Gt(v1,v2) => 
-                Self::eval_op(data, v1, v2, |a,b| a>b),
-            Self::Geq(v1,v2) => 
-                Self::eval_op(data, v1, v2, |a,b| a>=b),
-            Self::Lt(v1,v2) => 
-                Self::eval_op(data, v1, v2, |a,b| a<b),
-            Self::Leq(v1,v2) => 
-                Self::eval_op(data, v1, v2, |a,b| a<=b),
+    fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
+        match self {
+            Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
+            Self::Neq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a != b),
+            Self::Gt(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a > b),
+            Self::Geq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a >= b),
+            Self::Lt(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a < b),
+            Self::Leq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a <= b),
         }
     }
 }
@@ -399,7 +405,7 @@ peg::parser! {
             match Regex::new(&format!("^{s}$")) {
                 Ok(r) => Ok(StrKeywordValue::Regex(r)),
                 Err(_) => Err("Invalid regex value"),
-            }            
+            }
         }
 
         rule str_value() -> StrKeywordValue
@@ -483,24 +489,35 @@ pub fn generate_ast(sel_str: &str) -> Result<SelectionAst> {
     Ok(selection_parser::logical_expr(sel_str)?)
 }
 
-pub fn apply_ast_whole(ast: &SelectionAst, structure: &Structure, state: &State) -> Result<Vec<usize>> {
+pub fn apply_ast_whole(
+    ast: &SelectionAst,
+    structure: &Structure,
+    state: &State,
+) -> Result<Vec<usize>> {
     let data = ApplyData {
         structure,
         state,
-        subset: SubsetType::from_iter(0..structure.atoms.len())
+        subset: SubsetType::from_iter(0..structure.atoms.len()),
     };
     let mut index = Vec::<usize>::from_iter(ast.apply(&data)?.into_iter());
     index.sort();
-    Ok( index )
+    Ok(index)
 }
 
-pub fn apply_ast_subset(ast: &SelectionAst, structure: &Structure, state: &State, subset: &Vec<usize>) -> Result<Vec<usize>> {
+pub fn apply_ast_subset(
+    ast: &SelectionAst,
+    structure: &Structure,
+    state: &State,
+    subset: &Vec<usize>,
+) -> Result<Vec<usize>> {
     let data = ApplyData {
         structure,
         state,
-        subset: SubsetType::from_iter(subset.iter().cloned())
+        subset: SubsetType::from_iter(subset.iter().cloned()),
     };
-    Ok( Vec::<usize>::from_iter(ast.apply(&data)?.into_iter()) )
+    let mut index = Vec::<usize>::from_iter(ast.apply(&data)?.into_iter());
+    index.sort();
+    Ok(index)
 }
 
 //##############################
@@ -509,20 +526,20 @@ pub fn apply_ast_subset(ast: &SelectionAst, structure: &Structure, state: &State
 
 #[cfg(test)]
 mod tests {
-    use super::{selection_parser, generate_ast, apply_ast_whole};
-    use crate::{io::*, core::Structure,core::State};
+    use super::{apply_ast_whole, generate_ast, selection_parser};
+    use crate::{core::State, core::Structure, io::*};
     use lazy_static::lazy_static;
 
-    fn read_test_pdb() -> (Structure,State) {
+    fn read_test_pdb() -> (Structure, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
-        (structure,state)
+        (structure, state)
     }
 
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
-        static ref SS: (Structure,State) = read_test_pdb();
+        static ref SS: (Structure, State) = read_test_pdb();
     }
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
@@ -530,10 +547,13 @@ mod tests {
         apply_ast_whole(&ast, &SS.0, &SS.1).expect("Error applying AST")
     }
 
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/generated_selection_tests.in"));
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/generated_selection_tests.in"
+    ));
 
     //----------------------------------------------------------------------
-    
+
     #[test]
     pub fn test_int_keyword_expr() {
         let res = selection_parser::int_keyword_expr("index 1  2 3:4 5");
@@ -561,7 +581,6 @@ mod tests {
     #[test]
     pub fn test_comparison() {
         let res = selection_parser::comparison_expr("(x +4 )< x");
-        println!("{:#?}", res);   
+        println!("{:#?}", res);
     }
- 
 }

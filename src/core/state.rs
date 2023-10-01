@@ -23,11 +23,6 @@ impl State {
 
 //======================================================
 
-pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
-impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'a Pos)> {}
-
-//======================================================
-
 /// Substate encapsulating state and an iterator over selected indexes
 /// It doesn't store indexes internally thus not indexible
 pub struct SubState<'a, T>
