@@ -1,11 +1,16 @@
 use anyhow::{bail, Result};
 use ascii::AsciiString;
+use num_traits::Bounded;
 use regex::bytes::Regex;
 
 use super::atom::Atom;
 use super::state::State;
 use super::structure::Structure;
+use super::{PbcDims, IndexIterator};
+use crate::distance_search::search::SearcherDoubleGrid;
 use std::collections::HashSet;
+
+use crate::core::Vector3f;
 
 //##############################
 //#  AST node types
@@ -69,6 +74,13 @@ pub enum SameProp {
 }
 
 #[derive(Debug)]
+pub struct WithinProp {
+    cutoff: f32,
+    pbc: PbcDims,
+    include_inner: bool,
+}
+
+#[derive(Debug)]
 pub enum LogicalNode {
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
@@ -76,6 +88,7 @@ pub enum LogicalNode {
     Keyword(KeywordNode),
     Comparison(ComparisonNode),
     Same(SameProp, Box<Self>),
+    Within(WithinProp, Box<Self>),
 }
 
 //##############################
@@ -182,8 +195,59 @@ impl LogicalNode {
                 };
                 Ok(res)
             }
+            Self::Within(prop, node) => {
+                let inner = node.apply(data)?;
+                println!("{:?}",inner);                
+                // Perform distance search
+                let searcher = if prop.pbc == [false, false, false] {
+                    // Non-periodic variant
+                    // Find extents
+                    let (mut lower,mut upper) = get_min_max(data.state, inner.iter().cloned());
+                    lower.add_scalar_mut(-prop.cutoff-f32::EPSILON);
+                    upper.add_scalar_mut(prop.cutoff+f32::EPSILON);
+                    println!("{:?} {:?} {:?}",lower,upper,prop.cutoff);
+                    SearcherDoubleGrid::from_state_subset(
+                        prop.cutoff,
+                        data.state,
+                        data.subset.iter().cloned(),
+                        data.state,
+                        inner.iter().cloned(),
+                        &lower,
+                        &upper,
+                    )
+                } else {
+                    // Periodic variant
+                    SearcherDoubleGrid::from_state_subset_periodic(
+                        prop.cutoff,
+                        data.state,
+                        data.subset.iter().cloned(),
+                        data.state,
+                        inner.iter().cloned(),
+                        &prop.pbc
+                    )
+                };
+
+                let mut res: SubsetType = searcher.search();
+                // Add inner if asked
+                if prop.include_inner {
+                    res.extend(inner);
+                }
+                Ok(res)
+            }
         }
     }
+}
+
+fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f,Vector3f) {
+    let mut lower = Vector3f::max_value();
+    let mut upper = Vector3f::min_value();
+    for i in iter {
+        for d in 0..3 {
+            if state.coords[i][d] < lower[d] { lower[d] = state.coords[i][d] }
+            if state.coords[i][d] > upper[d] { upper[d] = state.coords[i][d] }
+        }
+    }
+    (lower,upper)
 }
 
 impl KeywordNode {
@@ -460,6 +524,21 @@ peg::parser! {
             }
         }
 
+        // Within
+        pub rule within_expr() -> WithinProp
+        = "within" __ d:float() __ p:$(("pbc" __)?) s:$(("self" __)?) "of" {
+            if let MathNode::Float(v) = d {
+                let pbc = match p.is_empty() {
+                    true => [false,false,false],
+                    false => [true,true,true],
+                };
+                let include_inner = !s.is_empty();
+                WithinProp {cutoff: v, pbc, include_inner}
+            } else {
+                unreachable!()
+            }
+        }
+
         // Logic
         pub rule logical_expr() -> LogicalNode
         = precedence!{
@@ -467,8 +546,7 @@ peg::parser! {
             x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
             "not" _ v:@ { LogicalNode::Not(Box::new(v)) }
             t:same_expr() _ v:@ { LogicalNode::Same(t,Box::new(v)) }
-            //TODO:
-            // v:within_expr() {LogicalNode::Within(v)}
+            p:within_expr() _ v:@ {LogicalNode::Within(p,Box::new(v))}
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }

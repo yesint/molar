@@ -1,16 +1,19 @@
 mol new triclinic.pdb type pdb
 
+# Format: "vmd selection"   "molar selection"
 set selections {
-    "name CA"
-    "resid 10"
-    "same residue as (name CA and resid 10)"
+    "name CA"   "name CA"
+    "resid 10"  "resid 10"
+    "same residue as (name CA and resid 10)"    "same residue as (name CA and resid 10)"
+    "within 5 of resid 10"  "within 0.5 of resid 10"
 } 
 
 set rust_code ""
 set n 0
-foreach s $selections {
-    set res [[atomselect top $s] get index]
+for {set i 0} {$i < [llength $selections]} {incr i 2} {
+    set res [[atomselect top [lindex $selections $i]] get index]
 
+    set s [lindex $selections [expr $i+1]]
     append rust_code "
     \#\[test\]
     fn selection_test_$n () {

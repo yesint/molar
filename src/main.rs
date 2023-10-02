@@ -1,27 +1,4 @@
 use molar::io::*;
-//use pteros::{MolfileSingleFrame, MolfileStructure};
-
-#[test]
-fn test_pdb() {
-    let mut h = VmdMolFileHandler::new_reader("colored.pdb").unwrap();
-    let st = h.read_structure().unwrap();
-    for _a in st.atoms {
-        println!("{:?}",_a);
-    }
-
-    for _i in 0..2 {
-        let st = h.read_next_state().unwrap().unwrap();
-        
-        //if let Some(s) = st {
-            println!("{}", st.coords.len());
-            for c in st.coords {
-                println!("{:?}",c);
-            }
-        //} else {
-        //    println!("EOF reached");
-        //}
-    }
-}
 
 #[cfg(feature = "gromacs")]
 #[test]

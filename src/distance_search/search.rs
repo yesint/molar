@@ -149,8 +149,6 @@ pub struct SearcherDoubleGrid {
     cutoff: f32,
 }
 
-
-
 impl SearcherDoubleGrid {
     pub fn from_state_subset(
         cutoff: f32,
@@ -167,9 +165,13 @@ impl SearcherDoubleGrid {
         let mut grid2 = Grid::<GridCellData>::new(grid_sz);
 
         grid1.populate(subset1.map(|i| (i, &state1.coords[i])), lower, upper);
-        grid1.populate(subset2.map(|i| (i, &state2.coords[i])), lower, upper);
+        grid2.populate(subset2.map(|i| (i, &state2.coords[i])), lower, upper);
         // Create an instance
-        Self { grid1, grid2, cutoff }
+        Self {
+            grid1,
+            grid2,
+            cutoff,
+        }
     }
 
     pub fn from_state_subset_periodic(
@@ -197,7 +199,11 @@ impl SearcherDoubleGrid {
             &periodic_dims,
         );
         // Create an instance
-        Self { grid1, grid2, cutoff }
+        Self {
+            grid1,
+            grid2,
+            cutoff,
+        }
     }
 
     #[inline]
@@ -212,7 +218,7 @@ impl SearcherDoubleGrid {
     }
 
     // Main search function
-    pub fn search<T: SearchOutputType>(&self) -> Vec<T> {
+    pub fn search<T: SearchOutputType, C: FromIterator<T>>(&self) -> C {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid1.pbc.as_ref() {
             Some(pbc) => pbc.dims,
@@ -230,16 +236,16 @@ impl SearcherDoubleGrid {
 
         // We first search for pair c1->grid1; c2->grid2
         // then for the swapped pair c2->grid1; c1->grid2
-        // grid1 always goes first        
-        iter.map(|pair|{
+        // grid1 always goes first
+        iter.map(|pair| {
             let swapped_pair = pair.swaped();
             let mut v1 = self.search_cell_pair(pair, dist_func);
             let v2 = self.search_cell_pair(swapped_pair, dist_func);
             v1.extend(v2);
             v1
         })
-            .flatten()
-            .collect::<Vec<T>>()
+        .flatten()
+        .collect::<C>()
     }
 
     fn search_cell_pair<T: SearchOutputType>(
@@ -258,35 +264,39 @@ impl SearcherDoubleGrid {
         }
 
         let cutoff2 = self.cutoff.powi(2);
-        
+
         for i in 0..n1 {
             let p1 = &self.grid1[&pair.c1].coords[i];
             for j in 0..n2 {
                 let p2 = &self.grid2[&pair.c2].coords[j];
                 let dist = dist_func(self, p1, p2);
                 if dist <= cutoff2 {
-                    found.push(T::from_search_results(i, j, dist));
+                    found.push(T::from_search_results(
+                        self.grid1[&pair.c1].ids[i],
+                        self.grid2[&pair.c2].ids[j],
+                        dist,
+                    ));
                 }
             }
         }
-        
+
         found
     }
 }
 
-trait SearchOutputType {
-    fn from_search_results(i:usize,j:usize,d:f32) -> Self;
+pub trait SearchOutputType {
+    fn from_search_results(i: usize, j: usize, d: f32) -> Self;
 }
 
 impl SearchOutputType for usize {
-    fn from_search_results(i:usize,j:usize,d:f32) -> Self {
+    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
         i
     }
 }
 
 impl SearchOutputType for ValidPair {
-    fn from_search_results(i:usize,j:usize,d:f32) -> Self {
-        Self{i,j,d}
+    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
+        Self { i, j, d }
     }
 }
 
@@ -343,8 +353,8 @@ fn test_single_non_periodic() {
         0.3,
         &st,
         0..st.coords.len(),
-        &Vector3f::new(0.0,0.0,0.0),
-        &Vector3f::new(1.0,1.0,1.0),
+        &Vector3f::new(0.0, 0.0, 0.0),
+        &Vector3f::new(1.0, 1.0, 1.0),
     );
     let found = searcher.search();
     println!("{:?}", found.len())
@@ -355,7 +365,7 @@ fn test_double_periodic() {
     use crate::io::*;
     use std::iter::zip;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st = r.read_next_state().unwrap().unwrap();    
+    let st = r.read_next_state().unwrap().unwrap();
 
     let mut searcher = SearcherDoubleGrid::from_state_subset_periodic(
         0.3,
@@ -363,7 +373,7 @@ fn test_double_periodic() {
         0..st.coords.len(),
         &st,
         0..st.coords.len(),
-        &[true,true,true],        
+        &[true, true, true],
     );
     let found: Vec<usize> = searcher.search();
     println!("{:?}", found.len())

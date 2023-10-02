@@ -1,3 +1,3 @@
 mod grid;
-mod search;
+pub mod search;
 mod cell_pair_iterator;
