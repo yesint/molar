@@ -398,9 +398,12 @@ impl ComparisonNode {
 
 peg::parser! {
     grammar selection_parser() for str {
-
-        rule _ = (" " / "\t")* // Optional whitespace
-        rule __ = (" " / "\t")+ // Mandatory whitespace
+        // Optional whitespace
+        rule _ = (" " / "\t")*
+        // Mandatory whitespace
+        rule __ = (" " / "\t")+
+        // Mandatory whitespace unless followed by paren
+        rule ___ = _ &"(" / __
 
         rule uint() -> u32
             = n:$(['0'..='9']+)
@@ -414,7 +417,7 @@ peg::parser! {
             = n:$((int() ("." uint())? / ("-"/"+") "." uint()) (("e"/"E") int())?)
             { MathNode::Float(n.parse().unwrap()) }
 
-        pub rule int_keyword_expr() -> KeywordNode
+        rule int_keyword_expr() -> KeywordNode
             = s:$("resid" / "resindex" / "index") __
               v:((int_range() / int_single()) ++ __)
             {
@@ -434,7 +437,7 @@ peg::parser! {
             = i:int()
             { IntKeywordValue::Int(i) }
 
-        pub rule str_keyword_expr() -> KeywordNode
+        rule str_keyword_expr() -> KeywordNode
         = s:$("name" / "resname" / "chain") __
             v:((str_value() / regex_value()) ++ __)
         {?
@@ -477,7 +480,7 @@ peg::parser! {
         { StrKeywordValue::Str(AsciiString::from_ascii(s).unwrap()) }
 
         // Math
-        pub rule math_expr() -> MathNode
+        rule math_expr() -> MathNode
         = precedence!{
             x:(@) _ "+" _ y:@ { MathNode::Plus(Box::new(x),Box::new(y)) }
             x:(@) _ "-" _ y:@ { MathNode::Minus(Box::new(x),Box::new(y)) }
@@ -501,7 +504,7 @@ peg::parser! {
 
 
         // Comparisons
-        pub rule comparison_expr() -> ComparisonNode
+        rule comparison_expr() -> ComparisonNode
         = a:math_expr() _ op:$("=="/"!="/"<="/"<"/">="/">") _ b:math_expr() {
             match op {
                 "==" => { ComparisonNode::Eq(a,b) },
@@ -515,7 +518,7 @@ peg::parser! {
         }
 
         // By expressions
-        pub rule same_expr() -> SameProp
+        rule same_expr() -> SameProp
         = "same" __ t:$(("residue" / "chain")) __ "as" {
             match t {
                 "residue" => SameProp::Residue,
@@ -524,16 +527,35 @@ peg::parser! {
             }
         }
 
+        // Single PBC dimention
+        rule pbc_dim() -> bool 
+        = v:$("1" / "0" / "y" / "n") _ {
+            match v {
+                "1" | "y" => true,
+                "0" | "n" => false,
+                _ => unreachable!()
+            }
+        }
+
+        // PBC for within
+        rule within_pbc() -> [bool;3]
+        = "pbc" __ p:(pbc_dim()*<3>)? __ {
+            match p {
+                Some(dim) => [dim[0],dim[1],dim[2]],
+                None => [true,true,true],
+            }
+        }
+
         // Within
-        pub rule within_expr() -> WithinProp
-        = "within" __ d:float() __ p:$(("pbc" __)?) s:$(("self" __)?) "of" {
-            if let MathNode::Float(v) = d {
-                let pbc = match p.is_empty() {
-                    true => [false,false,false],
-                    false => [true,true,true],
+        rule within_expr() -> WithinProp
+        = "within" __ d:float() __ p:within_pbc()? s:$(("self" __)?) "of" {
+            if let MathNode::Float(cutoff) = d {
+                let pbc = match p {
+                    Some(dims) => dims,
+                    None => [false,false,false],
                 };
                 let include_inner = !s.is_empty();
-                WithinProp {cutoff: v, pbc, include_inner}
+                WithinProp {cutoff, pbc, include_inner}
             } else {
                 unreachable!()
             }
@@ -544,9 +566,9 @@ peg::parser! {
         = precedence!{
             x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
             x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
-            "not" _ v:@ { LogicalNode::Not(Box::new(v)) }
-            t:same_expr() _ v:@ { LogicalNode::Same(t,Box::new(v)) }
-            p:within_expr() _ v:@ {LogicalNode::Within(p,Box::new(v))}
+            "not" ___ v:@ { LogicalNode::Not(Box::new(v)) }
+            t:same_expr() ___ v:@ { LogicalNode::Same(t,Box::new(v)) }
+            p:within_expr() ___ v:@ {LogicalNode::Within(p,Box::new(v))}
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
@@ -629,36 +651,4 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/generated_selection_tests.in"
     ));
-
-    //----------------------------------------------------------------------
-
-    #[test]
-    pub fn test_int_keyword_expr() {
-        let res = selection_parser::int_keyword_expr("index 1  2 3:4 5");
-        println!("{:?}", res);
-    }
-
-    #[test]
-    pub fn test_str_keyword_expr() {
-        let res = selection_parser::str_keyword_expr("chain Cf A");
-        println!("{:?}", res);
-    }
-
-    #[test]
-    pub fn test_logical() {
-        let res = selection_parser::logical_expr("name C B and not(name A Z or x+1>7)");
-        println!("{:?}", res);
-    }
-
-    #[test]
-    pub fn test_math() {
-        let res = selection_parser::math_expr("- 1  + - ( -2  *5 )");
-        println!("{:?}", res);
-    }
-
-    #[test]
-    pub fn test_comparison() {
-        let res = selection_parser::comparison_expr("(x +4 )< x");
-        println!("{:#?}", res);
-    }
 }
