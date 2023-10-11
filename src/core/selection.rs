@@ -25,17 +25,16 @@ struct ParticleMut<'a> {
     pos: &'a mut Pos,
 }
 
-
 pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> {}
 impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> {}
 
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
 
-
 struct Selection {}
 struct SelectionWithAst(SelectionAst);
 struct SelectionWithIter<I: IndexIterator>(I);
+struct SelectionAll {}
 
 impl Selection {
     fn from_expr(sel_str: &str) -> Result<SelectionWithAst> {
@@ -46,19 +45,31 @@ impl Selection {
     fn from_iter<I: IndexIterator>(iter: I) -> SelectionWithIter<I> {
         SelectionWithIter(iter)
     }
+
+    fn all() -> SelectionAll {
+        SelectionAll {}
+    }
 }
 
 impl SelectionWithAst {
-    fn apply<'a>(&self,structure: &'a Structure, state: &'a State) -> Result<impl ParticleIterator<'a>> {
+    fn apply<'a>(
+        &self,
+        structure: &'a Structure,
+        state: &'a State,
+    ) -> Result<impl ParticleIterator<'a>> {
         let vec = apply_ast_whole(&self.0, structure, state)?;
-        Ok(vec.into_iter().map(|i| Particle{
+        Ok(vec.into_iter().map(|i| Particle {
             id: i,
             atom: &structure.atoms[i],
-            pos: &state.coords[i]
+            pos: &state.coords[i],
         }))
     }
 
-    fn apply_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> Result<impl ParticleMutIterator<'a>> {
+    fn apply_mut<'a>(
+        &self,
+        structure: &'a mut Structure,
+        state: &'a mut State,
+    ) -> Result<impl ParticleMutIterator<'a>> {
         let vec = apply_ast_whole(&self.0, structure, state)?;
         Ok(ParticleMutIteratorAdaptor {
             atom_iter: structure.atoms.iter_mut(),
@@ -70,15 +81,23 @@ impl SelectionWithAst {
 }
 
 impl<I: IndexIterator> SelectionWithIter<I> {
-    fn apply<'a>(&self,structure: &'a Structure, state: &'a State) -> Result<impl ParticleIterator<'a>> {
-        Ok(self.0.clone().map(|i| Particle{
+    fn apply<'a>(
+        &self,
+        structure: &'a Structure,
+        state: &'a State,
+    ) -> Result<impl ParticleIterator<'a>> {
+        Ok(self.0.clone().map(|i| Particle {
             id: i,
             atom: &structure.atoms[i],
-            pos: &state.coords[i]
+            pos: &state.coords[i],
         }))
     }
 
-    fn apply_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> Result<impl ParticleMutIterator<'a>> {
+    fn apply_mut<'a>(
+        &self,
+        structure: &'a mut Structure,
+        state: &'a mut State,
+    ) -> Result<impl ParticleMutIterator<'a>> {
         Ok(ParticleMutIteratorAdaptor {
             atom_iter: structure.atoms.iter_mut(),
             pos_iter: state.coords.iter_mut(),
@@ -88,17 +107,44 @@ impl<I: IndexIterator> SelectionWithIter<I> {
     }
 }
 
+impl SelectionAll {
+    fn apply<'a>(
+        &self,
+        structure: &'a Structure,
+        state: &'a State,
+    ) -> Result<impl ParticleIterator<'a>> {
+        Ok((0..state.coords.len()).map(|i| Particle {
+            id: i,
+            atom: &structure.atoms[i],
+            pos: &state.coords[i],
+        }))
+    }
+
+    fn apply_mut<'a>(
+        &self,
+        structure: &'a mut Structure,
+        state: &'a mut State,
+    ) -> Result<impl ParticleMutIterator<'a>> {
+        let n = state.coords.len();
+        Ok(ParticleMutIteratorAdaptor {
+            atom_iter: structure.atoms.iter_mut(),
+            pos_iter: state.coords.iter_mut(),
+            index_iter: 0..n,
+            cur: 0,
+        })
+    }
+}
+
 //---------------------------------------
 
-
 // Helper struct for creating subscripted mutable iterator
-// from container iterator and index iterator
+// from iterators over atoms and positions
 // IMPORTANT! Only works for **sorted** indexes!
 struct ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
 where
     AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>, // iterator over positions
-    IndexI: IndexIterator,              // Index iterator
+    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
+    IndexI: IndexIterator,                // Index iterator
 {
     atom_iter: AtomI,
     pos_iter: PosI,
@@ -109,35 +155,32 @@ where
 impl<'a, AtomI, PosI, IndexI> Iterator for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
 where
     AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>, // iterator over positions
-    IndexI: IndexIterator,              // Index iterator
+    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
+    IndexI: IndexIterator,                // Index iterator
 {
     type Item = ParticleMut<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.index_iter.next() {
-            Some(i) => {
-                // Advance pos_iter by offset and yield
-                let at = self.atom_iter.nth(i - self.cur)?;
-                let pos = self.pos_iter.nth(i - self.cur)?;
+            Some(id) => {
+                // Advance iterators by offset and yield
+                let atom = self.atom_iter.nth(id - self.cur)?;
+                let pos = self.pos_iter.nth(id - self.cur)?;
                 // Advance current position
-                self.cur = i + 1;
-                Some(ParticleMut{
-                    atom: at,
-                    pos: pos,
-                    id: i,
-                })
+                self.cur = id + 1;
+                Some(ParticleMut { atom, pos, id })
             }
             None => None,
         }
     }
 }
 
-impl<'a, AtomI, PosI, IndexI> ExactSizeIterator for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
+impl<'a, AtomI, PosI, IndexI> ExactSizeIterator
+    for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
 where
     AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>, // iterator over positions
-    IndexI: IndexIterator,              // Index iterator
+    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
+    IndexI: IndexIterator,                // Index iterator
 {
     fn len(&self) -> usize {
         self.index_iter.len()
