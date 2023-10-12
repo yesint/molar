@@ -2,9 +2,7 @@ use std::marker::PhantomData;
 
 use super::{
     selection_parser::{apply_ast_whole, generate_ast, SelectionAst},
-    Atom, AtomIterator, AtomIteratorMut, IdAtomIterator, IdAtomIteratorMut, IdAtomPosIterator,
-    IdAtomPosIteratorMut, IdPosIterator, IdPosIteratorMut, IndexIterator, Pos, PosIterator,
-    PosIteratorMut, State, Structure,
+    Atom, IndexIterator, Pos, State, Structure, PeriodicBox,
 };
 use anyhow::{bail, Result};
 use nalgebra::Point3;
@@ -13,20 +11,21 @@ use nalgebra::Point3;
 //  Selection::from_iter(0..10).iter(structure,state)
 //  Selection::from_expr("name_CA").iter(structure,state)
 
-struct Particle<'a> {
-    id: usize,
-    atom: &'a Atom,
-    pos: &'a Pos,
+#[derive(Debug)]
+pub struct Particle<'a> {
+    pub id: usize,
+    pub atom: &'a Atom,
+    pub pos: &'a Pos,
 }
 
-struct ParticleMut<'a> {
-    id: usize,
-    atom: &'a mut Atom,
-    pos: &'a mut Pos,
+pub struct ParticleMut<'a> {
+    pub id: usize,
+    pub atom: &'a mut Atom,
+    pub pos: &'a mut Pos,
 }
 
-pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> {}
-impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> {}
+pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {}
+impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> + Clone {}
 
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
@@ -137,9 +136,31 @@ impl SelectionAll {
 
 //---------------------------------------
 
+struct SelectionAdaptor<'a, IndexI: IndexIterator> {
+    structure: &'a Structure,
+    state: &'a State,
+    index_iter: IndexI,
+}
+
+impl<'a, IndexI: IndexIterator> Iterator for SelectionAdaptor<'a, IndexI> {
+    type Item = Particle<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index_iter.next().map(|id| Particle {id, atom: &self.structure.atoms[id], pos: &self.state.coords[id]})    
+    }
+}
+
+impl<'a, IndexI: IndexIterator> ExactSizeIterator for SelectionAdaptor<'a, IndexI> {
+    fn len(&self) -> usize {
+        self.index_iter.len()
+    }
+}
+
+
+
 // Helper struct for creating subscripted mutable iterator
 // from iterators over atoms and positions
 // IMPORTANT! Only works for **sorted** indexes!
+#[derive(Clone)]
 struct ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
 where
     AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
@@ -185,4 +206,38 @@ where
     fn len(&self) -> usize {
         self.index_iter.len()
     }
+}
+
+//##############################
+//#  Tests
+//##############################
+
+#[cfg(test)]
+mod tests {
+    use super::{Selection};
+    use crate::{core::State, core::Structure, io::*};
+    use lazy_static::lazy_static;
+
+    fn read_test_pdb() -> (Structure, State) {
+        let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
+        let structure = h.read_structure().unwrap();
+        let state = h.read_next_state().unwrap().unwrap();
+        (structure, state)
+    }
+
+    // Read the test PDB file once and provide the content for tests
+    lazy_static! {
+        static ref SS: (Structure, State) = read_test_pdb();
+    }
+
+    #[test]
+    fn test_sel1() {
+        let sel = Selection::from_expr("name CA").unwrap();
+        let particles = sel.apply(&SS.0, &SS.1).unwrap();
+        println!("sz: {}",particles.len());
+        for p in particles {
+            println!("{:?}",p);
+        }
+    }
+
 }

@@ -1,4 +1,4 @@
-use super::{IndexIterator, PeriodicBox, Pos, PosIterator, IdPosIterator};
+use super::{IndexIterator, PeriodicBox, Pos};
 use nalgebra::Point3;
 
 #[derive(Debug, Default)]
