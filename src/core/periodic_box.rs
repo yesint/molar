@@ -106,29 +106,21 @@ impl PeriodicBox {
     
 
     pub fn wrap_vector(&self, vec: &Vector3f) -> Vector3f {
-        if self.is_rectangular {
-            return vec.clone();
-        } else {
-            // Get vector in box fractional coordinates
-            let mut box_vec = self.inv*vec;
-            box_vec.apply(|v|{*v -= v.round();});
-            return self.matrix * box_vec;
-        }
+        // Get vector in box fractional coordinates
+        let mut box_vec = self.inv*vec;
+        box_vec.apply(|v|{*v -= v.round();});
+        return self.matrix * box_vec;
     }
 
     pub fn wrap_vector_dims(&self, vec: &Vector3f, pbc_dims: &PbcDims) -> Vector3f {
-        if self.is_rectangular {
-            return vec.clone();
-        } else {
-            // Get vector in box fractional coordinates
-            let mut box_vec = self.inv*vec;
-            for i in 0..3 {
-                if pbc_dims[i] {
-                    box_vec[i] -= box_vec[i].round();
-                }
+        // Get vector in box fractional coordinates
+        let mut box_vec = self.inv*vec;
+        for i in 0..3 {
+            if pbc_dims[i] {
+                box_vec[i] -= box_vec[i].round();
             }
-            return self.matrix * box_vec;
         }
+        return self.matrix * box_vec;
     }
 
     pub fn closest_image(&self, point: &Pos, target: &Pos) -> Pos {

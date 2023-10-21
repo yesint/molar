@@ -1,8 +1,8 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, borrow::Cow};
 
 use super::{
     selection_parser::{apply_ast_whole, generate_ast, SelectionAst},
-    Atom, IndexIterator, Pos, State, Structure, PeriodicBox,
+    Atom, IndexIterator, Pos, State, Structure, PeriodicBox, PosIterator, PbcDims, Vector3f,
 };
 use anyhow::{bail, Result};
 use nalgebra::Point3;
@@ -11,11 +11,11 @@ use nalgebra::Point3;
 //  Selection::from_iter(0..10).iter(structure,state)
 //  Selection::from_expr("name_CA").iter(structure,state)
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Particle<'a> {
     pub id: usize,
-    pub atom: &'a Atom,
-    pub pos: &'a Pos,
+    pub atom: Cow<'a,Atom>,
+    pub pos: Cow<'a,Pos>,
 }
 
 pub struct ParticleMut<'a> {
@@ -24,31 +24,52 @@ pub struct ParticleMut<'a> {
     pub pos: &'a mut Pos,
 }
 
-pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {}
+pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {
+    // Converts to periodically unwrapped iterator
+    fn pbc(self, box_: &'a PeriodicBox, pbc_dims: PbcDims) -> ParticleIteratorPbc<'a,Self> {
+        let pivot = self.clone().nth(self.len()/2).unwrap().pos;
+        ParticleIteratorPbc {
+            box_,
+            it: self,
+            pbc_dims,
+            pivot: *pivot,
+        }
+    }
+}
 impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> + Clone {}
 
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
 
-struct Selection {}
+//----------------------------------------------------------
+//Iterator over particles wrapped in periodic box
+struct ParticleIteratorPbc<'a,I: ParticleIterator<'a>> {
+    it: I,
+    box_: &'a PeriodicBox,
+    pbc_dims: PbcDims,
+    pivot: Pos,
+}
+
+impl<'a,I: ParticleIterator<'a>> Iterator for ParticleIteratorPbc<'a,I> {
+    type Item = I::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut p= self.it.next()?;
+        *p.pos.to_mut() = self.box_.closest_image_dims(&p.pos, &self.pivot, &self.pbc_dims);
+        Some(p)
+    }
+}
+
+impl<'a,I: ParticleIterator<'a>> ExactSizeIterator for ParticleIteratorPbc<'a,I> {
+    fn len(&self) -> usize {
+        self.it.len()
+    }
+}
+//----------------------------------------------------------------
+
 struct SelectionWithAst(SelectionAst);
 struct SelectionWithIter<I: IndexIterator>(I);
 struct SelectionAll {}
 
-impl Selection {
-    fn from_expr(sel_str: &str) -> Result<SelectionWithAst> {
-        let ast = generate_ast(sel_str)?;
-        Ok(SelectionWithAst(ast))
-    }
-
-    fn from_iter<I: IndexIterator>(iter: I) -> SelectionWithIter<I> {
-        SelectionWithIter(iter)
-    }
-
-    fn all() -> SelectionAll {
-        SelectionAll {}
-    }
-}
 
 impl SelectionWithAst {
     fn apply<'a>(
@@ -59,8 +80,8 @@ impl SelectionWithAst {
         let vec = apply_ast_whole(&self.0, structure, state)?;
         Ok(vec.into_iter().map(|i| Particle {
             id: i,
-            atom: &structure.atoms[i],
-            pos: &state.coords[i],
+            atom: Cow::Borrowed(&structure.atoms[i]),
+            pos: Cow::Borrowed(&state.coords[i]),
         }))
     }
 
@@ -87,8 +108,8 @@ impl<I: IndexIterator> SelectionWithIter<I> {
     ) -> Result<impl ParticleIterator<'a>> {
         Ok(self.0.clone().map(|i| Particle {
             id: i,
-            atom: &structure.atoms[i],
-            pos: &state.coords[i],
+            atom: Cow::Borrowed(&structure.atoms[i]),
+            pos: Cow::Borrowed(&state.coords[i]),
         }))
     }
 
@@ -114,8 +135,8 @@ impl SelectionAll {
     ) -> Result<impl ParticleIterator<'a>> {
         Ok((0..state.coords.len()).map(|i| Particle {
             id: i,
-            atom: &structure.atoms[i],
-            pos: &state.coords[i],
+            atom: Cow::Borrowed(&structure.atoms[i]),
+            pos: Cow::Borrowed(&state.coords[i]),
         }))
     }
 
@@ -136,25 +157,41 @@ impl SelectionAll {
 
 //---------------------------------------
 
-struct SelectionAdaptor<'a, IndexI: IndexIterator> {
+struct Selection<'a> {
     structure: &'a Structure,
     state: &'a State,
-    index_iter: IndexI,
+    index: Vec<usize>,
 }
 
-impl<'a, IndexI: IndexIterator> Iterator for SelectionAdaptor<'a, IndexI> {
+/*
+impl<'a> Iterator for Selection<'a> {
     type Item = Particle<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.index_iter.next().map(|id| Particle {id, atom: &self.structure.atoms[id], pos: &self.state.coords[id]})    
+        self.index.next().map(|id| Particle {id, atom: &self.structure.atoms[id], pos: &self.state.coords[id]})
     }
 }
 
-impl<'a, IndexI: IndexIterator> ExactSizeIterator for SelectionAdaptor<'a, IndexI> {
+impl<'a> ExactSizeIterator for Selection<'a> {
     fn len(&self) -> usize {
-        self.index_iter.len()
+        self.index.len()
     }
 }
 
+*/
+impl<'a> Selection<'a> {
+    fn from_expr(sel_str: &str) -> Result<SelectionWithAst> {
+        let ast = generate_ast(sel_str)?;
+        Ok(SelectionWithAst(ast))
+    }
+
+    fn from_iter<I: IndexIterator>(iter: I) -> SelectionWithIter<I> {
+        SelectionWithIter(iter)
+    }
+
+    fn all() -> SelectionAll {
+        SelectionAll {}
+    }
+}
 
 
 // Helper struct for creating subscripted mutable iterator
