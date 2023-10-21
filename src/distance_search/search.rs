@@ -1,17 +1,48 @@
 use super::grid::*;
 use crate::{
-    core::{IndexIterator, PbcDims, PeriodicBox, Pos, State, Vector3f},
+    core::{IndexIterator, ParticleIterator, PbcDims, PeriodicBox, Pos, State, Vector3f},
     distance_search::cell_pair_iterator::CellPairIter,
 };
 use nalgebra::Vector3;
 use num_traits::clamp_min;
 use rayon::prelude::*;
+use std::{collections::HashMap, borrow::Cow};
 
 pub struct ValidPair {
     pub i: usize,
     pub j: usize,
     pub d: f32,
 }
+
+#[derive(Debug,Default)]
+pub struct SearchConnectivity (HashMap<usize,Vec<usize>>);
+
+impl SearchConnectivity {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl FromIterator<(usize,usize)> for SearchConnectivity {
+    fn from_iter<T: IntoIterator<Item = (usize,usize)>>(iter: T) -> Self {
+        let mut res = Self::default();
+        for (i,j) in iter {
+            if res.0.contains_key(&i) {
+                res.0.get_mut(&i).unwrap().push(j);
+            } else {
+                res.0.insert(i,vec![j]);
+            }
+            
+            if res.0.contains_key(&j) {
+                res.0.get_mut(&j).unwrap().push(i);
+            } else {
+                res.0.insert(j,vec![i]);
+            }
+        }
+        res
+    }
+}
+
 
 pub struct SearcherSingleGrid {
     grid: Grid<GridCellData>,
@@ -30,7 +61,7 @@ impl SearcherSingleGrid {
         let grid_sz = grid_size(cutoff, lower, upper);
         let mut grid = Grid::<GridCellData>::new(grid_sz);
 
-        grid.populate(subset.map(|i| (i, &state.coords[i])), lower, upper);
+        grid.populate(subset.map(|i| (i, Cow::Borrowed(&state.coords[i]))), lower, upper);
         // Create an instance
         Self { grid, cutoff }
     }
@@ -46,8 +77,27 @@ impl SearcherSingleGrid {
         let mut grid = Grid::<GridCellData>::new(grid_sz);
 
         grid.populate_periodic(
-            subset.map(|i| (i, &state.coords[i])),
+            subset.map(|i| (i, Cow::Borrowed(&state.coords[i]))),
             &state.box_.as_ref().unwrap(),
+            &periodic_dims,
+        );
+        // Create an instance
+        Self { grid, cutoff }
+    }
+
+    pub fn from_particles_periodic<'a>(
+        cutoff: f32,
+        particles: impl ParticleIterator<'a>,
+        box_: &PeriodicBox,
+        periodic_dims: &PbcDims,
+    ) -> Self {
+        // Get grid dimensions
+        let grid_sz = grid_size_periodic(cutoff, box_);
+        let mut grid = Grid::<GridCellData>::new(grid_sz);
+
+        grid.populate_periodic(
+            particles.map(|p| (p.id, p.pos)),
+            box_,
             &periodic_dims,
         );
         // Create an instance
@@ -66,7 +116,8 @@ impl SearcherSingleGrid {
     }
 
     // Main search function
-    pub fn search(&self) -> Vec<ValidPair> {
+    pub fn search<T: SearchOutputType, C: FromIterator<T>>(&self) -> C {
+        //pub fn search(&self) -> Vec<ValidPair> {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid.pbc.as_ref() {
             Some(pbc) => pbc.dims,
@@ -84,18 +135,18 @@ impl SearcherSingleGrid {
 
         iter.map(|pair| self.search_cell_pair(pair, dist_func))
             .flatten()
-            .collect::<Vec<ValidPair>>()
+            .collect::<C>()
     }
 
-    fn search_cell_pair(
+    fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
         dist_func: fn(&Self, &Pos, &Pos) -> f32,
-    ) -> Vec<ValidPair> {
+    ) -> Vec<T> {
         let n1 = self.grid[&pair.c1].len();
         let n2 = self.grid[&pair.c2].len();
 
-        let mut found = Vec::<ValidPair>::new();
+        let mut found = Vec::<T>::new();
 
         // Nothing to do if cell is empty
         if n1 * n2 == 0 {
@@ -113,11 +164,11 @@ impl SearcherSingleGrid {
                     let dist = dist_func(self, p1, p2);
 
                     if dist <= cutoff2 {
-                        found.push(ValidPair {
-                            i: self.grid[&pair.c1].ids[i],
-                            j: self.grid[&pair.c1].ids[j],
-                            d: dist.sqrt(),
-                        });
+                        found.push(T::from_search_results(
+                            self.grid[&pair.c1].ids[i],
+                            self.grid[&pair.c1].ids[j],
+                            dist.sqrt(),
+                        ));
                     }
                 }
             }
@@ -129,11 +180,11 @@ impl SearcherSingleGrid {
                     let p2 = &self.grid[&pair.c2].coords[j];
                     let dist = dist_func(self, p1, p2);
                     if dist <= cutoff2 {
-                        found.push(ValidPair {
-                            i: self.grid[&pair.c1].ids[i],
-                            j: self.grid[&pair.c2].ids[j],
-                            d: dist.sqrt(),
-                        });
+                        found.push(T::from_search_results(
+                            self.grid[&pair.c1].ids[i],
+                            self.grid[&pair.c2].ids[j],
+                            dist.sqrt(),
+                        ));
                     }
                 }
             }
@@ -164,8 +215,8 @@ impl SearcherDoubleGrid {
         let mut grid1 = Grid::<GridCellData>::new(grid_sz);
         let mut grid2 = Grid::<GridCellData>::new(grid_sz);
 
-        grid1.populate(subset1.map(|i| (i, &state1.coords[i])), lower, upper);
-        grid2.populate(subset2.map(|i| (i, &state2.coords[i])), lower, upper);
+        grid1.populate(subset1.map(|i| (i, Cow::Borrowed(&state1.coords[i]))), lower, upper);
+        grid2.populate(subset2.map(|i| (i, Cow::Borrowed(&state2.coords[i]))), lower, upper);
         // Create an instance
         Self {
             grid1,
@@ -188,13 +239,13 @@ impl SearcherDoubleGrid {
         let mut grid2 = Grid::<GridCellData>::new(grid_sz);
 
         grid1.populate_periodic(
-            subset1.map(|i| (i, &state1.coords[i])),
+            subset1.map(|i| (i, Cow::Borrowed(&state1.coords[i]))),
             &state1.box_.as_ref().unwrap(),
             &periodic_dims,
         );
 
         grid2.populate_periodic(
-            subset2.map(|i| (i, &state2.coords[i])),
+            subset2.map(|i| (i, Cow::Borrowed(&state2.coords[i]))),
             &state1.box_.as_ref().unwrap(), // The same box as the first grid!
             &periodic_dims,
         );
@@ -300,6 +351,12 @@ impl SearchOutputType for ValidPair {
     }
 }
 
+impl SearchOutputType for (usize, usize) {
+    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
+        (i, j)
+    }
+}
+
 //==================================================================
 
 fn grid_size_from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> [usize; 3] {
@@ -337,7 +394,7 @@ fn test_single_periodic() {
         0..st.coords.len(),
         &[true, true, true],
     );
-    let found = searcher.search();
+    let found: SearchConnectivity = searcher.search();
     println!("{:?}", found.len())
 }
 
@@ -356,7 +413,7 @@ fn test_single_non_periodic() {
         &Vector3f::new(0.0, 0.0, 0.0),
         &Vector3f::new(1.0, 1.0, 1.0),
     );
-    let found = searcher.search();
+    let found: SearchConnectivity = searcher.search();
     println!("{:?}", found.len())
 }
 

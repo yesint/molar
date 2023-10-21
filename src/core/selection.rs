@@ -1,21 +1,18 @@
-use std::{marker::PhantomData, borrow::Cow};
+use std::borrow::Cow;
+
+use crate::distance_search::search::{self, SearchConnectivity, SearcherSingleGrid};
 
 use super::{
     selection_parser::{apply_ast_whole, generate_ast, SelectionAst},
-    Atom, IndexIterator, Pos, State, Structure, PeriodicBox, PosIterator, PbcDims, Vector3f,
+    Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure,
 };
-use anyhow::{bail, Result};
-use nalgebra::Point3;
+use anyhow::{anyhow, Result};
 
-// There are following distinct states of the Selection:
-//  Selection::from_iter(0..10).iter(structure,state)
-//  Selection::from_expr("name_CA").iter(structure,state)
-
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct Particle<'a> {
     pub id: usize,
-    pub atom: Cow<'a,Atom>,
-    pub pos: Cow<'a,Pos>,
+    pub atom: Cow<'a, Atom>,
+    pub pos: Cow<'a, Pos>,
 }
 
 pub struct ParticleMut<'a> {
@@ -26,13 +23,62 @@ pub struct ParticleMut<'a> {
 
 pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {
     // Converts to periodically unwrapped iterator
-    fn pbc(self, box_: &'a PeriodicBox, pbc_dims: PbcDims) -> ParticleIteratorPbc<'a,Self> {
-        let pivot = self.clone().nth(self.len()/2).unwrap().pos;
+    fn pbc(self, box_: &'a PeriodicBox, pbc_dims: PbcDims) -> ParticleIteratorPbc<'a, Self> {
+        let pivot = self.clone().nth(self.len() / 2).unwrap().pos;
         ParticleIteratorPbc {
             box_,
             it: self,
             pbc_dims,
             pivot: *pivot,
+        }
+    }
+
+    fn pbc_pivot(
+        self,
+        box_: &'a PeriodicBox,
+        pbc_dims: PbcDims,
+        pivot: Pos,
+    ) -> ParticleIteratorPbc<'a, Self> {
+        ParticleIteratorPbc {
+            box_,
+            it: self,
+            pbc_dims,
+            pivot,
+        }
+    }
+
+    fn pbc_pivot_index(
+        self,
+        box_: &'a PeriodicBox,
+        pbc_dims: PbcDims,
+        pivot_index: usize,
+    ) -> Result<ParticleIteratorPbc<'a, Self>> {
+        let pivot = self
+            .clone()
+            .nth(pivot_index)
+            .ok_or(anyhow!("Invalid pivot index"))?
+            .pos;
+        Ok(ParticleIteratorPbc {
+            box_,
+            it: self,
+            pbc_dims,
+            pivot: *pivot,
+        })
+    }
+
+    fn pbc_connectivity(
+        self,
+        box_: &'a PeriodicBox,
+        pbc_dims: PbcDims,
+        cutoff: f32,
+    ) -> ParticleIteratorPbcConn<'a> {
+        let pivot = self.clone().nth(self.len() / 2).unwrap().pos;
+        ParticleIteratorPbcConn {
+            box_,
+            data: self.collect(),
+            pbc_dims,
+            cutoff,
+            todo: SearchConnectivity::default(),
         }
     }
 }
@@ -43,33 +89,70 @@ impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = Part
 
 //----------------------------------------------------------
 //Iterator over particles wrapped in periodic box
-struct ParticleIteratorPbc<'a,I: ParticleIterator<'a>> {
+struct ParticleIteratorPbc<'a, I: ParticleIterator<'a>> {
     it: I,
     box_: &'a PeriodicBox,
     pbc_dims: PbcDims,
     pivot: Pos,
 }
 
-impl<'a,I: ParticleIterator<'a>> Iterator for ParticleIteratorPbc<'a,I> {
+impl<'a, I: ParticleIterator<'a>> Iterator for ParticleIteratorPbc<'a, I> {
     type Item = I::Item;
     fn next(&mut self) -> Option<Self::Item> {
-        let mut p= self.it.next()?;
-        *p.pos.to_mut() = self.box_.closest_image_dims(&p.pos, &self.pivot, &self.pbc_dims);
+        let mut p = self.it.next()?;
+        *p.pos.to_mut() = self
+            .box_
+            .closest_image_dims(&p.pos, &self.pivot, &self.pbc_dims);
         Some(p)
     }
 }
 
-impl<'a,I: ParticleIterator<'a>> ExactSizeIterator for ParticleIteratorPbc<'a,I> {
+impl<'a, I: ParticleIterator<'a>> ExactSizeIterator for ParticleIteratorPbc<'a, I> {
     fn len(&self) -> usize {
         self.it.len()
     }
 }
 //----------------------------------------------------------------
 
+// Iterator over pbc unwrapping with connectivity
+struct ParticleIteratorPbcConn<'a> {
+    data: Vec<Particle<'a>>,
+    box_: &'a PeriodicBox,
+    pbc_dims: PbcDims,
+    cutoff: f32,
+    todo: SearchConnectivity,
+}
+
+impl ParticleIteratorPbcConn<'_> {
+    fn init(&mut self) {
+        let searcher = SearcherSingleGrid::from_particles_periodic(
+            self.cutoff,
+            self.data.iter().cloned(),
+            self.box_,
+            &self.pbc_dims,
+        );
+        self.todo = searcher.search();
+    }
+}
+
+impl<'a> Iterator for ParticleIteratorPbcConn<'a> {
+    type Item = Particle<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+impl<'a> ExactSizeIterator for ParticleIteratorPbcConn<'a> {
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+//-----------------------------------------------------------------
+
 struct SelectionWithAst(SelectionAst);
 struct SelectionWithIter<I: IndexIterator>(I);
 struct SelectionAll {}
-
 
 impl SelectionWithAst {
     fn apply<'a>(
@@ -193,7 +276,6 @@ impl<'a> Selection<'a> {
     }
 }
 
-
 // Helper struct for creating subscripted mutable iterator
 // from iterators over atoms and positions
 // IMPORTANT! Only works for **sorted** indexes!
@@ -251,7 +333,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Selection};
+    use super::Selection;
     use crate::{core::State, core::Structure, io::*};
     use lazy_static::lazy_static;
 
@@ -271,10 +353,9 @@ mod tests {
     fn test_sel1() {
         let sel = Selection::from_expr("name CA").unwrap();
         let particles = sel.apply(&SS.0, &SS.1).unwrap();
-        println!("sz: {}",particles.len());
+        println!("sz: {}", particles.len());
         for p in particles {
-            println!("{:?}",p);
+            println!("{:?}", p);
         }
     }
-
 }

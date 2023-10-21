@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator};
 use nalgebra::Vector3;
 use ndarray::{Array3, iter::IndexedIter};
@@ -94,7 +96,7 @@ impl Grid<GridCellData> {
                     ind[d] = n as usize;
                 }
             }
-            self.data[ind].add(id, pos);
+            self.data[ind].add(id, &pos);
         }
     }
 
@@ -120,7 +122,7 @@ impl Grid<GridCellData> {
                 // Correct for possible minor numeric errors
                 ind[d] = n.clamp(0, dim[d] as isize - 1) as usize;
             }
-            self.data[ind].add(id, pos);
+            self.data[ind].add(id, &pos);
         }
         self.pbc = Some(GridPbc {
             box_: box_.clone(),
@@ -155,7 +157,7 @@ fn test_grid() {
 
     let mut gr = Grid::new([10, 10, 10]);
     gr.populate_periodic(
-        zip(0..st.coords.len(), st.coords.iter()),
+        zip(0..st.coords.len(), st.coords.iter().map(|el| Cow::Borrowed(el))),
         &st.box_.unwrap(),
         &[true, true, true],
     );

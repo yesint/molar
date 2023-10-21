@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 mod atom;
 mod structure;
 mod state;
@@ -13,6 +15,7 @@ pub use {
     state::*,
     periodic_box::*,
     algorithms::*,
+    selection::*,
 }; 
 
 // Aliases for vector and points
@@ -27,8 +30,8 @@ impl<T> IndexIterator for T where T: ExactSizeIterator<Item = usize> + Clone {}
 pub trait PosIterator<'a>: ExactSizeIterator<Item = &'a Pos> {}
 impl<'a, T> PosIterator<'a> for T where T: ExactSizeIterator<Item = &'a Pos> {}
 
-pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
-impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'a Pos)> {}
+pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, Cow<'a,Pos>)> {}
+impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, Cow<'a,Pos>)> {}
 
 pub trait IdPosIteratorMut<'a>: ExactSizeIterator<Item = (usize, &'a mut Pos)> {}
 impl<'a, T> IdPosIteratorMut<'a> for T where T: ExactSizeIterator<Item = (usize, &'a mut Pos)> {}
