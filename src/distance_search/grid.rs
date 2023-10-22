@@ -157,7 +157,7 @@ fn test_grid() {
 
     let mut gr = Grid::new([10, 10, 10]);
     gr.populate_periodic(
-        zip(0..st.coords.len(), st.coords.iter().map(|el| Cow::Borrowed(el))),
+        zip(0..st.coords.len(), st.coords.iter().map(|el| el)),
         &st.box_.unwrap(),
         &[true, true, true],
     );

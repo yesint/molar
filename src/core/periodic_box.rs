@@ -1,4 +1,4 @@
-use anyhow::{Result,bail};
+use anyhow::{Result,bail, anyhow};
 use crate::core::{Vector3f,Matrix3f,Pos};
 
 #[derive(Debug,Default,Clone)]
@@ -24,7 +24,7 @@ impl PeriodicBox {
 
         Ok(Self{
             matrix,
-            inv: matrix.try_inverse().unwrap(),
+            inv: matrix.try_inverse().ok_or(anyhow!("Can't invert the pbc matrix!"))?,
             is_rectangular
         })
     }

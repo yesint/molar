@@ -11,8 +11,8 @@ use anyhow::{anyhow, Result};
 #[derive(Debug, Clone)]
 pub struct Particle<'a> {
     pub id: usize,
-    pub atom: Cow<'a, Atom>,
-    pub pos: Cow<'a, Pos>,
+    pub atom: &'a Atom,
+    pub pos: &'a Pos,
 }
 
 pub struct ParticleMut<'a> {
@@ -21,132 +21,11 @@ pub struct ParticleMut<'a> {
     pub pos: &'a mut Pos,
 }
 
-pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {
-    // Converts to periodically unwrapped iterator
-    fn pbc(self, box_: &'a PeriodicBox, pbc_dims: PbcDims) -> ParticleIteratorPbc<'a, Self> {
-        let pivot = self.clone().nth(self.len() / 2).unwrap().pos;
-        ParticleIteratorPbc {
-            box_,
-            it: self,
-            pbc_dims,
-            pivot: *pivot,
-        }
-    }
-
-    fn pbc_pivot(
-        self,
-        box_: &'a PeriodicBox,
-        pbc_dims: PbcDims,
-        pivot: Pos,
-    ) -> ParticleIteratorPbc<'a, Self> {
-        ParticleIteratorPbc {
-            box_,
-            it: self,
-            pbc_dims,
-            pivot,
-        }
-    }
-
-    fn pbc_pivot_index(
-        self,
-        box_: &'a PeriodicBox,
-        pbc_dims: PbcDims,
-        pivot_index: usize,
-    ) -> Result<ParticleIteratorPbc<'a, Self>> {
-        let pivot = self
-            .clone()
-            .nth(pivot_index)
-            .ok_or(anyhow!("Invalid pivot index"))?
-            .pos;
-        Ok(ParticleIteratorPbc {
-            box_,
-            it: self,
-            pbc_dims,
-            pivot: *pivot,
-        })
-    }
-
-    fn pbc_connectivity(
-        self,
-        box_: &'a PeriodicBox,
-        pbc_dims: PbcDims,
-        cutoff: f32,
-    ) -> ParticleIteratorPbcConn<'a> {
-        let pivot = self.clone().nth(self.len() / 2).unwrap().pos;
-        ParticleIteratorPbcConn {
-            box_,
-            data: self.collect(),
-            pbc_dims,
-            cutoff,
-            todo: SearchConnectivity::default(),
-        }
-    }
-}
+pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {}
 impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> + Clone {}
 
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
-
-//----------------------------------------------------------
-//Iterator over particles wrapped in periodic box
-struct ParticleIteratorPbc<'a, I: ParticleIterator<'a>> {
-    it: I,
-    box_: &'a PeriodicBox,
-    pbc_dims: PbcDims,
-    pivot: Pos,
-}
-
-impl<'a, I: ParticleIterator<'a>> Iterator for ParticleIteratorPbc<'a, I> {
-    type Item = I::Item;
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut p = self.it.next()?;
-        *p.pos.to_mut() = self
-            .box_
-            .closest_image_dims(&p.pos, &self.pivot, &self.pbc_dims);
-        Some(p)
-    }
-}
-
-impl<'a, I: ParticleIterator<'a>> ExactSizeIterator for ParticleIteratorPbc<'a, I> {
-    fn len(&self) -> usize {
-        self.it.len()
-    }
-}
-//----------------------------------------------------------------
-
-// Iterator over pbc unwrapping with connectivity
-struct ParticleIteratorPbcConn<'a> {
-    data: Vec<Particle<'a>>,
-    box_: &'a PeriodicBox,
-    pbc_dims: PbcDims,
-    cutoff: f32,
-    todo: SearchConnectivity,
-}
-
-impl ParticleIteratorPbcConn<'_> {
-    fn init(&mut self) {
-        let searcher = SearcherSingleGrid::from_particles_periodic(
-            self.cutoff,
-            self.data.iter().cloned(),
-            self.box_,
-            &self.pbc_dims,
-        );
-        self.todo = searcher.search();
-    }
-}
-
-impl<'a> Iterator for ParticleIteratorPbcConn<'a> {
-    type Item = Particle<'a>;
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
-}
-
-impl<'a> ExactSizeIterator for ParticleIteratorPbcConn<'a> {
-    fn len(&self) -> usize {
-        self.data.len()
-    }
-}
 
 //-----------------------------------------------------------------
 
@@ -163,8 +42,8 @@ impl SelectionWithAst {
         let vec = apply_ast_whole(&self.0, structure, state)?;
         Ok(vec.into_iter().map(|i| Particle {
             id: i,
-            atom: Cow::Borrowed(&structure.atoms[i]),
-            pos: Cow::Borrowed(&state.coords[i]),
+            atom: &structure.atoms[i],
+            pos: &state.coords[i],
         }))
     }
 
@@ -191,8 +70,8 @@ impl<I: IndexIterator> SelectionWithIter<I> {
     ) -> Result<impl ParticleIterator<'a>> {
         Ok(self.0.clone().map(|i| Particle {
             id: i,
-            atom: Cow::Borrowed(&structure.atoms[i]),
-            pos: Cow::Borrowed(&state.coords[i]),
+            atom: &structure.atoms[i],
+            pos: &state.coords[i],
         }))
     }
 
@@ -218,8 +97,8 @@ impl SelectionAll {
     ) -> Result<impl ParticleIterator<'a>> {
         Ok((0..state.coords.len()).map(|i| Particle {
             id: i,
-            atom: Cow::Borrowed(&structure.atoms[i]),
-            pos: Cow::Borrowed(&state.coords[i]),
+            atom: &structure.atoms[i],
+            pos: &state.coords[i],
         }))
     }
 
@@ -243,7 +122,7 @@ impl SelectionAll {
 struct Selection<'a> {
     structure: &'a Structure,
     state: &'a State,
-    index: Vec<usize>,
+    //index: It,
 }
 
 /*
