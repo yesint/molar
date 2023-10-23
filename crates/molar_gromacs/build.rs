@@ -35,7 +35,7 @@ fn main() {
         .opaque_type("t_inputrec")
         .opaque_type("gmx_mtop_t")
         .clang_args(["-x","c++"])
-        .clang_arg("-std=c++17")
+        .clang_arg("-std=c++20")
         .clang_arg(format!("-I{gmx_source_dir}/src"))
         .clang_arg(format!("-I{gmx_source_dir}/src/gromacs/utility/include"))
         .clang_arg(format!("-I{gmx_source_dir}/src/gromacs/math/include"))

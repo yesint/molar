@@ -1,9 +1,8 @@
-use super::{IndexIterator, PeriodicBox, Pos};
-use nalgebra::Point3;
+use super::{PeriodicBox, Pos};
 
 #[derive(Debug, Default)]
 pub struct State {
-    pub coords: Vec<Point3<f32>>,
+    pub coords: Vec<Pos>,
     pub time: f32,
     pub box_: Option<PeriodicBox>,
 }

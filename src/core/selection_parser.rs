@@ -89,6 +89,7 @@ pub enum LogicalNode {
     Comparison(ComparisonNode),
     Same(SameProp, Box<Self>),
     Within(WithinProp, Box<Self>),
+    All,
 }
 
 //##############################
@@ -233,6 +234,9 @@ impl LogicalNode {
                     res.extend(inner);
                 }
                 Ok(res)
+            },
+            Self::All => {
+                Ok(data.subset.iter().cloned().collect())
             }
         }
     }
@@ -430,7 +434,7 @@ peg::parser! {
             }
 
         rule int_range() -> IntKeywordValue
-            = i1:int() ":" i2:int()
+            = i1:int() _ ":" _ i2:int()
             { IntKeywordValue::IntRange(i1,i2) }
 
         rule int_single() -> IntKeywordValue
@@ -572,6 +576,7 @@ peg::parser! {
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
+            "all" _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
         }
 

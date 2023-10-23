@@ -1,10 +1,11 @@
-use std::borrow::Cow;
+use dyn_clone::clone_box;
+
 
 use crate::distance_search::search::{self, SearchConnectivity, SearcherSingleGrid};
 
 use super::{
     selection_parser::{apply_ast_whole, generate_ast, SelectionAst},
-    Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure,
+    Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure, PosIterator,
 };
 use anyhow::{anyhow, Result};
 
@@ -21,8 +22,8 @@ pub struct ParticleMut<'a> {
     pub pos: &'a mut Pos,
 }
 
-pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> + Clone {}
-impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> + Clone {}
+pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> {}
+impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> {}
 
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
@@ -68,6 +69,9 @@ impl<I: IndexIterator> SelectionWithIter<I> {
         structure: &'a Structure,
         state: &'a State,
     ) -> Result<impl ParticleIterator<'a>> {
+        std::vec::IntoIter
+
+
         Ok(self.0.clone().map(|i| Particle {
             id: i,
             atom: &structure.atoms[i],
@@ -89,31 +93,14 @@ impl<I: IndexIterator> SelectionWithIter<I> {
     }
 }
 
-impl SelectionAll {
-    fn apply<'a>(
-        &self,
-        structure: &'a Structure,
-        state: &'a State,
-    ) -> Result<impl ParticleIterator<'a>> {
-        Ok((0..state.coords.len()).map(|i| Particle {
-            id: i,
-            atom: &structure.atoms[i],
-            pos: &state.coords[i],
-        }))
+impl SelectionAll {    
+    fn apply<'a>(structure: &'a Structure, state: &'a State) -> Selection<'a> {
+        Selection { structure, state, index: Box::new(0..state.coords.len())}
     }
 
-    fn apply_mut<'a>(
-        &self,
-        structure: &'a mut Structure,
-        state: &'a mut State,
-    ) -> Result<impl ParticleMutIterator<'a>> {
+    fn apply_mut<'a>(structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
         let n = state.coords.len();
-        Ok(ParticleMutIteratorAdaptor {
-            atom_iter: structure.atoms.iter_mut(),
-            pos_iter: state.coords.iter_mut(),
-            index_iter: 0..n,
-            cur: 0,
-        })
+        SelectionMut { structure, state, index: Box::new(0..n) }
     }
 }
 
@@ -122,24 +109,15 @@ impl SelectionAll {
 struct Selection<'a> {
     structure: &'a Structure,
     state: &'a State,
-    //index: It,
+    index: Box<dyn IndexIterator>
 }
 
-/*
-impl<'a> Iterator for Selection<'a> {
-    type Item = Particle<'a>;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.index.next().map(|id| Particle {id, atom: &self.structure.atoms[id], pos: &self.state.coords[id]})
-    }
+struct SelectionMut<'a> {
+    structure: &'a mut Structure,
+    state: &'a mut State,
+    index: Box<dyn IndexIterator>
 }
 
-impl<'a> ExactSizeIterator for Selection<'a> {
-    fn len(&self) -> usize {
-        self.index.len()
-    }
-}
-
-*/
 impl<'a> Selection<'a> {
     fn from_expr(sel_str: &str) -> Result<SelectionWithAst> {
         let ast = generate_ast(sel_str)?;
@@ -153,6 +131,30 @@ impl<'a> Selection<'a> {
     fn all() -> SelectionAll {
         SelectionAll {}
     }
+
+    fn iter_particle(&self) -> Result<impl ParticleIterator<'a>> {
+        Ok(self.index.clone().map(|i| Particle {
+            id: i,
+            atom: &self.structure.atoms[i],
+            pos: &self.state.coords[i],
+        }))
+    }
+
+    fn iter_pos(&self) -> Result<impl PosIterator<'a>> {
+        Ok(self.index.clone().map(|i| &self.state.coords[i]))
+    }
+}
+
+impl<'a> SelectionMut<'a> {
+    fn iter_particle(&'a mut self) -> Result<impl ParticleMutIterator<'a>> {        
+        Ok(ParticleMutIteratorAdaptor {
+            atom_iter: self.structure.atoms.iter_mut(),
+            pos_iter: self.state.coords.iter_mut(),
+            index_iter: self.index.clone(),
+            cur: 0,
+        })
+    }
+
 }
 
 // Helper struct for creating subscripted mutable iterator
@@ -212,8 +214,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{borrow::Borrow, fmt::Debug};
+
     use super::Selection;
-    use crate::{core::State, core::Structure, io::*};
+    use crate::{
+        core::State,
+        core::{Pos, PosIterator, Structure},
+        io::*,
+    };
     use lazy_static::lazy_static;
 
     fn read_test_pdb() -> (Structure, State) {
