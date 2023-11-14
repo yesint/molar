@@ -69,8 +69,6 @@ impl<I: IndexIterator> SelectionWithIter<I> {
         structure: &'a Structure,
         state: &'a State,
     ) -> Result<impl ParticleIterator<'a>> {
-        std::vec::IntoIter
-
 
         Ok(self.0.clone().map(|i| Particle {
             id: i,
@@ -95,12 +93,12 @@ impl<I: IndexIterator> SelectionWithIter<I> {
 
 impl SelectionAll {    
     fn apply<'a>(structure: &'a Structure, state: &'a State) -> Selection<'a> {
-        Selection { structure, state, index: Box::new(0..state.coords.len())}
+        Selection { structure, state, index: (0..state.coords.len()).collect()}
     }
 
     fn apply_mut<'a>(structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
         let n = state.coords.len();
-        SelectionMut { structure, state, index: Box::new(0..n) }
+        SelectionMut { structure, state, index: (0..n).collect() }
     }
 }
 
@@ -109,13 +107,13 @@ impl SelectionAll {
 struct Selection<'a> {
     structure: &'a Structure,
     state: &'a State,
-    index: Box<dyn IndexIterator>
+    index: Vec<usize>,
 }
 
 struct SelectionMut<'a> {
     structure: &'a mut Structure,
     state: &'a mut State,
-    index: Box<dyn IndexIterator>
+    index: Vec<usize>,
 }
 
 impl<'a> Selection<'a> {
@@ -132,25 +130,25 @@ impl<'a> Selection<'a> {
         SelectionAll {}
     }
 
-    fn iter_particle(&self) -> Result<impl ParticleIterator<'a>> {
-        Ok(self.index.clone().map(|i| Particle {
+    fn iter_particle(&self) -> Result<impl ParticleIterator<'a>+'_> {
+        Ok(self.index.iter().cloned().map(|i| Particle {
             id: i,
             atom: &self.structure.atoms[i],
             pos: &self.state.coords[i],
         }))
     }
 
-    fn iter_pos(&self) -> Result<impl PosIterator<'a>> {
-        Ok(self.index.clone().map(|i| &self.state.coords[i]))
+    fn iter_pos(&self) -> Result<impl PosIterator<'a>+'_> {
+        Ok(self.index.iter().cloned().map(|i| &self.state.coords[i]))
     }
 }
 
 impl<'a> SelectionMut<'a> {
-    fn iter_particle(&'a mut self) -> Result<impl ParticleMutIterator<'a>> {        
+    fn iter_particle(&'a mut self) -> Result<impl ParticleMutIterator<'a>+'_> {        
         Ok(ParticleMutIteratorAdaptor {
             atom_iter: self.structure.atoms.iter_mut(),
             pos_iter: self.state.coords.iter_mut(),
-            index_iter: self.index.clone(),
+            index_iter: self.index.iter().cloned(),
             cur: 0,
         })
     }
