@@ -1,6 +1,6 @@
 mol new triclinic.pdb type pdb
 
-# Format: "vmd selection"   "molar selection"
+# Format: "vmd selection"  "molar selection"
 set selections {
     "name CA"   "name CA"
     "resid 10"  "resid 10"

@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use ascii::AsciiString;
+use ascii::{AsciiString, AsciiChar};
 use num_traits::Bounded;
 use regex::bytes::Regex;
 
@@ -60,7 +60,7 @@ pub enum ComparisonNode {
 pub enum KeywordNode {
     Name(Vec<StrKeywordValue>),
     Resname(Vec<StrKeywordValue>),
-    Chain(Vec<StrKeywordValue>),
+    Chain(Vec<char>),
 
     Resid(Vec<IntKeywordValue>),
     Resindex(Vec<IntKeywordValue>),
@@ -89,6 +89,18 @@ pub enum LogicalNode {
     Comparison(ComparisonNode),
     Same(SameProp, Box<Self>),
     Within(WithinProp, Box<Self>),
+}
+
+enum Keyword {
+    Name,
+    Resname,
+    Resid,
+    Resindex,
+    Index,
+    Occupancy,
+    Bfactor,
+    Chain,
+    Residue,
 }
 
 //##############################
@@ -312,24 +324,27 @@ impl KeywordNode {
 
     fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
-            Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
-            Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
-            Self::Resid(values) => Ok(self.map_int_values(data, values, |a, _i| a.resid)),
+            Self::Name(values) => {
+                Ok(self.map_str_values(data, values, |a| &a.name))
+            },
+            Self::Resname(values) => {
+                Ok(self.map_str_values(data, values, |a| &a.resname))
+            },
+            Self::Resid(values) => {
+                Ok(self.map_int_values(data, values, |a, _i| a.resid))
+            },
             Self::Resindex(values) => {
                 Ok(self.map_int_values(data, values, |a, _i| a.resindex as i32))
             }
-            Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
+            Self::Index(values) => {
+                Ok(self.map_int_values(data, values, |_a, i| i as i32))
+            },
             Self::Chain(values) => {
                 let mut res = SubsetType::new();
                 for (i, a) in data.structure.atoms.iter().enumerate() {
-                    for val in values {
-                        match val {
-                            StrKeywordValue::Str(s) => {
-                                if s.chars().next().unwrap() == a.chain {
-                                    res.insert(i);
-                                }
-                            }
-                            _ => unreachable!(),
+                    for c in values {
+                        if c == &a.chain {
+                            res.insert(i);
                         }
                     }
                 }
@@ -416,15 +431,26 @@ peg::parser! {
         rule float() -> MathNode
             = n:$((int() ("." uint())? / ("-"/"+") "." uint()) (("e"/"E") int())?)
             { MathNode::Float(n.parse().unwrap()) }
+        
+        // Keywords
+        rule keyword_name() -> Keyword = "name" {Keyword::Name}
+        rule keyword_resid() -> Keyword = "resid" {Keyword::Resid}
+        rule keyword_resindex() -> Keyword = "resindex" {Keyword::Resindex}
+        rule keyword_resname() -> Keyword = "resname" {Keyword::Resname}
+        rule keyword_index() -> Keyword = "index" {Keyword::Index}
+        rule keyword_chain() -> Keyword = "chain" {Keyword::Chain}
+        rule keyword_residue() -> Keyword = "residue" {Keyword::Residue}
+        rule keyword_occupancy() -> Keyword = ("occupancy" / "occ") {Keyword::Occupancy}
+        rule keyword_bfactor() -> Keyword = ("bfactor" / "beta") {Keyword::Bfactor}
 
         rule int_keyword_expr() -> KeywordNode
-            = s:$("resid" / "resindex" / "index") __
+            = s:(keyword_resid() / keyword_resindex() / keyword_index()) __
               v:((int_range() / int_single()) ++ __)
             {
                 match s {
-                    "resid" => KeywordNode::Resid(v),
-                    "resindex" => KeywordNode::Resindex(v),
-                    "index" => KeywordNode::Index(v),
+                    Keyword::Resid => KeywordNode::Resid(v),
+                    Keyword::Resindex => KeywordNode::Resindex(v),
+                    Keyword::Index => KeywordNode::Index(v),
                     _ => unreachable!()
                 }
             }
@@ -437,34 +463,25 @@ peg::parser! {
             = i:int()
             { IntKeywordValue::Int(i) }
 
+        rule chain_keyword_expr() -> KeywordNode
+        = s:keyword_chain() __ v:(['a'..='z' | 'A'..='Z' | '0'..='9'] ++ __) 
+        {
+            KeywordNode::Chain(v)
+        }
+
         rule str_keyword_expr() -> KeywordNode
-        = s:$("name" / "resname" / "chain") __
+        = s:(keyword_name() / keyword_resname()) __
             v:((str_value() / regex_value()) ++ __)
         {?
             match s {
-                "name" => Ok(KeywordNode::Name(v)),
-                "resname" => Ok(KeywordNode::Resname(v)),
-                "chain" => {
-                    for el in &v[..] {
-                        match el {
-                            StrKeywordValue::Str(s) => {
-                                if s.len() != 1 {
-                                    return Err("Chain has to be a single char")
-                                }
-                            }
-                            StrKeywordValue::Regex(_) => {
-                                return Err("Chain can't match a regex")
-                            }
-                        }
-                    }
-                    Ok(KeywordNode::Chain(v))
-                },
+                Keyword::Name => Ok(KeywordNode::Name(v)),
+                Keyword::Resname => Ok(KeywordNode::Resname(v)),
                 _ => Err(unreachable!())
             }
         }
 
         rule keyword_expr() -> KeywordNode
-        = v:(int_keyword_expr() / str_keyword_expr()) {v}
+        = v:(int_keyword_expr() / str_keyword_expr() / chain_keyword_expr()) {v}
 
         rule regex_value() -> StrKeywordValue
         = "'" s:$((!"'" [_])+) "'"
@@ -495,8 +512,8 @@ peg::parser! {
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
-            ("occupancy" / "occ") { MathNode::Occupancy }
-            ("bfactor" / "beta") { MathNode::Bfactor }
+            keyword_occupancy() { MathNode::Occupancy }
+            keyword_bfactor() { MathNode::Bfactor }
             // TODO:
             // v:distance_expr() {v}
             "(" _ e:math_expr() _ ")" { e }
@@ -519,10 +536,10 @@ peg::parser! {
 
         // By expressions
         rule same_expr() -> SameProp
-        = "same" __ t:$(("residue" / "chain")) __ "as" {
+        = "same" __ t:(keyword_residue() / keyword_chain()) __ "as" {
             match t {
-                "residue" => SameProp::Residue,
-                "chain" => SameProp::Chain,
+                Keyword::Residue => SameProp::Residue,
+                Keyword::Chain => SameProp::Chain,
                 _ => unreachable!(),
             }
         }

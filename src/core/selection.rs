@@ -212,8 +212,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use super::Selection;
-    use crate::{core::State, core::Structure, io::*};
+    use crate::{
+        core::State,
+        core::{Pos, Structure, Vector3f},
+        io::*,
+    };
     use lazy_static::lazy_static;
 
     fn read_test_pdb() -> (Structure, State) {
@@ -237,4 +243,5 @@ mod tests {
             println!("{:?}", p);
         }
     }
+
 }

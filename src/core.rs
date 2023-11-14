@@ -35,4 +35,3 @@ impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'
 
 pub trait IdPosIteratorMut<'a>: ExactSizeIterator<Item = (usize, &'a mut Pos)> {}
 impl<'a, T> IdPosIteratorMut<'a> for T where T: ExactSizeIterator<Item = (usize, &'a mut Pos)> {}
-
