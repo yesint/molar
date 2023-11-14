@@ -44,16 +44,34 @@ pub enum MathNode {
     Neg(Box<Self>),
 }
 
+enum ComparisonOp {
+    Eq,
+    Neq,
+    Leq,
+    Lt,
+    Geq,
+    Gt,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ComparisonNode {
+    // Simple
     Eq(MathNode, MathNode),
     Neq(MathNode, MathNode),
     Gt(MathNode, MathNode),
     Geq(MathNode, MathNode),
     Lt(MathNode, MathNode),
     Leq(MathNode, MathNode),
-    //Lt3(Box<MathNode>, Box<MathNode>, Box<MathNode>),
-    //Gt3(Box<MathNode>, Box<MathNode>, Box<MathNode>),
+    // Chained left
+    LtLt(MathNode,MathNode,MathNode),
+    LeqLt(MathNode,MathNode,MathNode),
+    LtLeq(MathNode,MathNode,MathNode),
+    LeqLeq(MathNode,MathNode,MathNode),
+    // Chained right
+    GtGt(MathNode,MathNode,MathNode),
+    GeqGt(MathNode,MathNode,MathNode),
+    GtGeq(MathNode,MathNode,MathNode),
+    GeqGeq(MathNode,MathNode,MathNode),
 }
 
 #[derive(Debug)]
@@ -399,14 +417,92 @@ impl ComparisonNode {
         Ok(res)
     }
 
+    fn eval_op_chained(
+        data: &ApplyData,
+        v1: &MathNode,
+        v2: &MathNode,
+        v3: &MathNode,
+        op1: fn(f32, f32) -> bool,
+        op2: fn(f32, f32) -> bool,
+    ) -> Result<SubsetType> {
+        let mut res = SubsetType::new();
+        for i in data.subset.iter().cloned() {
+            let mid = v2.eval(data, i)?;
+            if op1(v1.eval(data, i)?, mid) && op2(mid, v3.eval(data, i)?) {
+                res.insert(i);
+            }
+        }
+        Ok(res)
+    }
+
+
     fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
+            // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
             Self::Neq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a != b),
             Self::Gt(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a > b),
             Self::Geq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a >= b),
             Self::Lt(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a < b),
             Self::Leq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a <= b),
+            // Chained left
+            Self::LtLt(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a < b,
+                    |a, b| a < b
+                )
+            },
+            Self::LtLeq(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a < b,
+                    |a, b| a <= b
+                )
+            },
+            Self::LeqLt(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a <= b,
+                    |a, b| a < b
+                )
+            },
+            Self::LeqLeq(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a <= b,
+                    |a, b| a <= b
+                )
+            },
+            // Chained right
+            Self::GtGt(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a > b,
+                    |a, b| a > b
+                )
+            },
+            Self::GtGeq(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a > b,
+                    |a, b| a >= b
+                )
+            },
+            Self::GeqGt(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a >= b,
+                    |a, b| a > b
+                )
+            },
+            Self::GeqGeq(v1,v2,v3) => {
+                Self::eval_op_chained(
+                    data, v1, v2, v3,
+                    |a, b| a >= b,
+                    |a, b| a >= b
+                )
+            },
         }
     }
 }
@@ -492,7 +588,7 @@ peg::parser! {
         {?
             match Regex::new(&format!("^{s}$")) {
                 Ok(r) => Ok(StrKeywordValue::Regex(r)),
-                Err(_) => Err("Invalid regex value"),
+                Err(_) => Err("Invalid regex value {}"),
             }
         }
 
@@ -525,18 +621,54 @@ peg::parser! {
 
 
         // Comparisons
-        rule comparison_expr() -> ComparisonNode
-        = a:math_expr() _ op:$("=="/"!="/"<="/"<"/">="/">") _ b:math_expr() {
-            match op {
-                "==" => { ComparisonNode::Eq(a,b) },
-                "!=" => { ComparisonNode::Neq(a,b) },
-                "<=" => { ComparisonNode::Leq(a,b) },
-                "<" => { ComparisonNode::Lt(a,b) },
-                ">=" => { ComparisonNode::Geq(a,b) },
-                ">" => { ComparisonNode::Gt(a,b) },
-                _ => unreachable!(),
+        rule comparison_op_eq() -> ComparisonOp = "==" {ComparisonOp::Eq}
+        rule comparison_op_neq() -> ComparisonOp = "!=" {ComparisonOp::Neq}
+        rule comparison_op_leq() -> ComparisonOp = "<=" {ComparisonOp::Leq}
+        rule comparison_op_lt() -> ComparisonOp = "<" {ComparisonOp::Lt}
+        rule comparison_op_geq() -> ComparisonOp = ">=" {ComparisonOp::Geq}
+        rule comparison_op_gt() -> ComparisonOp = ">" {ComparisonOp::Gt}
+
+        // Simple comparison
+        rule comparison_expr() -> ComparisonNode =
+            a:math_expr() _
+            op:(comparison_op_eq()/comparison_op_neq()/
+                comparison_op_leq()/comparison_op_lt()/
+                comparison_op_geq()/comparison_op_gt()) _
+            b:math_expr() {
+                use ComparisonOp::*;
+                match op {
+                    Eq => { ComparisonNode::Eq(a,b) },
+                    Neq => { ComparisonNode::Neq(a,b) },
+                    Leq => { ComparisonNode::Leq(a,b) },
+                    Lt => { ComparisonNode::Lt(a,b) },
+                    Geq => { ComparisonNode::Geq(a,b) },
+                    Gt => { ComparisonNode::Gt(a,b) },
+                    _ => unreachable!(),
+                }
             }
-        }
+
+        // Chained comparison
+        rule comparison_expr_chained() -> ComparisonNode =
+            a:math_expr() _
+            op1:(comparison_op_leq()/comparison_op_lt()) _
+            b:math_expr() _
+            op2:(comparison_op_leq()/comparison_op_lt()) _
+            c:math_expr() {
+                use ComparisonOp::*;
+                match (op1,op2) {
+                    // Left
+                    (Lt,Lt) => { ComparisonNode::LtLt(a,b,c) },
+                    (Lt,Leq) => { ComparisonNode::LtLeq(a,b,c) },
+                    (Leq,Lt) => { ComparisonNode::LeqLt(a,b,c) },
+                    (Leq,Leq) => { ComparisonNode::LeqLeq(a,b,c) },
+                    // Right
+                    (Gt,Gt) => { ComparisonNode::GtGt(a,b,c) },
+                    (Gt,Geq) => { ComparisonNode::GtGeq(a,b,c) },
+                    (Geq,Gt) => { ComparisonNode::GeqGt(a,b,c) },
+                    (Geq,Geq) => { ComparisonNode::GeqGeq(a,b,c) },
+                    _ => unreachable!(),
+                }
+            }
 
         // By expressions
         rule same_expr() -> SameProp
@@ -585,14 +717,17 @@ peg::parser! {
         // Logic
         pub rule logical_expr() -> LogicalNode
         = precedence!{
+            // Binary
             x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
             x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
+            // Unary prefixes
             "not" ___ v:@ { LogicalNode::Not(Box::new(v)) }
             t:same_expr() ___ v:@ { LogicalNode::Same(t,Box::new(v)) }
             p:within_expr() ___ v:@ {LogicalNode::Within(p,Box::new(v))}
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
+            v:comparison_expr_chained() { LogicalNode::Comparison(v) }
             "all" _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
         }
