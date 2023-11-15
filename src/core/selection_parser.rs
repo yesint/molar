@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use ascii::{AsciiString, AsciiChar};
+use ascii::AsciiString;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 
@@ -10,7 +10,7 @@ use super::{PbcDims, IndexIterator};
 use crate::distance_search::search::SearcherDoubleGrid;
 use std::collections::HashSet;
 
-use crate::core::Vector3f;
+use crate::core::{Vector3f,Pos};
 
 //##############################
 //#  AST node types
@@ -42,6 +42,19 @@ pub enum MathNode {
     Div(Box<Self>, Box<Self>),
     Pow(Box<Self>, Box<Self>),
     Neg(Box<Self>),
+}
+
+enum DistMode {
+    Point,
+    Line,
+    Plane,
+}
+
+#[derive(Debug, PartialEq)]
+enum DistanceNode {
+    Point(Pos),
+    Line(Pos,Pos),
+    Plane(Pos,Pos,Pos),
 }
 
 enum ComparisonOp {
@@ -596,6 +609,22 @@ peg::parser! {
         = !("and"/"or") s:$((![' '|'\''|'"'] [_])+)
         { StrKeywordValue::Str(AsciiString::from_ascii(s).unwrap()) }
 
+        /*
+        // Distance
+        rule dist_point() -> DistanceNode 
+        = "point" __ p:xyz() {DistanceNode::Point(p)}
+        
+        rule dist_line() -> DistanceNode 
+        = "line" __ p1:xyz() __ p2:xyz() {DistanceNode::Line(p1,p2)}
+
+        rule distance_expr() -> DistanceNode
+        = "dist" __ "from" __ m:(dist_mode_point()/dist_mode_line()/dist_mode_plane()) (__ p:pbc_expr())? {
+            match m {
+                DistMode::Point => DistanceNode::Point(())
+            }
+        }
+        */
+
         // Math
         rule math_expr() -> MathNode
         = precedence!{
@@ -614,8 +643,7 @@ peg::parser! {
             ['z'|'Z'] { MathNode::Z }
             keyword_occupancy() { MathNode::Occupancy }
             keyword_bfactor() { MathNode::Bfactor }
-            // TODO:
-            // v:distance_expr() {v}
+            //v:distance_expr() {v}
             "(" _ e:math_expr() _ ")" { e }
           }
 
@@ -691,7 +719,7 @@ peg::parser! {
         }
 
         // PBC for within
-        rule within_pbc() -> [bool;3]
+        rule pbc_expr() -> [bool;3]
         = "pbc" __ p:(pbc_dim()*<3>)? __ {
             match p {
                 Some(dim) => [dim[0],dim[1],dim[2]],
@@ -701,7 +729,7 @@ peg::parser! {
 
         // Within
         rule within_expr() -> WithinProp
-        = "within" __ d:float() __ p:within_pbc()? s:$(("self" __)?) "of" {
+        = "within" __ d:float() __ p:pbc_expr()? s:$(("self" __)?) "of" {
             if let MathNode::Float(cutoff) = d {
                 let pbc = match p {
                     Some(dims) => dims,
