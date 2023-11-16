@@ -663,14 +663,14 @@ peg::parser! {
                 comparison_op_leq()/comparison_op_lt()/
                 comparison_op_geq()/comparison_op_gt()) _
             b:math_expr() {
-                use ComparisonOp::*;
+                use ComparisonOp as C;
                 match op {
-                    Eq => { ComparisonNode::Eq(a,b) },
-                    Neq => { ComparisonNode::Neq(a,b) },
-                    Leq => { ComparisonNode::Leq(a,b) },
-                    Lt => { ComparisonNode::Lt(a,b) },
-                    Geq => { ComparisonNode::Geq(a,b) },
-                    Gt => { ComparisonNode::Gt(a,b) },
+                    C::Eq => { ComparisonNode::Eq(a,b) },
+                    C::Neq => { ComparisonNode::Neq(a,b) },
+                    C::Leq => { ComparisonNode::Leq(a,b) },
+                    C::Lt => { ComparisonNode::Lt(a,b) },
+                    C::Geq => { ComparisonNode::Geq(a,b) },
+                    C::Gt => { ComparisonNode::Gt(a,b) },
                     _ => unreachable!(),
                 }
             }
@@ -682,18 +682,18 @@ peg::parser! {
             b:math_expr() _
             op2:(comparison_op_leq()/comparison_op_lt()) _
             c:math_expr() {
-                use ComparisonOp::*;
+                use ComparisonOp as C;
                 match (op1,op2) {
                     // Left
-                    (Lt,Lt) => { ComparisonNode::LtLt(a,b,c) },
-                    (Lt,Leq) => { ComparisonNode::LtLeq(a,b,c) },
-                    (Leq,Lt) => { ComparisonNode::LeqLt(a,b,c) },
-                    (Leq,Leq) => { ComparisonNode::LeqLeq(a,b,c) },
+                    (C::Lt,C::Lt) => { ComparisonNode::LtLt(a,b,c) },
+                    (C::Lt,C::Leq) => { ComparisonNode::LtLeq(a,b,c) },
+                    (C::Leq,C::Lt) => { ComparisonNode::LeqLt(a,b,c) },
+                    (C::Leq,C::Leq) => { ComparisonNode::LeqLeq(a,b,c) },
                     // Right
-                    (Gt,Gt) => { ComparisonNode::GtGt(a,b,c) },
-                    (Gt,Geq) => { ComparisonNode::GtGeq(a,b,c) },
-                    (Geq,Gt) => { ComparisonNode::GeqGt(a,b,c) },
-                    (Geq,Geq) => { ComparisonNode::GeqGeq(a,b,c) },
+                    (C::Gt,C::Gt) => { ComparisonNode::GtGt(a,b,c) },
+                    (C::Gt,C::Geq) => { ComparisonNode::GtGeq(a,b,c) },
+                    (C::Geq,C::Gt) => { ComparisonNode::GeqGt(a,b,c) },
+                    (C::Geq,C::Geq) => { ComparisonNode::GeqGeq(a,b,c) },
                     _ => unreachable!(),
                 }
             }
