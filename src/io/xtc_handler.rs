@@ -199,7 +199,7 @@ impl IoStateWriter for XtcFileHandler {
     fn write_next_state_subset(&mut self, data: &State, 
             subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()> 
     {
-        let N = subset_indexes.len();
+        let n = subset_indexes.len();
 
         // Box have to be transposed because XTC contains row-major box
         let box_ = match data.box_.as_ref() {
@@ -214,9 +214,9 @@ impl IoStateWriter for XtcFileHandler {
 
         // If not all coordinates are written we have to extract them
         // to a buffer instead of passing the pointer to original coords
-        if N != data.coords.len() {
+        if n != data.coords.len() {
             // Fill the buffer
-            buf.reserve(N);
+            buf.reserve(n);
             for ind in subset_indexes {
                 buf.push(data.coords[ind]);
             }
@@ -227,7 +227,7 @@ impl IoStateWriter for XtcFileHandler {
         let ok = unsafe {
             write_xtc(
                 self.handle,
-                N as i32,
+                n as i32,
                 self.step,
                 data.time,
                 box_.as_ptr().cast::<[f32;3]>(),

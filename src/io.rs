@@ -1,5 +1,5 @@
-use crate::core::{Structure,State,IndexIterator};
-use anyhow::{Result,bail,anyhow};
+use crate::core::{IndexIterator, State, Structure};
+use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
 mod vmd_molfile_handler;
@@ -9,20 +9,24 @@ mod xtc_handler;
 mod tpr_handler;
 
 // Reexports
-pub use vmd_molfile_handler::VmdMolFileHandler;
-pub use xtc_handler::XtcFileHandler;
 #[cfg(feature = "gromacs")]
 pub use tpr_handler::TprFileHandler;
+pub use vmd_molfile_handler::VmdMolFileHandler;
+pub use xtc_handler::XtcFileHandler;
 
 //===============================
-// Traits for file opening 
+// Traits for file opening
 //===============================
 pub trait IoReader {
-    fn new_reader(fname: &str) -> Result<Self> where Self: Sized;
+    fn new_reader(fname: &str) -> Result<Self>
+    where
+        Self: Sized;
 }
 
 pub trait IoWriter {
-    fn new_writer(fname: &str) -> Result<Self> where Self: Sized;
+    fn new_writer(fname: &str) -> Result<Self>
+    where
+        Self: Sized;
 }
 
 //===============================
@@ -33,9 +37,12 @@ pub trait IoStructureReader: IoReader {
 }
 
 pub trait IoStructureWriter: IoWriter {
-    fn write_structure_subset(&mut self, data: &Structure,
-        subset_indexes: impl IndexIterator) -> Result<()>;
-    
+    fn write_structure_subset(
+        &mut self,
+        data: &Structure,
+        subset_indexes: impl IndexIterator,
+    ) -> Result<()>;
+
     // Default implementation with all indexes
     fn write_structure(&mut self, data: &Structure) -> Result<()> {
         self.write_structure_subset(data, 0..data.atoms.len())
@@ -48,14 +55,20 @@ pub trait IoStructureWriter: IoWriter {
 pub trait IoStateReader: IoReader {
     fn read_next_state(&mut self) -> Result<Option<State>>;
 
-    fn into_iter_states(self) -> IoStateIterator<Self> where Self: Sized {
+    fn into_states_iter(self) -> IoStateIterator<Self>
+    where
+        Self: Sized,
+    {
         IoStateIterator { reader: self }
     }
 }
 
 pub trait IoStateWriter: IoWriter {
-    fn write_next_state_subset(&mut self, data: &State, 
-        subset_indexes: impl IndexIterator) -> Result<()>;
+    fn write_next_state_subset(
+        &mut self,
+        data: &State,
+        subset_indexes: impl IndexIterator,
+    ) -> Result<()>;
 
     // Default implementation with all indexes
     fn write_next_state(&mut self, data: &State) -> Result<()> {
@@ -66,11 +79,17 @@ pub trait IoStateWriter: IoWriter {
 //==================================================================
 // Iterator over the frames for any type implementing IoStateReader
 //==================================================================
-pub struct IoStateIterator<T> where T: IoStateReader {
+pub struct IoStateIterator<T>
+where
+    T: IoStateReader,
+{
     reader: T,
 }
 
-impl<T> Iterator for IoStateIterator<T> where T: IoStateReader {
+impl<T> Iterator for IoStateIterator<T>
+where
+    T: IoStateReader,
+{
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_next_state().expect("Error reading state")
@@ -92,13 +111,21 @@ pub enum FileHandler<'a> {
 
 pub fn get_ext(fname: &str) -> Result<&str> {
     // Get extention
-    Ok(
-        Path::new(fname)
-        .extension().ok_or(anyhow!("File with extension expected, given {fname}"))?
-        .to_str().ok_or(anyhow!("Failed getting file extension from {fname}"))?
-    )
+    Ok(Path::new(fname)
+        .extension()
+        .ok_or(anyhow!("File with extension expected, given {fname}"))?
+        .to_str()
+        .ok_or(anyhow!("Failed getting file extension from {fname}"))?)
 }
 
+pub fn get_ext2(fname: &str) -> Result<&str> {
+    // Get extention
+    Ok(Path::new(fname)
+        .extension()
+        .ok_or(anyhow!("File with extension expected, given {fname}"))?
+        .to_str()
+        .ok_or(anyhow!("Failed getting file extension from {fname}"))?)
+}
 
 impl<'a> IoReader for FileHandler<'a> {
     fn new_reader(fname: &str) -> Result<Self> {
@@ -131,8 +158,7 @@ impl<'a> IoWriter for FileHandler<'a> {
 impl<'a> IoStructureReader for FileHandler<'a> {
     fn read_structure(&mut self) -> Result<Structure> {
         match self {
-            Self::Pdb(ref mut h) |
-            Self::Xyz(ref mut h) => h.read_structure(),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_structure(),
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read_structure(),
             _ => bail!("Unable to read structure"),
@@ -141,12 +167,15 @@ impl<'a> IoStructureReader for FileHandler<'a> {
 }
 
 impl<'a> IoStructureWriter for FileHandler<'a> {
-    fn write_structure_subset(&mut self, data: &Structure,
-            subset_indexes: impl IndexIterator) -> Result<()>
-    {
+    fn write_structure_subset(
+        &mut self,
+        data: &Structure,
+        subset_indexes: impl IndexIterator,
+    ) -> Result<()> {
         match self {
-            Self::Pdb(ref mut h) |
-            Self::Xyz(ref mut h) => h.write_structure_subset(data,subset_indexes),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
+                h.write_structure_subset(data, subset_indexes)
+            }
             _ => bail!("Unable to write structure"),
         }
     }
@@ -155,9 +184,9 @@ impl<'a> IoStructureWriter for FileHandler<'a> {
 impl<'a> IoStateReader for FileHandler<'a> {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         match self {
-            Self::Pdb(ref mut h) |
-            Self::Xyz(ref mut h) | 
-            Self::Dcd(ref mut h) => h.read_next_state(),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
+                h.read_next_state()
+            }
             Self::Xtc(ref mut h) => h.read_next_state(),
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read_next_state(),
@@ -166,14 +195,16 @@ impl<'a> IoStateReader for FileHandler<'a> {
 }
 
 impl<'a> IoStateWriter for FileHandler<'a> {
-    fn write_next_state_subset(&mut self, data: &State, 
-            subset_indexes: impl IndexIterator) -> Result<()>
-    {    
+    fn write_next_state_subset(
+        &mut self,
+        data: &State,
+        subset_indexes: impl IndexIterator,
+    ) -> Result<()> {
         match self {
-            Self::Pdb(ref mut h) |
-            Self::Xyz(ref mut h) | 
-            Self::Dcd(ref mut h) => h.write_next_state_subset(data,subset_indexes),
-            Self::Xtc(ref mut h) => h.write_next_state_subset(data,subset_indexes),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
+                h.write_next_state_subset(data, subset_indexes)
+            }
+            Self::Xtc(ref mut h) => h.write_next_state_subset(data, subset_indexes),
             _ => bail!("Unable to write state"),
         }
     }
@@ -184,13 +215,12 @@ fn test_read() {
     use super::io::*;
 
     let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
-    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"),"/1.pdb")).unwrap();
-    
+    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb")).unwrap();
 
     let st = r.read_structure().unwrap();
-    println!("{:?}",st.atoms);
+    println!("{:?}", st.atoms);
 
-    for fr in r.into_iter_states() {
+    for fr in r.into_states_iter() {
         //println!("{:?}",fr);
         w.write_structure(&st).unwrap();
         w.write_next_state(&fr).unwrap();
