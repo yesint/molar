@@ -6,30 +6,30 @@ use regex::bytes::Regex;
 use super::atom::Atom;
 use super::state::State;
 use super::structure::Structure;
-use super::{PbcDims, IndexIterator};
+use super::{IndexIterator, PbcDims};
 use crate::distance_search::search::SearcherDoubleGrid;
 use std::collections::HashSet;
 
-use crate::core::{Vector3f,Pos};
+use crate::core::{Pos, Vector3f};
 
 //##############################
 //#  AST node types
 //##############################
 
 #[derive(Debug, PartialEq)]
-pub enum IntKeywordValue {
+enum IntKeywordValue {
     Int(i32),
     IntRange(i32, i32),
 }
 
 #[derive(Debug)]
-pub enum StrKeywordValue {
+enum StrKeywordValue {
     Str(AsciiString),
     Regex(Regex),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MathNode {
+enum MathNode {
     Float(f32),
     X,
     Y,
@@ -53,8 +53,8 @@ enum DistMode {
 #[derive(Debug, PartialEq)]
 enum DistanceNode {
     Point(Pos),
-    Line(Pos,Pos),
-    Plane(Pos,Pos,Pos),
+    Line(Pos, Pos),
+    Plane(Pos, Pos, Pos),
 }
 
 enum ComparisonOp {
@@ -67,7 +67,7 @@ enum ComparisonOp {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ComparisonNode {
+enum ComparisonNode {
     // Simple
     Eq(MathNode, MathNode),
     Neq(MathNode, MathNode),
@@ -76,19 +76,19 @@ pub enum ComparisonNode {
     Lt(MathNode, MathNode),
     Leq(MathNode, MathNode),
     // Chained left
-    LtLt(MathNode,MathNode,MathNode),
-    LeqLt(MathNode,MathNode,MathNode),
-    LtLeq(MathNode,MathNode,MathNode),
-    LeqLeq(MathNode,MathNode,MathNode),
+    LtLt(MathNode, MathNode, MathNode),
+    LeqLt(MathNode, MathNode, MathNode),
+    LtLeq(MathNode, MathNode, MathNode),
+    LeqLeq(MathNode, MathNode, MathNode),
     // Chained right
-    GtGt(MathNode,MathNode,MathNode),
-    GeqGt(MathNode,MathNode,MathNode),
-    GtGeq(MathNode,MathNode,MathNode),
-    GeqGeq(MathNode,MathNode,MathNode),
+    GtGt(MathNode, MathNode, MathNode),
+    GeqGt(MathNode, MathNode, MathNode),
+    GtGeq(MathNode, MathNode, MathNode),
+    GeqGeq(MathNode, MathNode, MathNode),
 }
 
 #[derive(Debug)]
-pub enum KeywordNode {
+enum KeywordNode {
     Name(Vec<StrKeywordValue>),
     Resname(Vec<StrKeywordValue>),
     Chain(Vec<char>),
@@ -99,13 +99,13 @@ pub enum KeywordNode {
 }
 
 #[derive(Debug)]
-pub enum SameProp {
+enum SameProp {
     Residue,
     Chain,
 }
 
 #[derive(Debug)]
-pub struct WithinProp {
+struct WithinProp {
     cutoff: f32,
     pbc: PbcDims,
     include_inner: bool,
@@ -241,15 +241,15 @@ impl LogicalNode {
             }
             Self::Within(prop, node) => {
                 let inner = node.apply(data)?;
-                println!("{:?}",inner);                
+                println!("{:?}", inner);
                 // Perform distance search
                 let searcher = if prop.pbc == [false, false, false] {
                     // Non-periodic variant
                     // Find extents
-                    let (mut lower,mut upper) = get_min_max(data.state, inner.iter().cloned());
-                    lower.add_scalar_mut(-prop.cutoff-f32::EPSILON);
-                    upper.add_scalar_mut(prop.cutoff+f32::EPSILON);
-                    println!("{:?} {:?} {:?}",lower,upper,prop.cutoff);
+                    let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
+                    lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
+                    upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
+                    println!("{:?} {:?} {:?}", lower, upper, prop.cutoff);
                     SearcherDoubleGrid::from_state_subset(
                         prop.cutoff,
                         data.state,
@@ -267,7 +267,7 @@ impl LogicalNode {
                         data.subset.iter().cloned(),
                         data.state,
                         inner.iter().cloned(),
-                        &prop.pbc
+                        &prop.pbc,
                     )
                 };
 
@@ -277,24 +277,26 @@ impl LogicalNode {
                     res.extend(inner);
                 }
                 Ok(res)
-            },
-            Self::All => {
-                Ok(data.subset.iter().cloned().collect())
             }
+            Self::All => Ok(data.subset.iter().cloned().collect()),
         }
     }
 }
 
-fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f,Vector3f) {
+fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) {
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
         for d in 0..3 {
-            if state.coords[i][d] < lower[d] { lower[d] = state.coords[i][d] }
-            if state.coords[i][d] > upper[d] { upper[d] = state.coords[i][d] }
+            if state.coords[i][d] < lower[d] {
+                lower[d] = state.coords[i][d]
+            }
+            if state.coords[i][d] > upper[d] {
+                upper[d] = state.coords[i][d]
+            }
         }
     }
-    (lower,upper)
+    (lower, upper)
 }
 
 impl KeywordNode {
@@ -359,21 +361,13 @@ impl KeywordNode {
 
     fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
-            Self::Name(values) => {
-                Ok(self.map_str_values(data, values, |a| &a.name))
-            },
-            Self::Resname(values) => {
-                Ok(self.map_str_values(data, values, |a| &a.resname))
-            },
-            Self::Resid(values) => {
-                Ok(self.map_int_values(data, values, |a, _i| a.resid))
-            },
+            Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
+            Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
+            Self::Resid(values) => Ok(self.map_int_values(data, values, |a, _i| a.resid)),
             Self::Resindex(values) => {
                 Ok(self.map_int_values(data, values, |a, _i| a.resindex as i32))
             }
-            Self::Index(values) => {
-                Ok(self.map_int_values(data, values, |_a, i| i as i32))
-            },
+            Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
                 let mut res = SubsetType::new();
                 for (i, a) in data.structure.atoms.iter().enumerate() {
@@ -448,7 +442,6 @@ impl ComparisonNode {
         Ok(res)
     }
 
-
     fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
             // Simple
@@ -459,63 +452,31 @@ impl ComparisonNode {
             Self::Lt(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a < b),
             Self::Leq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a <= b),
             // Chained left
-            Self::LtLt(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a < b,
-                    |a, b| a < b
-                )
-            },
-            Self::LtLeq(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a < b,
-                    |a, b| a <= b
-                )
-            },
-            Self::LeqLt(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a <= b,
-                    |a, b| a < b
-                )
-            },
-            Self::LeqLeq(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a <= b,
-                    |a, b| a <= b
-                )
-            },
+            Self::LtLt(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a < b, |a, b| a < b)
+            }
+            Self::LtLeq(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a < b, |a, b| a <= b)
+            }
+            Self::LeqLt(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a <= b, |a, b| a < b)
+            }
+            Self::LeqLeq(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a <= b, |a, b| a <= b)
+            }
             // Chained right
-            Self::GtGt(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a > b,
-                    |a, b| a > b
-                )
-            },
-            Self::GtGeq(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a > b,
-                    |a, b| a >= b
-                )
-            },
-            Self::GeqGt(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a >= b,
-                    |a, b| a > b
-                )
-            },
-            Self::GeqGeq(v1,v2,v3) => {
-                Self::eval_op_chained(
-                    data, v1, v2, v3,
-                    |a, b| a >= b,
-                    |a, b| a >= b
-                )
-            },
+            Self::GtGt(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a > b, |a, b| a > b)
+            }
+            Self::GtGeq(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a > b, |a, b| a >= b)
+            }
+            Self::GeqGt(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a >= b, |a, b| a > b)
+            }
+            Self::GeqGeq(v1, v2, v3) => {
+                Self::eval_op_chained(data, v1, v2, v3, |a, b| a >= b, |a, b| a >= b)
+            }
         }
     }
 }
@@ -544,7 +505,7 @@ peg::parser! {
         rule float() -> MathNode
             = n:$((int() ("." uint())? / ("-"/"+") "." uint()) (("e"/"E") int())?)
             { MathNode::Float(n.parse().unwrap()) }
-        
+
         // Keywords
         rule keyword_name() -> Keyword = "name" {Keyword::Name}
         rule keyword_resid() -> Keyword = "resid" {Keyword::Resid}
@@ -577,7 +538,7 @@ peg::parser! {
             { IntKeywordValue::Int(i) }
 
         rule chain_keyword_expr() -> KeywordNode
-        = s:keyword_chain() __ v:(['a'..='z' | 'A'..='Z' | '0'..='9'] ++ __) 
+        = s:keyword_chain() __ v:(['a'..='z' | 'A'..='Z' | '0'..='9'] ++ __)
         {
             KeywordNode::Chain(v)
         }
@@ -611,10 +572,10 @@ peg::parser! {
 
         /*
         // Distance
-        rule dist_point() -> DistanceNode 
+        rule dist_point() -> DistanceNode
         = "point" __ p:xyz() {DistanceNode::Point(p)}
-        
-        rule dist_line() -> DistanceNode 
+
+        rule dist_line() -> DistanceNode
         = "line" __ p1:xyz() __ p2:xyz() {DistanceNode::Line(p1,p2)}
 
         rule distance_expr() -> DistanceNode
@@ -709,7 +670,7 @@ peg::parser! {
         }
 
         // Single PBC dimention
-        rule pbc_dim() -> bool 
+        rule pbc_dim() -> bool
         = v:$("1" / "0" / "y" / "n") _ {
             match v {
                 "1" | "y" => true,
@@ -768,41 +729,46 @@ peg::parser! {
 //##############################
 
 // Alias for top-level rule
-pub type SelectionAst = LogicalNode;
+pub struct SelectionExpr(LogicalNode);
 
-pub fn generate_ast(sel_str: &str) -> Result<SelectionAst> {
-    Ok(selection_parser::logical_expr(sel_str)?)
+impl TryFrom<&str> for SelectionExpr {
+    type Error = anyhow::Error;
+    fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
+        Ok(Self(selection_parser::logical_expr(value)?))
+    }
 }
 
-pub fn apply_ast_whole(
-    ast: &SelectionAst,
-    structure: &Structure,
-    state: &State,
-) -> Result<Vec<usize>> {
-    let data = ApplyData {
-        structure,
-        state,
-        subset: SubsetType::from_iter(0..structure.atoms.len()),
-    };
-    let mut index = Vec::<usize>::from_iter(ast.apply(&data)?.into_iter());
-    index.sort();
-    Ok(index)
-}
+impl SelectionExpr {
+    pub fn apply_whole(
+        &self,
+        structure: &Structure,
+        state: &State,
+    ) -> Result<Vec<usize>> {
+        let data = ApplyData {
+            structure,
+            state,
+            subset: SubsetType::from_iter(0..structure.atoms.len()),
+        };
+        let mut index = Vec::<usize>::from_iter(self.0.apply(&data)?.into_iter());
+        index.sort();
+        Ok(index)
+    }
 
-pub fn apply_ast_subset(
-    ast: &SelectionAst,
-    structure: &Structure,
-    state: &State,
-    subset: &Vec<usize>,
-) -> Result<Vec<usize>> {
-    let data = ApplyData {
-        structure,
-        state,
-        subset: SubsetType::from_iter(subset.iter().cloned()),
-    };
-    let mut index = Vec::<usize>::from_iter(ast.apply(&data)?.into_iter());
-    index.sort();
-    Ok(index)
+    pub fn apply_subset(
+        &self,
+        structure: &Structure,
+        state: &State,
+        subset: &Vec<usize>,
+    ) -> Result<Vec<usize>> {
+        let data = ApplyData {
+            structure,
+            state,
+            subset: SubsetType::from_iter(subset.iter().cloned()),
+        };
+        let mut index = Vec::<usize>::from_iter(self.0.apply(&data)?.into_iter());
+        index.sort();
+        Ok(index)
+    }
 }
 
 //##############################
@@ -811,7 +777,7 @@ pub fn apply_ast_subset(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_ast_whole, generate_ast, selection_parser};
+    use super::SelectionExpr;
     use crate::{core::State, core::Structure, io::*};
     use lazy_static::lazy_static;
 
@@ -828,8 +794,8 @@ mod tests {
     }
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
-        let ast = generate_ast(sel_str).expect("Error generating AST");
-        apply_ast_whole(&ast, &SS.0, &SS.1).expect("Error applying AST")
+        let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        ast.apply_whole(&SS.0, &SS.1).expect("Error applying AST")
     }
 
     include!(concat!(

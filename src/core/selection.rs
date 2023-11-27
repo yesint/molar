@@ -1,10 +1,12 @@
+use std::str::FromStr;
+
 use dyn_clone::clone_box;
 
 
 use crate::distance_search::search::{self, SearchConnectivity, SearcherSingleGrid};
 
 use super::{
-    selection_parser::{apply_ast_whole, generate_ast, SelectionAst},
+    selection_parser::SelectionExpr,
     Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure, PosIterator,
 };
 use anyhow::{anyhow, Result};
@@ -30,80 +32,82 @@ impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = Part
 
 //-----------------------------------------------------------------
 
-struct SelectionWithAst(SelectionAst);
-struct SelectionWithIter<I: IndexIterator>(I);
+trait Select {
+    fn select<'a>(&self,structure: &'a Structure, state: &'a State) -> Selection<'a>;
+    fn select_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a>;
+}
+
+//-----------------------------------------------------------------
+
 struct SelectionAll {}
 
-impl SelectionWithAst {
-    fn apply<'a>(
-        &self,
-        structure: &'a Structure,
-        state: &'a State,
-    ) -> Result<impl ParticleIterator<'a>> {
-        let vec = apply_ast_whole(&self.0, structure, state)?;
-        Ok(vec.into_iter().map(|i| Particle {
-            id: i,
-            atom: &structure.atoms[i],
-            pos: &state.coords[i],
-        }))
-    }
-
-    fn apply_mut<'a>(
-        &self,
-        structure: &'a mut Structure,
-        state: &'a mut State,
-    ) -> Result<impl ParticleMutIterator<'a>> {
-        let vec = apply_ast_whole(&self.0, structure, state)?;
-        Ok(ParticleMutIteratorAdaptor {
-            atom_iter: structure.atoms.iter_mut(),
-            pos_iter: state.coords.iter_mut(),
-            index_iter: vec.into_iter(),
-            cur: 0,
-        })
-    }
-}
-
-impl<I: IndexIterator> SelectionWithIter<I> {
-    fn apply<'a>(
-        &self,
-        structure: &'a Structure,
-        state: &'a State,
-    ) -> Result<impl ParticleIterator<'a>> {
-
-        Ok(self.0.clone().map(|i| Particle {
-            id: i,
-            atom: &structure.atoms[i],
-            pos: &state.coords[i],
-        }))
-    }
-
-    fn apply_mut<'a>(
-        &self,
-        structure: &'a mut Structure,
-        state: &'a mut State,
-    ) -> Result<impl ParticleMutIterator<'a>> {
-        Ok(ParticleMutIteratorAdaptor {
-            atom_iter: structure.atoms.iter_mut(),
-            pos_iter: state.coords.iter_mut(),
-            index_iter: self.0.clone(),
-            cur: 0,
-        })
-    }
-}
-
-impl SelectionAll {    
-    fn apply<'a>(structure: &'a Structure, state: &'a State) -> Selection<'a> {
+impl Select for SelectionAll {    
+    fn select<'a>(&self,structure: &'a Structure, state: &'a State) -> Selection<'a> {
         Selection { structure, state, index: (0..state.coords.len()).collect()}
     }
 
-    fn apply_mut<'a>(structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
-        let n = state.coords.len();
-        SelectionMut { structure, state, index: (0..n).collect() }
+    fn select_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
+        let index = (0..state.coords.len()).collect();
+        SelectionMut { structure, state, index}
     }
 }
 
-//---------------------------------------
+impl Select for SelectionExpr {
+    fn select<'a>(&self,structure: &'a Structure, state: &'a State) -> Selection<'a> {
+        let index = self.apply_whole(structure, state).unwrap(); 
+        Selection {structure,state,index}
+    }
 
+    fn select_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
+        let index = self.apply_whole(structure, state).unwrap();
+        SelectionMut {structure,state,index}
+    }
+}
+
+impl Select for str {
+    fn select<'a>(&self,structure: &'a Structure, state: &'a State) -> Selection<'a> {
+        let index = SelectionExpr::try_from(self).unwrap().apply_whole(structure, state).unwrap();
+        Selection {structure,state,index}
+    }
+
+    fn select_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
+        let index = SelectionExpr::try_from(self).unwrap().apply_whole(structure, state).unwrap();
+        SelectionMut {structure,state,index}
+    }
+}
+
+impl Select for std::ops::Range<usize> {
+    fn select<'a>(&self,structure: &'a Structure, state: &'a State) -> Selection<'a> {
+        let index = self.clone().collect();
+        Selection {structure,state,index}
+    }
+
+    fn select_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
+        let index = self.clone().collect();
+        SelectionMut {structure,state,index}
+    }
+}
+
+/*
+impl<T> Select for T 
+where
+    T: Iterator<Item=usize>+Clone
+{
+    fn select<'a>(&self,structure: &'a Structure, state: &'a State) -> Selection<'a> {
+        let index = self.clone().collect();
+        Selection {structure,state,index}
+    }
+
+    fn select_mut<'a>(&self,structure: &'a mut Structure, state: &'a mut State) -> SelectionMut<'a> {
+        let index = self.clone().collect();
+        SelectionMut {structure,state,index}
+    }
+}
+*/
+
+
+
+//---------------------------------------
 struct Selection<'a> {
     structure: &'a Structure,
     state: &'a State,
@@ -116,32 +120,7 @@ struct SelectionMut<'a> {
     index: Vec<usize>,
 }
 
-impl<'a> Selection<'a> {
-    fn from_expr(sel_str: &str) -> Result<SelectionWithAst> {
-        let ast = generate_ast(sel_str)?;
-        Ok(SelectionWithAst(ast))
-    }
-
-    fn from_iter<I: IndexIterator>(iter: I) -> SelectionWithIter<I> {
-        SelectionWithIter(iter)
-    }
-
-    fn all() -> SelectionAll {
-        SelectionAll {}
-    }
-
-    fn iter_particle(&self) -> Result<impl ParticleIterator<'a>+'_> {
-        Ok(self.index.iter().cloned().map(|i| Particle {
-            id: i,
-            atom: &self.structure.atoms[i],
-            pos: &self.state.coords[i],
-        }))
-    }
-
-    fn iter_pos(&self) -> Result<impl PosIterator<'a>+'_> {
-        Ok(self.index.iter().cloned().map(|i| &self.state.coords[i]))
-    }
-}
+ 
 
 impl<'a> SelectionMut<'a> {
     fn iter_particle(&'a mut self) -> Result<impl ParticleMutIterator<'a>+'_> {        
@@ -217,7 +196,7 @@ mod tests {
     use super::Selection;
     use crate::{
         core::State,
-        core::{Pos, PosIterator, Structure},
+        core::{Pos, PosIterator, Structure, selection::Select},
         io::*,
     };
     use lazy_static::lazy_static;
@@ -236,12 +215,14 @@ mod tests {
 
     #[test]
     fn test_sel1() {
-        let sel = Selection::from_expr("name CA").unwrap();
+        let sel = "name CA".select(&SS.0, &SS.1);
+        /*
         let particles = sel.apply(&SS.0, &SS.1).unwrap();
         println!("sz: {}", particles.len());
         for p in particles {
             println!("{:?}", p);
         }
+        */
     }
 
 }
