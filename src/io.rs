@@ -1,6 +1,7 @@
-use crate::core::{IndexIterator, State, Structure};
+use crate::core::{IndexIterator, State, Structure, StateHandle, StructureHandle};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
+use std::sync::{Arc,RwLock};
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -33,7 +34,7 @@ pub trait IoWriter {
 // Traits for Structure IO
 //===============================
 pub trait IoStructureReader: IoReader {
-    fn read_structure(&mut self) -> Result<Structure>;
+    fn read_structure(&mut self) -> Result<StructureHandle>;
 }
 
 pub trait IoStructureWriter: IoWriter {
@@ -53,7 +54,7 @@ pub trait IoStructureWriter: IoWriter {
 // Traits for State IO
 //===============================
 pub trait IoStateReader: IoReader {
-    fn read_next_state(&mut self) -> Result<Option<State>>;
+    fn read_next_state(&mut self) -> Result<Option<StateHandle>>;
 
     fn into_states_iter(self) -> IoStateIterator<Self>
     where
@@ -90,7 +91,7 @@ impl<T> Iterator for IoStateIterator<T>
 where
     T: IoStateReader,
 {
-    type Item = State;
+    type Item = StateHandle;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_next_state().expect("Error reading state")
     }
@@ -156,7 +157,7 @@ impl<'a> IoWriter for FileHandler<'a> {
 }
 
 impl<'a> IoStructureReader for FileHandler<'a> {
-    fn read_structure(&mut self) -> Result<Structure> {
+    fn read_structure(&mut self) -> Result<StructureHandle> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_structure(),
             #[cfg(feature = "gromacs")]
@@ -182,7 +183,7 @@ impl<'a> IoStructureWriter for FileHandler<'a> {
 }
 
 impl<'a> IoStateReader for FileHandler<'a> {
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.read_next_state()
@@ -217,13 +218,14 @@ fn test_read() {
     let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
     let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb")).unwrap();
 
-    let st = r.read_structure().unwrap();
+    let st_ref = r.read_structure().unwrap();
+    let st = st_ref.read().unwrap();
     println!("{:?}", st.atoms);
 
     for fr in r.into_states_iter() {
         //println!("{:?}",fr);
         w.write_structure(&st).unwrap();
-        w.write_next_state(&fr).unwrap();
+        w.write_next_state(&fr.read().unwrap()).unwrap();
         //w.write_structure(&st).unwrap();
         //w.write_next_state_subset(&fr,0..10).unwrap();
     }

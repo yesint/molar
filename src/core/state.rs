@@ -1,4 +1,6 @@
 use super::{PeriodicBox, Pos};
+use std::sync::{Arc,RwLock};
+use anyhow::bail;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -12,3 +14,5 @@ impl State {
         Default::default()
     }
 }
+
+pub type StateHandle = Arc<RwLock<State>>;

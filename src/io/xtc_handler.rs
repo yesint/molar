@@ -2,11 +2,12 @@ use super::{IoReader, IoStateReader, IoStateWriter, IoWriter};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
-use crate::core::{State, PeriodicBox};
+use crate::core::{State, PeriodicBox, StateHandle};
 
 use anyhow::{bail, Result};
 use std::ffi::CString;
 use std::ptr;
+use std::sync::{Arc, RwLock};
 
 pub struct XtcFileHandler {
     handle: *mut XDRFILE,
@@ -21,7 +22,7 @@ pub struct XtcFileHandler {
 }
 
 fn open_xdr_file(fname: &str, mode: &str) -> Result<*mut XDRFILE> {
-    let c_name = CString::new(fname.clone()).unwrap();
+    let c_name = CString::new(fname).unwrap();
     let c_mode = CString::new(mode).unwrap();
     let handle = unsafe {
         xdrfile_open(c_name.as_ptr(), c_mode.as_ptr())
@@ -158,7 +159,7 @@ impl Drop for XtcFileHandler {
 
 impl IoStateReader for XtcFileHandler {
     #[allow(non_upper_case_globals)]
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
         let mut st: State = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;
@@ -188,7 +189,7 @@ impl IoStateReader for XtcFileHandler {
         }
         
         match ok as u32 {
-            exdrOK => Ok(Some(st)),
+            exdrOK => Ok(Some(Arc::new(RwLock::new(st)))),
             exdrENDOFFILE => Ok(None),
             _ => bail!("Error reading timestep!"),
         }

@@ -4,7 +4,8 @@ use molar::io::*;
 #[test]
 fn test_xtc() {
     let mut h = XtcFileHandler::new_reader("tests/no_ATP.xtc").unwrap();
-    let st = h.read_next_state().unwrap().unwrap();
+    let st_ref = h.read_next_state().unwrap().unwrap();
+    let st = st_ref.read().unwrap();
     println!("{}", st.coords.len());
     println!("{:?}",st.box_);
     

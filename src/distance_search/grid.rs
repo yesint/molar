@@ -1,8 +1,4 @@
-use std::borrow::Cow;
-
-use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator};
-use nalgebra::Vector3;
-use ndarray::{Array3, iter::IndexedIter};
+use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator, State};
 
 //====================================================================
 // Cell location in the grid
@@ -155,10 +151,12 @@ fn test_grid() {
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
+    let crd = &st.read().unwrap().coords;
+
     let mut gr = Grid::new([10, 10, 10]);
     gr.populate_periodic(
-        zip(0..st.coords.len(), st.coords.iter().map(|el| el)),
-        &st.box_.unwrap(),
+        zip(0..crd.len(), crd.iter().map(|el| el)),
+        &st.read().unwrap().box_.as_ref().unwrap(),
         &[true, true, true],
     );
 }

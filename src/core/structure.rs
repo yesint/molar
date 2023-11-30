@@ -1,4 +1,6 @@
 use super::Atom;
+use std::sync::{Arc,RwLock};
+use anyhow::bail;
 
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
@@ -25,3 +27,5 @@ impl Structure {
         }
     }
 }
+
+pub type StructureHandle = Arc<RwLock<Structure>>;

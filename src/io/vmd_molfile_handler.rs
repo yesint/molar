@@ -12,6 +12,7 @@ use std::ffi::{c_void, CStr, CString};
 use std::ptr::{self, null_mut};
 
 use std::default::Default;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{bail, Result};
 
@@ -148,7 +149,7 @@ impl IoWriter for VmdMolFileHandler<'_> {
 }
 
 impl IoStructureReader for VmdMolFileHandler<'_> {
-    fn read_structure(&mut self) -> Result<Structure> {
+    fn read_structure(&mut self) -> Result<StructureHandle> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -197,7 +198,7 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
         // Assign resindexes
         structure.assign_resindex();
 
-        Ok(structure)
+        Ok(Arc::new(RwLock::new(structure)))
     }
 }
 
@@ -256,7 +257,7 @@ impl IoStructureWriter for VmdMolFileHandler<'_> {
 }
 
 impl IoStateReader for VmdMolFileHandler<'_> {
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
         let mut state: State = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
@@ -302,7 +303,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(Some(state)),
+            MOLFILE_SUCCESS => Ok(Some(Arc::new(RwLock::new(state)))),
             MOLFILE_EOF => Ok(None),
             _ => bail!("Error reading timestep!"),
         }

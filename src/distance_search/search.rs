@@ -385,7 +385,8 @@ fn test_single_periodic() {
     use crate::io::*;
     use std::iter::zip;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st = r.read_next_state().unwrap().unwrap();
+    let st_ref = r.read_next_state().unwrap().unwrap();
+    let st = st_ref.read().unwrap();
     //let _ = r.read_structure().unwrap();
 
     let mut searcher = SearcherSingleGrid::from_state_subset_periodic(
@@ -403,7 +404,8 @@ fn test_single_non_periodic() {
     use crate::io::*;
     use std::iter::zip;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st = r.read_next_state().unwrap().unwrap();
+    let st_ref = r.read_next_state().unwrap().unwrap();
+    let st = st_ref.read().unwrap();
     //let _ = r.read_structure().unwrap();
 
     let mut searcher = SearcherSingleGrid::from_state_subset(
@@ -422,7 +424,9 @@ fn test_double_periodic() {
     use crate::io::*;
     use std::iter::zip;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st = r.read_next_state().unwrap().unwrap();
+    let st_ref = r.read_next_state().unwrap().unwrap();
+    let st = st_ref.read().unwrap();
+
 
     let mut searcher = SearcherDoubleGrid::from_state_subset_periodic(
         0.3,

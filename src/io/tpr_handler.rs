@@ -5,7 +5,7 @@ use ascii::{AsciiString,AsciiChar};
 use anyhow::{bail, Result};
 use nalgebra::{Matrix,Matrix3};
 
-use std::{ffi::{CStr, CString}, ptr::null_mut};
+use std::{ffi::{CStr, CString}, ptr::null_mut, sync::{Arc, RwLock}, ops::Deref};
 use molar_gromacs::gromacs_bindings::*;
 
 
@@ -51,7 +51,7 @@ fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
 
 
 impl IoStructureReader for TprFileHandler {
-    fn read_structure(&mut self) -> Result<Structure> {
+    fn read_structure(&mut self) -> Result<StructureHandle> {
         let top = unsafe{ self.handle.get_top().as_ref().unwrap() };
         let natoms = top.atoms.nr as usize;
         let nres = top.atoms.nres as usize;
@@ -146,13 +146,13 @@ impl IoStructureReader for TprFileHandler {
         // Assign resindexes
         structure.assign_resindex();
         
-        Ok(structure)
+        Ok(Arc::new(RwLock::new(structure)))
     }
 }
 
 
 impl IoStateReader for TprFileHandler {
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
         if self.state_read {
             // State is read alredy, return EOF and fo nothing
             return Ok(None);
@@ -179,7 +179,7 @@ impl IoStateReader for TprFileHandler {
         
         // Set a marker that state is already read
         self.state_read = true;
-        Ok(Some(st))
+        Ok(Some(Arc::new(RwLock::new(st))))
     }
 }
 
@@ -187,11 +187,12 @@ impl IoStateReader for TprFileHandler {
 #[test]
 fn test_tpr() {
     let mut h = TprFileHandler::new_reader("tests/topol.tpr").unwrap();
-    let structure = h.read_structure().unwrap();
-    println!("natoms: {:?}",structure.atoms.len());
-    println!("nbonds: {:?}",structure.bonds.len());
-    println!("molecules: {:?}",structure.molecules.len());
+    let structure= h.read_structure().unwrap();
+    let st = structure.read().unwrap();
+    println!("natoms: {:?}",st.atoms.len());
+    println!("nbonds: {:?}",st.bonds.len());
+    println!("molecules: {:?}",st.molecules.len());
 
     let state = h.read_next_state().unwrap().unwrap();
-    println!("state sz: {:?}",state.coords.len());
+    println!("state sz: {:?}",state.read().unwrap().coords.len());
 }

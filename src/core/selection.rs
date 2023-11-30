@@ -196,12 +196,12 @@ mod tests {
     use super::Selection;
     use crate::{
         core::State,
-        core::{Pos, PosIterator, Structure, selection::Select},
+        core::{Pos, PosIterator, Structure, selection::Select, StructureHandle, StateHandle},
         io::*,
     };
     use lazy_static::lazy_static;
 
-    fn read_test_pdb() -> (Structure, State) {
+    fn read_test_pdb() -> (StructureHandle, StateHandle) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
@@ -210,12 +210,12 @@ mod tests {
 
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
-        static ref SS: (Structure, State) = read_test_pdb();
+        static ref SS: (StructureHandle, StateHandle) = read_test_pdb();
     }
 
     #[test]
     fn test_sel1() {
-        let sel = "name CA".select(&SS.0, &SS.1);
+        let sel = "name CA".select(&SS.0.read().unwrap(), &SS.1.read().unwrap());
         /*
         let particles = sel.apply(&SS.0, &SS.1).unwrap();
         println!("sz: {}", particles.len());
