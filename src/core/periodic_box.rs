@@ -16,11 +16,6 @@ impl PeriodicBox {
             if col.norm() == 0.0 { bail!("Three non-zero periodic box vector required! Given {}",matrix) }
         }
 
-        let is_rectangular =
-        if matrix[(0,1)] != 0.0 || matrix[(0,2)] != 0.0 
-        || matrix[(1,0)] != 0.0 || matrix[(1,2)] != 0.0 
-        || matrix[(2,0)] != 0.0 || matrix[(2,1)] != 0.0 { false } else { true };
-
         Ok(Self{
             matrix,
             inv: matrix.try_inverse().ok_or(anyhow!("Can't invert the pbc matrix!"))?,
