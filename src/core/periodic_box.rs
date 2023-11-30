@@ -5,7 +5,6 @@ use crate::core::{Vector3f,Matrix3f,Pos};
 pub struct PeriodicBox {
     matrix: Matrix3f,
     inv: Matrix3f,
-    is_rectangular: bool,
 }
 
 pub type PbcDims = [bool;3];
@@ -25,7 +24,6 @@ impl PeriodicBox {
         Ok(Self{
             matrix,
             inv: matrix.try_inverse().ok_or(anyhow!("Can't invert the pbc matrix!"))?,
-            is_rectangular
         })
     }
 
