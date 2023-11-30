@@ -1,6 +1,5 @@
 
 use std::sync::{Arc,RwLock, RwLockReadGuard, RwLockWriteGuard};
-use anyhow::bail;
 
 #[derive(Debug,Clone)]
 pub struct SharedHandle<T>(
@@ -8,18 +7,12 @@ pub struct SharedHandle<T>(
 );
 
 impl<T> SharedHandle<T> {
-    pub fn read(&self) -> anyhow::Result<RwLockReadGuard<'_,T>> {
-        match self.0.read() {
-            Ok(h) => Ok(h),
-            Err(e) => bail!(e.to_string()),
-        }
+    pub fn read(&self) -> RwLockReadGuard<'_,T> {
+        self.0.read().expect("SharedHandle poisoned")
     }
 
-    pub fn write(&self) -> anyhow::Result<RwLockWriteGuard<'_,T>> {
-        match self.0.write() {
-            Ok(h) => Ok(h),
-            Err(e) => bail!(e.to_string()),
-        }
+    pub fn write(&self) -> RwLockWriteGuard<'_,T> {
+        self.0.write().expect("SharedHandle poisoned")
     }
 }
 

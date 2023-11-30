@@ -188,11 +188,11 @@ impl IoStateReader for TprFileHandler {
 fn test_tpr() {
     let mut h = TprFileHandler::new_reader("tests/topol.tpr").unwrap();
     let structure= h.read_structure().unwrap();
-    let st = structure.read().unwrap();
+    let st = structure.read();
     println!("natoms: {:?}",st.atoms.len());
     println!("nbonds: {:?}",st.bonds.len());
     println!("molecules: {:?}",st.molecules.len());
 
     let state = h.read_next_state().unwrap().unwrap();
-    println!("state sz: {:?}",state.read().unwrap().coords.len());
+    println!("state sz: {:?}",state.read().coords.len());
 }

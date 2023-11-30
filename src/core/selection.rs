@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_sel1() {
-        let sel = "name CA".select(&SS.0.read().unwrap(), &SS.1.read().unwrap());
+        let sel = "name CA".select(&SS.0.read(), &SS.1.read());
         /*
         let particles = sel.apply(&SS.0, &SS.1).unwrap();
         println!("sz: {}", particles.len());

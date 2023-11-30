@@ -795,8 +795,8 @@ mod tests {
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         ast.apply_whole(
-            &SS.0.read().unwrap(), 
-            &SS.1.read().unwrap()
+            &SS.0.read(), 
+            &SS.1.read()
         ).expect("Error applying AST")
     }
 

@@ -219,13 +219,13 @@ fn test_read() {
     let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb")).unwrap();
 
     let st_ref = r.read_structure().unwrap();
-    let st = st_ref.read().unwrap();
+    let st = st_ref.read();
     println!("{:?}", st.atoms);
 
     for fr in r.into_states_iter() {
         //println!("{:?}",fr);
         w.write_structure(&st).unwrap();
-        w.write_next_state(&fr.read().unwrap()).unwrap();
+        w.write_next_state(&fr.read()).unwrap();
         //w.write_structure(&st).unwrap();
         //w.write_next_state_subset(&fr,0..10).unwrap();
     }
