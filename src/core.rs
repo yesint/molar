@@ -9,6 +9,7 @@ mod periodic_box;
 mod selection_parser;
 mod selection;
 mod algorithms;
+mod shared_handle;
 
 pub use {
     atom::Atom, 

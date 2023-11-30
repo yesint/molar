@@ -198,7 +198,7 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
         // Assign resindexes
         structure.assign_resindex();
 
-        Ok(Arc::new(RwLock::new(structure)))
+        Ok(structure.into())
     }
 }
 
@@ -303,7 +303,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(Some(Arc::new(RwLock::new(state)))),
+            MOLFILE_SUCCESS => Ok(Some(state.into())),
             MOLFILE_EOF => Ok(None),
             _ => bail!("Error reading timestep!"),
         }

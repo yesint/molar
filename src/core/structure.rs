@@ -1,6 +1,5 @@
 use super::Atom;
-use std::sync::{Arc,RwLock};
-use anyhow::bail;
+use super::shared_handle::SharedHandle;
 
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
@@ -28,4 +27,4 @@ impl Structure {
     }
 }
 
-pub type StructureHandle = Arc<RwLock<Structure>>;
+pub type StructureHandle = SharedHandle<Structure>;

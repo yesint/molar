@@ -189,7 +189,7 @@ impl IoStateReader for XtcFileHandler {
         }
         
         match ok as u32 {
-            exdrOK => Ok(Some(Arc::new(RwLock::new(st)))),
+            exdrOK => Ok(Some(st.into())),
             exdrENDOFFILE => Ok(None),
             _ => bail!("Error reading timestep!"),
         }

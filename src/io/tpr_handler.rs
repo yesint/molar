@@ -146,7 +146,7 @@ impl IoStructureReader for TprFileHandler {
         // Assign resindexes
         structure.assign_resindex();
         
-        Ok(Arc::new(RwLock::new(structure)))
+        Ok(structure.into())
     }
 }
 
@@ -179,7 +179,7 @@ impl IoStateReader for TprFileHandler {
         
         // Set a marker that state is already read
         self.state_read = true;
-        Ok(Some(Arc::new(RwLock::new(st))))
+        Ok(Some(st.into()))
     }
 }
 
