@@ -151,12 +151,12 @@ fn test_grid() {
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
-    let crd = &st.read().coords;
+    let crd = &st.coords;
 
     let mut gr = Grid::new([10, 10, 10]);
     gr.populate_periodic(
         zip(0..crd.len(), crd.iter().map(|el| el)),
-        &st.read().box_.as_ref().unwrap(),
+        &st.box_.as_ref().unwrap(),
         &[true, true, true],
     );
 }

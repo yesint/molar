@@ -1,6 +1,3 @@
-use dyn_clone::{DynClone,clone_box};
-
-
 mod atom;
 mod structure;
 mod state;
@@ -9,7 +6,7 @@ mod periodic_box;
 mod selection_parser;
 mod selection;
 mod algorithms;
-mod shared_handle;
+mod handle;
 
 pub use {
     atom::Atom, 

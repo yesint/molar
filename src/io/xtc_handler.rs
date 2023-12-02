@@ -159,7 +159,7 @@ impl Drop for XtcFileHandler {
 
 impl IoStateReader for XtcFileHandler {
     #[allow(non_upper_case_globals)]
-    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
+    fn read_next_state(&mut self) -> Result<Option<State>> {
         let mut st: State = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;

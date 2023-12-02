@@ -51,7 +51,7 @@ fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
 
 
 impl IoStructureReader for TprFileHandler {
-    fn read_structure(&mut self) -> Result<StructureHandle> {
+    fn read_structure(&mut self) -> Result<Structure> {
         let top = unsafe{ self.handle.get_top().as_ref().unwrap() };
         let natoms = top.atoms.nr as usize;
         let nres = top.atoms.nres as usize;
@@ -152,7 +152,7 @@ impl IoStructureReader for TprFileHandler {
 
 
 impl IoStateReader for TprFileHandler {
-    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
+    fn read_next_state(&mut self) -> Result<Option<State>> {
         if self.state_read {
             // State is read alredy, return EOF and fo nothing
             return Ok(None);
@@ -187,12 +187,11 @@ impl IoStateReader for TprFileHandler {
 #[test]
 fn test_tpr() {
     let mut h = TprFileHandler::new_reader("tests/topol.tpr").unwrap();
-    let structure= h.read_structure().unwrap();
-    let st = structure.read();
+    let st = h.read_structure().unwrap();
     println!("natoms: {:?}",st.atoms.len());
     println!("nbonds: {:?}",st.bonds.len());
     println!("molecules: {:?}",st.molecules.len());
 
     let state = h.read_next_state().unwrap().unwrap();
-    println!("state sz: {:?}",state.read().coords.len());
+    println!("state sz: {:?}",state.coords.len());
 }

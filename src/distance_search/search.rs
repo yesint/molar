@@ -384,9 +384,7 @@ fn grid_size_periodic(cutoff: f32, box_: &PeriodicBox) -> [usize; 3] {
 fn test_single_periodic() {
     use crate::io::*;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st_ref = r.read_next_state().unwrap().unwrap();
-    let st = st_ref.read();
-    //let _ = r.read_structure().unwrap();
+    let st = r.read_next_state().unwrap().unwrap();
 
     let mut searcher = SearcherSingleGrid::from_state_subset_periodic(
         0.3,
@@ -402,9 +400,7 @@ fn test_single_periodic() {
 fn test_single_non_periodic() {
     use crate::io::*;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st_ref = r.read_next_state().unwrap().unwrap();
-    let st = st_ref.read();
-    //let _ = r.read_structure().unwrap();
+    let st = r.read_next_state().unwrap().unwrap();
 
     let mut searcher = SearcherSingleGrid::from_state_subset(
         0.3,
@@ -421,9 +417,7 @@ fn test_single_non_periodic() {
 fn test_double_periodic() {
     use crate::io::*;
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
-    let st_ref = r.read_next_state().unwrap().unwrap();
-    let st = st_ref.read();
-
+    let st = r.read_next_state().unwrap().unwrap();
 
     let mut searcher = SearcherDoubleGrid::from_state_subset_periodic(
         0.3,

@@ -775,12 +775,12 @@ impl SelectionExpr {
 mod tests {
     use super::SelectionExpr;
     use crate::{
-        core::{StateHandle, StructureHandle},
+        core::{StateHandle, StructureHandle, Structure, State},
         io::*,
     };
     use lazy_static::lazy_static;
 
-    fn read_test_pdb() -> (StructureHandle, StateHandle) {
+    fn read_test_pdb() -> (Structure, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
@@ -789,14 +789,14 @@ mod tests {
 
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
-        static ref SS: (StructureHandle, StateHandle) = read_test_pdb();
+        static ref SS: (Structure, State) = read_test_pdb();
     }
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         ast.apply_whole(
-            &SS.0.read(), 
-            &SS.1.read()
+            &SS.0, 
+            &SS.1
         ).expect("Error applying AST")
     }
 

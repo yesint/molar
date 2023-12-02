@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, borrow::{Borrow, BorrowMut}, cell::{RefCell, Ref}, ops::Deref, rc::Rc, sync::{RwLock, RwLockReadGuard}};
 
 use dyn_clone::clone_box;
 
@@ -7,7 +7,7 @@ use crate::distance_search::search::{self, SearchConnectivity, SearcherSingleGri
 
 use super::{
     selection_parser::SelectionExpr,
-    Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure, PosIterator,
+    Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure, PosIterator, structure,
 };
 use anyhow::{anyhow, Result};
 
@@ -191,17 +191,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{borrow::Borrow, fmt::Debug};
+    use std::{borrow::Borrow, fmt::Debug, cell::RefCell, rc::Rc};
 
-    use super::Selection;
+    use super::{Selection, Sel};
     use crate::{
         core::State,
-        core::{Pos, PosIterator, Structure, selection::Select, StructureHandle, StateHandle},
+        core::{Pos, PosIterator, Structure, selection::Select, StructureHandle, StateHandle, structure},
         io::*,
     };
     use lazy_static::lazy_static;
 
-    fn read_test_pdb() -> (StructureHandle, StateHandle) {
+    fn read_test_pdb() -> (Structure, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
         let structure = h.read_structure().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
@@ -210,12 +210,12 @@ mod tests {
 
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
-        static ref SS: (StructureHandle, StateHandle) = read_test_pdb();
+        static ref SS: (Structure, State) = read_test_pdb();
     }
 
     #[test]
     fn test_sel1() {
-        let sel = "name CA".select(&SS.0.read(), &SS.1.read());
+        let sel = "name CA".select(&SS.0, &SS.1);
         /*
         let particles = sel.apply(&SS.0, &SS.1).unwrap();
         println!("sz: {}", particles.len());

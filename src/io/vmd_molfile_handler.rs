@@ -149,7 +149,7 @@ impl IoWriter for VmdMolFileHandler<'_> {
 }
 
 impl IoStructureReader for VmdMolFileHandler<'_> {
-    fn read_structure(&mut self) -> Result<StructureHandle> {
+    fn read_structure(&mut self) -> Result<Structure> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -257,7 +257,7 @@ impl IoStructureWriter for VmdMolFileHandler<'_> {
 }
 
 impl IoStateReader for VmdMolFileHandler<'_> {
-    fn read_next_state(&mut self) -> Result<Option<StateHandle>> {
+    fn read_next_state(&mut self) -> Result<Option<State>> {
         let mut state: State = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
