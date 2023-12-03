@@ -1,5 +1,5 @@
 use super::{PeriodicBox, Pos};
-use super::handle::{SharedHandle, Handle};
+//use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
 pub struct State {
@@ -14,5 +14,5 @@ impl State {
     }
 }
 
-pub type StateHandle = Handle<State>;
+//pub type StateHandle = Handle<State>;
 

@@ -2,7 +2,7 @@ use super::{IoReader, IoStateReader, IoStateWriter, IoWriter};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
-use crate::core::{State, PeriodicBox, StateHandle};
+use crate::core::{State, PeriodicBox};
 
 use anyhow::{bail, Result};
 use std::ffi::CString;

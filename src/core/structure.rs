@@ -1,5 +1,5 @@
 use super::Atom;
-use super::handle::{SharedHandle, Handle};
+//use super::handle::{SharedHandle, Handle};
 
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
@@ -27,4 +27,4 @@ impl Structure {
     }
 }
 
-pub type StructureHandle = Handle<Structure>;
+//pub type StructureHandle = Handle<Structure>;

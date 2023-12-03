@@ -193,10 +193,10 @@ where
 mod tests {
     use std::{borrow::Borrow, fmt::Debug, cell::RefCell, rc::Rc};
 
-    use super::{Selection, Sel};
+    use super::{Selection};
     use crate::{
         core::State,
-        core::{Pos, PosIterator, Structure, selection::Select, StructureHandle, StateHandle, structure},
+        core::{Pos, PosIterator, Structure, selection::Select, structure},
         io::*,
     };
     use lazy_static::lazy_static;

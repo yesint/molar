@@ -6,7 +6,7 @@ use regex::bytes::Regex;
 use super::atom::Atom;
 use super::state::State;
 use super::structure::Structure;
-use super::{IndexIterator, PbcDims, StateHandle, StructureHandle};
+use super::{IndexIterator, PbcDims};
 use crate::distance_search::search::SearcherDoubleGrid;
 use std::collections::HashSet;
 
@@ -775,7 +775,7 @@ impl SelectionExpr {
 mod tests {
     use super::SelectionExpr;
     use crate::{
-        core::{StateHandle, StructureHandle, Structure, State},
+        core::{Structure, State},
         io::*,
     };
     use lazy_static::lazy_static;

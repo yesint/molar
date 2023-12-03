@@ -15,6 +15,7 @@ pub use {
     periodic_box::*,
     algorithms::*,
     selection::*,
+    handle::*,
 }; 
 
 // Aliases for vector and points
