@@ -6,7 +6,6 @@ mod periodic_box;
 mod selection_parser;
 mod selection;
 mod algorithms;
-mod handle;
 
 pub use {
     atom::Atom, 
@@ -15,7 +14,6 @@ pub use {
     periodic_box::*,
     algorithms::*,
     selection::*,
-    handle::*,
 }; 
 
 // Aliases for vector and points
