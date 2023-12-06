@@ -1,3 +1,5 @@
+use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}};
+
 use super::Atom;
 //use super::handle::{SharedHandle, Handle};
 
@@ -12,6 +14,14 @@ pub struct Structure {
 impl Structure {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn to_rc(self) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(self))
+    }
+
+    pub fn to_arc(self) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(self))
     }
 
     pub fn assign_resindex(&mut self) {
