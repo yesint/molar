@@ -1,7 +1,7 @@
 use super::{
     selection_parser::SelectionExpr,
     State, Structure,
-    particle::*,
+    particle::*, PosIterator, Atom,
 };
 use anyhow::{Result, bail};
 use itertools::Itertools;
@@ -108,57 +108,6 @@ where
     index: Vec<usize>,    
 }
 
-/// Scoped guard giving read-only access to selection
-pub struct SelectionReadGuard<'a,R,S>
-where
-    R: UniversalRcLock<'a,Structure>,
-    S: UniversalRcLock<'a,State>,
-{
-    structure_ref: <R as UniversalRcLock<'a,Structure>>::OutRead,
-    state_ref: <S as UniversalRcLock<'a,State>>::OutRead,
-    index_ref: &'a Vec<usize>,
-}
-
-impl<'a,R,S> SelectionReadGuard<'a,R,S> 
-where
-    R: UniversalRcLock<'a,Structure>,
-    S: UniversalRcLock<'a,State>,
-{
-    fn iter(&self) -> impl ParticleIterator<'_> {
-        ParticleIteratorAdaptor::new(
-            self.structure_ref.atoms.iter(),
-            self.state_ref.coords.iter(),
-            self.index_ref.iter().cloned(),            
-        )
-    }
-}
-
-/// Scoped guard giving read-write access to selection
-pub struct SelectionWriteGuard<'a,R,S>
-where
-    R: UniversalRcLock<'a,Structure>,
-    S: UniversalRcLock<'a,State>,
-{
-    structure_ref: <R as UniversalRcLock<'a,Structure>>::OutWrite,
-    state_ref: <S as UniversalRcLock<'a,State>>::OutWrite,
-    index_ref: &'a Vec<usize>,
-}
-
-impl<'a,R,S> SelectionWriteGuard<'a,R,S> 
-where
-    R: UniversalRcLock<'a,Structure>,
-    S: UniversalRcLock<'a,State>,
-{
-    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
-        ParticleMutIteratorAdaptor::new(
-            self.structure_ref.atoms.iter_mut(),
-            self.state_ref.coords.iter_mut(),
-            self.index_ref.iter().cloned(),         
-        )
-    }
-}
-
-//==================================================================
 
 impl<R,S> Selection<R,S> 
 where
@@ -210,6 +159,68 @@ where
     }
 
 }
+//----------------------------------------------------
+
+/// Scoped guard giving read-only access to selection
+pub struct SelectionReadGuard<'a,R,S>
+where
+    R: UniversalRcLock<'a,Structure>,
+    S: UniversalRcLock<'a,State>,
+{
+    structure_ref: <R as UniversalRcLock<'a,Structure>>::OutRead,
+    state_ref: <S as UniversalRcLock<'a,State>>::OutRead,
+    index_ref: &'a Vec<usize>,
+}
+
+impl<'a,R,S> SelectionReadGuard<'a,R,S> 
+where
+    R: UniversalRcLock<'a,Structure>,
+    S: UniversalRcLock<'a,State>,
+{
+    fn iter(&self) -> impl ParticleIterator<'_> {
+        ParticleIteratorAdaptor::new(
+            self.structure_ref.atoms.iter(),
+            self.state_ref.coords.iter(),
+            self.index_ref.iter().cloned(),            
+        )
+    }
+
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.state_ref.coords.iter()
+    }
+
+    fn iter_atoms(&self) -> impl ExactSizeIterator<Item = &'_ Atom> {
+        self.structure_ref.atoms.iter()
+    }
+}
+
+/// Scoped guard giving read-write access to selection
+pub struct SelectionWriteGuard<'a,R,S>
+where
+    R: UniversalRcLock<'a,Structure>,
+    S: UniversalRcLock<'a,State>,
+{
+    structure_ref: <R as UniversalRcLock<'a,Structure>>::OutWrite,
+    state_ref: <S as UniversalRcLock<'a,State>>::OutWrite,
+    index_ref: &'a Vec<usize>,
+}
+
+impl<'a,R,S> SelectionWriteGuard<'a,R,S> 
+where
+    R: UniversalRcLock<'a,Structure>,
+    S: UniversalRcLock<'a,State>,
+{
+    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
+        ParticleMutIteratorAdaptor::new(
+            self.structure_ref.atoms.iter_mut(),
+            self.state_ref.coords.iter_mut(),
+            self.index_ref.iter().cloned(),         
+        )
+    }
+}
+
+//==================================================================
+
 
 //##############################
 //#  Tests
