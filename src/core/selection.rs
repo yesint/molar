@@ -179,9 +179,9 @@ where
 {
     fn iter(&self) -> impl ParticleIterator<'_> {
         ParticleIteratorAdaptor::new(
-            self.structure_ref.atoms.iter(),
-            self.state_ref.coords.iter(),
-            self.index_ref.iter().cloned(),            
+            &self.structure_ref.atoms,
+            &self.state_ref.coords,
+            &self.index_ref,            
         )
     }
 
