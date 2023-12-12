@@ -1,4 +1,4 @@
-use super::{Atom,Pos, IndexIterator, PosIterator};
+use super::{Atom,Pos, IndexIterator};
 
 #[derive(Debug, Clone)]
 pub struct Particle<'a> {
@@ -58,17 +58,14 @@ where
     type Item = Particle<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.index_iter.next() {
-            Some(id) => {
-                // Advance iterators by offset and yield
-                let atom = self.atom_iter.nth(id - self.cur)?;
-                let pos = self.pos_iter.nth(id - self.cur)?;
-                // Advance current position
-                self.cur = id + 1;
-                Some(Particle { atom, pos, id })
-            }
-            None => None,
-        }
+        self.index_iter.next().map(|ind| {
+            // Advance iterators by offset and yield
+            let atom = self.atom_iter.nth(ind - self.cur)?;
+            let pos = self.pos_iter.nth(ind - self.cur)?;
+            // Advance current position
+            self.cur = ind + 1;
+            Some(Particle { atom, pos, id: ind })
+        })?
     }
 }
 
@@ -123,17 +120,14 @@ where
     type Item = ParticleMut<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.index_iter.next() {
-            Some(id) => {
-                // Advance iterators by offset and yield
-                let atom = self.atom_iter.nth(id - self.cur)?;
-                let pos = self.pos_iter.nth(id - self.cur)?;
-                // Advance current position
-                self.cur = id + 1;
-                Some(ParticleMut { atom, pos, id })
-            }
-            None => None,
-        }
+        self.index_iter.next().map(|ind| {
+            // Advance iterators by offset and yield
+            let atom = self.atom_iter.nth(ind - self.cur)?;
+            let pos = self.pos_iter.nth(ind - self.cur)?;
+            // Advance current position
+            self.cur = ind + 1;
+            Some(ParticleMut { atom, pos, id: ind })
+        })?
     }
 }
 
