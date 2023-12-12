@@ -3,7 +3,7 @@ use num_traits::Zero;
 use num_traits::Bounded;
 
 use super::{
-    selection::{ParticleIterator, ParticleMutIterator},
+    ParticleIterator, ParticleMutIterator,
     Pos, Vector3f, PbcDims, PeriodicBox, IdPosIterator, PosIterator,
 };
 

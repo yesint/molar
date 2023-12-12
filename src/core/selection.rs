@@ -1,38 +1,15 @@
-use std::{str::FromStr, borrow::{Borrow, BorrowMut}, cell::{RefCell, Ref}, ops::Deref, rc::Rc, sync::{RwLock, RwLockReadGuard}, marker::PhantomData};
-
-use crate::distance_search::search::{self, SearchConnectivity, SearcherSingleGrid};
-
 use super::{
     selection_parser::SelectionExpr,
-    Atom, IndexIterator, PbcDims, PeriodicBox, Pos, State, Structure, PosIterator, structure, atom,
+    State, Structure,
+    particle::*,
 };
-use anyhow::{anyhow, Result, bail};
+use anyhow::{Result, bail};
 use itertools::Itertools;
-use ndarray::IndexLonger;
 use uni_rc_lock::{UniversalRcLock, UniRcLock};
-
-#[derive(Debug, Clone)]
-pub struct Particle<'a> {
-    pub id: usize,
-    pub atom: &'a Atom,
-    pub pos: &'a Pos,
-}
-
-#[derive(Debug)]
-pub struct ParticleMut<'a> {
-    pub id: usize,
-    pub atom: &'a mut Atom,
-    pub pos: &'a mut Pos,
-}
-
-pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> {}
-impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> {}
-
-pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
-impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
 
 //-----------------------------------------------------------------
 
+/// Trait whic provides select method operating with generic smart pointers
 trait Select<R,S>
 where
     R: UniRcLock<Structure>,
@@ -128,48 +105,79 @@ where
 {
     structure: R,
     state: S,
-    index: Vec<usize>,
-    //ph: PhantomData<&'a R>,
+    index: Vec<usize>,    
 }
 
+/// Scoped guard giving read-only access to selection
 pub struct SelectionReadGuard<'a,R,S>
 where
     R: UniversalRcLock<'a,Structure>,
     S: UniversalRcLock<'a,State>,
 {
-    structure_ptr: <R as UniversalRcLock<'a,Structure>>::OutRead,
-    state_ptr: <S as UniversalRcLock<'a,State>>::OutRead,
-    index: &'a Vec<usize>,
+    structure_ref: <R as UniversalRcLock<'a,Structure>>::OutRead,
+    state_ref: <S as UniversalRcLock<'a,State>>::OutRead,
+    index_ref: &'a Vec<usize>,
 }
 
+impl<'a,R,S> SelectionReadGuard<'a,R,S> 
+where
+    R: UniversalRcLock<'a,Structure>,
+    S: UniversalRcLock<'a,State>,
+{
+    fn iter(&self) -> impl ParticleIterator<'_> {
+        ParticleIteratorAdaptor::new(
+            self.structure_ref.atoms.iter(),
+            self.state_ref.coords.iter(),
+            self.index_ref.iter().cloned(),            
+        )
+    }
+}
+
+/// Scoped guard giving read-write access to selection
 pub struct SelectionWriteGuard<'a,R,S>
 where
     R: UniversalRcLock<'a,Structure>,
     S: UniversalRcLock<'a,State>,
 {
-    structure_ptr: <R as UniversalRcLock<'a,Structure>>::OutWrite,
-    state_ptr: <S as UniversalRcLock<'a,State>>::OutWrite,
-    index: &'a Vec<usize>,
+    structure_ref: <R as UniversalRcLock<'a,Structure>>::OutWrite,
+    state_ref: <S as UniversalRcLock<'a,State>>::OutWrite,
+    index_ref: &'a Vec<usize>,
 }
 
+impl<'a,R,S> SelectionWriteGuard<'a,R,S> 
+where
+    R: UniversalRcLock<'a,Structure>,
+    S: UniversalRcLock<'a,State>,
+{
+    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
+        ParticleMutIteratorAdaptor::new(
+            self.structure_ref.atoms.iter_mut(),
+            self.state_ref.coords.iter_mut(),
+            self.index_ref.iter().cloned(),         
+        )
+    }
+}
+
+//==================================================================
 
 impl<R,S> Selection<R,S> 
 where
     R: UniRcLock<Structure>,
     S: UniRcLock<State>,
 {
-    // Subselections
-
+    /// Subselection from expression
     pub fn subsel_from_expr(&self,expr: &SelectionExpr) -> Result<Selection<R,S>> {
         let index = expr.apply_subset(&self.structure.read(), &self.state.read(), &self.index)?;
         Ok(Selection {structure: self.structure.clone(),state: self.state.clone(),index})
     }
 
+    /// Subselection from string
     pub fn subsel_from_str(&self,sel_str: &str) -> Result<Selection<R,S>> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
 
+    /// Subselection from the range of local selection indexes
     pub fn subsel_from_local_range(&self,range: std::ops::Range<usize>) -> Result<Selection<R,S>> {
         // Translate range of local indexes to global indexes
         let index: Vec<usize> = self.index.iter().cloned().skip(range.start).take(range.len()).collect();
@@ -179,6 +187,7 @@ where
         Ok(Selection {structure: self.structure.clone(),state: self.state.clone(),index})
     }
 
+    /// Subselection from iterator that provides local selection indexes
     pub fn subsel_from_iter(&self,iter: impl ExactSizeIterator<Item = usize>) -> Result<Selection<R,S>> {
         let index = iter.sorted().dedup().map(|i| self.index[i]).collect();
         Ok(Selection {structure: self.structure.clone(),state: self.state.clone(),index})
@@ -186,156 +195,20 @@ where
 
     pub fn read<'a>(&'a self) -> SelectionReadGuard<'a,R,S> {
         SelectionReadGuard{
-            structure_ptr: self.structure.read(),
-            state_ptr: self.state.read(),
-            index: &self.index,
+            structure_ref: self.structure.read(),
+            state_ref: self.state.read(),
+            index_ref: &self.index,
         }
     }
 
     pub fn write<'a>(&'a self) -> SelectionWriteGuard<'a,R,S> {
         SelectionWriteGuard{
-            structure_ptr: self.structure.write(),
-            state_ptr: self.state.write(),
-            index: &self.index,
+            structure_ref: self.structure.write(),
+            state_ref: self.state.write(),
+            index_ref: &self.index,
         }
     }
 
-}
-
-impl<'a,R,S> SelectionReadGuard<'a,R,S> 
-where
-    R: UniversalRcLock<'a,Structure>,
-    S: UniversalRcLock<'a,State>,
-{
-    fn iter(&self) -> impl ParticleIterator<'_> {
-        ParticleIteratorAdaptor{
-            atom_iter: self.structure_ptr.atoms.iter(),
-            pos_iter: self.state_ptr.coords.iter(),
-            index_iter: self.index.iter().cloned(),
-            cur: 0,
-        }
-    }
-}
-
-impl<'a,R,S> SelectionWriteGuard<'a,R,S> 
-where
-    R: UniversalRcLock<'a,Structure>,
-    S: UniversalRcLock<'a,State>,
-{
-    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
-        ParticleMutIteratorAdaptor{
-            atom_iter: self.structure_ptr.atoms.iter_mut(),
-            pos_iter: self.state_ptr.coords.iter_mut(),
-            index_iter: self.index.iter().cloned(),
-            cur: 0,
-        }
-    }
-}
-
-//--------------------------------------------------------
-// Helper struct for creating subscripted  iterator
-// from iterators over atoms and positions
-// IMPORTANT! Only works for **sorted** indexes!
-//--------------------------------------------------------
-#[derive(Clone)]
-struct ParticleIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    atom_iter: AtomI,
-    pos_iter: PosI,
-    index_iter: IndexI,
-    cur: usize,
-}
-
-impl<'a, AtomI, PosI, IndexI> Iterator for ParticleIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    type Item = Particle<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.index_iter.next() {
-            Some(id) => {
-                // Advance iterators by offset and yield
-                let atom = self.atom_iter.nth(id - self.cur)?;
-                let pos = self.pos_iter.nth(id - self.cur)?;
-                // Advance current position
-                self.cur = id + 1;
-                Some(Particle { atom, pos, id })
-            }
-            None => None,
-        }
-    }
-}
-
-impl<'a, AtomI, PosI, IndexI> ExactSizeIterator
-    for ParticleIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    fn len(&self) -> usize {
-        self.index_iter.len()
-    }
-}
-
-//--------------------------------------------------------
-// Helper struct for creating subscripted mutable iterator
-// from iterators over atoms and positions
-// IMPORTANT! Only works for **sorted** indexes!
-//--------------------------------------------------------
-#[derive(Clone)]
-struct ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    atom_iter: AtomI,
-    pos_iter: PosI,
-    index_iter: IndexI,
-    cur: usize,
-}
-
-impl<'a, AtomI, PosI, IndexI> Iterator for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    type Item = ParticleMut<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.index_iter.next() {
-            Some(id) => {
-                // Advance iterators by offset and yield
-                let atom = self.atom_iter.nth(id - self.cur)?;
-                let pos = self.pos_iter.nth(id - self.cur)?;
-                // Advance current position
-                self.cur = id + 1;
-                Some(ParticleMut { atom, pos, id })
-            }
-            None => None,
-        }
-    }
-}
-
-impl<'a, AtomI, PosI, IndexI> ExactSizeIterator
-    for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    fn len(&self) -> usize {
-        self.index_iter.len()
-    }
 }
 
 //##############################
@@ -344,12 +217,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{borrow::Borrow, fmt::Debug, cell::RefCell, rc::Rc};
-
-    use super::{Selection};
+    
     use crate::{
         core::State,
-        core::{Pos, PosIterator, Structure, selection::Select, structure},
+        core::{Structure, selection::Select},
         io::*,
     };
     use lazy_static::lazy_static;
