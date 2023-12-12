@@ -19,27 +19,28 @@ fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
     (lower,upper)
 }
 
-fn center_of_geometry<'a>(particles: impl PosIterator<'a>) -> Result<Pos> {
+fn center_of_geometry<'a>(particles: impl PosIterator<'a>) -> Pos {
     let n = particles.len();
-    if n > 0 {
-        let c = particles.fold(Pos::new(0.0, 0.0, 0.0), |acc, el| acc + el.coords);
-        Ok(c / n as f32)
-    } else {
-        bail!("Selection is empty")
-    }
+    let c = particles.fold(
+        Pos::new(0.0, 0.0, 0.0),
+        |acc, el| acc + el.coords
+    );
+    c / n as f32
 }
 
 fn center_of_mass<'a>(particles: impl ParticleIterator<'a>) -> Result<Pos> {
     let n = particles.len();
-    if n > 0 {
-        let mut c = particles.fold(
-            (Vector3f::zero(),0.0), 
-            |acc, el| {
-                (acc.0+el.pos.coords * el.atom.mass, acc.1+el.atom.mass)
-            });
+    let mut c = particles.fold(
+        (Vector3f::zero(),0.0), 
+        |acc, p| {
+            (acc.0+p.pos.coords * p.atom.mass, acc.1+p.atom.mass)
+        }
+    );
+    
+    if c.1==0.0 {
+        bail!("Zero maxx in COM!")
+    } else {
         c.0 /= c.1;
         Ok(Pos::from(c.0))
-    } else {
-        bail!("Selection is empty")
     }
 }
