@@ -17,19 +17,19 @@ use crate::core::{Pos, Vector3f};
 //##############################
 
 #[derive(Debug, PartialEq)]
-enum IntKeywordValue {
+pub enum IntKeywordValue {
     Int(i32),
     IntRange(i32, i32),
 }
 
 #[derive(Debug)]
-enum StrKeywordValue {
+pub enum StrKeywordValue {
     Str(AsciiString),
     Regex(Regex),
 }
 
 #[derive(Debug, PartialEq)]
-enum MathNode {
+pub enum MathNode {
     Float(f32),
     X,
     Y,
@@ -67,7 +67,7 @@ enum ComparisonOp {
 }
 
 #[derive(Debug, PartialEq)]
-enum ComparisonNode {
+pub enum ComparisonNode {
     // Simple
     Eq(MathNode, MathNode),
     Neq(MathNode, MathNode),
@@ -88,7 +88,7 @@ enum ComparisonNode {
 }
 
 #[derive(Debug)]
-enum KeywordNode {
+pub enum KeywordNode {
     Name(Vec<StrKeywordValue>),
     Resname(Vec<StrKeywordValue>),
     Chain(Vec<char>),
@@ -99,13 +99,13 @@ enum KeywordNode {
 }
 
 #[derive(Debug)]
-enum SameProp {
+pub enum SameProp {
     Residue,
     Chain,
 }
 
 #[derive(Debug)]
-struct WithinProp {
+pub struct WithinProp {
     cutoff: f32,
     pbc: PbcDims,
     include_inner: bool,
@@ -720,7 +720,6 @@ peg::parser! {
             "all" _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
         }
-
     } // grammar
 } // parser
 

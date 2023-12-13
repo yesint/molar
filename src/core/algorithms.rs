@@ -3,11 +3,11 @@ use num_traits::Zero;
 use num_traits::Bounded;
 
 use super::{
-    ParticleIterator, ParticleMutIterator,
-    Pos, Vector3f, PbcDims, PeriodicBox, IdPosIterator, PosIterator,
+    ParticleIterator,
+    Pos, Vector3f, PosIterator,
 };
 
-fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
+pub fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
     let mut lower = Pos::max_value();
     let mut upper = Pos::min_value();
     for p in coords {
@@ -19,7 +19,7 @@ fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
     (lower,upper)
 }
 
-fn center_of_geometry<'a>(particles: impl PosIterator<'a>) -> Pos {
+pub fn center_of_geometry<'a>(particles: impl PosIterator<'a>) -> Pos {
     let n = particles.len();
     let c = particles.fold(
         Pos::new(0.0, 0.0, 0.0),
@@ -28,8 +28,7 @@ fn center_of_geometry<'a>(particles: impl PosIterator<'a>) -> Pos {
     c / n as f32
 }
 
-fn center_of_mass<'a>(particles: impl ParticleIterator<'a>) -> Result<Pos> {
-    let n = particles.len();
+pub fn center_of_mass<'a>(particles: impl ParticleIterator<'a>) -> Result<Pos> {
     let mut c = particles.fold(
         (Vector3f::zero(),0.0), 
         |acc, p| {
@@ -38,7 +37,7 @@ fn center_of_mass<'a>(particles: impl ParticleIterator<'a>) -> Result<Pos> {
     );
     
     if c.1==0.0 {
-        bail!("Zero maxx in COM!")
+        bail!("Zero mass in COM!")
     } else {
         c.0 /= c.1;
         Ok(Pos::from(c.0))
