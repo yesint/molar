@@ -2,7 +2,7 @@ use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, Sta
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use num_traits::Bounded;
-use uni_rc_lock::{UniRcLock, UniversalRcLock};
+use uni_rc_lock::UniRcLock;
 
 //-----------------------------------------------------------------
 
@@ -33,8 +33,8 @@ struct SelectionAll {}
 
 impl<R, S> Select<R, S> for SelectionAll
 where
-    R: for<'a> UniversalRcLock<'a, Structure>,
-    S: for<'a> UniversalRcLock<'a, State>,
+    R: UniRcLock<Structure>,
+    S: UniRcLock<State>,
 {
     fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
         let s = structure.clone();
@@ -251,18 +251,18 @@ where
 /// Scoped guard giving read-only access to selection
 pub struct SelectionReadGuard<'a, R, S>
 where
-    R: UniversalRcLock<'a, Structure>,
-    S: UniversalRcLock<'a, State>,
+    R: UniRcLock<Structure> + 'a,
+    S: UniRcLock<State> + 'a,
 {
-    structure_ref: <R as UniversalRcLock<'a, Structure>>::OutRead,
-    state_ref: <S as UniversalRcLock<'a, State>>::OutRead,
+    structure_ref: <R as UniRcLock<Structure>>::OutRead<'a>,
+    state_ref: <S as UniRcLock<State>>::OutRead<'a>,
     index: &'a Vec<usize>,
 }
 
-impl<'a, R, S> SelectionReadGuard<'a, R, S>
+impl<R, S> SelectionReadGuard<'_, R, S>
 where
-    R: UniversalRcLock<'a, Structure>,
-    S: UniversalRcLock<'a, State>,
+    R: UniRcLock<Structure>,
+    S: UniRcLock<State>,
 {
     fn iter(&self) -> impl ParticleIterator<'_> {
         ParticleIteratorAdaptor::new(
@@ -298,18 +298,18 @@ where
 /// Scoped guard giving read-write access to selection
 pub struct SelectionWriteGuard<'a, R, S>
 where
-    R: UniversalRcLock<'a, Structure>,
-    S: UniversalRcLock<'a, State>,
+    R: UniRcLock<Structure> + 'a,
+    S: UniRcLock<State> + 'a,
 {
-    structure_ref: <R as UniversalRcLock<'a, Structure>>::OutWrite,
-    state_ref: <S as UniversalRcLock<'a, State>>::OutWrite,
+    structure_ref: <R as UniRcLock<Structure>>::OutWrite<'a>,
+    state_ref: <S as UniRcLock<State>>::OutWrite<'a>,
     index: &'a Vec<usize>,
 }
 
-impl<'a, R, S> SelectionWriteGuard<'a, R, S>
+impl<R, S> SelectionWriteGuard<'_, R, S>
 where
-    R: UniversalRcLock<'a, Structure>,
-    S: UniversalRcLock<'a, State>,
+    R: UniRcLock<Structure>,
+    S: UniRcLock<State>,
 {
     fn iter(&mut self) -> impl ParticleMutIterator<'_> {
         ParticleMutIteratorAdaptor::new(

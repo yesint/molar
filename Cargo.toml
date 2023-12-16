@@ -56,8 +56,8 @@ lazy_static = "1.4.0"
 ndarray = "0.15.6"
 num-traits = "0.2.16"
 rayon = "1.8"
-itertools = "0.11"
-uni_rc_lock = "0.1.2"
+itertools = "0.12"
+uni_rc_lock = "0.2"
 
 [features]
 default = ["gromacs"]
