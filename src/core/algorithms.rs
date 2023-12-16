@@ -2,11 +2,26 @@ use anyhow::{bail, Result};
 use num_traits::Zero;
 use num_traits::Bounded;
 
+use super::ParticleIteratorAdaptor;
 use super::{
     ParticleIterator,
     Pos, Vector3f, PosIterator,
 };
 
+
+trait Measure {
+    /* TODO: Waiting for Rust 1.74 to stabilize this feature
+    fn iter(&self) -> impl ParticleIterator<'a>;
+    
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.iter().map(|p| p.pos)
+    }
+
+    fn iter_atoms(&self) -> impl ExactSizeIterator<Item = &'_ Atom> {
+        self.iter().map(|p| p.atom)
+    }
+    */
+}
 
 pub fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
     let mut lower = Pos::max_value();
