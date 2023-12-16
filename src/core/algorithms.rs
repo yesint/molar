@@ -7,6 +7,7 @@ use super::{
     Pos, Vector3f, PosIterator,
 };
 
+
 pub fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
     let mut lower = Pos::max_value();
     let mut upper = Pos::min_value();

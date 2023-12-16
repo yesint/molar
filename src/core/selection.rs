@@ -1,6 +1,7 @@
-use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Structure};
+use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Structure, Pos, Vector3f};
 use anyhow::{bail, Result};
 use itertools::Itertools;
+use num_traits::Bounded;
 use uni_rc_lock::{UniRcLock, UniversalRcLock};
 
 //-----------------------------------------------------------------
@@ -38,12 +39,16 @@ where
     fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
         let s = structure.clone();
         check_sizes(&s.read(), &state.read())?;
-        let index = (0..state.read().coords.len()).collect();
-        Ok(Selection {
-            structure,
-            state,
-            index,
-        })
+        let index: Vec<usize> = (0..state.read().coords.len()).collect();
+        if index.len() >0 {
+            Ok(Selection {
+                structure,
+                state,
+                index,
+            })
+        } else {
+            bail!("Selection is empty")
+        }
     }
 }
 
@@ -55,11 +60,15 @@ where
     fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
         check_sizes(&structure.read(), &state.read())?;
         let index = self.apply_whole(&structure.read(), &state.read()).unwrap();
-        Ok(Selection {
-            structure,
-            state,
-            index,
-        })
+        if index.len() >0 {
+            Ok(Selection {
+                structure,
+                state,
+                index,
+            })
+        } else {
+            bail!("Selection is empty")
+        }
     }
 }
 
@@ -74,11 +83,15 @@ where
             .unwrap()
             .apply_whole(&structure.read(), &state.read())
             .unwrap();
-        Ok(Selection {
-            structure,
-            state,
-            index,
-        })
+        if index.len() >0 {
+            Ok(Selection {
+                structure,
+                state,
+                index,
+            })
+        } else {
+            bail!("Selection is empty")
+        }
     }
 }
 
@@ -98,12 +111,16 @@ where
                 structure.read().atoms.len()
             );
         }
-        let index = self.clone().collect();
-        Ok(Selection {
-            structure,
-            state,
-            index,
-        })
+        let index: Vec<usize> = self.clone().collect();
+        if index.len() >0 {
+            Ok(Selection {
+                structure,
+                state,
+                index,
+            })
+        } else {
+            bail!("Selection is empty")
+        }
     }
 }
 
@@ -113,12 +130,16 @@ where
     S: UniRcLock<State>,
 {
     fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
-        let index = self.iter().cloned().sorted().dedup().collect();
-        Ok(Selection {
-            structure,
-            state,
-            index,
-        })
+        let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
+        if index.len() >0 {
+            Ok(Selection {
+                structure,
+                state,
+                index,
+            })
+        } else {
+            bail!("Selection is empty")
+        }
     }
 }
 
@@ -141,11 +162,15 @@ where
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection<R, S>> {
         let index = expr.apply_subset(&self.structure.read(), &self.state.read(), &self.index)?;
-        Ok(Selection {
-            structure: self.structure.clone(),
-            state: self.state.clone(),
-            index,
-        })
+        if index.len() >0 {
+            Ok(Selection {
+                structure: self.structure.clone(),
+                state: self.state.clone(),
+                index,
+            })    
+        } else {
+            bail!("Selection is empty")
+        }
     }
 
     /// Subselection from string
@@ -175,11 +200,16 @@ where
                 self.index.len() - 1
             );
         }
-        Ok(Selection {
-            structure: self.structure.clone(),
-            state: self.state.clone(),
-            index,
-        })
+
+        if index.len() >0 {
+            Ok(Selection {
+                structure: self.structure.clone(),
+                state: self.state.clone(),
+                index,
+            })    
+        } else {
+            bail!("Selection is empty")
+        }
     }
 
     /// Subselection from iterator that provides local selection indexes
@@ -187,12 +217,16 @@ where
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
     ) -> Result<Selection<R, S>> {
-        let index = iter.sorted().dedup().map(|i| self.index[i]).collect();
-        Ok(Selection {
-            structure: self.structure.clone(),
-            state: self.state.clone(),
-            index,
-        })
+        let index: Vec<usize> = iter.sorted().dedup().map(|i| self.index[i]).collect();
+        if index.len() >0 {
+            Ok(Selection {
+                structure: self.structure.clone(),
+                state: self.state.clone(),
+                index,
+            })    
+        } else {
+            bail!("Selection is empty")
+        }
     }
 
     pub fn read<'a>(&'a self) -> SelectionReadGuard<'a, R, S> {
@@ -210,6 +244,7 @@ where
             index: &self.index,
         }
     }
+
 }
 //----------------------------------------------------
 
@@ -229,25 +264,35 @@ where
     R: UniversalRcLock<'a, Structure>,
     S: UniversalRcLock<'a, State>,
 {
-    fn iter(&self) -> Result<impl ParticleIterator<'_>> {
-        if self.index.len() > 0 {
-            Ok(ParticleIteratorAdaptor::new(
-                &self.structure_ref.atoms,
-                &self.state_ref.coords,
-                &self.index,
-            ))
-        } else {
-            bail!("Can't iterate empty selection")
+    fn iter(&self) -> impl ParticleIterator<'_> {
+        ParticleIteratorAdaptor::new(
+            &self.structure_ref.atoms,
+            &self.state_ref.coords,
+            &self.index,
+        )
+    }
+
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.iter().map(|p| p.pos)
+    }
+
+    fn iter_atoms(&self) -> impl ExactSizeIterator<Item = &'_ Atom> {
+        self.iter().map(|p| p.atom)
+    }
+
+    pub fn min_max(&self) -> (Pos,Pos) {
+        let mut lower = Pos::max_value();
+        let mut upper = Pos::min_value();
+        for p in self.iter_pos() {
+            for d in 0..3 {
+                if p[d] < lower[d] { lower[d] = p[d] }
+                if p[d] > upper[d] { upper[d] = p[d] }
+            }
         }
+        (lower,upper)
     }
 
-    fn iter_pos(&self) -> Result<impl PosIterator<'_>> {
-        Ok(self.iter()?.map(|p| p.pos))
-    }
-
-    fn iter_atoms(&self) -> Result<impl ExactSizeIterator<Item = &'_ Atom>> {
-        Ok(self.iter()?.map(|p| p.atom))
-    }
+    
 }
 
 /// Scoped guard giving read-write access to selection
@@ -266,16 +311,12 @@ where
     R: UniversalRcLock<'a, Structure>,
     S: UniversalRcLock<'a, State>,
 {
-    fn iter(&mut self) -> Result<impl ParticleMutIterator<'_>> {
-        if self.index.len() > 0 {
-            Ok(ParticleMutIteratorAdaptor::new(
-                self.structure_ref.atoms.iter_mut(),
-                self.state_ref.coords.iter_mut(),
-                self.index.iter().cloned(),
-            ))
-        } else {
-            bail!("Can't iterate empty selection")
-        }
+    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
+        ParticleMutIteratorAdaptor::new(
+            self.structure_ref.atoms.iter_mut(),
+            self.state_ref.coords.iter_mut(),
+            self.index.iter().cloned(),
+        )
     }
 }
 
@@ -290,7 +331,7 @@ mod tests {
 
     use crate::{
         core::State,
-        core::{selection::Select, Structure},
+        core::{selection::Select, Structure, Vector3f},
         io::*,
     };
     use lazy_static::lazy_static;
@@ -313,13 +354,22 @@ mod tests {
         let s = SS.1.clone().to_rc();
         let sel = "name CA".select(r, s).unwrap();
 
-        for p in sel.read().iter().unwrap() {
-            println!("{:?}", p)
-        }
+        //for p in sel.read().iter().unwrap() {
+        //    println!("{:?}", p)
+        //}
 
-        for p in sel.write().iter().unwrap() {
-            println!("{:?}", p)
-        }
+        //for p in sel.write().iter().unwrap() {
+        //    println!("{:?}", p)
+        //}
+
+        println!("before {}",sel.read().iter_pos().next().unwrap());
+
+        let (minv,maxv) = sel.read().min_max();
+        println!("{minv}:{maxv}");
+
+        //sel.translate(&Vector3f::new(10.0,10.0,10.0));
+        println!("after {}",sel.read().iter_pos().next().unwrap());
+        println!("{:?}",sel.read().min_max());
 
         /*
         println!("sz: {}", particles.len());
