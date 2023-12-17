@@ -1,5 +1,5 @@
-use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, Vector3f};
-use anyhow::{bail, Result};
+use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, BoxProvider, PeriodicBox};
+use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
 use num_traits::Bounded;
 use uni_rc_lock::UniRcLock;
@@ -321,6 +321,35 @@ where
 }
 
 //==================================================================
+// Implement analysis traits
+
+impl<T,S> BoxProvider for SelectionReadGuard<'_,T,S> 
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn get_box(&self) -> Result<&PeriodicBox> {
+        let r = self.state_ref.box_
+            .as_ref()
+            .ok_or(anyhow!("No periodic box"))?;
+        Ok(&r)
+    }
+}
+
+impl<T,S> BoxProvider for SelectionWriteGuard<'_,T,S> 
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn get_box(&self) -> Result<&PeriodicBox> {
+        let r = self.state_ref.box_
+            .as_ref()
+            .ok_or(anyhow!("No periodic box"))?;
+        Ok(&r)
+    }
+}
+
+//==================================================================
 
 //##############################
 //#  Tests
@@ -331,7 +360,7 @@ mod tests {
 
     use crate::{
         core::State,
-        core::{selection::Select, Topology, Vector3f},
+        core::{selection::Select, Topology},
         io::*,
     };
     use lazy_static::lazy_static;

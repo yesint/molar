@@ -10,14 +10,14 @@ use super::{
 };
  
 // Trait that provides periodic box information
-trait BoxProvider {
-    fn get_box(&self) -> &PeriodicBox;
+pub trait BoxProvider {
+    fn get_box(&self) -> Result<&PeriodicBox>;
 }
 
 /// Trait for measuring various properties that requires only
 /// the iterator of particles. User types should 
 /// implement `iter`
-trait Measure {
+pub trait Measure {
     /* TODO: Waiting for Rust 1.75 to stabilize this feature
     fn iter(&self) -> impl ParticleIterator<'a>;
     
@@ -33,20 +33,20 @@ trait Measure {
 
 /// The trait for measuring properties that requires
 /// a periodic box information.
-trait MeasurePeriodic: Measure + BoxProvider {
+pub trait MeasurePeriodic: Measure + BoxProvider {
 
 }
 
 /// The trait for modifying the particles. User types should
 /// implement `iter_mut`.
-trait Modify {
+pub trait Modify {
     //TODO: Rust 1.75
     //fn iter(&self) -> impl ParticleMutIterator<'a>;
 }
 
 /// The trait for modifying the particles that requires
 /// the periodic box.
-trait ModifyPeriodic: Modify + BoxProvider {
+pub trait ModifyPeriodic: Modify + BoxProvider {
     //TODO: Rust 1.75
     //fn iter(&self) -> impl ParticleMutIterator<'a>;
 }
