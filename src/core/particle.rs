@@ -1,4 +1,4 @@
-use super::{Atom,Pos, IndexIterator};
+use super::{Atom, IndexIterator, Pos};
 
 #[derive(Debug, Clone)]
 pub struct Particle<'a> {
@@ -14,31 +14,42 @@ pub struct ParticleMut<'a> {
     pub pos: &'a mut Pos,
 }
 
+/// Iterator over particles
 pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> {}
 impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> {}
 
+/// Mutable iterator over particles
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
 
 //--------------------------------------------------------
-// Helper struct for creating subscripted  iterator
-// from iterators over atoms and positions
-//--------------------------------------------------------
+/// Helper struct for creating subscripted  iterator
+/// from atoms and positions
+
 #[derive(Clone)]
-pub struct ParticleIteratorAdaptor<'a>{
+pub struct ParticleIteratorAdaptor<'a> {
     atom_ref: &'a Vec<Atom>,
     pos_ref: &'a Vec<Pos>,
     index_ref: &'a Vec<usize>,
     cur: usize,
 }
 
-impl<'a> ParticleIteratorAdaptor<'a>{
-    pub fn new(atom_iter: &'a Vec<Atom>, pos_iter: &'a Vec<Pos>, index_iter: &'a Vec<usize>) -> Self {
-        Self{atom_ref: atom_iter,pos_ref: pos_iter,index_ref: index_iter,cur: 0}
+impl<'a> ParticleIteratorAdaptor<'a> {
+    pub fn new(
+        atom_ref: &'a Vec<Atom>,
+        pos_ref: &'a Vec<Pos>,
+        index_ref: &'a Vec<usize>,
+    ) -> Self {
+        Self {
+            atom_ref,
+            pos_ref,
+            index_ref,
+            cur: 0,
+        }
     }
 }
 
-impl<'a> Iterator for ParticleIteratorAdaptor<'a>{
+impl<'a> Iterator for ParticleIteratorAdaptor<'a> {
     type Item = Particle<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -63,9 +74,9 @@ impl<'a> ExactSizeIterator for ParticleIteratorAdaptor<'a> {
 }
 
 //--------------------------------------------------------
-// Helper struct for creating subscripted mutable iterator
-// from iterators over atoms and positions
-// IMPORTANT! Only works for **sorted** indexes!
+/// Helper struct for creating subscripted mutable iterator
+/// from iterators over atoms and positions
+/// IMPORTANT! Only works for **sorted** indexes!
 //--------------------------------------------------------
 #[derive(Clone)]
 pub struct ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
@@ -87,10 +98,14 @@ where
     IndexI: IndexIterator,                // Index iterator
 {
     pub fn new(atom_iter: AtomI, pos_iter: PosI, index_iter: IndexI) -> Self {
-        Self{atom_iter,pos_iter,index_iter,cur: 0}
+        Self {
+            atom_iter,
+            pos_iter,
+            index_iter,
+            cur: 0,
+        }
     }
 }
-
 
 impl<'a, AtomI, PosI, IndexI> Iterator for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
 where
