@@ -1,5 +1,5 @@
 mod atom;
-mod structure;
+mod topology;
 mod state;
 mod periodic_box;
 #[allow(dead_code)]
@@ -10,7 +10,7 @@ mod particle;
 
 pub use {
     atom::Atom, 
-    structure::*, 
+    topology::*, 
     state::*,
     periodic_box::*,
     algorithms::*,

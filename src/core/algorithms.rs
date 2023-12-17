@@ -3,14 +3,22 @@ use num_traits::Zero;
 use num_traits::Bounded;
 
 use super::ParticleIteratorAdaptor;
+use super::PeriodicBox;
 use super::{
     ParticleIterator,
     Pos, Vector3f, PosIterator,
 };
+ 
+// Trait that provides periodic box information
+trait BoxProvider {
+    fn get_box(&self) -> &PeriodicBox;
+}
 
-
+/// Trait for measuring various properties that requires only
+/// the iterator of particles. User types should 
+/// implement `iter`
 trait Measure {
-    /* TODO: Waiting for Rust 1.74 to stabilize this feature
+    /* TODO: Waiting for Rust 1.75 to stabilize this feature
     fn iter(&self) -> impl ParticleIterator<'a>;
     
     fn iter_pos(&self) -> impl PosIterator<'_> {
@@ -22,6 +30,27 @@ trait Measure {
     }
     */
 }
+
+/// The trait for measuring properties that requires
+/// a periodic box information.
+trait MeasurePeriodic: Measure + BoxProvider {
+
+}
+
+/// The trait for modifying the particles. User types should
+/// implement `iter_mut`.
+trait Modify {
+    //TODO: Rust 1.75
+    //fn iter(&self) -> impl ParticleMutIterator<'a>;
+}
+
+/// The trait for modifying the particles that requires
+/// the periodic box.
+trait ModifyPeriodic: Modify + BoxProvider {
+    //TODO: Rust 1.75
+    //fn iter(&self) -> impl ParticleMutIterator<'a>;
+}
+
 
 pub fn min_max<'a>(coords: impl PosIterator<'a>) -> (Pos,Pos) {
     let mut lower = Pos::max_value();

@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 
 use super::atom::Atom;
 use super::state::State;
-use super::structure::Structure;
+use super::topology::Topology;
 use super::{IndexIterator, PbcDims};
 use crate::distance_search::search::SearcherDoubleGrid;
 use std::collections::HashSet;
@@ -144,13 +144,13 @@ type SubsetType = HashSet<usize>;
 
 #[derive(Debug, Clone)]
 pub struct ApplyData<'a> {
-    structure: &'a Structure,
+    structure: &'a Topology,
     state: &'a State,
     subset: SubsetType,
 }
 
 impl<'a> ApplyData<'a> {
-    fn new(structure: &'a Structure, state: &'a State, subset: &SubsetType) -> Result<Self> {
+    fn new(structure: &'a Topology, state: &'a State, subset: &SubsetType) -> Result<Self> {
         if structure.atoms.len() != state.coords.len() {
             bail!(
                 "There are {} atoms but {} positions",
@@ -728,30 +728,32 @@ peg::parser! {
 //##############################
 
 // Alias for top-level rule
-pub struct SelectionExpr(LogicalNode);
+pub struct SelectionExpr {
+    ast: LogicalNode,
+}
 
 impl TryFrom<&str> for SelectionExpr {
     type Error = anyhow::Error;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
-        Ok(Self(selection_parser::logical_expr(value)?))
+        Ok(Self{ast: selection_parser::logical_expr(value)?})
     }
 }
 
 impl SelectionExpr {
-    pub fn apply_whole(&self, structure: &Structure, state: &State) -> Result<Vec<usize>> {
+    pub fn apply_whole(&self, structure: &Topology, state: &State) -> Result<Vec<usize>> {
         let data = ApplyData {
             structure,
             state,
             subset: SubsetType::from_iter(0..structure.atoms.len()),
         };
-        let mut index = Vec::<usize>::from_iter(self.0.apply(&data)?.into_iter());
+        let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         index.sort();
         Ok(index)
     }
 
     pub fn apply_subset(
         &self,
-        structure: &Structure,
+        structure: &Topology,
         state: &State,
         subset: &Vec<usize>,
     ) -> Result<Vec<usize>> {
@@ -760,7 +762,7 @@ impl SelectionExpr {
             state,
             subset: SubsetType::from_iter(subset.iter().cloned()),
         };
-        let mut index = Vec::<usize>::from_iter(self.0.apply(&data)?.into_iter());
+        let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         index.sort();
         Ok(index)
     }
@@ -774,21 +776,21 @@ impl SelectionExpr {
 mod tests {
     use super::SelectionExpr;
     use crate::{
-        core::{Structure, State},
+        core::{Topology, State},
         io::*,
     };
     use lazy_static::lazy_static;
 
-    fn read_test_pdb() -> (Structure, State) {
+    fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
-        let structure = h.read_structure().unwrap();
+        let structure = h.read_topology().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
         (structure, state)
     }
 
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
-        static ref SS: (Structure, State) = read_test_pdb();
+        static ref SS: (Topology, State) = read_test_pdb();
     }
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {

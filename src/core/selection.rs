@@ -1,4 +1,4 @@
-use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Structure, Pos, Vector3f};
+use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, Vector3f};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use num_traits::Bounded;
@@ -7,17 +7,17 @@ use uni_rc_lock::UniRcLock;
 //-----------------------------------------------------------------
 
 /// Trait whic provides select method operating with generic smart pointers
-trait Select<R, S>
+trait Select<T, S>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, structure: R, state: S) -> Result<Selection<R, S>>;
+    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>>;
 }
 
 //-----------------------------------------------------------------
-fn check_sizes(structure: &Structure, state: &State) -> Result<()> {
-    let n1 = structure.atoms.len();
+fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
+    let n1 = topology.atoms.len();
     let n2 = state.coords.len();
     match n1 == n2 {
         true => Ok(()),
@@ -31,18 +31,18 @@ fn check_sizes(structure: &Structure, state: &State) -> Result<()> {
 
 struct SelectionAll {}
 
-impl<R, S> Select<R, S> for SelectionAll
+impl<T, S> Select<T, S> for SelectionAll
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
-        let s = structure.clone();
+    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+        let s = topology.clone();
         check_sizes(&s.read(), &state.read())?;
         let index: Vec<usize> = (0..state.read().coords.len()).collect();
         if index.len() >0 {
             Ok(Selection {
-                structure,
+                topology,
                 state,
                 index,
             })
@@ -52,17 +52,17 @@ where
     }
 }
 
-impl<R, S> Select<R, S> for SelectionExpr
+impl<T, S> Select<T, S> for SelectionExpr
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
-        check_sizes(&structure.read(), &state.read())?;
-        let index = self.apply_whole(&structure.read(), &state.read()).unwrap();
+    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+        check_sizes(&topology.read(), &state.read())?;
+        let index = self.apply_whole(&topology.read(), &state.read()).unwrap();
         if index.len() >0 {
             Ok(Selection {
-                structure,
+                topology,
                 state,
                 index,
             })
@@ -72,20 +72,20 @@ where
     }
 }
 
-impl<R, S> Select<R, S> for str
+impl<T, S> Select<T, S> for str
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
-        check_sizes(&structure.read(), &state.read())?;
+    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+        check_sizes(&topology.read(), &state.read())?;
         let index = SelectionExpr::try_from(self)
             .unwrap()
-            .apply_whole(&structure.read(), &state.read())
+            .apply_whole(&topology.read(), &state.read())
             .unwrap();
         if index.len() >0 {
             Ok(Selection {
-                structure,
+                topology: topology,
                 state,
                 index,
             })
@@ -95,26 +95,26 @@ where
     }
 }
 
-impl<R, S> Select<R, S> for std::ops::Range<usize>
+impl<T, S> Select<T, S> for std::ops::Range<usize>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
-        check_sizes(&structure.read(), &state.read())?;
-        let n = structure.read().atoms.len();
+    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+        check_sizes(&topology.read(), &state.read())?;
+        let n = topology.read().atoms.len();
         if self.start > n - 1 || self.end > n - 1 {
             bail!(
                 "Index range {}:{} is invalid, 0:{} is allowed.",
                 self.start,
                 self.end,
-                structure.read().atoms.len()
+                topology.read().atoms.len()
             );
         }
         let index: Vec<usize> = self.clone().collect();
         if index.len() >0 {
             Ok(Selection {
-                structure,
+                topology,
                 state,
                 index,
             })
@@ -124,16 +124,16 @@ where
     }
 }
 
-impl<R, S> Select<R, S> for Vec<usize>
+impl<T, S> Select<T, S> for Vec<usize>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, structure: R, state: S) -> Result<Selection<R, S>> {
+    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
         let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
         if index.len() >0 {
             Ok(Selection {
-                structure,
+                topology,
                 state,
                 index,
             })
@@ -144,27 +144,27 @@ where
 }
 
 //---------------------------------------
-pub struct Selection<R, S>
+pub struct Selection<T, S>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    structure: R,
+    topology: T,
     state: S,
     index: Vec<usize>,
 }
 
-impl<R, S> Selection<R, S>
+impl<T, S> Selection<T, S>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection<R, S>> {
-        let index = expr.apply_subset(&self.structure.read(), &self.state.read(), &self.index)?;
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection<T, S>> {
+        let index = expr.apply_subset(&self.topology.read(), &self.state.read(), &self.index)?;
         if index.len() >0 {
             Ok(Selection {
-                structure: self.structure.clone(),
+                topology: self.topology.clone(),
                 state: self.state.clone(),
                 index,
             })    
@@ -174,7 +174,7 @@ where
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Selection<R, S>> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Selection<T, S>> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
@@ -183,7 +183,7 @@ where
     pub fn subsel_from_local_range(
         &self,
         range: std::ops::Range<usize>,
-    ) -> Result<Selection<R, S>> {
+    ) -> Result<Selection<T, S>> {
         // Translate range of local indexes to global indexes
         let index: Vec<usize> = self
             .index
@@ -203,7 +203,7 @@ where
 
         if index.len() >0 {
             Ok(Selection {
-                structure: self.structure.clone(),
+                topology: self.topology.clone(),
                 state: self.state.clone(),
                 index,
             })    
@@ -216,11 +216,11 @@ where
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Selection<R, S>> {
+    ) -> Result<Selection<T, S>> {
         let index: Vec<usize> = iter.sorted().dedup().map(|i| self.index[i]).collect();
         if index.len() >0 {
             Ok(Selection {
-                structure: self.structure.clone(),
+                topology: self.topology.clone(),
                 state: self.state.clone(),
                 index,
             })    
@@ -229,17 +229,17 @@ where
         }
     }
 
-    pub fn read<'a>(&'a self) -> SelectionReadGuard<'a, R, S> {
+    pub fn read<'a>(&'a self) -> SelectionReadGuard<'a, T, S> {
         SelectionReadGuard {
-            structure_ref: self.structure.read(),
+            topology_ref: self.topology.read(),
             state_ref: self.state.read(),
             index: &self.index,
         }
     }
 
-    pub fn write<'a>(&'a self) -> SelectionWriteGuard<'a, R, S> {
+    pub fn write<'a>(&'a self) -> SelectionWriteGuard<'a, T, S> {
         SelectionWriteGuard {
-            structure_ref: self.structure.write(),
+            topology_ref: self.topology.write(),
             state_ref: self.state.write(),
             index: &self.index,
         }
@@ -249,24 +249,24 @@ where
 //----------------------------------------------------
 
 /// Scoped guard giving read-only access to selection
-pub struct SelectionReadGuard<'a, R, S>
+pub struct SelectionReadGuard<'a, T, S>
 where
-    R: UniRcLock<Structure> + 'a,
+    T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
-    structure_ref: <R as UniRcLock<Structure>>::OutRead<'a>,
+    topology_ref: <T as UniRcLock<Topology>>::OutRead<'a>,
     state_ref: <S as UniRcLock<State>>::OutRead<'a>,
     index: &'a Vec<usize>,
 }
 
-impl<R, S> SelectionReadGuard<'_, R, S>
+impl<T, S> SelectionReadGuard<'_, T, S>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
     fn iter(&self) -> impl ParticleIterator<'_> {
         ParticleIteratorAdaptor::new(
-            &self.structure_ref.atoms,
+            &self.topology_ref.atoms,
             &self.state_ref.coords,
             &self.index,
         )
@@ -296,24 +296,24 @@ where
 }
 
 /// Scoped guard giving read-write access to selection
-pub struct SelectionWriteGuard<'a, R, S>
+pub struct SelectionWriteGuard<'a, T, S>
 where
-    R: UniRcLock<Structure> + 'a,
+    T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
-    structure_ref: <R as UniRcLock<Structure>>::OutWrite<'a>,
+    topology_ref: <T as UniRcLock<Topology>>::OutWrite<'a>,
     state_ref: <S as UniRcLock<State>>::OutWrite<'a>,
     index: &'a Vec<usize>,
 }
 
-impl<R, S> SelectionWriteGuard<'_, R, S>
+impl<T, S> SelectionWriteGuard<'_, T, S>
 where
-    R: UniRcLock<Structure>,
+    T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
     fn iter(&mut self) -> impl ParticleMutIterator<'_> {
         ParticleMutIteratorAdaptor::new(
-            self.structure_ref.atoms.iter_mut(),
+            self.topology_ref.atoms.iter_mut(),
             self.state_ref.coords.iter_mut(),
             self.index.iter().cloned(),
         )
@@ -331,28 +331,28 @@ mod tests {
 
     use crate::{
         core::State,
-        core::{selection::Select, Structure, Vector3f},
+        core::{selection::Select, Topology, Vector3f},
         io::*,
     };
     use lazy_static::lazy_static;
 
-    fn read_test_pdb() -> (Structure, State) {
+    fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
-        let structure = h.read_structure().unwrap();
+        let top = h.read_topology().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
-        (structure, state)
+        (top, state)
     }
 
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
-        static ref SS: (Structure, State) = read_test_pdb();
+        static ref SS: (Topology, State) = read_test_pdb();
     }
 
     #[test]
     fn test_sel1() {
-        let r = SS.0.clone().to_rc();
+        let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
-        let sel = "name CA".select(r, s).unwrap();
+        let sel = "name CA".select(t, s).unwrap();
 
         //for p in sel.read().iter().unwrap() {
         //    println!("{:?}", p)

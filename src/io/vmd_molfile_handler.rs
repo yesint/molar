@@ -1,5 +1,5 @@
 use super::{
-    IoReader, IoStateReader, IoStateWriter, IoStructureReader, IoStructureWriter, IoWriter,
+    IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter,
 };
 use crate::core::*;
 use ascii::{AsciiStr, AsciiString};
@@ -148,8 +148,8 @@ impl IoWriter for VmdMolFileHandler<'_> {
     }
 }
 
-impl IoStructureReader for VmdMolFileHandler<'_> {
-    fn read_structure(&mut self) -> Result<Structure> {
+impl IoTopologyReader for VmdMolFileHandler<'_> {
+    fn read_topology(&mut self) -> Result<Topology> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -170,7 +170,7 @@ impl IoStructureReader for VmdMolFileHandler<'_> {
         unsafe { vmd_atoms.set_len(self.natoms) }
 
         // Convert to Structure
-        let mut structure: Structure = Default::default();
+        let mut structure: Topology = Default::default();
         structure.atoms.reserve(self.natoms);
 
         for ref vmd_at in vmd_atoms {
@@ -213,10 +213,10 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
     cbuf[n + 1] = '\0' as i8;
 }
 
-impl IoStructureWriter for VmdMolFileHandler<'_> {
+impl IoTopologyWriter for VmdMolFileHandler<'_> {
     fn write_structure_subset(
         &mut self,
-        data: &Structure,
+        data: &Topology,
         subset_indexes: impl ExactSizeIterator<Item = usize>,
     ) -> Result<()> {
         let n = subset_indexes.len();

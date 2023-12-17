@@ -1,4 +1,4 @@
-use crate::core::{IndexIterator, State, Structure};
+use crate::core::{IndexIterator, State, Topology};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
@@ -32,19 +32,19 @@ pub trait IoWriter {
 //===============================
 // Traits for Structure IO
 //===============================
-pub trait IoStructureReader: IoReader {
-    fn read_structure(&mut self) -> Result<Structure>;
+pub trait IoTopologyReader: IoReader {
+    fn read_topology(&mut self) -> Result<Topology>;
 }
 
-pub trait IoStructureWriter: IoWriter {
+pub trait IoTopologyWriter: IoWriter {
     fn write_structure_subset(
         &mut self,
-        data: &Structure,
+        data: &Topology,
         subset_indexes: impl IndexIterator,
     ) -> Result<()>;
 
     // Default implementation with all indexes
-    fn write_structure(&mut self, data: &Structure) -> Result<()> {
+    fn write_structure(&mut self, data: &Topology) -> Result<()> {
         self.write_structure_subset(data, 0..data.atoms.len())
     }
 }
@@ -155,21 +155,21 @@ impl<'a> IoWriter for FileHandler<'a> {
     }
 }
 
-impl<'a> IoStructureReader for FileHandler<'a> {
-    fn read_structure(&mut self) -> Result<Structure> {
+impl<'a> IoTopologyReader for FileHandler<'a> {
+    fn read_topology(&mut self) -> Result<Topology> {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_structure(),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology(),
             #[cfg(feature = "gromacs")]
-            Self::Tpr(ref mut h) => h.read_structure(),
+            Self::Tpr(ref mut h) => h.read_topology(),
             _ => bail!("Unable to read structure"),
         }
     }
 }
 
-impl<'a> IoStructureWriter for FileHandler<'a> {
+impl<'a> IoTopologyWriter for FileHandler<'a> {
     fn write_structure_subset(
         &mut self,
-        data: &Structure,
+        data: &Topology,
         subset_indexes: impl IndexIterator,
     ) -> Result<()> {
         match self {
@@ -217,7 +217,7 @@ fn test_read() {
     let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
     let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb")).unwrap();
 
-    let st = r.read_structure().unwrap();
+    let st = r.read_topology().unwrap();
     println!("{:?}", st.atoms);
 
     for fr in r.into_states_iter() {

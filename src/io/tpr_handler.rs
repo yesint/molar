@@ -1,4 +1,4 @@
-use super::{IoWriter, IoReader, IoStructureReader, IoStateReader};
+use super::{IoWriter, IoReader, IoTopologyReader, IoStateReader};
 use crate::core::*;
 use ascii::{AsciiString,AsciiChar};
 
@@ -50,13 +50,13 @@ fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
 }
 
 
-impl IoStructureReader for TprFileHandler {
-    fn read_structure(&mut self) -> Result<Structure> {
+impl IoTopologyReader for TprFileHandler {
+    fn read_topology(&mut self) -> Result<Topology> {
         let top = unsafe{ self.handle.get_top().as_ref().unwrap() };
         let natoms = top.atoms.nr as usize;
         let nres = top.atoms.nres as usize;
 
-        let mut structure: Structure = Default::default();
+        let mut structure: Topology = Default::default();
         structure.atoms.reserve(natoms);
 
         let gmx_atoms = c_array_to_slice(top.atoms.atom, natoms);
@@ -187,7 +187,7 @@ impl IoStateReader for TprFileHandler {
 #[test]
 fn test_tpr() {
     let mut h = TprFileHandler::new_reader("tests/topol.tpr").unwrap();
-    let st = h.read_structure().unwrap();
+    let st = h.read_topology().unwrap();
     println!("natoms: {:?}",st.atoms.len());
     println!("nbonds: {:?}",st.bonds.len());
     println!("molecules: {:?}",st.molecules.len());
