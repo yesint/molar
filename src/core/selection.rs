@@ -329,10 +329,7 @@ where
     S: UniRcLock<State>,
 {
     fn get_box(&self) -> Result<&PeriodicBox> {
-        let r = self.state_ref.box_
-            .as_ref()
-            .ok_or(anyhow!("No periodic box"))?;
-        Ok(&r)
+        self.state_ref.get_box()
     }
 }
 
@@ -342,7 +339,13 @@ where
     S: UniRcLock<State>,
 {
     fn get_box(&self) -> Result<&PeriodicBox> {
-        let r = self.state_ref.box_
+        self.state_ref.get_box()
+    }
+}
+
+impl BoxProvider for State {
+    fn get_box(&self) -> Result<&PeriodicBox> {
+        let r = self.box_
             .as_ref()
             .ok_or(anyhow!("No periodic box"))?;
         Ok(&r)
