@@ -281,10 +281,11 @@ impl IoRandomAccess for XtcFileHandler {
             bail!("Random access is not possible for this XTC file!");
         }
 
-        if t<0.0 || t>self.max_t {
+        if t>self.max_t {
             bail!("Can't seek to time {}, last time is {}",t,self.max_t);
         }
         // We assume equally spaced frames in the trajectory. It's much faster
+        /*
         let ret = unsafe {
             xdr_xtc_seek_frame(
                 ((t/self.dt).ceil()*self.steps_per_frame as f32).to_int_unchecked(),
@@ -292,7 +293,10 @@ impl IoRandomAccess for XtcFileHandler {
                 self.natoms.try_into()?
             )
         };
-        //int ret = xdr_xtc_seek_time(t,handle,natoms,false);
+        */
+        let ret = unsafe{
+            xdr_xtc_seek_time(t,self.handle,self.natoms.try_into()?,false)
+        };
         if ret<0 {
             bail!("Error seeking to time {}",t)
         }

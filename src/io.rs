@@ -37,15 +37,15 @@ pub trait IoTopologyReader: IoReader {
 }
 
 pub trait IoTopologyWriter: IoWriter {
-    fn write_structure_subset(
+    fn write_topology_subset(
         &mut self,
         data: &Topology,
         subset_indexes: impl IndexIterator,
     ) -> Result<()>;
 
     // Default implementation with all indexes
-    fn write_structure(&mut self, data: &Topology) -> Result<()> {
-        self.write_structure_subset(data, 0..data.atoms.len())
+    fn write_topology(&mut self, data: &Topology) -> Result<()> {
+        self.write_topology_subset(data, 0..data.atoms.len())
     }
 }
 
@@ -82,8 +82,8 @@ pub trait IoStateWriter: IoWriter {
 pub trait IoRandomAccess: IoStateReader {
     fn seek_frame(&mut self, fr: usize) -> Result<()>;
     fn seek_time(&mut self, t: f32) -> Result<()>;
-    fn tell_current(&self) -> Result<(usize,f32)>;
-    fn tell_last(&self) -> Result<(usize,f32)>;
+    fn tell_current(&self) -> Result<(usize, f32)>;
+    fn tell_last(&self) -> Result<(usize, f32)>;
 }
 
 //==================================================================
@@ -171,20 +171,20 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology(),
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read_topology(),
-            _ => bail!("Unable to read structure"),
+            _ => bail!("Unable to read topology"),
         }
     }
 }
 
 impl<'a> IoTopologyWriter for FileHandler<'a> {
-    fn write_structure_subset(
+    fn write_topology_subset(
         &mut self,
         data: &Topology,
         subset_indexes: impl IndexIterator,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
-                h.write_structure_subset(data, subset_indexes)
+                h.write_topology_subset(data, subset_indexes)
             }
             _ => bail!("Unable to write structure"),
         }
@@ -220,6 +220,36 @@ impl<'a> IoStateWriter for FileHandler<'a> {
     }
 }
 
+impl<'a> IoRandomAccess for FileHandler<'a> {
+    fn seek_frame(&mut self, fr: usize) -> Result<()> {
+        match self {
+            Self::Xtc(ref mut h) => h.seek_frame(fr),
+            _ => bail!("Not a tandom access format!"),
+        }
+    }
+
+    fn seek_time(&mut self, t: f32) -> Result<()> {
+        match self {
+            Self::Xtc(ref mut h) => h.seek_time(t),
+            _ => bail!("Not a tandom access format!"),
+        }
+    }
+
+    fn tell_current(&self) -> Result<(usize, f32)> {
+        match self {
+            Self::Xtc(ref h) => h.tell_current(),
+            _ => bail!("Not a tandom access format!"),
+        }
+    }
+
+    fn tell_last(&self) -> Result<(usize, f32)> {
+        match self {
+            Self::Xtc(ref h) => h.tell_last(),
+            _ => bail!("Not a tandom access format!"),
+        }
+    }
+}
+
 #[test]
 fn test_read() {
     use super::io::*;
@@ -232,9 +262,29 @@ fn test_read() {
 
     for fr in r.into_states_iter() {
         //println!("{:?}",fr);
-        w.write_structure(&st).unwrap();
+        w.write_topology(&st).unwrap();
         w.write_next_state(&fr).unwrap();
         //w.write_structure(&st).unwrap();
         //w.write_next_state_subset(&fr,0..10).unwrap();
     }
+}
+
+#[test]
+fn test_traj() {
+    use super::io::*;
+
+    let mut r = FileHandler::new_reader("tests/no_ATP.xtc").unwrap();
+    let (max_fr,max_t) = r.tell_last().unwrap();
+    println!("max: {max_fr}:{max_t}");
+    
+    let (cur_fr,cur_t) = r.tell_current().unwrap();
+    println!("cur: {cur_fr}:{cur_t}");
+    
+    r.seek_frame(2000).unwrap();
+    let (cur_fr,cur_t) = r.tell_current().unwrap();
+    println!("cur after seek to fr 2000: {cur_fr}:{cur_t}");
+
+    r.seek_time(-250000.0).unwrap();
+    let (cur_fr,cur_t) = r.tell_current().unwrap();
+    println!("cur after seek to t 250k: {cur_fr}:{cur_t}");
 }

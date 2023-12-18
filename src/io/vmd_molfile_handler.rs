@@ -214,7 +214,7 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
 }
 
 impl IoTopologyWriter for VmdMolFileHandler<'_> {
-    fn write_structure_subset(
+    fn write_topology_subset(
         &mut self,
         data: &Topology,
         subset_indexes: impl ExactSizeIterator<Item = usize>,
