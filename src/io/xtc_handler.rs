@@ -1,6 +1,7 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoWriter};
+use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
+use num_traits::ToPrimitive;
 
 use crate::core::{State, PeriodicBox};
 
@@ -55,9 +56,9 @@ impl XtcFileHandler {
 
         // Extract number of atoms
         let mut n_at: i32 = 0;
-        let ok = unsafe { xdr_xtc_get_natoms(self.handle, &mut n_at) } as u32;
+        let ok = unsafe { xdr_xtc_get_natoms(self.handle, &mut n_at) };
         if ok != 1 {
-            // 1 is success for this function, f*ing idiots!
+            // 1 is success for this function, f**ing idiots!
             bail!("Can't read XTC number of atoms {} {}", ok, n_at);
         }
 
@@ -66,9 +67,9 @@ impl XtcFileHandler {
         // XTC file contains step number in terms of simulation steps, not saved frames
         // So we have to extract conversion factor
         let next = unsafe { xtc_get_next_frame_number(self.handle, n_at) };
-        let mut b_ok: bool = false;
-        let cur = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut b_ok) };
-        if cur < 0 || next < 0 || !b_ok {
+        let mut ok: bool = false;
+        let cur = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut ok) };
+        if cur < 0 || next < 0 || !ok {
             bail!("Can't detect number of steps per frame");
         }
         if cur == next {
@@ -79,9 +80,11 @@ impl XtcFileHandler {
         }
 
         // Get total number of frames in the trajectory
-        let n_frames = unsafe { xdr_xtc_get_last_frame_number(self.handle, n_at, &mut b_ok) };
+        let n_frames = unsafe {
+            xdr_xtc_get_last_frame_number(self.handle, n_at, &mut ok)
+        };
 
-        if !b_ok {
+        if !ok {
             bail!("Can't get number of frames");
         }
 
@@ -97,15 +100,17 @@ impl XtcFileHandler {
         self.num_frames = n_frames as usize / self.steps_per_frame;
 
         // Get time step
-        self.dt = unsafe { xdr_xtc_estimate_dt(self.handle, n_at, &mut b_ok) };
+        self.dt = unsafe {
+            xdr_xtc_estimate_dt(self.handle, n_at, &mut ok)
+        };
 
-        if !b_ok {
+        if !ok {
             println!("Can't get time step");
             self.dt = -1.0;
         }
 
-        self.max_t = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut b_ok) };
-        if !b_ok || self.max_t < 0.0 {
+        self.max_t = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut ok) };
+        if !ok || self.max_t < 0.0 {
             println!("Can't get last frame time");
             self.max_t = -1.0;
         }
@@ -244,5 +249,87 @@ impl IoStateWriter for XtcFileHandler {
         self.step+=1;
 
         Ok(())
+    }
+}
+
+impl IoRandomAccess for XtcFileHandler {
+    fn seek_frame(&mut self, fr: usize) -> Result<()> {
+        if !self.is_random_access {
+            bail!("Random access is not possible for this XTC file!");
+        }
+
+        if fr>self.num_frames {
+            bail!("Can't seek to frame {}, last frame is {}",fr,self.num_frames);
+        }
+
+        let ret = unsafe{
+            xdr_xtc_seek_frame(
+                (fr*self.steps_per_frame).try_into()?,
+                self.handle,
+                self.natoms.try_into()?
+            )
+        };
+        if ret<0 {
+            bail!("Error seeking to frame {}",fr);
+        }
+
+        Ok(())
+    }
+
+    fn seek_time(&mut self, t: f32) -> Result<()> {
+        if !self.is_random_access {
+            bail!("Random access is not possible for this XTC file!");
+        }
+
+        if t<0.0 || t>self.max_t {
+            bail!("Can't seek to time {}, last time is {}",t,self.max_t);
+        }
+        // We assume equally spaced frames in the trajectory. It's much faster
+        let ret = unsafe {
+            xdr_xtc_seek_frame(
+                ((t/self.dt).ceil()*self.steps_per_frame as f32).to_int_unchecked(),
+                self.handle,
+                self.natoms.try_into()?
+            )
+        };
+        //int ret = xdr_xtc_seek_time(t,handle,natoms,false);
+        if ret<0 {
+            bail!("Error seeking to time {}",t)
+        }
+
+        Ok(())
+    }
+
+    fn tell_current(&self) -> Result<(usize,f32)> {
+        let mut ok = false;
+        let ret = unsafe{
+            xtc_get_current_frame_number(
+                self.handle,
+                self.natoms.try_into()?,
+                &mut ok)
+        };
+        if !ok || ret<0 {
+            bail!("Can't get current frame number");
+        }
+        let step = ret/self.steps_per_frame as i32;
+        let t = unsafe{
+            xtc_get_current_frame_time(
+                self.handle,
+                self.natoms.try_into()?,
+                &mut ok)
+        };
+        if !ok || t<0.0 {
+            bail!("Can't get current frame time");
+        }
+
+        Ok((step as usize,t))
+    }
+
+    fn tell_last(&self) -> Result<(usize,f32)> {
+        if self.max_t<0.0 {
+            bail!("This XTC file doesn't allow getting last time!");
+        }
+
+        Ok((self.num_frames,self.max_t))
     }
 }

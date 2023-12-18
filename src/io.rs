@@ -76,6 +76,16 @@ pub trait IoStateWriter: IoWriter {
     }
 }
 
+//==============================
+// Random access trait
+//==============================
+pub trait IoRandomAccess: IoStateReader {
+    fn seek_frame(&mut self, fr: usize) -> Result<()>;
+    fn seek_time(&mut self, t: f32) -> Result<()>;
+    fn tell_current(&self) -> Result<(usize,f32)>;
+    fn tell_last(&self) -> Result<(usize,f32)>;
+}
+
 //==================================================================
 // Iterator over the frames for any type implementing IoStateReader
 //==================================================================
