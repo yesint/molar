@@ -3,10 +3,9 @@ use crate::{
     core::{IndexIterator, ParticleIterator, PbcDims, PeriodicBox, Pos, State, Vector3f},
     distance_search::cell_pair_iterator::CellPairIter,
 };
-use nalgebra::Vector3;
 use num_traits::clamp_min;
-use rayon::prelude::*;
-use std::{collections::HashMap, borrow::Cow};
+//use rayon::prelude::*;
+use std::collections::HashMap;
 
 pub struct ValidPair {
     pub i: usize,
@@ -104,13 +103,11 @@ impl SearcherSingleGrid {
         Self { grid, cutoff }
     }
 
-    #[inline]
     fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         let pbc = self.grid.pbc.as_ref().unwrap();
         pbc.box_.distance_squared(p1, p2, &pbc.dims)
     }
 
-    #[inline]
     fn dist_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         (p1 - p2).norm_squared()
     }
@@ -126,7 +123,7 @@ impl SearcherSingleGrid {
 
         // Get periodic or non-periodic distance function
         let dist_func = match self.grid.pbc.as_ref() {
-            Some(pbc) => Self::dist_periodic,
+            Some(_) => Self::dist_periodic,
             None => Self::dist_non_periodic,
         };
 
@@ -340,7 +337,7 @@ pub trait SearchOutputType {
 }
 
 impl SearchOutputType for usize {
-    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
+    fn from_search_results(i: usize, _j: usize, _d: f32) -> Self {
         i
     }
 }
@@ -352,7 +349,7 @@ impl SearchOutputType for ValidPair {
 }
 
 impl SearchOutputType for (usize, usize) {
-    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
+    fn from_search_results(i: usize, j: usize, _d: f32) -> Self {
         (i, j)
     }
 }
@@ -386,7 +383,7 @@ fn test_single_periodic() {
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
-    let mut searcher = SearcherSingleGrid::from_state_subset_periodic(
+    let searcher = SearcherSingleGrid::from_state_subset_periodic(
         0.3,
         &st,
         0..st.coords.len(),
@@ -402,7 +399,7 @@ fn test_single_non_periodic() {
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
-    let mut searcher = SearcherSingleGrid::from_state_subset(
+    let searcher = SearcherSingleGrid::from_state_subset(
         0.3,
         &st,
         0..st.coords.len(),
@@ -419,7 +416,7 @@ fn test_double_periodic() {
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
-    let mut searcher = SearcherDoubleGrid::from_state_subset_periodic(
+    let searcher = SearcherDoubleGrid::from_state_subset_periodic(
         0.3,
         &st,
         0..st.coords.len(),

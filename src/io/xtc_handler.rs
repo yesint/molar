@@ -1,14 +1,12 @@
 use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
-use num_traits::ToPrimitive;
 
 use crate::core::{State, PeriodicBox};
 
 use anyhow::{bail, Result};
 use std::ffi::CString;
 use std::ptr;
-use std::sync::{Arc, RwLock};
 
 pub struct XtcFileHandler {
     handle: *mut XDRFILE,
@@ -16,15 +14,15 @@ pub struct XtcFileHandler {
     natoms: usize,
     steps_per_frame: usize,
     dt: f32,
-    step: i32,
+    step: i32, // time step for C functions
     frame_range: (usize,usize),
     time_range: (f32,f32),
     is_random_access: bool,
 }
 
-fn open_xdr_file(fname: &str, mode: &str) -> Result<*mut XDRFILE> {
-    let c_name = CString::new(fname).unwrap();
-    let c_mode = CString::new(mode).unwrap();
+fn get_xdr_handle(fname: &str, mode: &str) -> Result<*mut XDRFILE> {
+    let c_name = CString::new(fname)?;
+    let c_mode = CString::new(mode)?;
     let handle = unsafe {
         xdrfile_open(c_name.as_ptr(), c_mode.as_ptr())
     };
@@ -52,7 +50,7 @@ impl XtcFileHandler {
     }
 
     fn open_read(&mut self) -> Result<()> {
-        self.handle = open_xdr_file(&self.file_name,"r")?;
+        self.handle = get_xdr_handle(&self.file_name,"r")?;
 
         // Extract number of atoms
         let mut n_at: i32 = 0;
@@ -73,7 +71,7 @@ impl XtcFileHandler {
         if next_step < first_step {
             bail!("Can't detect number of steps per frame");
         } else if first_step == next_step {
-            println!("It seems that there is only one frame in this trajectory");
+            // It seems that there is only one frame in this trajectory
             self.steps_per_frame = 1;
         } else {
             self.steps_per_frame = (next_step - first_step) as usize;
@@ -83,7 +81,7 @@ impl XtcFileHandler {
         let first_time = unsafe { xtc_get_current_frame_time(self.handle, n_at, &mut ok) };
         if !ok { bail!("Can't get first frame time"); }
 
-        // Get last frame and time in the trajectory
+        // Get last frame
         let last_step = unsafe { xdr_xtc_get_last_frame_number(self.handle, n_at, &mut ok) };
         if !ok { bail!("Can't get last time step"); }
         // Get last time
@@ -91,7 +89,7 @@ impl XtcFileHandler {
         if !ok { bail!("Can't get first frame time"); }
         
         if last_step < first_step || last_time < first_time {
-            println!("Weird XTC file: negative last step returned ({last_step})!");
+            println!("Last frame seems to be corrupted ({last_step})!");
             // Disable random access
             self.is_random_access = false;
         }
@@ -113,7 +111,7 @@ impl XtcFileHandler {
         }
 
         if !self.is_random_access {
-            println!("Random access operations disabled for this trajectory");
+            println!("Random access operations are disabled for this trajectory");
         }
 
         println!(
@@ -126,7 +124,7 @@ impl XtcFileHandler {
 
 
     fn open_write(&mut self) -> Result<()> {
-        self.handle = open_xdr_file(&self.file_name,"w")?;
+        self.handle = get_xdr_handle(&self.file_name,"w")?;
         Ok(())
     }
 }
@@ -176,7 +174,7 @@ impl IoStateReader for XtcFileHandler {
                 self.natoms as i32,
                 &mut self.step,
                 &mut st.time,
-                box_matrix.as_mut_ptr().cast::<[f32;3]>(),
+                box_matrix.as_mut_ptr().cast::<rvec>(),
                 st.coords.as_mut_ptr().cast::<rvec>(),
                 &mut prec,
             )
@@ -187,11 +185,11 @@ impl IoStateReader for XtcFileHandler {
             unsafe { st.coords.set_len(self.natoms) };
             // Convert box to column-major form.
             box_matrix.transpose_mut();
-            st.box_ = PeriodicBox::from_matrix(box_matrix).ok();
+            st.box_ = Some(PeriodicBox::from_matrix(box_matrix)?);
         }
         
         match ok as u32 {
-            exdrOK => Ok(Some(st.into())),
+            exdrOK => Ok(Some(st)),
             exdrENDOFFILE => Ok(None),
             _ => bail!("Error reading timestep!"),
         }
@@ -233,7 +231,7 @@ impl IoStateWriter for XtcFileHandler {
                 n as i32,
                 self.step,
                 data.time,
-                box_.as_ptr().cast::<[f32;3]>(),
+                box_.as_ptr().cast::<rvec>(),
                 coord_ptr.cast::<rvec>(),
                 1000.0,
             )

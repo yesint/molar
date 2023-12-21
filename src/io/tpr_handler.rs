@@ -1,11 +1,11 @@
-use super::{IoWriter, IoReader, IoTopologyReader, IoStateReader};
+use super::{IoReader, IoTopologyReader, IoStateReader};
 use crate::core::*;
 use ascii::{AsciiString,AsciiChar};
 
-use anyhow::{bail, Result};
-use nalgebra::{Matrix,Matrix3};
+use anyhow::Result;
+use nalgebra::Matrix3;
 
-use std::{ffi::{CStr, CString}, ptr::null_mut, sync::{Arc, RwLock}, ops::Deref};
+use std::{ffi::{CStr, CString}, ptr::null_mut};
 use molar_gromacs::gromacs_bindings::*;
 
 
@@ -16,7 +16,7 @@ pub struct TprFileHandler {
 
 impl TprFileHandler {
     fn new(fname: &str) -> Result<Self> {
-        let f_name = CString::new(fname.clone())?;
+        let f_name = CString::new(fname.to_owned())?;
         Ok(TprFileHandler {
             handle: unsafe{ TprHelper::new(f_name.as_ptr()) },
             state_read: false,

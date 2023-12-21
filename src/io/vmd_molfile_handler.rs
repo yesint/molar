@@ -1,20 +1,12 @@
-use super::{
-    IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter,
-};
+use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter};
 use crate::core::*;
-use ascii::{AsciiStr, AsciiString};
-
 use crate::io::get_ext;
-
+use anyhow::{bail, Result};
+use ascii::{AsciiStr, AsciiString};
 use molar_molfile::molfile_bindings::*;
-
+use std::default::Default;
 use std::ffi::{c_void, CStr, CString};
 use std::ptr::{self, null_mut};
-
-use std::default::Default;
-use std::sync::{Arc, RwLock};
-
-use anyhow::{bail, Result};
 
 enum OpenMode {
     Read,
@@ -33,14 +25,14 @@ pub struct VmdMolFileHandler<'a> {
     natoms: usize,
 }
 
-// Helper convertion function from C-wrapped fixed-size string to AsciiString
+// Helper convertion function from C fixed-size string to AsciiString
 fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
     let cstr = unsafe { CStr::from_ptr(buf.as_ptr()).to_bytes() };
     let s = unsafe { AsciiString::from_ascii_unchecked(cstr) };
     s
 }
 
-#[doc = "Universal handler of different VMD molfile file formats"]
+/// Universal handler of different VMD molfile file formats
 impl VmdMolFileHandler<'_> {
     fn new(fname: &str) -> Result<Self> {
         // Get plugin pointer
@@ -76,7 +68,7 @@ impl VmdMolFileHandler<'_> {
         let mut n: i32 = 0;
         self.file_handle = unsafe {
             self.plugin.open_file_read.unwrap() // get function ptr
-                (f_name.as_ptr(), f_type.as_ptr(), &mut n) // Call function
+            (f_name.as_ptr(), f_type.as_ptr(), &mut n) // Call function
         };
         self.natoms = n as usize;
 
@@ -98,8 +90,11 @@ impl VmdMolFileHandler<'_> {
 
         // Open file and get file handle
         self.file_handle = unsafe {
-            self.plugin.open_file_write.unwrap() // get function ptr
-                (f_name.as_ptr(), f_type.as_ptr(), self.natoms as i32) // Call function
+            self.plugin.open_file_write.unwrap()(
+                f_name.as_ptr(),
+                f_type.as_ptr(),
+                self.natoms as i32,
+            ) // Call function
         };
 
         if self.file_handle == ptr::null_mut() {
@@ -170,8 +165,8 @@ impl IoTopologyReader for VmdMolFileHandler<'_> {
         unsafe { vmd_atoms.set_len(self.natoms) }
 
         // Convert to Structure
-        let mut structure: Topology = Default::default();
-        structure.atoms.reserve(self.natoms);
+        let mut topology: Topology = Default::default();
+        topology.atoms.reserve(self.natoms);
 
         for ref vmd_at in vmd_atoms {
             let mut at = Atom {
@@ -192,13 +187,13 @@ impl IoTopologyReader for VmdMolFileHandler<'_> {
                 at.atomic_number = vmd_at.atomicnumber as u8;
                 at.mass = vmd_at.mass;
             }
-            structure.atoms.push(at);
+            topology.atoms.push(at);
         }
 
         // Assign resindexes
-        structure.assign_resindex();
+        topology.assign_resindex();
 
-        Ok(structure.into())
+        Ok(topology)
     }
 }
 
@@ -293,7 +288,8 @@ impl IoStateReader for VmdMolFileHandler<'_> {
                 ts.alpha,
                 ts.beta,
                 ts.gamma,
-            ).ok();
+            )
+            .ok();
             // time
             state.time = ts.physical_time as f32;
             // Convert to nm
@@ -303,7 +299,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(Some(state.into())),
+            MOLFILE_SUCCESS => Ok(Some(state)),
             MOLFILE_EOF => Ok(None),
             _ => bail!("Error reading timestep!"),
         }
@@ -333,7 +329,7 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
         // Periodic box
         let (box_vec, box_ang) = match data.box_.as_ref() {
             Some(b) => b.to_vectors_angles(),
-            None => (Vector3f::zeros(),Vector3f::zeros()),
+            None => (Vector3f::zeros(), Vector3f::zeros()),
         };
 
         let ts = molfile_timestep_t {
@@ -348,9 +344,10 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
             physical_time: data.time as f64,
         };
 
-        //std::mem::forget(buf);
-
-        let ret = unsafe { self.plugin.write_timestep.unwrap()(self.file_handle, &ts) };
+        let ret = unsafe {
+            self.plugin.write_timestep.unwrap() // get function ptr
+            (self.file_handle, &ts)
+        };
 
         match ret {
             MOLFILE_SUCCESS => Ok(()),

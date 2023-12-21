@@ -1,4 +1,4 @@
-use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator, State};
+use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator};
 
 //====================================================================
 // Cell location in the grid
