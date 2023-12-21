@@ -15,11 +15,11 @@ pub struct XtcFileHandler {
     file_name: String,
     natoms: usize,
     steps_per_frame: usize,
-    num_frames: usize,
-    is_random_access: bool,
     dt: f32,
-    max_t: f32,
     step: i32,
+    frame_range: (usize,usize),
+    time_range: (f32,f32),
+    is_random_access: bool,
 }
 
 fn open_xdr_file(fname: &str, mode: &str) -> Result<*mut XDRFILE> {
@@ -43,10 +43,10 @@ impl XtcFileHandler {
             file_name: fname.to_owned(),
             natoms: 0,
             steps_per_frame: 0,
-            num_frames: 0,
+            frame_range: (0,0),
             is_random_access: true,
             dt: 0.0,
-            max_t: 0.0,
+            time_range: (0.0,0.0),
             step: 0,
         }
     }
@@ -59,60 +59,57 @@ impl XtcFileHandler {
         let ok = unsafe { xdr_xtc_get_natoms(self.handle, &mut n_at) };
         if ok != 1 {
             // 1 is success for this function, f**ing idiots!
-            bail!("Can't read XTC number of atoms {} {}", ok, n_at);
+            bail!("Can't read XTC number of atoms. Err: {ok}");
         }
 
         self.natoms = n_at as usize;
 
         // XTC file contains step number in terms of simulation steps, not saved frames
         // So we have to extract conversion factor
-        let next = unsafe { xtc_get_next_frame_number(self.handle, n_at) };
         let mut ok: bool = false;
-        let cur = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut ok) };
-        if cur < 0 || next < 0 || !ok {
+        let first_step = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut ok) };
+        if !ok { bail!("Can't get first simulation step"); }
+        let next_step = unsafe { xtc_get_next_frame_number(self.handle, n_at) };
+        if next_step < first_step {
             bail!("Can't detect number of steps per frame");
-        }
-        if cur == next {
+        } else if first_step == next_step {
             println!("It seems that there is only one frame in this trajectory");
             self.steps_per_frame = 1;
         } else {
-            self.steps_per_frame = (next - cur) as usize;
+            self.steps_per_frame = (next_step - first_step) as usize;
         }
 
-        // Get total number of frames in the trajectory
-        let n_frames = unsafe {
-            xdr_xtc_get_last_frame_number(self.handle, n_at, &mut ok)
-        };
+        // Get first time
+        let first_time = unsafe { xtc_get_current_frame_time(self.handle, n_at, &mut ok) };
+        if !ok { bail!("Can't get first frame time"); }
 
-        if !ok {
-            bail!("Can't get number of frames");
-        }
-
-        if n_frames < 0 {
-            println!(
-                "Weird XTC file: negative number of frames returned ({})!",
-                n_frames
-            );
+        // Get last frame and time in the trajectory
+        let last_step = unsafe { xdr_xtc_get_last_frame_number(self.handle, n_at, &mut ok) };
+        if !ok { bail!("Can't get last time step"); }
+        // Get last time
+        let last_time = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut ok) };
+        if !ok { bail!("Can't get first frame time"); }
+        
+        if last_step < first_step || last_time < first_time {
+            println!("Weird XTC file: negative last step returned ({last_step})!");
             // Disable random access
             self.is_random_access = false;
         }
 
-        self.num_frames = n_frames as usize / self.steps_per_frame;
+        self.frame_range = (
+            first_step as usize/ self.steps_per_frame,
+            last_step as usize/ self.steps_per_frame
+        );
 
-        // Get time step
+        self.time_range = (first_time,last_time);
+
+        // Get dt
         self.dt = unsafe {
             xdr_xtc_estimate_dt(self.handle, n_at, &mut ok)
         };
-
         if !ok {
-            println!("Can't get time step");
+            println!("Can't get dt");
             self.dt = -1.0;
-        }
-
-        self.max_t = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut ok) };
-        if !ok || self.max_t < 0.0 {
-            println!("Can't get last frame time");
-            self.max_t = -1.0;
         }
 
         if !self.is_random_access {
@@ -120,8 +117,8 @@ impl XtcFileHandler {
         }
 
         println!(
-            "File: {}, natoms={}, nframes={}, max_t={}, dt={}",
-            self.file_name, self.natoms, self.num_frames, self.max_t, self.dt
+            "File: {}, natoms={}, frames={:?}, times={:?}, dt={}",
+            self.file_name, self.natoms, self.frame_range, self.time_range, self.dt
         );
 
         Ok(())
@@ -258,8 +255,8 @@ impl IoRandomAccess for XtcFileHandler {
             bail!("Random access is not possible for this XTC file!");
         }
 
-        if fr>self.num_frames {
-            bail!("Can't seek to frame {}, last frame is {}",fr,self.num_frames);
+        if fr<self.frame_range.0 || fr>self.frame_range.1 {
+            bail!("Can't seek to frame {}, allowed range is {:?}",fr,self.frame_range);
         }
 
         let ret = unsafe{
@@ -281,8 +278,8 @@ impl IoRandomAccess for XtcFileHandler {
             bail!("Random access is not possible for this XTC file!");
         }
 
-        if t>self.max_t {
-            bail!("Can't seek to time {}, last time is {}",t,self.max_t);
+        if t<self.time_range.0 || t>self.time_range.1 {
+            bail!("Can't seek to time {}, allowed range is {:?}",t,self.time_range);
         }
         // We assume equally spaced frames in the trajectory. It's much faster
         /*
@@ -329,11 +326,17 @@ impl IoRandomAccess for XtcFileHandler {
         Ok((step as usize,t))
     }
 
-    fn tell_last(&self) -> Result<(usize,f32)> {
-        if self.max_t<0.0 {
-            bail!("This XTC file doesn't allow getting last time!");
+    fn tell_first(&self) -> Result<(usize,f32)> {
+        if !self.is_random_access {
+            bail!("Random access is not possible for this XTC file!");
         }
+        Ok((self.frame_range.0,self.time_range.0))
+    }
 
-        Ok((self.num_frames,self.max_t))
+    fn tell_last(&self) -> Result<(usize,f32)> {
+        if !self.is_random_access {
+            bail!("Random access is not possible for this XTC file!");
+        }
+        Ok((self.frame_range.1,self.time_range.1))
     }
 }

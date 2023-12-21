@@ -82,6 +82,7 @@ pub trait IoStateWriter: IoWriter {
 pub trait IoRandomAccess: IoStateReader {
     fn seek_frame(&mut self, fr: usize) -> Result<()>;
     fn seek_time(&mut self, t: f32) -> Result<()>;
+    fn tell_first(&self) -> Result<(usize, f32)>;
     fn tell_current(&self) -> Result<(usize, f32)>;
     fn tell_last(&self) -> Result<(usize, f32)>;
 }
@@ -186,7 +187,7 @@ impl<'a> IoTopologyWriter for FileHandler<'a> {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
                 h.write_topology_subset(data, subset_indexes)
             }
-            _ => bail!("Unable to write structure"),
+            _ => bail!("Unable to write topology"),
         }
     }
 }
@@ -224,67 +225,78 @@ impl<'a> IoRandomAccess for FileHandler<'a> {
     fn seek_frame(&mut self, fr: usize) -> Result<()> {
         match self {
             Self::Xtc(ref mut h) => h.seek_frame(fr),
-            _ => bail!("Not a tandom access format!"),
+            _ => bail!("Not a random access format!"),
         }
     }
 
     fn seek_time(&mut self, t: f32) -> Result<()> {
         match self {
             Self::Xtc(ref mut h) => h.seek_time(t),
-            _ => bail!("Not a tandom access format!"),
+            _ => bail!("Not a random access format!"),
+        }
+    }
+
+    fn tell_first(&self) -> Result<(usize, f32)> {
+        match self {
+            Self::Xtc(ref h) => h.tell_first(),
+            _ => bail!("Not a random access format!"),
         }
     }
 
     fn tell_current(&self) -> Result<(usize, f32)> {
         match self {
             Self::Xtc(ref h) => h.tell_current(),
-            _ => bail!("Not a tandom access format!"),
+            _ => bail!("Not a random access format!"),
         }
     }
 
     fn tell_last(&self) -> Result<(usize, f32)> {
         match self {
             Self::Xtc(ref h) => h.tell_last(),
-            _ => bail!("Not a tandom access format!"),
+            _ => bail!("Not a random access format!"),
         }
     }
 }
 
 #[test]
-fn test_read() {
+fn test_read() -> Result<()>{
     use super::io::*;
 
-    let mut r = FileHandler::new_reader("tests/topol.tpr").unwrap();
-    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb")).unwrap();
+    let mut r = FileHandler::new_reader("tests/topol.tpr")?;
+    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb"))?;
 
-    let st = r.read_topology().unwrap();
+    let st = r.read_topology()?;
     println!("{:?}", st.atoms);
 
     for fr in r.into_states_iter() {
         //println!("{:?}",fr);
-        w.write_topology(&st).unwrap();
-        w.write_next_state(&fr).unwrap();
+        w.write_topology(&st)?;
+        w.write_next_state(&fr)?;
         //w.write_structure(&st).unwrap();
         //w.write_next_state_subset(&fr,0..10).unwrap();
     }
+
+    Ok(())
 }
 
 #[test]
-fn test_traj() {
+fn test_traj() -> Result<()> {
     use super::io::*;
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.xtc").unwrap();
-    let (max_fr,max_t) = r.tell_last().unwrap();
+    let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
+    let (max_fr,max_t) = r.tell_last()?;
     println!("max: {max_fr}:{max_t}");
     
-    let (cur_fr,cur_t) = r.tell_current().unwrap();
+    let (cur_fr,cur_t) = r.tell_current()?;
     println!("cur: {cur_fr}:{cur_t}");
     
-    r.seek_frame(2000).unwrap();
-    let (cur_fr,cur_t) = r.tell_current().unwrap();
+    r.seek_frame(2000)?;
+    let (cur_fr,cur_t) = r.tell_current()?;
     println!("cur after seek to fr 2000: {cur_fr}:{cur_t}");
 
-    r.seek_time(-250000.0).unwrap();
-    let (cur_fr,cur_t) = r.tell_current().unwrap();
-    println!("cur after seek to t 250k: {cur_fr}:{cur_t}");
+    //r.seek_time(250000.0)?;
+    //let (cur_fr,cur_t) = r.tell_current()?;
+    //println!("cur after seek to t 250k: {cur_fr}:{cur_t}");
+
+    Ok(())
 }

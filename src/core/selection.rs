@@ -381,10 +381,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sel1() {
+    fn test_sel1() -> anyhow::Result<()>{
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
-        let sel = "name CA".select(t, s).unwrap();
+        let sel = "name CA".select(t, s)?;
 
         //for p in sel.read().iter().unwrap() {
         //    println!("{:?}", p)
@@ -409,5 +409,6 @@ mod tests {
             println!("{:?}", p);
         }
         */
+        Ok(())
     }
 }
