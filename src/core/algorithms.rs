@@ -2,11 +2,15 @@ use anyhow::{bail, Result};
 use num_traits::Zero;
 use num_traits::Bounded;
 
+use crate::distance_search::search::SearchConnectivity;
+use crate::distance_search::search::SearcherSingleGrid;
+
 use super::Atom;
 use super::AtomIterator;
 use super::AtomMutIterator;
 use super::ParticleIteratorAdaptor;
 use super::ParticleMutIterator;
+use super::PbcDims;
 use super::PeriodicBox;
 use super::PosMutIterator;
 use super::{
@@ -17,6 +21,10 @@ use super::{
 // Trait that provides periodic box information
 pub trait BoxProvider {
     fn get_box(&self) -> Result<&PeriodicBox>;
+}
+
+pub trait BoxMutProvider {
+    fn get_box_mut(&mut self) -> Result<&mut PeriodicBox>;
 }
 
 /// Trait for measuring various properties that requires only
@@ -62,7 +70,7 @@ pub trait Measure {
 /// a periodic box information.
 pub trait MeasurePeriodic: Measure + BoxProvider {
     fn center_of_mass(&self) -> Result<Pos> {
-        let mut c = self.iter().fold(
+        let c = self.iter().fold(
             (Vector3f::zero(),0.0), 
             |acc, p| {
                 (acc.0+p.pos.coords*p.atom.mass, acc.1+p.atom.mass)
@@ -100,5 +108,39 @@ pub trait Modify {
 /// The trait for modifying the particles that requires
 /// the periodic box.
 pub trait ModifyPeriodic: Modify + BoxProvider {
-    
+    fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<()> {
+        let b = self.get_box()?.clone();
+        let mut iter = self.iter_pos();
+        if iter.len()>0 {
+            let p0 = iter.next().unwrap();
+            for p in iter {
+                *p = b.closest_image_dims(p, p0, &dims);
+            }
+        }
+        Ok(())
+    }
+
+    fn unwrap_simple(&mut self) -> Result<()> {
+        self.unwrap_simple_dim([true,true,true])
+    }
+
+    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
+        let b = self.get_box()?.clone();
+        let pairs: Vec<(usize,usize)> = SearcherSingleGrid::from_particles_periodic(
+            cutoff,
+            self.iter().map(|p| p.into()),
+            &b,
+            &dims
+        ).search();
+
+        let mut iter = self.iter_pos();
+        if iter.len()>0 {
+            let p0 = iter.next().unwrap();
+            for p in iter {
+                *p = b.closest_image_dims(p, p0, &dims);
+            }
+        }
+        Ok(())
+    }
+
 }

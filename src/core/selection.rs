@@ -2,7 +2,7 @@ use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
 
-use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator};
+use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, BoxMutProvider};
 use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
 use num_traits::Bounded;
