@@ -30,24 +30,15 @@ pub trait IoWriter {
 }
 
 //===============================
-// Trait for writing subsets
+// Traits for writing
 //===============================
-pub trait IndexProvider {
-    fn get_index(&self) -> impl IndexIterator;
+pub trait IndexAndTopologyProvider {
+    fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology);
 }
 
-pub trait TopologyProvider: IndexProvider {
-    fn get_topology(&self) -> &Topology;
+pub trait IndexAndStateProvider {
+    fn get_index_and_state(&self) -> (impl IndexIterator, &State);
 }
-
-pub trait StateProvider: IndexProvider {
-    fn get_state(&self) -> &State;
-}
-
-pub trait StateMutProvider: IndexProvider {
-    fn get_state(&mut self) -> &mut State;
-}
-
 
 //===============================
 // Traits for Topology IO
@@ -59,7 +50,7 @@ pub trait IoTopologyReader: IoReader {
 pub trait IoTopologyWriter: IoWriter {
     fn write_topology(
         &mut self,
-        data: &impl TopologyProvider
+        data: &impl IndexAndTopologyProvider
     ) -> Result<()>;
 }
 
@@ -80,7 +71,7 @@ pub trait IoStateReader: IoReader {
 pub trait IoStateWriter: IoWriter {
     fn write_next_state(
         &mut self,
-        data: &impl StateProvider,
+        data: &impl IndexAndStateProvider,
     ) -> Result<()>;
 }
 
@@ -137,15 +128,6 @@ pub fn get_ext(fname: &str) -> Result<&str> {
         .ok_or(anyhow!("Failed getting file extension from {fname}"))?)
 }
 
-pub fn get_ext2(fname: &str) -> Result<&str> {
-    // Get extention
-    Ok(Path::new(fname)
-        .extension()
-        .ok_or(anyhow!("File with extension expected, given {fname}"))?
-        .to_str()
-        .ok_or(anyhow!("Failed getting file extension from {fname}"))?)
-}
-
 impl<'a> IoReader for FileHandler<'a> {
     fn new_reader(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
@@ -188,7 +170,7 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
 impl<'a> IoTopologyWriter for FileHandler<'a> {
     fn write_topology(
         &mut self,
-        data: &impl TopologyProvider,
+        data: &impl IndexAndTopologyProvider,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
@@ -215,7 +197,7 @@ impl<'a> IoStateReader for FileHandler<'a> {
 impl<'a> IoStateWriter for FileHandler<'a> {
     fn write_next_state(
         &mut self,
-        data: &impl StateProvider,
+        data: &impl IndexAndStateProvider,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {

@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, StateProvider};
+use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, IndexAndStateProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
@@ -197,10 +197,10 @@ impl IoStateReader for XtcFileHandler {
 }
 
 impl IoStateWriter for XtcFileHandler {
-    fn write_next_state(&mut self, data: &impl StateProvider) -> Result<()> 
+    fn write_next_state(&mut self, data: &impl IndexAndStateProvider) -> Result<()> 
     {
-        let n = data.get_index().len();
-        let st = data.get_state();
+        let (index,st) = data.get_index_and_state();
+        let n = index.len();
 
         // Box have to be transposed because XTC contains row-major box
         let box_ = match st.box_.as_ref() {
@@ -218,8 +218,8 @@ impl IoStateWriter for XtcFileHandler {
         if n != st.coords.len() {
             // Fill the buffer
             buf.reserve(n);
-            for ind in data.get_index() {
-                buf.push(data.get_state().coords[ind]);
+            for ind in index {
+                buf.push(st.coords[ind]);
             }
             // Reset the pointer to buffer
             coord_ptr = buf.as_ptr();

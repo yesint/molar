@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, TopologyProvider, StateProvider};
+use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IndexAndTopologyProvider, IndexAndStateProvider};
 use crate::core::*;
 use crate::io::get_ext;
 use anyhow::{bail, Result};
@@ -211,15 +211,16 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
 impl IoTopologyWriter for VmdMolFileHandler<'_> {
     fn write_topology(
         &mut self,
-        data: &impl TopologyProvider,
+        data: &impl IndexAndTopologyProvider,
     ) -> Result<()> {
-        let n = data.get_index().len();
+        let (index,top) = data.get_index_and_topology();
+        let n = index.len();
         // Open file if not yet opened
         self.try_open_write(n)?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
-        for ind in data.get_index() {
-            let at = &data.get_topology().atoms[ind];
+        for ind in index {
+            let at = &top.atoms[ind];
             let mut vmd_at = molfile_atom_t::default();
             copy_str_to_c_buffer(&at.name, &mut vmd_at.name);
             copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname);
@@ -308,10 +309,10 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state(
         &mut self,
-        data: &impl StateProvider,
+        data: &impl IndexAndStateProvider,
     ) -> Result<()> {
-        let n = data.get_index().len();
-        let st = data.get_state();
+        let (index,st) = data.get_index_and_state();
+        let n = index.len();
 
         // Open file if not yet opened
         self.try_open_write(n)?;
@@ -319,7 +320,7 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
         // Buffer for coordinates allocated on heap
         let mut buf = Vec::<f32>::with_capacity(3 * n);
         // Fill the buffer and convert to angstroms
-        for ind in data.get_index() {
+        for ind in index {
             for dim in 0..3 {
                 buf.push(st.coords[ind][dim] * 10.0);
             }

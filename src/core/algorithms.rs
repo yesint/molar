@@ -4,8 +4,7 @@ use num_traits::Bounded;
 
 use crate::distance_search::search::SearchConnectivity;
 use crate::distance_search::search::SearcherSingleGrid;
-use crate::io::StateMutProvider;
-use crate::io::StateProvider;
+use crate::io::IndexAndStateProvider;
 
 use super::Atom;
 use super::AtomIterator;
@@ -33,14 +32,14 @@ pub trait BoxMutProvider {
 /// the iterator of particles. User types should 
 /// implement `iter`
 pub trait Measure {
-    fn iter(&self) -> impl ParticleIterator<'_>;
+    fn iter_particles(&self) -> impl ParticleIterator<'_>;
     
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.iter().map(|p| p.pos)
+        self.iter_particles().map(|p| p.pos)
     }
 
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.iter().map(|p| p.atom)
+        self.iter_particles().map(|p| p.atom)
     }
 
     fn min_max(&self) -> (Pos,Pos) {
@@ -64,13 +63,9 @@ pub trait Measure {
         );
         c / n as f32
     }
-}
 
-/// The trait for measuring properties that requires
-/// a periodic box information.
-pub trait MeasurePeriodic: Measure + BoxProvider {
     fn center_of_mass(&self) -> Result<Pos> {
-        let c = self.iter().fold(
+        let c = self.iter_particles().fold(
             (Vector3f::zero(),0.0), 
             |acc, p| {
                 (acc.0+p.pos.coords*p.atom.mass, acc.1+p.atom.mass)
@@ -85,17 +80,40 @@ pub trait MeasurePeriodic: Measure + BoxProvider {
     }
 }
 
+/// The trait for measuring properties that requires
+/// a periodic box information.
+pub trait MeasurePeriodic: Measure + BoxProvider {
+    fn center_of_mass_pbc(&self) -> Result<Pos> {
+        let b = self.get_box()?;
+        let mut iter = self.iter_particles();
+        let p0 = iter.next().unwrap().pos;
+        let c = iter.fold(
+            (Vector3f::zero(),0.0), 
+            |acc, p| {
+                let im = b.closest_image(p.pos,p0).coords;
+                (acc.0+im*p.atom.mass, acc.1+p.atom.mass)
+            }
+        );
+        
+        if c.1==0.0 {
+            bail!("Zero mass in COM!")
+        } else {
+            Ok(Pos::from(c.0/c.1))
+        }
+    }
+}
+
 /// The trait for modifying the particles. User types should
 /// implement `iter_mut`.
 pub trait Modify {
-    fn iter(&mut self) -> impl ParticleMutIterator<'_>;
+    fn iter_particles(&mut self) -> impl ParticleMutIterator<'_>;
 
     fn iter_pos(&mut self) -> impl PosMutIterator<'_> {
-        self.iter().map(|p| p.pos)
+        self.iter_particles().map(|p| p.pos)
     }
 
     fn iter_atoms(&mut self) -> impl AtomMutIterator<'_> {
-        self.iter().map(|p| p.atom)
+        self.iter_particles().map(|p| p.atom)
     }
 
     fn translate(&mut self, shift: Vector3f) {
@@ -123,8 +141,6 @@ pub trait ModifyPeriodic: Modify + BoxProvider {
     fn unwrap_simple(&mut self) -> Result<()> {
         self.unwrap_simple_dim([true,true,true])
     }
-
-    
 
 }
 

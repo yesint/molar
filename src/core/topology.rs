@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}};
 
-use crate::io::{TopologyProvider, IndexProvider};
+use crate::io::IndexAndTopologyProvider;
 
 use super::{Atom, IndexIterator};
 //use super::handle::{SharedHandle, Handle};
@@ -39,15 +39,9 @@ impl Topology {
     }
 }
 
-impl IndexProvider for Topology {
-    fn get_index(&self) -> impl IndexIterator {
-        0..self.atoms.len()
-    }
-}
-
-impl TopologyProvider for Topology {
-    fn get_topology(&self) -> &Topology {
-        self
+impl IndexAndTopologyProvider for Topology {
+    fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology) {
+        (0..self.atoms.len(), &self)
     }
 }
 

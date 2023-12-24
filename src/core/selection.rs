@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 
-use crate::{io::{IndexProvider, TopologyProvider, StateProvider}, distance_search::search::SearcherSingleGrid};
+use crate::{io::{IndexAndTopologyProvider, IndexAndStateProvider}, distance_search::search::SearcherSingleGrid};
 
 use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, PbcDims};
 use anyhow::{bail, Result, anyhow};
@@ -265,34 +265,23 @@ where
     index: &'a Vec<usize>,
 }
 
-impl<'a,T,S> IndexProvider for SelectionQueryGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{    
-    #[allow(refining_impl_trait)]
-    fn get_index(&self) -> impl IndexIterator + 'a {
-        self.index.iter().cloned()
-    }
-}
-
-impl<'a,T,S> TopologyProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IndexAndTopologyProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
-    fn get_topology(&self) -> &Topology {
-        &self.topology_ref
+    fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology) {
+        (self.index.iter().cloned(), &self.topology_ref)
     }
 }
 
-impl<'a,T,S> StateProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IndexAndStateProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
-    fn get_state(&self) -> &State {
-        &self.state_ref
+    fn get_index_and_state(&self) -> (impl IndexIterator, &State) {
+        (self.index.iter().cloned(), &self.state_ref)
     }
 }
 
@@ -306,18 +295,6 @@ where
     state_ref: <S as UniRcLock<State>>::OutWrite<'a>,
     index: &'a Vec<usize>,
 }
-
-impl<'a,T,S> IndexProvider for SelectionModifyGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{    
-    #[allow(refining_impl_trait)]
-    fn get_index(&self) -> impl IndexIterator + 'a {
-        self.index.iter().cloned()
-    }
-}
-
 
 impl<T,S> Selection<T, S>
 where
@@ -366,7 +343,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn iter(&self) -> impl ParticleIterator<'_> {
+    fn iter_particles(&self) -> impl ParticleIterator<'_> {
         ParticleIteratorAdaptor::new(
             &self.topology_ref.atoms,
             &self.state_ref.coords,
@@ -405,7 +382,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
+    fn iter_particles(&mut self) -> impl ParticleMutIterator<'_> {
         ParticleMutIteratorAdaptor::new(
             &mut self.topology_ref.atoms,
             &mut self.state_ref.coords,
