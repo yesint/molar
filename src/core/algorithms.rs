@@ -4,6 +4,8 @@ use num_traits::Bounded;
 
 use crate::distance_search::search::SearchConnectivity;
 use crate::distance_search::search::SearcherSingleGrid;
+use crate::io::StateMutProvider;
+use crate::io::StateProvider;
 
 use super::Atom;
 use super::AtomIterator;
@@ -62,8 +64,6 @@ pub trait Measure {
         );
         c / n as f32
     }
-    
-
 }
 
 /// The trait for measuring properties that requires
@@ -124,23 +124,7 @@ pub trait ModifyPeriodic: Modify + BoxProvider {
         self.unwrap_simple_dim([true,true,true])
     }
 
-    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
-        let b = self.get_box()?.clone();
-        let pairs: Vec<(usize,usize)> = SearcherSingleGrid::from_particles_periodic(
-            cutoff,
-            self.iter().map(|p| p.into()),
-            &b,
-            &dims
-        ).search();
-
-        let mut iter = self.iter_pos();
-        if iter.len()>0 {
-            let p0 = iter.next().unwrap();
-            for p in iter {
-                *p = b.closest_image_dims(p, p0, &dims);
-            }
-        }
-        Ok(())
-    }
+    
 
 }
+

@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 
-use crate::io::{IoIndexProvider, IoStateProvider};
+use crate::io::{IndexProvider, StateProvider};
 
 use super::{PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
@@ -26,13 +26,13 @@ impl State {
     }
 }
 
-impl IoIndexProvider for State {
+impl IndexProvider for State {
     fn get_index(&self) -> impl super::IndexIterator {
         0..self.coords.len()
     }
 }
 
-impl IoStateProvider for State {
+impl StateProvider for State {
     fn get_state(&self) -> &State {
         self
     }

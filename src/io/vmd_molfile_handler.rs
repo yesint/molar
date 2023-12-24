@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoStateProvider};
+use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, TopologyProvider, StateProvider};
 use crate::core::*;
 use crate::io::get_ext;
 use anyhow::{bail, Result};
@@ -211,7 +211,7 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
 impl IoTopologyWriter for VmdMolFileHandler<'_> {
     fn write_topology(
         &mut self,
-        data: &impl IoTopologyProvider,
+        data: &impl TopologyProvider,
     ) -> Result<()> {
         let n = data.get_index().len();
         // Open file if not yet opened
@@ -308,7 +308,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_next_state(
         &mut self,
-        data: &impl IoStateProvider,
+        data: &impl StateProvider,
     ) -> Result<()> {
         let n = data.get_index().len();
         let st = data.get_state();

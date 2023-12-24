@@ -1,11 +1,10 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 
-use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
+use crate::{io::{IndexProvider, TopologyProvider, StateProvider}, distance_search::search::SearcherSingleGrid};
 
-use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, BoxMutProvider};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, PbcDims};
 use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
-use num_traits::Bounded;
 use uni_rc_lock::UniRcLock;
 
 //-----------------------------------------------------------------
@@ -253,7 +252,7 @@ where
     }
 
 }
-//----------------------------------------------------
+//---------------,-------------------------------------
 
 /// Scoped guard giving read-only access to selection
 pub struct SelectionQueryGuard<'a, T, S>
@@ -266,7 +265,7 @@ where
     index: &'a Vec<usize>,
 }
 
-impl<'a,T,S> IoIndexProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IndexProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
@@ -277,7 +276,7 @@ where
     }
 }
 
-impl<'a,T,S> IoTopologyProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> TopologyProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
@@ -287,7 +286,7 @@ where
     }
 }
 
-impl<'a,T,S> IoStateProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> StateProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
@@ -296,6 +295,7 @@ where
         &self.state_ref
     }
 }
+
 /// Scoped guard giving read-write access to selection
 pub struct SelectionModifyGuard<'a, T, S>
 where
@@ -307,6 +307,47 @@ where
     index: &'a Vec<usize>,
 }
 
+impl<'a,T,S> IndexProvider for SelectionModifyGuard<'a, T, S>
+where
+    T: UniRcLock<Topology> + 'a,
+    S: UniRcLock<State> + 'a,
+{    
+    #[allow(refining_impl_trait)]
+    fn get_index(&self) -> impl IndexIterator + 'a {
+        self.index.iter().cloned()
+    }
+}
+
+
+impl<T,S> Selection<T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<()> {
+        let q = self.query();
+        let pairs: Vec<(usize,usize)> = SearcherSingleGrid::from_state_subset_periodic(
+            cutoff,
+            &q.state_ref,
+            self.index.iter().cloned(),
+            &dims
+        ).search();
+
+        let b = q.state_ref.box_.as_ref().unwrap().clone();
+        let p0 = q.state_ref.coords[self.index[0]];
+        let n = self.index.len();
+
+        drop(q);
+        
+        let mut m = self.modify();
+        for i in 0..n {
+            let p = &mut m.state_ref.coords[self.index[i]];
+            *p = b.closest_image_dims(&p, &p0, &dims);
+        }
+    
+        Ok(())
+    }
+}
 //==================================================================
 // Implement analysis traits
 
@@ -465,4 +506,10 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_unwrap_connectivity() -> anyhow::Result<()> {
+        let sel = make_sel()?;
+        sel.unwrap_connectivity_dim(0.2, [true,true,true])?;
+        Ok(())
+    }
 }

@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, IoStateProvider};
+use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, StateProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
@@ -197,7 +197,7 @@ impl IoStateReader for XtcFileHandler {
 }
 
 impl IoStateWriter for XtcFileHandler {
-    fn write_next_state(&mut self, data: &impl IoStateProvider) -> Result<()> 
+    fn write_next_state(&mut self, data: &impl StateProvider) -> Result<()> 
     {
         let n = data.get_index().len();
         let st = data.get_state();

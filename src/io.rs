@@ -32,16 +32,20 @@ pub trait IoWriter {
 //===============================
 // Trait for writing subsets
 //===============================
-pub trait IoIndexProvider {
+pub trait IndexProvider {
     fn get_index(&self) -> impl IndexIterator;
 }
 
-pub trait IoTopologyProvider: IoIndexProvider {
+pub trait TopologyProvider: IndexProvider {
     fn get_topology(&self) -> &Topology;
 }
 
-pub trait IoStateProvider: IoIndexProvider {
+pub trait StateProvider: IndexProvider {
     fn get_state(&self) -> &State;
+}
+
+pub trait StateMutProvider: IndexProvider {
+    fn get_state(&mut self) -> &mut State;
 }
 
 
@@ -55,7 +59,7 @@ pub trait IoTopologyReader: IoReader {
 pub trait IoTopologyWriter: IoWriter {
     fn write_topology(
         &mut self,
-        data: &impl IoTopologyProvider
+        data: &impl TopologyProvider
     ) -> Result<()>;
 }
 
@@ -76,7 +80,7 @@ pub trait IoStateReader: IoReader {
 pub trait IoStateWriter: IoWriter {
     fn write_next_state(
         &mut self,
-        data: &impl IoStateProvider,
+        data: &impl StateProvider,
     ) -> Result<()>;
 }
 
@@ -184,7 +188,7 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
 impl<'a> IoTopologyWriter for FileHandler<'a> {
     fn write_topology(
         &mut self,
-        data: &impl IoTopologyProvider,
+        data: &impl TopologyProvider,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
@@ -211,7 +215,7 @@ impl<'a> IoStateReader for FileHandler<'a> {
 impl<'a> IoStateWriter for FileHandler<'a> {
     fn write_next_state(
         &mut self,
-        data: &impl IoStateProvider,
+        data: &impl StateProvider,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
