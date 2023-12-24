@@ -14,6 +14,16 @@ pub struct ParticleMut<'a> {
     pub pos: &'a mut Pos,
 }
 
+impl<'a> From<ParticleMut<'a>> for Particle<'a> {
+    fn from(p: ParticleMut<'a>) -> Self {
+        Particle{
+            id: p.id,
+            atom: p.atom,
+            pos: p.pos,
+        }
+    }
+}
+
 /// Iterator over particles
 pub trait ParticleIterator<'a>: ExactSizeIterator<Item = Particle<'a>> {}
 impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particle<'a>> {}
