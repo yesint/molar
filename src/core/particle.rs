@@ -53,9 +53,7 @@ impl<'a> Iterator for ParticleIteratorAdaptor<'a> {
     type Item = Particle<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur >= self.index_ref.len() {
-            None
-        } else {
+        if self.cur < self.index_ref.len() {
             let ind = self.index_ref[self.cur];
             self.cur += 1;
             Some(Particle {
@@ -63,6 +61,8 @@ impl<'a> Iterator for ParticleIteratorAdaptor<'a> {
                 pos: &self.pos_ref[ind],
                 id: ind,
             })
+        } else {
+            None
         }
     }
 }
@@ -78,63 +78,51 @@ impl<'a> ExactSizeIterator for ParticleIteratorAdaptor<'a> {
 /// from iterators over atoms and positions
 /// IMPORTANT! Only works for **sorted** indexes!
 //--------------------------------------------------------
-#[derive(Clone)]
-pub struct ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    atom_iter: AtomI,
-    pos_iter: PosI,
-    index_iter: IndexI,
+pub struct ParticleMutIteratorAdaptor<'a> {
+    atom_ref: &'a mut Vec<Atom>,
+    pos_ref: &'a mut Vec<Pos>,
+    index_ref: &'a Vec<usize>,
     cur: usize,
 }
 
-impl<'a, AtomI, PosI, IndexI> ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
-    pub fn new(atom_iter: AtomI, pos_iter: PosI, index_iter: IndexI) -> Self {
+impl<'a> ParticleMutIteratorAdaptor<'a> {
+    pub fn new(atom_ref: &'a mut Vec<Atom>, pos_ref: &'a mut Vec<Pos>, index_ref: &'a Vec<usize>) -> Self {
         Self {
-            atom_iter,
-            pos_iter,
-            index_iter,
+            atom_ref,
+            pos_ref,
+            index_ref,
             cur: 0,
         }
     }
 }
 
-impl<'a, AtomI, PosI, IndexI> Iterator for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
+impl<'a> Iterator for ParticleMutIteratorAdaptor<'a> {
     type Item = ParticleMut<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.index_iter.next().map(|ind| {
-            // Advance iterators by offset and yield
-            let atom = self.atom_iter.nth(ind - self.cur)?;
-            let pos = self.pos_iter.nth(ind - self.cur)?;
-            // Advance current position
-            self.cur = ind + 1;
-            Some(ParticleMut { atom, pos, id: ind })
-        })?
+        if self.cur < self.index_ref.len() {
+            let ind = self.index_ref[self.cur];
+            self.cur += 1;
+            // We need to use unsafe pointers here because the borrow checker
+            // won't guarantee that an element is not borrowed as mut
+            // multiple time if there are duplicated indexes
+            unsafe {
+                let p_atom = self.atom_ref.as_mut_ptr().add(ind);
+                let p_pos = self.pos_ref.as_mut_ptr().add(ind);
+                Some(ParticleMut {
+                    atom: &mut *p_atom,
+                    pos: &mut *p_pos,
+                    id: ind,
+                })
+            }
+        } else {
+            None
+        }
     }
 }
 
-impl<'a, AtomI, PosI, IndexI> ExactSizeIterator
-    for ParticleMutIteratorAdaptor<'a, AtomI, PosI, IndexI>
-where
-    AtomI: Iterator<Item = &'a mut Atom>, // iterator over atoms
-    PosI: Iterator<Item = &'a mut Pos>,   // iterator over positions
-    IndexI: IndexIterator,                // Index iterator
-{
+impl<'a> ExactSizeIterator for ParticleMutIteratorAdaptor<'a> {
     fn len(&self) -> usize {
-        self.index_iter.len()
+        self.index_ref.len()
     }
 }

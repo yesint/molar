@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter};
+use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoStateProvider};
 use crate::core::*;
 use crate::io::get_ext;
 use anyhow::{bail, Result};
@@ -209,18 +209,17 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
 }
 
 impl IoTopologyWriter for VmdMolFileHandler<'_> {
-    fn write_topology_subset(
+    fn write_topology(
         &mut self,
-        data: &Topology,
-        subset_indexes: impl ExactSizeIterator<Item = usize>,
+        data: &impl IoTopologyProvider,
     ) -> Result<()> {
-        let n = subset_indexes.len();
+        let n = data.get_index().len();
         // Open file if not yet opened
         self.try_open_write(n)?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
-        for ind in subset_indexes {
-            let at = &data.atoms[ind];
+        for ind in data.get_index() {
+            let at = &data.get_topology().atoms[ind];
             let mut vmd_at = molfile_atom_t::default();
             copy_str_to_c_buffer(&at.name, &mut vmd_at.name);
             copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname);
@@ -307,12 +306,12 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 }
 
 impl IoStateWriter for VmdMolFileHandler<'_> {
-    fn write_next_state_subset(
+    fn write_next_state(
         &mut self,
-        data: &State,
-        subset_indexes: impl IndexIterator,
+        data: &impl IoStateProvider,
     ) -> Result<()> {
-        let n = subset_indexes.len();
+        let n = data.get_index().len();
+        let st = data.get_state();
 
         // Open file if not yet opened
         self.try_open_write(n)?;
@@ -320,14 +319,14 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
         // Buffer for coordinates allocated on heap
         let mut buf = Vec::<f32>::with_capacity(3 * n);
         // Fill the buffer and convert to angstroms
-        for ind in subset_indexes {
+        for ind in data.get_index() {
             for dim in 0..3 {
-                buf.push(data.coords[ind][dim] * 10.0);
+                buf.push(st.coords[ind][dim] * 10.0);
             }
         }
 
         // Periodic box
-        let (box_vec, box_ang) = match data.box_.as_ref() {
+        let (box_vec, box_ang) = match st.box_.as_ref() {
             Some(b) => b.to_vectors_angles(),
             None => (Vector3f::zeros(), Vector3f::zeros()),
         };
@@ -341,7 +340,7 @@ impl IoStateWriter for VmdMolFileHandler<'_> {
             alpha: box_ang[0],
             beta: box_ang[1],
             gamma: box_ang[2],
-            physical_time: data.time as f64,
+            physical_time: st.time as f64,
         };
 
         let ret = unsafe {

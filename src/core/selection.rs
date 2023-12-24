@@ -1,4 +1,8 @@
-use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, BoxProvider, PeriodicBox};
+use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
+
+use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
+
+use super::{particle::*, selection_parser::SelectionExpr, Atom, PosIterator, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator};
 use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
 use num_traits::Bounded;
@@ -154,6 +158,9 @@ where
     index: Vec<usize>,
 }
 
+type SelectionRc = Selection< Rc<RefCell<Topology>>, Rc<RefCell<State>> >;
+type SelectionArc = Selection< Arc<RwLock<Topology>>, Arc<RwLock<State>> >;
+
 impl<T, S> Selection<T, S>
 where
     T: UniRcLock<Topology>,
@@ -229,16 +236,16 @@ where
         }
     }
 
-    pub fn read<'a>(&'a self) -> SelectionReadGuard<'a, T, S> {
-        SelectionReadGuard {
+    pub fn query<'a>(&'a self) -> SelectionQueryGuard<'a, T, S> {
+        SelectionQueryGuard {
             topology_ref: self.topology.read(),
             state_ref: self.state.read(),
             index: &self.index,
         }
     }
 
-    pub fn write<'a>(&'a self) -> SelectionWriteGuard<'a, T, S> {
-        SelectionWriteGuard {
+    pub fn modify<'a>(&'a self) -> SelectionModifyGuard<'a, T, S> {
+        SelectionModifyGuard {
             topology_ref: self.topology.write(),
             state_ref: self.state.write(),
             index: &self.index,
@@ -249,7 +256,7 @@ where
 //----------------------------------------------------
 
 /// Scoped guard giving read-only access to selection
-pub struct SelectionReadGuard<'a, T, S>
+pub struct SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
@@ -259,7 +266,61 @@ where
     index: &'a Vec<usize>,
 }
 
-impl<T, S> SelectionReadGuard<'_, T, S>
+impl<'a,T,S> IoIndexProvider for SelectionQueryGuard<'a, T, S>
+where
+    T: UniRcLock<Topology> + 'a,
+    S: UniRcLock<State> + 'a,
+{    
+    #[allow(refining_impl_trait)]
+    fn get_index(&self) -> impl IndexIterator + 'a {
+        self.index.iter().cloned()
+    }
+}
+
+impl<'a,T,S> IoTopologyProvider for SelectionQueryGuard<'a, T, S>
+where
+    T: UniRcLock<Topology> + 'a,
+    S: UniRcLock<State> + 'a,
+{
+    fn get_topology(&self) -> &Topology {
+        &self.topology_ref
+    }
+}
+
+impl<'a,T,S> IoStateProvider for SelectionQueryGuard<'a, T, S>
+where
+    T: UniRcLock<Topology> + 'a,
+    S: UniRcLock<State> + 'a,
+{
+    fn get_state(&self) -> &State {
+        &self.state_ref
+    }
+}
+/// Scoped guard giving read-write access to selection
+pub struct SelectionModifyGuard<'a, T, S>
+where
+    T: UniRcLock<Topology> + 'a,
+    S: UniRcLock<State> + 'a,
+{
+    topology_ref: <T as UniRcLock<Topology>>::OutWrite<'a>,
+    state_ref: <S as UniRcLock<State>>::OutWrite<'a>,
+    index: &'a Vec<usize>,
+}
+
+//==================================================================
+// Implement analysis traits
+
+impl<T,S> BoxProvider for SelectionQueryGuard<'_,T,S> 
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn get_box(&self) -> Result<&PeriodicBox> {
+        self.state_ref.get_box()
+    }
+}
+
+impl<T, S> Measure for SelectionQueryGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -270,70 +331,16 @@ where
             &self.state_ref.coords,
             &self.index,
         )
-    }
-
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.iter().map(|p| p.pos)
-    }
-
-    fn iter_atoms(&self) -> impl ExactSizeIterator<Item = &'_ Atom> {
-        self.iter().map(|p| p.atom)
-    }
-
-    pub fn min_max(&self) -> (Pos,Pos) {
-        let mut lower = Pos::max_value();
-        let mut upper = Pos::min_value();
-        for p in self.iter_pos() {
-            for d in 0..3 {
-                if p[d] < lower[d] { lower[d] = p[d] }
-                if p[d] > upper[d] { upper[d] = p[d] }
-            }
-        }
-        (lower,upper)
-    }
-
-    
+    }    
 }
 
-/// Scoped guard giving read-write access to selection
-pub struct SelectionWriteGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{
-    topology_ref: <T as UniRcLock<Topology>>::OutWrite<'a>,
-    state_ref: <S as UniRcLock<State>>::OutWrite<'a>,
-    index: &'a Vec<usize>,
-}
-
-impl<T, S> SelectionWriteGuard<'_, T, S>
+impl<T, S> MeasurePeriodic for SelectionQueryGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
-{
-    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
-        ParticleMutIteratorAdaptor::new(
-            self.topology_ref.atoms.iter_mut(),
-            self.state_ref.coords.iter_mut(),
-            self.index.iter().cloned(),
-        )
-    }
-}
+{}
 
-//==================================================================
-// Implement analysis traits
-
-impl<T,S> BoxProvider for SelectionReadGuard<'_,T,S> 
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn get_box(&self) -> Result<&PeriodicBox> {
-        self.state_ref.get_box()
-    }
-}
-
-impl<T,S> BoxProvider for SelectionWriteGuard<'_,T,S> 
+impl<T,S> BoxProvider for SelectionModifyGuard<'_,T,S> 
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -352,6 +359,26 @@ impl BoxProvider for State {
     }
 }
 
+impl<T, S> Modify for SelectionModifyGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn iter(&mut self) -> impl ParticleMutIterator<'_> {
+        ParticleMutIteratorAdaptor::new(
+            &mut self.topology_ref.atoms,
+            &mut self.state_ref.coords,
+            &self.index,
+        )
+    }
+}
+
+impl<T, S> ModifyPeriodic for SelectionModifyGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{}
+
 //==================================================================
 
 //##############################
@@ -360,13 +387,14 @@ impl BoxProvider for State {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         core::State,
-        core::{selection::Select, Topology},
+        core::{selection::Select, Topology, Measure, MeasurePeriodic, Modify, Vector3f},
         io::*,
     };
     use lazy_static::lazy_static;
+
+    use super::SelectionRc;
 
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
@@ -380,35 +408,61 @@ mod tests {
         static ref SS: (Topology, State) = read_test_pdb();
     }
 
-    #[test]
-    fn test_sel1() -> anyhow::Result<()>{
+    fn make_sel() -> anyhow::Result<SelectionRc> {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
         let sel = "name CA".select(t, s)?;
+        Ok(sel)
+    }
 
-        //for p in sel.read().iter().unwrap() {
-        //    println!("{:?}", p)
-        //}
+    #[test]
+    fn test_make_sel() ->anyhow::Result<()>{
+        make_sel().map(|_| ())
+    }
 
-        //for p in sel.write().iter().unwrap() {
-        //    println!("{:?}", p)
-        //}
+    #[test]
+    fn test_measure() -> anyhow::Result<()>{
+        let sel = make_sel()?;
 
-        println!("before {}",sel.read().iter_pos().next().unwrap());
+        println!("before {}",sel.query().iter_pos().next().unwrap());
 
-        let (minv,maxv) = sel.read().min_max();
+        let (minv,maxv) = sel.query().min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",sel.read().iter_pos().next().unwrap());
-        println!("{:?}",sel.read().min_max());
-
-        /*
-        println!("sz: {}", particles.len());
-        for p in particles {
-            println!("{:?}", p);
-        }
-        */
+        println!("after {}",sel.query().iter_pos().next().unwrap());
+        println!("{:?}",sel.query().min_max());
         Ok(())
     }
+    
+    #[test]
+    fn test_measure_pbc() -> anyhow::Result<()>{
+        let sel = make_sel()?;
+
+        let cm = sel.query().center_of_mass()?;
+        println!("{cm}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_translate() {
+        let sel = make_sel().unwrap();
+        let mut w = sel.modify();
+
+        println!("before {}",w.iter_pos().next().unwrap());
+        w.translate(Vector3f::new(10.0,10.0,10.0));
+        println!("after {}",w.iter_pos().next().unwrap());
+    }
+
+    #[test]
+    fn test_write_to_file() -> anyhow::Result<()> {
+        let sel = make_sel()?;
+        let q = sel.query();
+
+        let mut h = FileHandler::new_writer("f.pdb")?;
+        h.write_topology(&q)?;
+        h.write_next_state(&q)?;
+        Ok(())
+    }
+
 }

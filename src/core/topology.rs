@@ -1,6 +1,8 @@
 use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}};
 
-use super::Atom;
+use crate::io::{IoTopologyProvider, IoIndexProvider};
+
+use super::{Atom, IndexIterator};
 //use super::handle::{SharedHandle, Handle};
 
 #[allow(dead_code)]
@@ -34,6 +36,18 @@ impl Topology {
             }
             at.resindex = resindex;
         }
+    }
+}
+
+impl IoIndexProvider for Topology {
+    fn get_index(&self) -> impl IndexIterator {
+        0..self.atoms.len()
+    }
+}
+
+impl IoTopologyProvider for Topology {
+    fn get_topology(&self) -> &Topology {
+        self
     }
 }
 

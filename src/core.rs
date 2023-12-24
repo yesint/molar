@@ -27,8 +27,17 @@ pub type Pos = nalgebra::Point3<f32>; // Atom position
 pub trait IndexIterator: ExactSizeIterator<Item = usize> {}
 impl<T> IndexIterator for T where T: ExactSizeIterator<Item = usize> {}
 
+pub trait AtomIterator<'a>: ExactSizeIterator<Item = &'a Atom> {}
+impl<'a, T> AtomIterator<'a> for T where T: ExactSizeIterator<Item = &'a Atom> {}
+
+pub trait AtomMutIterator<'a>: ExactSizeIterator<Item = &'a mut Atom> {}
+impl<'a, T> AtomMutIterator<'a> for T where T: ExactSizeIterator<Item = &'a mut Atom> {}
+
 pub trait PosIterator<'a>: ExactSizeIterator<Item = &'a Pos> {}
 impl<'a, T> PosIterator<'a> for T where T: ExactSizeIterator<Item = &'a Pos> {}
+
+pub trait PosMutIterator<'a>: ExactSizeIterator<Item = &'a mut Pos> {}
+impl<'a, T> PosMutIterator<'a> for T where T: ExactSizeIterator<Item = &'a mut Pos> {}
 
 pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
 impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'a Pos)> {}

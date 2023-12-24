@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess};
+use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, IoStateProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
@@ -197,13 +197,13 @@ impl IoStateReader for XtcFileHandler {
 }
 
 impl IoStateWriter for XtcFileHandler {
-    fn write_next_state_subset(&mut self, data: &State, 
-            subset_indexes: impl ExactSizeIterator<Item=usize>) -> Result<()> 
+    fn write_next_state(&mut self, data: &impl IoStateProvider) -> Result<()> 
     {
-        let n = subset_indexes.len();
+        let n = data.get_index().len();
+        let st = data.get_state();
 
         // Box have to be transposed because XTC contains row-major box
-        let box_ = match data.box_.as_ref() {
+        let box_ = match st.box_.as_ref() {
             Some(b) => b.get_matrix().transpose(),
             None => Matrix3::<f32>::zeros(),
         };
@@ -211,15 +211,15 @@ impl IoStateWriter for XtcFileHandler {
         // Coordinate buffer
         let mut buf = Vec::<Point3<f32>>::new();
         // Pointer to coordinates
-        let mut coord_ptr: *const Point3<f32> = data.coords.as_ptr();
+        let mut coord_ptr: *const Point3<f32> = st.coords.as_ptr();
 
         // If not all coordinates are written we have to extract them
         // to a buffer instead of passing the pointer to original coords
-        if n != data.coords.len() {
+        if n != st.coords.len() {
             // Fill the buffer
             buf.reserve(n);
-            for ind in subset_indexes {
-                buf.push(data.coords[ind]);
+            for ind in data.get_index() {
+                buf.push(data.get_state().coords[ind]);
             }
             // Reset the pointer to buffer
             coord_ptr = buf.as_ptr();
@@ -230,7 +230,7 @@ impl IoStateWriter for XtcFileHandler {
                 self.handle,
                 n as i32,
                 self.step,
-                data.time,
+                st.time,
                 box_.as_ptr().cast::<rvec>(),
                 coord_ptr.cast::<rvec>(),
                 1000.0,

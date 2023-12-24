@@ -1,4 +1,4 @@
-use crate::core::{IndexIterator, State, Topology};
+use crate::core::{IndexIterator, State, Topology, MeasurePeriodic};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
@@ -30,23 +30,33 @@ pub trait IoWriter {
 }
 
 //===============================
-// Traits for Structure IO
+// Trait for writing subsets
+//===============================
+pub trait IoIndexProvider {
+    fn get_index(&self) -> impl IndexIterator;
+}
+
+pub trait IoTopologyProvider: IoIndexProvider {
+    fn get_topology(&self) -> &Topology;
+}
+
+pub trait IoStateProvider: IoIndexProvider {
+    fn get_state(&self) -> &State;
+}
+
+
+//===============================
+// Traits for Topology IO
 //===============================
 pub trait IoTopologyReader: IoReader {
     fn read_topology(&mut self) -> Result<Topology>;
 }
 
 pub trait IoTopologyWriter: IoWriter {
-    fn write_topology_subset(
+    fn write_topology(
         &mut self,
-        data: &Topology,
-        subset_indexes: impl IndexIterator,
+        data: &impl IoTopologyProvider
     ) -> Result<()>;
-
-    // Default implementation with all indexes
-    fn write_topology(&mut self, data: &Topology) -> Result<()> {
-        self.write_topology_subset(data, 0..data.atoms.len())
-    }
 }
 
 //===============================
@@ -64,16 +74,10 @@ pub trait IoStateReader: IoReader {
 }
 
 pub trait IoStateWriter: IoWriter {
-    fn write_next_state_subset(
+    fn write_next_state(
         &mut self,
-        data: &State,
-        subset_indexes: impl IndexIterator,
+        data: &impl IoStateProvider,
     ) -> Result<()>;
-
-    // Default implementation with all indexes
-    fn write_next_state(&mut self, data: &State) -> Result<()> {
-        self.write_next_state_subset(data, 0..data.coords.len())
-    }
 }
 
 //==============================
@@ -178,14 +182,13 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
 }
 
 impl<'a> IoTopologyWriter for FileHandler<'a> {
-    fn write_topology_subset(
+    fn write_topology(
         &mut self,
-        data: &Topology,
-        subset_indexes: impl IndexIterator,
+        data: &impl IoTopologyProvider,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
-                h.write_topology_subset(data, subset_indexes)
+                h.write_topology(data)
             }
             _ => bail!("Unable to write topology"),
         }
@@ -206,16 +209,15 @@ impl<'a> IoStateReader for FileHandler<'a> {
 }
 
 impl<'a> IoStateWriter for FileHandler<'a> {
-    fn write_next_state_subset(
+    fn write_next_state(
         &mut self,
-        data: &State,
-        subset_indexes: impl IndexIterator,
+        data: &impl IoStateProvider,
     ) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
-                h.write_next_state_subset(data, subset_indexes)
+                h.write_next_state(data)
             }
-            Self::Xtc(ref mut h) => h.write_next_state_subset(data, subset_indexes),
+            Self::Xtc(ref mut h) => h.write_next_state(data),
             _ => bail!("Unable to write state"),
         }
     }
