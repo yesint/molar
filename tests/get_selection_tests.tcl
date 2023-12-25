@@ -6,6 +6,7 @@ set selections {
     "resid 10"  "resid 10"
     "same residue as (name CA and resid 10)"    "same residue as (name CA and resid 10)"
     "within 5 of resid 10"  "within 0.5 of resid 10"
+    "within 3 of resid 20"  "within 0.3 of resid 20"
 } 
 
 set rust_code ""

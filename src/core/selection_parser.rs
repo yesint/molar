@@ -241,7 +241,7 @@ impl LogicalNode {
             }
             Self::Within(prop, node) => {
                 let inner = node.apply(data)?;
-                println!("{:?}", inner);
+                //println!("{:?}", inner);
                 // Perform distance search
                 let searcher = if prop.pbc == [false, false, false] {
                     // Non-periodic variant
@@ -671,7 +671,7 @@ peg::parser! {
 
         // Single PBC dimention
         rule pbc_dim() -> bool
-        = v:$("1" / "0" / "y" / "n") _ {
+        = v:$("1" / "0" / "y" / "n") {
             match v {
                 "1" | "y" => true,
                 "0" | "n" => false,
@@ -781,8 +781,20 @@ mod tests {
     };
     use lazy_static::lazy_static;
 
+    #[test]
+    fn within_syntax_test() {
+        let ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
+    }
+
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
+        let structure = h.read_topology().unwrap();
+        let state = h.read_next_state().unwrap().unwrap();
+        (structure, state)
+    }
+
+    fn read_test_pdb2() -> (Topology, State) {
+        let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
         let structure = h.read_topology().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
         (structure, state)
@@ -791,6 +803,7 @@ mod tests {
     // Read the test PDB file once and provide the content for tests
     lazy_static! {
         static ref SS: (Topology, State) = read_test_pdb();
+        static ref SS2: (Topology, State) = read_test_pdb2();
     }
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
@@ -801,8 +814,22 @@ mod tests {
         ).expect("Error applying AST")
     }
 
+    fn get_selection_index2(sel_str: &str) -> Vec<usize> {
+        let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        ast.apply_whole(
+            &SS2.0, 
+            &SS2.1
+        ).expect("Error applying AST")
+    }
+
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/generated_selection_tests.in"
     ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/generated_pteros_tests.in"
+    ));
+
 }

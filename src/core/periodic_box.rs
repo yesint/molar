@@ -117,7 +117,7 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn wrap_vector(&self, vec: &Vector3f) -> Vector3f {
+    pub fn shortest_vector(&self, vec: &Vector3f) -> Vector3f {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
         box_vec.apply(|v| {
@@ -127,7 +127,7 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn wrap_vector_dims(&self, vec: &Vector3f, pbc_dims: &PbcDims) -> Vector3f {
+    pub fn shortest_vector_dims(&self, vec: &Vector3f, pbc_dims: &PbcDims) -> Vector3f {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
         for i in 0..3 {
@@ -140,12 +140,12 @@ impl PeriodicBox {
 
     #[inline(always)]
     pub fn closest_image(&self, point: &Pos, target: &Pos) -> Pos {
-        target + self.wrap_vector(&(point - target))
+        target + self.shortest_vector(&(point - target))
     }
 
     #[inline(always)]
     pub fn closest_image_dims(&self, point: &Pos, target: &Pos, pbc_dims: &PbcDims) -> Pos {
-        target + self.wrap_vector_dims(&(point - target), pbc_dims)
+        target + self.shortest_vector_dims(&(point - target), pbc_dims)
     }
 
     pub fn get_matrix(&self) -> Matrix3f {
@@ -169,7 +169,7 @@ impl PeriodicBox {
 
     #[inline(always)]
     pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: &PbcDims) -> f32 {
-        self.wrap_vector_dims(&(p2 - p1), pbc_dims).norm_squared()
+        self.shortest_vector_dims(&(p2 - p1), pbc_dims).norm_squared()
     }
 
     #[inline(always)]

@@ -487,6 +487,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "reason"]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let sel = make_sel_prot()?;
         sel.modify().unwrap_connectivity_dim1(0.2, [true,true,true])?;

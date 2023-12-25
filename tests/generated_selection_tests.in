@@ -31,3 +31,11 @@
         assert_eq!(get_selection_index("within 0.5 of resid 10"),answer);
     }
     
+    #[test]
+    fn selection_test_4 () {
+        let answer: Vec<usize> =
+        "156 274 280 281 283 292 293 294 295 296 297 298 299 300 301 302 303 304 305 306 307 308 309 310 311 312 313 332 1188 1216 1218 1220 1222 1223 1224 1228 1792 1795 9001 9002 9003 15178 15179 15180 15395 23467 23468 25422 31603 31604 31605 33829 33831 41587 41588 41594 43951 43952 54054 55381 55383"
+        .split(" ").map(|x| x.parse::<usize>().unwrap()).collect();
+        assert_eq!(get_selection_index("within 0.3 of resid 20"),answer);
+    }
+    
