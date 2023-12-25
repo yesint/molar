@@ -480,17 +480,9 @@ mod tests {
     }
 
     #[test]
-    fn test_unwrap_connectivity() -> anyhow::Result<()> {
-        let sel = make_sel()?;
-        sel.modify().unwrap_connectivity_dim(0.2, [true,true,true])?;
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "reason"]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let sel = make_sel_prot()?;
-        sel.modify().unwrap_connectivity_dim1(0.2, [true,true,true])?;
+        sel.modify().unwrap_connectivity_dim(0.2, [true,true,true])?;
         
         let mut h = FileHandler::new_writer("unwrapped.pdb")?;
         let q = sel.query();

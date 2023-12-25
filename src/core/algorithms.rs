@@ -150,26 +150,6 @@ pub trait ModifyPeriodic: Modify + BoxProvider {
     fn unwrap_simple(&mut self) -> Result<()> {
         self.unwrap_simple_dim([true,true,true])
     }
-
-    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
-        let b = self.get_box()?.to_owned();
-        let pairs: Vec<(usize,usize)> = SearcherSingleGrid::from_particles_periodic(
-            cutoff,
-            self.iter_particles(),
-            &b,
-            &dims
-        ).search();
-
-        let mut iter = self.iter_pos_mut();
-        let p0 = iter.next().unwrap().to_owned();
-        
-        for p in iter {
-            *p = b.closest_image_dims(&p, &p0, &dims);
-        }
-    
-        Ok(())
-    }
-
 }
 
 pub trait ModifyRandomAccess: ModifyPeriodic {
@@ -180,7 +160,7 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
         self.nth_pos_mut(i)
     }
 
-    fn unwrap_connectivity_dim1(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
+    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
         let b = self.get_box()?.to_owned();
         let conn: SearchConnectivity = SearcherSingleGrid::from_particles_periodic(
             cutoff,
@@ -189,20 +169,14 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
             &dims
         ).search();
 
-        //for p in self.iter_particles().take(100) {
-        //    println!("{}",p.id);
-        //}
-
         // used atoms
         let mut used = HashSet::<usize>::with_capacity(conn.len());
-        // Stack of centers to unwrap
+        // Centers to unwrap
         let mut todo = HashSet::<usize>::new();
         // Place first center to the stack
-        //let first = *conn.iter().next().unwrap().0;
         todo.insert(0);
         used.insert(0); // Mark as done
-        //used.insert(first);
-
+        
         // Loop while stack is not empty
         while !todo.is_empty() {
             let c = todo.iter().next().unwrap().clone();

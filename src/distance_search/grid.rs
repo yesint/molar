@@ -105,25 +105,20 @@ impl Grid<GridCellData> {
         let dim = self.dim();
 
         'outer: for (id, pos) in id_pos {
-            todo!("Need to implement correct wrapping in PeriodicBox!");
-            let wrapped = box_.shortest_vector_dims(&pos.coords, &pbc_dims);
-            println!("{} {}",&pos.coords,wrapped);
-            let rel = box_.to_box_coords(&wrapped);
+            // Relative coordinates
+            let mut rel = box_.to_box_coords(&pos.coords);
             let mut ind = [0usize, 0, 0];
             for d in 0..3 {
-                let n = (dim[d] as f32 * rel[d]).floor() as isize;
-                //println!("{n}");
                 // If dimension in not periodic and
                 // out of bounds - skip the point
-                if !pbc_dims[d] && (n > dim[d] as isize || n < 0) {
+                if !pbc_dims[d] && (rel[d] > 1.0 || rel[d] < 0.0) {
                     continue 'outer;
                 }
-                // Correct for possible minor numeric errors
-                ind[d] = n.clamp(0, dim[d] as isize - 1) as usize;
-                //ind[d]=n as usize;
-                //if n<0 {ind[d] = dim[d]-1}
-                //if n>dim[d] as isize-1 {ind[d] = 0}
-                
+                // Wrap relative dimesion into (0:1)
+                let fr = rel[d].fract();
+                rel[d] = if fr>=0.0 {fr} else {1.0-fr};
+                // Compute bin
+                ind[d] = (rel[d]*dim[d] as f32).floor() as usize;
             }
             //println!("{:?}",ind);
             self.data[ind].add(id, &pos);
