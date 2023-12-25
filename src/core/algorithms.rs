@@ -1,3 +1,6 @@
+use std::array::from_fn;
+use std::collections::HashSet;
+
 use anyhow::{bail, Result};
 use num_traits::Zero;
 use num_traits::Bounded;
@@ -9,7 +12,9 @@ use crate::io::IndexAndStateProvider;
 use super::Atom;
 use super::AtomIterator;
 use super::AtomMutIterator;
+use super::Particle;
 use super::ParticleIteratorAdaptor;
+use super::ParticleMut;
 use super::ParticleMutIterator;
 use super::PbcDims;
 use super::PeriodicBox;
@@ -106,18 +111,22 @@ pub trait MeasurePeriodic: Measure + BoxProvider {
 /// The trait for modifying the particles. User types should
 /// implement `iter_mut`.
 pub trait Modify {
-    fn iter_particles(&mut self) -> impl ParticleMutIterator<'_>;
-
-    fn iter_pos(&mut self) -> impl PosMutIterator<'_> {
-        self.iter_particles().map(|p| p.pos)
+    fn iter_particles_mut(&mut self) -> impl ParticleMutIterator<'_>;
+    
+    fn iter_particles(&mut self) -> impl ParticleIterator<'_>{
+        self.iter_particles_mut().map(|p| p.into())
     }
 
-    fn iter_atoms(&mut self) -> impl AtomMutIterator<'_> {
-        self.iter_particles().map(|p| p.atom)
+    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
+        self.iter_particles_mut().map(|p| p.pos)
+    }
+
+    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
+        self.iter_particles_mut().map(|p| p.atom)
     }
 
     fn translate(&mut self, shift: Vector3f) {
-        for el in self.iter_pos() {
+        for el in self.iter_pos_mut() {
             *el += shift;
         }
     }
@@ -128,7 +137,7 @@ pub trait Modify {
 pub trait ModifyPeriodic: Modify + BoxProvider {
     fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<()> {
         let b = self.get_box()?.clone();
-        let mut iter = self.iter_pos();
+        let mut iter = self.iter_pos_mut();
         if iter.len()>0 {
             let p0 = iter.next().unwrap();
             for p in iter {
@@ -142,5 +151,85 @@ pub trait ModifyPeriodic: Modify + BoxProvider {
         self.unwrap_simple_dim([true,true,true])
     }
 
+    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
+        let b = self.get_box()?.to_owned();
+        let pairs: Vec<(usize,usize)> = SearcherSingleGrid::from_particles_periodic(
+            cutoff,
+            self.iter_particles(),
+            &b,
+            &dims
+        ).search();
+
+        let mut iter = self.iter_pos_mut();
+        let p0 = iter.next().unwrap().to_owned();
+        
+        for p in iter {
+            *p = b.closest_image_dims(&p, &p0, &dims);
+        }
+    
+        Ok(())
+    }
+
 }
 
+pub trait ModifyRandomAccess: ModifyPeriodic {
+    fn nth_particle_mut(&mut self, i: usize) -> ParticleMut;
+    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos;
+
+    fn nth_pos(&mut self, i: usize) -> &Pos {
+        self.nth_pos_mut(i)
+    }
+
+    fn unwrap_connectivity_dim1(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
+        let b = self.get_box()?.to_owned();
+        let conn: SearchConnectivity = SearcherSingleGrid::from_particles_periodic(
+            cutoff,
+            self.iter_particles(),
+            &b,
+            &dims
+        ).search();
+
+        //for p in self.iter_particles().take(100) {
+        //    println!("{}",p.id);
+        //}
+
+        // used atoms
+        let mut used = HashSet::<usize>::with_capacity(conn.len());
+        // Stack of centers to unwrap
+        let mut todo = HashSet::<usize>::new();
+        // Place first center to the stack
+        //let first = *conn.iter().next().unwrap().0;
+        todo.insert(0);
+        used.insert(0); // Mark as done
+        //used.insert(first);
+
+        // Loop while stack is not empty
+        while !todo.is_empty() {
+            let c = todo.iter().next().unwrap().clone();
+            todo.remove(&c);
+            
+            // Central point
+            let p0 = self.nth_pos(c).to_owned();
+
+            // Iterate over connected points
+            for ind in &conn[c] {
+                // Unwrap this point if it is not used yet
+                if !used.contains(ind) {
+                    let p = self.nth_pos_mut(*ind);
+                    *p = b.closest_image_dims(p, &p0, &dims);
+                    // Add it to the stack
+                    todo.insert(*ind);
+                    used.insert(*ind);
+                }
+            }
+    
+            println!(">> {:?}",todo);        
+        }
+
+        if used.len() != conn.len() {
+            bail!("Selection is not compact for cutoff={} {}->{}",cutoff,used.len(),conn.len())
+        }
+
+        Ok(())
+    }
+}

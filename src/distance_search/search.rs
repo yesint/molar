@@ -17,8 +17,12 @@ pub struct ValidPair {
 pub struct SearchConnectivity (HashMap<usize,Vec<usize>>);
 
 impl SearchConnectivity {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn iter(&self) -> SearchConnectivityIter {
+        SearchConnectivityIter(self.0.iter())
     }
 }
 
@@ -42,7 +46,33 @@ impl FromIterator<(usize,usize)> for SearchConnectivity {
     }
 }
 
+pub struct SearchConnectivityIter<'a>(
+    std::collections::hash_map::Iter<'a,usize,Vec<usize>>
+);
 
+impl<'a> Iterator for SearchConnectivityIter<'a> {
+    type Item = (&'a usize,&'a Vec<usize>);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl IntoIterator for SearchConnectivity {
+    type Item = (usize,Vec<usize>);
+    type IntoIter = std::collections::hash_map::IntoIter<usize,Vec<usize>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl std::ops::Index<usize> for SearchConnectivity {
+    type Output = Vec<usize>;
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[&i]
+    }
+}
+
+//========================================================
 pub struct SearcherSingleGrid {
     grid: Grid<GridCellData>,
     cutoff: f32,
@@ -186,6 +216,7 @@ impl SearcherSingleGrid {
                 }
             }
         }
+
         found
     }
 }
@@ -254,13 +285,11 @@ impl SearcherDoubleGrid {
         }
     }
 
-    #[inline]
     fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         let pbc = self.grid1.pbc.as_ref().unwrap(); // First grid as reference
         pbc.box_.distance_squared(p1, p2, &pbc.dims)
     }
 
-    #[inline]
     fn dist_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         (p1 - p2).norm_squared()
     }
@@ -399,14 +428,13 @@ fn test_single_non_periodic() {
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
-    let searcher = SearcherSingleGrid::from_state_subset(
+    let searcher = SearcherSingleGrid::from_state_subset_periodic(
         0.3,
         &st,
         0..st.coords.len(),
-        &Vector3f::new(0.0, 0.0, 0.0),
-        &Vector3f::new(1.0, 1.0, 1.0),
+        &[true,true,true],
     );
-    let found: SearchConnectivity = searcher.search();
+    let found: Vec<(usize,usize)> = searcher.search();
     println!("{:?}", found.len())
 }
 

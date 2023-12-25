@@ -2,7 +2,7 @@ use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 
 use crate::{io::{IndexAndTopologyProvider, IndexAndStateProvider}, distance_search::search::SearcherSingleGrid};
 
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, PbcDims};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, PbcDims, ModifyRandomAccess};
 use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -296,35 +296,6 @@ where
     index: &'a Vec<usize>,
 }
 
-impl<T,S> Selection<T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<()> {
-        let q = self.query();
-        let pairs: Vec<(usize,usize)> = SearcherSingleGrid::from_state_subset_periodic(
-            cutoff,
-            &q.state_ref,
-            self.index.iter().cloned(),
-            &dims
-        ).search();
-
-        let b = q.state_ref.box_.as_ref().unwrap().clone();
-        let p0 = q.state_ref.coords[self.index[0]];
-        let n = self.index.len();
-
-        drop(q);
-        
-        let mut m = self.modify();
-        for i in 0..n {
-            let p = &mut m.state_ref.coords[self.index[i]];
-            *p = b.closest_image_dims(&p, &p0, &dims);
-        }
-    
-        Ok(())
-    }
-}
 //==================================================================
 // Implement analysis traits
 
@@ -382,7 +353,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn iter_particles(&mut self) -> impl ParticleMutIterator<'_> {
+    fn iter_particles_mut(&mut self) -> impl ParticleMutIterator<'_> {
         ParticleMutIteratorAdaptor::new(
             &mut self.topology_ref.atoms,
             &mut self.state_ref.coords,
@@ -397,6 +368,24 @@ where
     S: UniRcLock<State>,
 {}
 
+impl<T, S> ModifyRandomAccess for SelectionModifyGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn nth_particle_mut(&mut self, i: usize) -> ParticleMut {
+        ParticleMut{
+            id: i,
+            pos: &mut self.state_ref.coords[self.index[i]],
+            atom: &mut self.topology_ref.atoms[self.index[i]],
+        }
+    }
+
+    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos {
+        &mut self.state_ref.coords[self.index[i]]
+    }
+}
+
 //==================================================================
 
 //##############################
@@ -407,7 +396,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, Measure, MeasurePeriodic, Modify, Vector3f},
+        core::{selection::Select, Topology, Measure, MeasurePeriodic, Modify, Vector3f, ModifyPeriodic, ModifyRandomAccess},
         io::*,
     };
     use lazy_static::lazy_static;
@@ -430,6 +419,13 @@ mod tests {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
         let sel = "name CA".select(t, s)?;
+        Ok(sel)
+    }
+
+    fn make_sel_prot() -> anyhow::Result<SelectionRc> {
+        let t = SS.0.clone().to_rc();
+        let s = SS.1.clone().to_rc();
+        let sel = "not resname TIP3 POT CLA".select(t, s)?;
         Ok(sel)
     }
 
@@ -467,9 +463,9 @@ mod tests {
         let sel = make_sel().unwrap();
         let mut w = sel.modify();
 
-        println!("before {}",w.iter_pos().next().unwrap());
+        println!("before {}",w.iter_pos_mut().next().unwrap());
         w.translate(Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",w.iter_pos().next().unwrap());
+        println!("after {}",w.iter_pos_mut().next().unwrap());
     }
 
     #[test]
@@ -486,7 +482,19 @@ mod tests {
     #[test]
     fn test_unwrap_connectivity() -> anyhow::Result<()> {
         let sel = make_sel()?;
-        sel.unwrap_connectivity_dim(0.2, [true,true,true])?;
+        sel.modify().unwrap_connectivity_dim(0.2, [true,true,true])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
+        let sel = make_sel_prot()?;
+        sel.modify().unwrap_connectivity_dim1(0.2, [true,true,true])?;
+        
+        let mut h = FileHandler::new_writer("unwrapped.pdb")?;
+        let q = sel.query();
+        h.write_topology(&q)?;
+        h.write_next_state(&q)?;
         Ok(())
     }
 }

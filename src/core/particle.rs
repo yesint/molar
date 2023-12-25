@@ -69,7 +69,7 @@ impl<'a> Iterator for ParticleIteratorAdaptor<'a> {
             Some(Particle {
                 atom: &self.atom_ref[ind],
                 pos: &self.pos_ref[ind],
-                id: ind,
+                id: self.cur,
             })
         } else {
             None
@@ -122,7 +122,7 @@ impl<'a> Iterator for ParticleMutIteratorAdaptor<'a> {
                 Some(ParticleMut {
                     atom: &mut *p_atom,
                     pos: &mut *p_pos,
-                    id: ind,
+                    id: self.cur-1,
                 })
             }
         } else {
