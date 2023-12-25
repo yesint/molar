@@ -160,7 +160,11 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
         self.nth_pos_mut(i)
     }
 
-    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<()> {
+    fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<()> {
+        self.unwrap_connectivity_dim(cutoff, &[true,true,true])
+    }
+    
+    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: &PbcDims) -> Result<()> {
         let b = self.get_box()?.to_owned();
         let conn: SearchConnectivity = SearcherSingleGrid::from_particles_periodic(
             cutoff,
@@ -170,38 +174,33 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
         ).search();
 
         // used atoms
-        let mut used = HashSet::<usize>::with_capacity(conn.len());
+        let mut used = vec![false;conn.len()];
         // Centers to unwrap
-        let mut todo = HashSet::<usize>::new();
+        let mut todo = Vec::<usize>::with_capacity(conn.len()/2);
         // Place first center to the stack
-        todo.insert(0);
-        used.insert(0); // Mark as done
+        todo.push(0);
+        used[0] = true;
         
         // Loop while stack is not empty
-        while !todo.is_empty() {
-            let c = todo.iter().next().unwrap().clone();
-            todo.remove(&c);
-            
+        while let Some(c) = todo.pop() {
             // Central point
             let p0 = self.nth_pos(c).to_owned();
-
             // Iterate over connected points
             for ind in &conn[c] {
                 // Unwrap this point if it is not used yet
-                if !used.contains(ind) {
+                if !used[*ind] {
                     let p = self.nth_pos_mut(*ind);
                     *p = b.closest_image_dims(p, &p0, &dims);
                     // Add it to the stack
-                    todo.insert(*ind);
-                    used.insert(*ind);
+                    todo.push(*ind);
+                    used[*ind] = true;
                 }
             }
-    
-            println!(">> {:?}",todo);        
+            //println!(">> {:?}",todo);        
         }
 
         if used.len() != conn.len() {
-            bail!("Selection is not compact for cutoff={} {}->{}",cutoff,used.len(),conn.len())
+            bail!("Selection is not compact for cutoff={}",cutoff)
         }
 
         Ok(())
