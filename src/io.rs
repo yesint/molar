@@ -1,4 +1,4 @@
-use crate::core::{IndexIterator, State, Topology, MeasurePeriodic};
+use crate::core::{IndexIterator, State, Topology};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 

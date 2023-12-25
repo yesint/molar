@@ -1,8 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
-
-use crate::{io::{IndexAndTopologyProvider, IndexAndStateProvider}, distance_search::search::SearcherSingleGrid};
-
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, PbcDims, ModifyRandomAccess};
+use crate::io::{IndexAndTopologyProvider, IndexAndStateProvider};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess};
 use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -157,8 +155,8 @@ where
     index: Vec<usize>,
 }
 
-type SelectionRc = Selection< Rc<RefCell<Topology>>, Rc<RefCell<State>> >;
-type SelectionArc = Selection< Arc<RwLock<Topology>>, Arc<RwLock<State>> >;
+pub type SelectionRc = Selection< Rc<RefCell<Topology>>, Rc<RefCell<State>> >;
+pub type SelectionArc = Selection< Arc<RwLock<Topology>>, Arc<RwLock<State>> >;
 
 impl<T, S> Selection<T, S>
 where
@@ -396,7 +394,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, Measure, MeasurePeriodic, Modify, Vector3f, ModifyPeriodic, ModifyRandomAccess},
+        core::{selection::Select, Topology, Measure, Modify, Vector3f, ModifyRandomAccess},
         io::*,
     };
     use lazy_static::lazy_static;

@@ -1,4 +1,4 @@
-use super::{Atom, IndexIterator, Pos};
+use super::{Atom, Pos};
 
 #[derive(Debug, Clone)]
 pub struct Particle<'a> {

@@ -1,19 +1,10 @@
-use std::array::from_fn;
-use std::collections::HashSet;
-
 use anyhow::{bail, Result};
 use num_traits::Zero;
 use num_traits::Bounded;
-
 use crate::distance_search::search::SearchConnectivity;
 use crate::distance_search::search::SearcherSingleGrid;
-use crate::io::IndexAndStateProvider;
-
-use super::Atom;
 use super::AtomIterator;
 use super::AtomMutIterator;
-use super::Particle;
-use super::ParticleIteratorAdaptor;
 use super::ParticleMut;
 use super::ParticleMutIterator;
 use super::PbcDims;

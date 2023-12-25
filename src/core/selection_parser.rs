@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn within_syntax_test() {
-        let ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
+        let _ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
     }
 
     fn read_test_pdb() -> (Topology, State) {

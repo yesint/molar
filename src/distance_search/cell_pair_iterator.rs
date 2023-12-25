@@ -1,7 +1,4 @@
-use std::cell::Cell;
-
 use crate::core::PbcDims;
-
 use super::grid::{CellLoc, CellPair};
 use nalgebra::Vector3;
 
