@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
-use crate::io::{IndexAndTopologyProvider, IndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos};
+use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, MeasureParticles, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -263,7 +263,7 @@ where
     index: &'a Vec<usize>,
 }
 
-impl<'a,T,S> IndexAndTopologyProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IoIndexAndTopologyProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
@@ -273,7 +273,7 @@ where
     }
 }
 
-impl<'a,T,S> IndexAndStateProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IoIndexAndStateProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
@@ -317,7 +317,7 @@ where
     }    
 }
 
-impl<T, S> Measure for SelectionQueryGuard<'_, T, S>
+impl<T, S> MeasureParticles for SelectionQueryGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -395,7 +395,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, Measure, MeasurePos, Modify, Vector3f, ModifyRandomAccess},
+        core::{selection::Select, Topology, MeasureParticles, MeasurePos, Modify, Vector3f, ModifyRandomAccess},
         io::*,
     };
     use lazy_static::lazy_static;

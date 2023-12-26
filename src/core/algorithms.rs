@@ -55,7 +55,7 @@ pub trait MeasurePos {
 /// Trait for measuring various properties that requires only
 /// the iterator of particles. User types should 
 /// implement `iter`
-pub trait Measure: MeasurePos {
+pub trait MeasureParticles: MeasurePos {
     fn iter_particles(&self) -> impl ParticleIterator<'_>;
 
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
@@ -80,7 +80,7 @@ pub trait Measure: MeasurePos {
 
 /// The trait for measuring properties that requires
 /// a periodic box information.
-pub trait MeasurePeriodic: Measure + BoxProvider {
+pub trait MeasurePeriodic: MeasureParticles + BoxProvider {
     fn center_of_mass_pbc(&self) -> Result<Pos> {
         let b = self.get_box()?;
         let mut iter = self.iter_particles();

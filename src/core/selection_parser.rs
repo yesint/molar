@@ -249,11 +249,11 @@ impl LogicalNode {
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
-                    println!("{:?} {:?} {:?}", lower, upper, prop.cutoff);
+                    
                     DistanceSearcherDouble::new(
                         prop.cutoff,
-                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
-                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
+                        data.state.iter_id_pos_indexed(data.subset.iter().cloned()),
+                        data.state.iter_id_pos_indexed(inner.iter().cloned()),
                         &lower,
                         &upper,
                     )
@@ -261,8 +261,8 @@ impl LogicalNode {
                     // Periodic variant
                     DistanceSearcherDouble::new_periodic(
                         prop.cutoff,
-                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
-                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
+                        data.state.iter_id_pos_indexed(data.subset.iter().cloned()),
+                        data.state.iter_id_pos_indexed(inner.iter().cloned()),
                         data.state.box_.as_ref().unwrap(),
                         &prop.pbc,
                     )

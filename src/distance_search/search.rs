@@ -1,10 +1,10 @@
 use super::grid::*;
 use crate::{
-    core::{IndexIterator, ParticleIterator, PbcDims, PeriodicBox, Pos, State, Vector3f, IdPosIterator, MeasurePos},
+    core::{PbcDims, PeriodicBox, Pos, Vector3f, IdPosIterator, MeasurePos},
     distance_search::cell_pair_iterator::CellPairIter,
 };
 //use rayon::prelude::*;
-use std::{collections::HashMap, marker::PhantomData};
+use std::collections::HashMap;
 
 pub struct FoundPair {
     pub i: usize,

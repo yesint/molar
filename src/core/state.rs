@@ -1,8 +1,7 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
-
-use crate::io::IndexAndStateProvider;
+use crate::io::IoIndexAndStateProvider;
 use anyhow::{Result, anyhow};
-use super::{PeriodicBox, Pos, BoxProvider, Measure, MeasurePos};
+use super::{PeriodicBox, Pos, BoxProvider, MeasurePos, IdPosIterator, IndexIterator};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
@@ -24,9 +23,13 @@ impl State {
     pub fn to_arc(self) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(self))
     }
+
+    pub fn iter_id_pos_indexed<'a>(&'a self, index: impl IndexIterator) -> impl IdPosIterator<'a> {
+        index.map(|i| (i,&self.coords[i]))
+    }
 }
 
-impl IndexAndStateProvider for State {
+impl IoIndexAndStateProvider for State {
     fn get_index_and_state(&self) -> (impl super::IndexIterator, &State) {
         (0..self.coords.len(), &self)
     }
