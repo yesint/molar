@@ -7,7 +7,7 @@ use super::atom::Atom;
 use super::state::State;
 use super::topology::Topology;
 use super::{IndexIterator, PbcDims};
-use crate::distance_search::search::SearcherDoubleGrid;
+use crate::distance_search::search::DistanceSearcherDouble;
 use std::collections::HashSet;
 
 use crate::core::{Pos, Vector3f};
@@ -250,23 +250,20 @@ impl LogicalNode {
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
                     println!("{:?} {:?} {:?}", lower, upper, prop.cutoff);
-                    SearcherDoubleGrid::from_state_subset(
+                    DistanceSearcherDouble::new(
                         prop.cutoff,
-                        data.state,
-                        data.subset.iter().cloned(),
-                        data.state,
-                        inner.iter().cloned(),
+                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
+                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
                         &lower,
                         &upper,
                     )
                 } else {
                     // Periodic variant
-                    SearcherDoubleGrid::from_state_subset_periodic(
+                    DistanceSearcherDouble::new_periodic(
                         prop.cutoff,
-                        data.state,
-                        data.subset.iter().cloned(),
-                        data.state,
-                        inner.iter().cloned(),
+                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
+                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
+                        data.state.box_.as_ref().unwrap(),
                         &prop.pbc,
                     )
                 };

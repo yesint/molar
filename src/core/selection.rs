@@ -1,7 +1,7 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IndexAndTopologyProvider, IndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess};
-use anyhow::{bail, Result, anyhow};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, Measure, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos};
+use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
 
@@ -307,6 +307,16 @@ where
     }
 }
 
+impl<T, S> MeasurePos for SelectionQueryGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        self.index.iter().map(|i| &self.state_ref.coords[*i])
+    }    
+}
+
 impl<T, S> Measure for SelectionQueryGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
@@ -334,15 +344,6 @@ where
 {
     fn get_box(&self) -> Result<&PeriodicBox> {
         self.state_ref.get_box()
-    }
-}
-
-impl BoxProvider for State {
-    fn get_box(&self) -> Result<&PeriodicBox> {
-        let r = self.box_
-            .as_ref()
-            .ok_or(anyhow!("No periodic box"))?;
-        Ok(&r)
     }
 }
 
@@ -394,7 +395,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, Measure, Modify, Vector3f, ModifyRandomAccess},
+        core::{selection::Select, Topology, Measure, MeasurePos, Modify, Vector3f, ModifyRandomAccess},
         io::*,
     };
     use lazy_static::lazy_static;

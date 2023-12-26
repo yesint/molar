@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use num_traits::Zero;
 use num_traits::Bounded;
 use crate::distance_search::search::SearchConnectivity;
-use crate::distance_search::search::SearcherSingleGrid;
+use crate::distance_search::search::DistanceSearcherSingle;
 use super::AtomIterator;
 use super::AtomMutIterator;
 use super::ParticleMut;
@@ -25,18 +25,9 @@ pub trait BoxMutProvider {
 }
 
 /// Trait for measuring various properties that requires only
-/// the iterator of particles. User types should 
-/// implement `iter`
-pub trait Measure {
-    fn iter_particles(&self) -> impl ParticleIterator<'_>;
-    
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.iter_particles().map(|p| p.pos)
-    }
-
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.iter_particles().map(|p| p.atom)
-    }
+/// the iterator of positions.
+pub trait MeasurePos {
+    fn iter_pos(&self) -> impl PosIterator<'_>;
 
     fn min_max(&self) -> (Pos,Pos) {
         let mut lower = Pos::max_value();
@@ -58,6 +49,17 @@ pub trait Measure {
             |acc, el| acc + el.coords
         );
         c / n as f32
+    }
+}
+
+/// Trait for measuring various properties that requires only
+/// the iterator of particles. User types should 
+/// implement `iter`
+pub trait Measure: MeasurePos {
+    fn iter_particles(&self) -> impl ParticleIterator<'_>;
+
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.iter_particles().map(|p| p.atom)
     }
 
     fn center_of_mass(&self) -> Result<Pos> {
@@ -157,9 +159,9 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
     
     fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: &PbcDims) -> Result<()> {
         let b = self.get_box()?.to_owned();
-        let conn: SearchConnectivity = SearcherSingleGrid::from_particles_periodic(
+        let conn: SearchConnectivity = DistanceSearcherSingle::new_periodic(
             cutoff,
-            self.iter_particles(),
+            self.iter_particles().map(|p| (p.id, p.pos)),
             &b,
             &dims
         ).search();

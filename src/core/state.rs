@@ -1,8 +1,8 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 
 use crate::io::IndexAndStateProvider;
-
-use super::{PeriodicBox, Pos};
+use anyhow::{Result, anyhow};
+use super::{PeriodicBox, Pos, BoxProvider, Measure, MeasurePos};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
@@ -29,5 +29,20 @@ impl State {
 impl IndexAndStateProvider for State {
     fn get_index_and_state(&self) -> (impl super::IndexIterator, &State) {
         (0..self.coords.len(), &self)
+    }
+}
+
+impl BoxProvider for State {
+    fn get_box(&self) -> Result<&PeriodicBox> {
+        let r = self.box_
+            .as_ref()
+            .ok_or(anyhow!("No periodic box"))?;
+        Ok(&r)
+    }
+}
+
+impl MeasurePos for State {
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        self.coords.iter()
     }
 }
