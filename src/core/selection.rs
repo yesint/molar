@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, BoxProvider, PeriodicBox, MeasureParticles, Modify, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureParticles, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -297,7 +297,7 @@ where
 //==================================================================
 // Implement analysis traits
 
-impl<T,S> BoxProvider for SelectionQueryGuard<'_,T,S> 
+impl<T,S> MeasureBox for SelectionQueryGuard<'_,T,S> 
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -337,7 +337,7 @@ where
     S: UniRcLock<State>,
 {}
 
-impl<T,S> BoxProvider for SelectionModifyGuard<'_,T,S> 
+impl<T,S> MeasureBox for SelectionModifyGuard<'_,T,S> 
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -347,7 +347,7 @@ where
     }
 }
 
-impl<T, S> Modify for SelectionModifyGuard<'_, T, S>
+impl<T, S> ModifyParticles for SelectionModifyGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -395,7 +395,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureParticles, MeasurePos, Modify, Vector3f, ModifyRandomAccess},
+        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, rot_transform_matrix},
         io::*,
     };
     use lazy_static::lazy_static;
@@ -488,5 +488,12 @@ mod tests {
         h.write_topology(&q)?;
         h.write_next_state(&q)?;
         Ok(())
+    }
+
+    #[test]
+    fn eigen_test() {
+        let sel = make_sel_prot().unwrap();
+        let m = rot_transform_matrix(sel.query().iter_particles(), sel.query().iter_particles());
+        println!("{m}")
     }
 }

@@ -16,7 +16,7 @@ categories = ["science", "simulation", "external-ffi-bindings"]
 ascii = "1.1"
 anyhow = "1.0"
 nalgebra = "0.32"
-#nalgebra-lapack = "0.24"
+nalgebra-lapack = "0.24"
 peg = "0.8.1"
 regex = "1.9.3"
 cmake = "0.1"
@@ -49,7 +49,7 @@ molar_gromacs = {path = "crates/molar_gromacs", version="0.1", optional = true}
 ascii.workspace = true
 anyhow.workspace = true
 nalgebra.workspace = true
-#nalgebra-lapack.workspace = true
+nalgebra-lapack.workspace = true
 peg.workspace = true
 regex.workspace = true
 lazy_static = "1.4.0"

@@ -1,7 +1,7 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::IoIndexAndStateProvider;
 use anyhow::{Result, anyhow};
-use super::{PeriodicBox, Pos, BoxProvider, MeasurePos, IdPosIterator, IndexIterator};
+use super::{PeriodicBox, Pos, MeasureBox, MeasurePos, IdPosIterator, IndexIterator};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
@@ -35,7 +35,7 @@ impl IoIndexAndStateProvider for State {
     }
 }
 
-impl BoxProvider for State {
+impl MeasureBox for State {
     fn get_box(&self) -> Result<&PeriodicBox> {
         let r = self.box_
             .as_ref()

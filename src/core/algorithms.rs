@@ -1,27 +1,15 @@
+use core::f32::consts::SQRT_2;
+
 use anyhow::{bail, Result};
 use num_traits::Zero;
 use num_traits::Bounded;
-use crate::distance_search::search::SearchConnectivity;
-use crate::distance_search::search::DistanceSearcherSingle;
-use super::AtomIterator;
-use super::AtomMutIterator;
-use super::ParticleMut;
-use super::ParticleMutIterator;
-use super::PbcDims;
-use super::PeriodicBox;
-use super::PosMutIterator;
-use super::{
-    ParticleIterator,
-    Pos, Vector3f, PosIterator,
-};
+use crate::distance_search::search::{SearchConnectivity, DistanceSearcherSingle};
+use super::Matrix3f;
+use super::{AtomIterator, AtomMutIterator, ParticleMut, ParticleMutIterator, PbcDims, PeriodicBox, PosMutIterator, ParticleIterator, Pos, Vector3f, PosIterator};
  
 // Trait that provides periodic box information
-pub trait BoxProvider {
+pub trait MeasureBox {
     fn get_box(&self) -> Result<&PeriodicBox>;
-}
-
-pub trait BoxMutProvider {
-    fn get_box_mut(&mut self) -> Result<&mut PeriodicBox>;
 }
 
 /// Trait for measuring various properties that requires only
@@ -52,15 +40,14 @@ pub trait MeasurePos {
     }
 }
 
+pub trait MeasureAtoms {
+    fn iter_atoms(&self) -> impl AtomIterator<'_>;
+}
 /// Trait for measuring various properties that requires only
 /// the iterator of particles. User types should 
 /// implement `iter`
 pub trait MeasureParticles: MeasurePos {
     fn iter_particles(&self) -> impl ParticleIterator<'_>;
-
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.iter_particles().map(|p| p.atom)
-    }
 
     fn center_of_mass(&self) -> Result<Pos> {
         let c = self.iter_particles().fold(
@@ -80,7 +67,7 @@ pub trait MeasureParticles: MeasurePos {
 
 /// The trait for measuring properties that requires
 /// a periodic box information.
-pub trait MeasurePeriodic: MeasureParticles + BoxProvider {
+pub trait MeasurePeriodic: MeasureParticles + MeasureBox {
     fn center_of_mass_pbc(&self) -> Result<Pos> {
         let b = self.get_box()?;
         let mut iter = self.iter_particles();
@@ -103,7 +90,7 @@ pub trait MeasurePeriodic: MeasureParticles + BoxProvider {
 
 /// The trait for modifying the particles. User types should
 /// implement `iter_mut`.
-pub trait Modify {
+pub trait ModifyParticles {
     fn iter_particles_mut(&mut self) -> impl ParticleMutIterator<'_>;
     
     fn iter_particles(&mut self) -> impl ParticleIterator<'_>{
@@ -127,7 +114,7 @@ pub trait Modify {
 
 /// The trait for modifying the particles that requires
 /// the periodic box.
-pub trait ModifyPeriodic: Modify + BoxProvider {
+pub trait ModifyPeriodic: ModifyParticles + MeasureBox {
     fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<()> {
         let b = self.get_box()?.clone();
         let mut iter = self.iter_pos_mut();
@@ -198,4 +185,89 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
 
         Ok(())
     }
+}
+
+/// Computes a rotational part of the fit transform 
+pub fn rot_transform_matrix<'a>(
+    sel1: impl ParticleIterator<'a>, 
+    sel2: impl ParticleIterator<'a>
+) -> nalgebra::Matrix3<f32> 
+{
+    let n = sel1.len();
+
+    //Calculate the matrix U
+    let mut u = Matrix3f::zeros();
+
+    for (p1,p2) in std::iter::zip(sel1,sel2) {
+        u += p1.pos.coords * p2.pos.coords.transpose() * p1.atom.mass;
+    }
+
+    //Construct omega
+    /*
+     u= 1 4 7
+        2 5 8
+        3 6 9
+    omega =
+    0 0 0 1 2 3
+    0 0 0 4 5 6
+    0 0 0 7 8 9
+    1 4 7 0 0 0
+    2 5 8 0 0 0
+    3 6 9 0 0 0
+    */
+    let mut omega = nalgebra::Matrix6::<f32>::zeros();
+    omega.fixed_view_mut::<3,3>(0,3).copy_from(&u.transpose());
+    omega.fixed_view_mut::<3,3>(3,0).copy_from(&u);
+
+    //Finding eigenvalues of omega
+    // Lapack binding produces sorted eigenvectors, while native nalgebra do not!
+    let eig = nalgebra_lapack::SymmetricEigen::new(omega);
+    let om = eig.eigenvectors;
+    /*  Copy only the first two eigenvectors
+        The eigenvectors are already sorted ascending by their eigenvalues!
+    */
+
+    /*
+     i0 1 2 3 4 5
+    j*-----------
+    0|0 0 0 0 1 7
+    1|0 0 0 0 2 8
+    2|0 0 0 0 3 9
+    3|0 0 0 0 4 10
+    4|0 0 0 0 5 11
+    5|0 0 0 0 6 12
+
+    vh:
+    7 8 9
+    1 2 3
+    ? ? ?
+
+    vk:
+    10 11 12
+     4  5  6
+     ?  ?  ?
+    */
+
+    // Calculate the last eigenvector as the cross-product of the first two.
+    // This insures that the conformation is not mirrored and
+    // prevents problems with completely flat reference structures.
+    let vh0 = om.fixed_view::<3,1>(0, 5).transpose() * SQRT_2;
+    let vh1 = om.fixed_view::<3,1>(0, 4).transpose() * SQRT_2;
+    let vh2 = vh0.cross(&vh1);
+    let vh = Matrix3f::from_rows(&[vh0,vh1,vh2]);
+
+    let vk0 = om.fixed_view::<3,1>(3, 5).transpose() * SQRT_2;
+    let vk1 = om.fixed_view::<3,1>(3, 4).transpose() * SQRT_2;
+    let vk2 = vk0.cross(&vk1);
+    let vk = Matrix3f::from_rows(&[vk0,vk1,vk2]);
+
+    /* Determine rotational part */
+    let mut rot = Matrix3f::zeros();
+    for r in 0..3 {
+        for c in 0..3 {
+            rot[(c,r)] = vk[(0,r)]*vh[(0,c)] + vk[(1,r)]*vh[(1,c)] + vk[(2,r)]*vh[(2,c)];
+        }
+    }
+    
+    rot
 }

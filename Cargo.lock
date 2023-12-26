@@ -191,6 +191,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapack"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad676a6b4df7e76a9fd80a0c50c619a3948d6105b62a0ab135f064d99c51d207"
+dependencies = [
+ "lapack-sys",
+ "libc",
+ "num-complex",
+]
+
+[[package]]
+name = "lapack-src"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a3cb33e1ac8989473dde32d37edc8cd0da00b655306eb5bb1cb0b7968612b2"
+dependencies = [
+ "netlib-src",
+]
+
+[[package]]
+name = "lapack-sys"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "447f56c85fb410a7a3d36701b2153c1018b1d2b908c5fbaf01c1b04fac33bcbe"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -273,6 +302,7 @@ dependencies = [
  "molar_molfile",
  "molar_xdrfile",
  "nalgebra",
+ "nalgebra-lapack",
  "ndarray",
  "num-traits",
  "peg",
@@ -326,6 +356,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nalgebra-lapack"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5a624592c6df3fc0a459312dac2621316730fdb9a7a44178b7a4bd0353b1bb7"
+dependencies = [
+ "lapack",
+ "lapack-src",
+ "nalgebra",
+ "num-complex",
+ "num-traits",
+ "simba",
+]
+
+[[package]]
 name = "nalgebra-macros"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -347,6 +391,15 @@ dependencies = [
  "num-integer",
  "num-traits",
  "rawpointer",
+]
+
+[[package]]
+name = "netlib-src"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39f41f36bb4d46906d5a72da5b73a804d9de1a7282eb7c89617201acda7b8212"
+dependencies = [
+ "cmake",
 ]
 
 [[package]]
