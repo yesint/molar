@@ -86,10 +86,8 @@ impl SearcherSingleGrid {
         lower: &Vector3f,
         upper: &Vector3f,
     ) -> Self {
-        // Get grid dimensions
-        let grid_sz = grid_size(cutoff, lower, upper);
-        let mut grid = Grid::<GridCellData>::new(grid_sz);
-
+        // Create grid
+        let mut grid = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff,lower,upper);
         grid.populate(subset.map(|i| (i, &state.coords[i])), lower, upper);
         // Create an instance
         Self { grid, cutoff }
@@ -101,10 +99,8 @@ impl SearcherSingleGrid {
         subset: impl IndexIterator,
         periodic_dims: &PbcDims,
     ) -> Self {
-        // Get grid dimensions
-        let grid_sz = grid_size_periodic(cutoff, &state.box_.as_ref().unwrap());
-        let mut grid = Grid::<GridCellData>::new(grid_sz);
-
+        // Create grid
+        let mut grid = Grid::<GridCellData>::from_cuoff_and_box(cutoff, &state.box_.as_ref().unwrap());
         grid.populate_periodic(
             subset.map(|i| (i, &state.coords[i])),
             &state.box_.as_ref().unwrap(),
@@ -120,10 +116,8 @@ impl SearcherSingleGrid {
         box_: &PeriodicBox,
         periodic_dims: &PbcDims,
     ) -> Self {
-        // Get grid dimensions
-        let grid_sz = grid_size_periodic(cutoff, box_);
-        let mut grid = Grid::<GridCellData>::new(grid_sz);
-
+        // Create grid
+        let mut grid = Grid::<GridCellData>::from_cuoff_and_box(cutoff,box_);
         grid.populate_periodic(
             particles.map(|p| (p.id, p.pos)),
             box_,
@@ -238,10 +232,9 @@ impl SearcherDoubleGrid {
         lower: &Vector3f,
         upper: &Vector3f,
     ) -> Self {
-        // Get grid dimensions
-        let grid_sz = grid_size(cutoff, lower, upper);
-        let mut grid1 = Grid::<GridCellData>::new(grid_sz);
-        let mut grid2 = Grid::<GridCellData>::new(grid_sz);
+        // Create grids
+        let mut grid1 = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff, lower, upper);
+        let mut grid2 = Grid::<GridCellData>::new(grid1.dim());
 
         grid1.populate(subset1.map(|i| (i, &state1.coords[i])), lower, upper);
         grid2.populate(subset2.map(|i| (i, &state2.coords[i])), lower, upper);
@@ -261,10 +254,9 @@ impl SearcherDoubleGrid {
         subset2: impl IndexIterator,
         periodic_dims: &PbcDims,
     ) -> Self {
-        // Get grid dimensions
-        let grid_sz = grid_size_periodic(cutoff, &state1.box_.as_ref().unwrap());
-        let mut grid1 = Grid::<GridCellData>::new(grid_sz);
-        let mut grid2 = Grid::<GridCellData>::new(grid_sz);
+        // Create grids
+        let mut grid1 = Grid::<GridCellData>::from_cuoff_and_box(cutoff, &state1.box_.as_ref().unwrap());
+        let mut grid2 = Grid::<GridCellData>::new(grid1.dim());
 
         grid1.populate_periodic(
             subset1.map(|i| (i, &state1.coords[i])),
@@ -384,26 +376,6 @@ impl SearchOutputType for (usize, usize) {
 }
 
 //==================================================================
-
-fn grid_size_from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> [usize; 3] {
-    let mut res = [0, 0, 0];
-    // Cell size should be >= cutoff for all dimentions
-    for d in 0..3 {
-        res[d] = clamp_min((extents[d] / cutoff).floor() as usize, 1);
-    }
-    res
-}
-
-fn grid_size(cutoff: f32, min: &Vector3f, max: &Vector3f) -> [usize; 3] {
-    grid_size_from_cutoff_and_extents(cutoff, &(max - min))
-}
-
-// Periodic variant
-fn grid_size_periodic(cutoff: f32, box_: &PeriodicBox) -> [usize; 3] {
-    grid_size_from_cutoff_and_extents(cutoff, &box_.get_extents())
-}
-
-//============================================================================
 // Tests
 
 #[test]

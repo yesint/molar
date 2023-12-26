@@ -1,3 +1,5 @@
+use num_traits::clamp_min;
+
 use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator};
 
 //====================================================================
@@ -65,6 +67,23 @@ where
             data: ndarray::Array3::<T>::from_shape_simple_fn(sz, || T::default()),
             pbc: None,
         }
+    }
+
+    pub fn from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> Self {
+        let mut sz = [0, 0, 0];
+        // Cell size should be >= cutoff for all dimentions
+        for d in 0..3 {
+            sz[d] = clamp_min((extents[d] / cutoff).floor() as usize, 1);
+        }
+        Self::new(sz)
+    }
+    
+    pub fn from_cuoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
+        Self::from_cutoff_and_extents(cutoff, &(max - min))
+    }
+    
+    pub fn from_cuoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
+        Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
     }
 
     pub fn dim(&self) -> [usize; 3] {
