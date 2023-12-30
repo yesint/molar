@@ -1,10 +1,17 @@
 use core::f32::consts::SQRT_2;
 
 use anyhow::{bail, Result};
+use nalgebra::Isometry3;
+use nalgebra::Rotation3;
+use nalgebra::Unit;
 use num_traits::Zero;
 use num_traits::Bounded;
+use uni_rc_lock::UniRcLock;
 use crate::distance_search::search::{SearchConnectivity, DistanceSearcherSingle};
 use super::Matrix3f;
+use super::Selection;
+use super::State;
+use super::Topology;
 use super::{AtomIterator, AtomMutIterator, ParticleMut, ParticleMutIterator, PbcDims, PeriodicBox, PosMutIterator, ParticleIterator, Pos, Vector3f, PosIterator};
  
 // Trait that provides periodic box information
@@ -42,6 +49,10 @@ pub trait MeasurePos {
 
 pub trait MeasureAtoms {
     fn iter_atoms(&self) -> impl AtomIterator<'_>;
+
+    fn get_mass(&self) -> Vec<f32> {
+        self.iter_atoms().map(|a| a.mass).collect()
+    }
 }
 /// Trait for measuring various properties that requires only
 /// the iterator of particles. User types should 
@@ -108,6 +119,13 @@ pub trait ModifyParticles {
     fn translate(&mut self, shift: Vector3f) {
         for el in self.iter_pos_mut() {
             *el += shift;
+        }
+    }
+
+    fn rotate(&mut self, ax: &Unit<Vector3f>, ang: f32) {
+        let tr = Rotation3::<f32>::from_axis_angle(ax, ang);
+        for p in self.iter_pos_mut() {
+            p.coords = tr*p.coords;
         }
     }
 }
@@ -189,17 +207,16 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
 
 /// Computes a rotational part of the fit transform 
 pub fn rot_transform_matrix<'a>(
-    sel1: impl ParticleIterator<'a>, 
-    sel2: impl ParticleIterator<'a>
+    pos1: impl Iterator<Item = &'a Vector3f>,
+    pos2: impl Iterator<Item = &'a Vector3f>,
+    masses: impl Iterator<Item = &'a f32>,
 ) -> nalgebra::Matrix3<f32> 
 {
-    let n = sel1.len();
-
     //Calculate the matrix U
     let mut u = Matrix3f::zeros();
 
-    for (p1,p2) in std::iter::zip(sel1,sel2) {
-        u += p1.pos.coords * p2.pos.coords.transpose() * p1.atom.mass;
+    for (p1,p2,m) in itertools::izip!(pos1,pos2,masses) {
+        u += p1 * p2.transpose() * (*m);
     }
 
     //Construct omega
@@ -220,7 +237,6 @@ pub fn rot_transform_matrix<'a>(
     omega.fixed_view_mut::<3,3>(3,0).copy_from(&u);
 
     //Finding eigenvalues of omega
-    // Lapack binding produces sorted eigenvectors, while native nalgebra do not!
     let eig = nalgebra_lapack::SymmetricEigen::new(omega);
     let om = eig.eigenvectors;
     /*  Copy only the first two eigenvectors
@@ -262,12 +278,55 @@ pub fn rot_transform_matrix<'a>(
     let vk = Matrix3f::from_rows(&[vk0,vk1,vk2]);
 
     /* Determine rotational part */
-    let mut rot = Matrix3f::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            rot[(c,r)] = vk[(0,r)]*vh[(0,c)] + vk[(1,r)]*vh[(1,c)] + vk[(2,r)]*vh[(2,c)];
-        }
+    //let mut rot = Matrix3f::zeros();
+    //for r in 0..3 {
+    //    for c in 0..3 {
+    //        rot[(c,r)] = vk[(0,r)]*vh[(0,c)] + vk[(1,r)]*vh[(1,c)] + vk[(2,r)]*vh[(2,c)];
+    //    }
+    //}
+    //rot
+
+    vk * vh.transpose()
+}
+
+pub fn fit_transform<'a>(
+    sel1: impl ParticleIterator<'a>, 
+    sel2: impl ParticleIterator<'a>,
+) -> Result<nalgebra::IsometryMatrix3<f32>> 
+{
+    
+    let (mut coords1,masses): (Vec<Vector3f>,Vec<f32>) = sel1.map(|p| (p.pos.coords,p.atom.mass)).unzip();
+    let mut coords2: Vec<Vector3f> = sel2.map(|p| p.pos.coords).collect();
+
+    let cm1 = center_of_mass(coords1.iter(), masses.iter())?;
+    let cm2 = center_of_mass(coords2.iter(), masses.iter())?;
+    
+    for c in coords1.iter_mut() {
+        *c -= cm1;
+    }
+    for c in coords2.iter_mut() {
+        *c -= cm2;
+    }
+    let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    
+    Ok(nalgebra::Translation3::from(cm2-cm1) * nalgebra::Rotation3::from_matrix_unchecked(rot))
+    //Ok(nalgebra::Rotation3::from_matrix_unchecked(rot) )
+}
+
+fn center_of_mass<'a>(
+    coords: impl Iterator<Item=&'a Vector3f>,
+    masses: impl Iterator<Item = &'a f32>
+) -> Result<Vector3f> {
+    let mut cm = Vector3f::zero();
+    let mut mass = 0.0;
+    for (c,m) in std::iter::zip(coords,masses){
+        cm += c * (*m);
+        mass += m;
     }
     
-    rot
+    if mass==0.0 {
+        bail!("Zero mass in COM!")
+    } else {
+        Ok(cm/mass)
+    }
 }

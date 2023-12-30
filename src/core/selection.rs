@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureParticles, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureParticles, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -249,6 +249,7 @@ where
         }
     }
 
+
 }
 //---------------,-------------------------------------
 
@@ -316,6 +317,17 @@ where
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }    
 }
+
+impl<T, S> MeasureAtoms for SelectionQueryGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+        self.index.iter().map(|i| &self.topology_ref.atoms[*i])
+    }    
+}
+
 
 impl<T, S> MeasureParticles for SelectionQueryGuard<'_, T, S>
 where
@@ -395,10 +407,11 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, rot_transform_matrix},
+        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform},
         io::*,
     };
     use lazy_static::lazy_static;
+    use nalgebra::Unit;
 
     use super::SelectionRc;
 
@@ -492,8 +505,11 @@ mod tests {
 
     #[test]
     fn eigen_test() {
-        let sel = make_sel_prot().unwrap();
-        let m = rot_transform_matrix(sel.query().iter_particles(), sel.query().iter_particles());
-        println!("{m}")
+        let sel1 = make_sel_prot().unwrap();
+        let sel2 = make_sel_prot().unwrap();
+        sel2.modify().translate(Vector3f::new(10.0,0.0,0.0));
+        sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 45.0_f32.to_radians());
+        let m = fit_transform(sel1.query().iter_particles(), sel2.query().iter_particles());
+        println!("{m:?}")
     }
 }

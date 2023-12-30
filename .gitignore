@@ -1,3 +1,4 @@
 /target
+/build
 tests/1.pdb
 Cargo.lock
