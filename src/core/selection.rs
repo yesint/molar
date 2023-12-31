@@ -413,10 +413,10 @@ mod tests {
     use lazy_static::lazy_static;
     use nalgebra::Unit;
 
-    use super::SelectionRc;
+    use super::{SelectionRc, SelectionAll};
 
     fn read_test_pdb() -> (Topology, State) {
-        let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
+        let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
         let top = h.read_topology().unwrap();
         let state = h.read_next_state().unwrap().unwrap();
         (top, state)
@@ -430,7 +430,7 @@ mod tests {
     fn make_sel() -> anyhow::Result<SelectionRc> {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
-        let sel = "name CA".select(t, s)?;
+        let sel = SelectionAll{}.select(t, s)?;
         Ok(sel)
     }
 
@@ -504,12 +504,39 @@ mod tests {
     }
 
     #[test]
-    fn eigen_test() {
+    fn eigen_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot().unwrap();
         let sel2 = make_sel_prot().unwrap();
-        sel2.modify().translate(Vector3f::new(10.0,0.0,0.0));
-        sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 45.0_f32.to_radians());
-        let m = fit_transform(sel1.query().iter_particles(), sel2.query().iter_particles());
-        println!("{m:?}")
+        //let cm1 = sel1.query().center_of_mass()?.coords;
+        //let cm2 = sel2.query().center_of_mass()?.coords;
+        //sel1.modify().translate(-cm1);
+        //sel2.modify().translate(-cm2);
+        
+        sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 90.0_f32.to_radians());
+        
+        let mut h = FileHandler::new_writer("sel2.pdb")?;
+        let q = sel2.query();
+        h.write_topology(&q)?;
+        h.write_next_state(&q)?;
+        drop(q);
+
+        let mut h = FileHandler::new_writer("sel1_before.pdb")?;
+        let q = sel1.query();
+        h.write_topology(&q)?;
+        h.write_next_state(&q)?;
+        drop(q);
+
+
+        let m = fit_transform(sel1.query().iter_particles(), sel2.query().iter_particles())?;
+        println!("{m:?}");
+        sel1.modify().apply_transform(&m);
+
+
+        let mut h = FileHandler::new_writer("sel1_after.pdb")?;
+        let q = sel1.query();
+        h.write_topology(&q)?;
+        h.write_next_state(&q)?;
+
+        Ok(())
     }
 }

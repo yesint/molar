@@ -13,7 +13,7 @@ use super::Selection;
 use super::State;
 use super::Topology;
 use super::{AtomIterator, AtomMutIterator, ParticleMut, ParticleMutIterator, PbcDims, PeriodicBox, PosMutIterator, ParticleIterator, Pos, Vector3f, PosIterator};
- 
+
 // Trait that provides periodic box information
 pub trait MeasureBox {
     fn get_box(&self) -> Result<&PeriodicBox>;
@@ -128,6 +128,12 @@ pub trait ModifyParticles {
             p.coords = tr*p.coords;
         }
     }
+
+    fn apply_transform(&mut self, tr: &nalgebra::IsometryMatrix3<f32>) {
+        for p in self.iter_pos_mut() {
+            *p = tr*(*p);
+        }
+    }
 }
 
 /// The trait for modifying the particles that requires
@@ -219,6 +225,8 @@ pub fn rot_transform_matrix<'a>(
         u += p1 * p2.transpose() * (*m);
     }
 
+    println!("u =\n {}",u);
+
     //Construct omega
     /*
      u= 1 4 7
@@ -236,9 +244,13 @@ pub fn rot_transform_matrix<'a>(
     omega.fixed_view_mut::<3,3>(0,3).copy_from(&u.transpose());
     omega.fixed_view_mut::<3,3>(3,0).copy_from(&u);
 
+    println!("omega =\n {}",omega);
+
     //Finding eigenvalues of omega
     let eig = nalgebra_lapack::SymmetricEigen::new(omega);
     let om = eig.eigenvectors;
+    
+    println!("om =\n {}",om);
     /*  Copy only the first two eigenvectors
         The eigenvectors are already sorted ascending by their eigenvalues!
     */
@@ -267,26 +279,33 @@ pub fn rot_transform_matrix<'a>(
     // Calculate the last eigenvector as the cross-product of the first two.
     // This insures that the conformation is not mirrored and
     // prevents problems with completely flat reference structures.
-    let vh0 = om.fixed_view::<3,1>(0, 5).transpose() * SQRT_2;
-    let vh1 = om.fixed_view::<3,1>(0, 4).transpose() * SQRT_2;
+    let vh0 = om.fixed_view::<3,1>(0, 5) * SQRT_2;
+    // For unknown reason ndarray produces second-last eigenvector with wrong sign!
+    let vh1 = -om.fixed_view::<3,1>(0, 4) * SQRT_2;
     let vh2 = vh0.cross(&vh1);
-    let vh = Matrix3f::from_rows(&[vh0,vh1,vh2]);
+    let vh = Matrix3f::from_columns(&[vh0,vh1,vh2]).transpose();
 
-    let vk0 = om.fixed_view::<3,1>(3, 5).transpose() * SQRT_2;
-    let vk1 = om.fixed_view::<3,1>(3, 4).transpose() * SQRT_2;
+    let vk0 = om.fixed_view::<3,1>(3, 5) * SQRT_2;
+    // For unknown reason ndarray produces second-last eigenvector with wrong sign!
+    let vk1 = -om.fixed_view::<3,1>(3, 4) * SQRT_2;
     let vk2 = vk0.cross(&vk1);
-    let vk = Matrix3f::from_rows(&[vk0,vk1,vk2]);
+    let vk = Matrix3f::from_columns(&[vk0,vk1,vk2]).transpose();
+
+    println!("vh =\n {}",vh);
+    println!("vk =\n {}",vk);
 
     /* Determine rotational part */
-    //let mut rot = Matrix3f::zeros();
-    //for r in 0..3 {
-    //    for c in 0..3 {
-    //        rot[(c,r)] = vk[(0,r)]*vh[(0,c)] + vk[(1,r)]*vh[(1,c)] + vk[(2,r)]*vh[(2,c)];
-    //    }
-    //}
+    let mut rot = Matrix3f::zeros();
+    for r in 0..3 {
+        for c in 0..3 {
+            rot[(c,r)] = vk[(0,r)]*vh[(0,c)] + vk[(1,r)]*vh[(1,c)] + vk[(2,r)]*vh[(2,c)];
+        }
+    }
     //rot
 
-    vk * vh.transpose()
+    //let rot = vk * vh.transpose();
+    println!("rot =\n {}",rot);
+    rot
 }
 
 pub fn fit_transform<'a>(
@@ -300,6 +319,9 @@ pub fn fit_transform<'a>(
 
     let cm1 = center_of_mass(coords1.iter(), masses.iter())?;
     let cm2 = center_of_mass(coords2.iter(), masses.iter())?;
+
+    println!("cm1={}",cm1);
+    println!("cm2={}",cm2);
     
     for c in coords1.iter_mut() {
         *c -= cm1;
@@ -309,8 +331,7 @@ pub fn fit_transform<'a>(
     }
     let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
     
-    Ok(nalgebra::Translation3::from(cm2-cm1) * nalgebra::Rotation3::from_matrix_unchecked(rot))
-    //Ok(nalgebra::Rotation3::from_matrix_unchecked(rot) )
+    Ok(nalgebra::Translation3::from(cm2) * nalgebra::Rotation3::from_matrix_unchecked(rot) * nalgebra::Translation3::from(-cm1))
 }
 
 fn center_of_mass<'a>(
