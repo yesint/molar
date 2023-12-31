@@ -280,13 +280,13 @@ pub fn rot_transform_matrix<'a>(
     // This insures that the conformation is not mirrored and
     // prevents problems with completely flat reference structures.
     let vh0 = om.fixed_view::<3,1>(0, 5) * SQRT_2;
-    // For unknown reason ndarray produces second-last eigenvector with wrong sign!
+    // For unknown reason nalgevra produces second-last eigenvector with wrong sign!
     let vh1 = -om.fixed_view::<3,1>(0, 4) * SQRT_2;
     let vh2 = vh0.cross(&vh1);
     let vh = Matrix3f::from_columns(&[vh0,vh1,vh2]).transpose();
 
     let vk0 = om.fixed_view::<3,1>(3, 5) * SQRT_2;
-    // For unknown reason ndarray produces second-last eigenvector with wrong sign!
+    // For unknown reason nalgevra produces second-last eigenvector with wrong sign!
     let vk1 = -om.fixed_view::<3,1>(3, 4) * SQRT_2;
     let vk2 = vk0.cross(&vk1);
     let vk = Matrix3f::from_columns(&[vk0,vk1,vk2]).transpose();
