@@ -129,7 +129,7 @@ pub trait ModifyParticles {
         }
     }
 
-    fn apply_transform(&mut self, tr: &nalgebra::IsometryMatrix3<f32>) {
+    fn apply_transform(&mut self, tr: &nalgebra::Isometry3<f32>) {
         for p in self.iter_pos_mut() {
             *p = tr*(*p);
         }
@@ -211,6 +211,46 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
     }
 }
 
+#[allow(non_snake_case)]
+pub fn rot_transform_quat<'a>(
+    pos1: impl Iterator<Item = &'a Vector3f>,
+    pos2: impl Iterator<Item = &'a Vector3f>,
+    masses: impl Iterator<Item = &'a f32>,
+) -> Unit<nalgebra::Quaternion<f32>> 
+{
+    // a = pos2+pos1
+    // b = pos2-pos1
+    // A =  0   -b1 -b2 -b3
+    //      b1   0  -a3  a2
+    //      b2   a3  0  -a1
+    //      b3  -a2  a1  0
+    let mut B = nalgebra::Matrix4::<f32>::zeros();
+    let mut M = 0.0;
+
+    for (p1,p2,m) in itertools::izip!(pos1,pos2,masses) {
+        let a = p2+p1;
+        let b = p2-p1;
+        let A = nalgebra::Matrix4::<f32>::new(
+        0.0, -b[0], -b[1], -b[2],
+        b[0],   0.0, -a[2],  a[1],
+        b[1],  a[2],   0.0,  a[0],
+        b[2], -a[1],  a[0],   0.0
+        );
+        B += A.transpose() * A * (*m);
+        M += m;
+    }
+    B /= M;
+
+    let eig = nalgebra_lapack::SymmetricEigen::new(B);
+    let om = eig.eigenvectors;
+
+    println!("om =\n {}",om);
+    println!("val =\n {}", eig.eigenvalues);
+
+    let q = nalgebra::Quaternion::<f32>::from_parts(om[(0,0)], om.fixed_view::<3,1>(1,0));
+    Unit::new_normalize(q)
+}
+
 /// Computes a rotational part of the fit transform 
 pub fn rot_transform_matrix<'a>(
     pos1: impl Iterator<Item = &'a Vector3f>,
@@ -251,6 +291,7 @@ pub fn rot_transform_matrix<'a>(
     let om = eig.eigenvectors;
     
     println!("om =\n {}",om);
+    println!("val =\n {}", eig.eigenvalues);
     /*  Copy only the first two eigenvectors
         The eigenvectors are already sorted ascending by their eigenvalues!
     */
@@ -311,7 +352,7 @@ pub fn rot_transform_matrix<'a>(
 pub fn fit_transform<'a>(
     sel1: impl ParticleIterator<'a>, 
     sel2: impl ParticleIterator<'a>,
-) -> Result<nalgebra::IsometryMatrix3<f32>> 
+) -> Result<nalgebra::Isometry3<f32>> 
 {
     
     let (mut coords1,masses): (Vec<Vector3f>,Vec<f32>) = sel1.map(|p| (p.pos.coords,p.atom.mass)).unzip();
@@ -329,9 +370,10 @@ pub fn fit_transform<'a>(
     for c in coords2.iter_mut() {
         *c -= cm2;
     }
-    let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    let rot = rot_transform_quat(coords1.iter(), coords2.iter(), masses.iter());
     
-    Ok(nalgebra::Translation3::from(cm2) * nalgebra::Rotation3::from_matrix_unchecked(rot) * nalgebra::Translation3::from(-cm1))
+    Ok(nalgebra::Translation3::from(cm2) * rot * nalgebra::Translation3::from(-cm1))
 }
 
 fn center_of_mass<'a>(
