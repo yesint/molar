@@ -211,6 +211,9 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
     }
 }
 
+// Rotational fitting using quaternions 
+// as described here: https://arxiv.org/pdf/physics/0506177.pdf, Page 3.
+// Positions are assumed to be at the center of masseses
 #[allow(non_snake_case)]
 pub fn rot_transform_quat<'a>(
     pos1: impl Iterator<Item = &'a Vector3f>,
@@ -225,7 +228,6 @@ pub fn rot_transform_quat<'a>(
     //      b2   a3  0  -a1
     //      b3  -a2  a1  0
     let mut B = nalgebra::Matrix4::<f32>::zeros();
-    let mut M = 0.0;
 
     for (p1,p2,m) in itertools::izip!(pos1,pos2,masses) {
         let a = p2+p1;
@@ -237,9 +239,10 @@ pub fn rot_transform_quat<'a>(
         b[2], -a[1],  a[0],   0.0
         );
         B += A.transpose() * A * (*m);
-        M += m;
     }
-    B /= M;
+    // We can skip normalizing by mass because resulting quaternion
+    // will be normalized anyway
+    // B /= M;
 
     let eig = nalgebra_lapack::SymmetricEigen::new(B);
     let om = eig.eigenvectors;

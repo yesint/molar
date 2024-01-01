@@ -512,7 +512,7 @@ mod tests {
         //sel1.modify().translate(-cm1);
         //sel2.modify().translate(-cm2);
         
-        sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 90.0_f32.to_radians());
+        sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 80.0_f32.to_radians());
         
         let mut h = FileHandler::new_writer("sel2.pdb")?;
         let q = sel2.query();

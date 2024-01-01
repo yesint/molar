@@ -3,3 +3,4 @@
 tests/1.pdb
 Cargo.lock
 *.py
+*.pdb
