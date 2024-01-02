@@ -63,7 +63,7 @@ lazy_static = "1.4.0"
 criterion = { version = "0.4", features = ["html_reports"] }
 
 [features]
-default = ["gromacs"]
+#default = ["gromacs"]
 gromacs = ["dep:molar_gromacs"]
 
 [[bench]]

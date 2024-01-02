@@ -344,7 +344,7 @@ where
     }
     */
 
-    fn iter_masses(&self) -> impl Iterator<Item = &f32> {
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = &f32> {
         self.index.iter().map(|i| &self.topology_ref.atoms[*i].mass)
     }
 }

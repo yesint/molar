@@ -46,23 +46,23 @@ pub trait MeasurePos {
     fn center_of_geometry(&self) -> Pos {
         let iter = self.iter_pos();
         let n = iter.len();
-        let c = iter.fold(Pos::new(0.0, 0.0, 0.0), |acc, el| acc + el.coords);
-        c / n as f32
+        let mut cog = Vector3f::zero();
+        for c in iter {
+            cog += c.coords;
+        }
+        Pos::from(cog / n as f32)
     }
 }
 
 pub trait MeasureAtoms {
     fn iter_atoms(&self) -> impl AtomIterator<'_>;
-
-    fn get_mass(&self) -> Vec<f32> {
-        self.iter_atoms().map(|a| a.mass).collect()
-    }
 }
+
 /// Trait for measuring various properties that requires only
 /// the iterator of particles. User types should
 /// implement `iter`
 pub trait MeasureMasses: MeasurePos {
-    fn iter_masses(&self) -> impl Iterator<Item = &f32>;
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = &f32>;
 
     fn center_of_mass(&self) -> Result<Pos> {
         let mut cm = Vector3f::zero();
@@ -460,7 +460,8 @@ pub fn fit_transform(
     let rot = rot_transform_kabsch(
         sel1.iter_pos().map(|p| *p-cm1),
         sel2.iter_pos().map(|p| *p-cm2),
-        sel1.iter_masses());
+        sel1.iter_masses()
+    );
 
     Ok(nalgebra::Translation3::from(cm2)
         * Rotation3::from_matrix_unchecked(rot)
