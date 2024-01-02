@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
-use molar::{core::{Topology, State, SelectionRc, Select, ModifyParticles, Vector3f, fit_transform_gmx, MeasureParticles, fit_transform_matrix, fit_transform}, io::{FileHandler, IoReader, IoTopologyReader, IoStateReader, IoWriter}};
+use molar::{core::{Topology, State, SelectionRc, Select, ModifyParticles, Vector3f, fit_transform_gmx, MeasureParticles, fit_transform_matrix, fit_transform1, fit_transform}, io::{FileHandler, IoReader, IoTopologyReader, IoStateReader, IoWriter}};
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (Topology, State) {
@@ -27,16 +27,20 @@ fn test_fit(c: &mut Criterion) {
     let sel2 = make_sel_prot().unwrap();   
     sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 80.0_f32.to_radians());   
        
-    c.bench_function("fit gmx", |b| b.iter(
-        || fit_transform_matrix(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
-    );
+    //c.bench_function("fit gmx", |b| b.iter(
+    //    || fit_transform_matrix(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
+    //);
     
-    c.bench_function("fit quad", |b| b.iter(
-        || fit_transform_gmx(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
-    );
+    //c.bench_function("fit quad", |b| b.iter(
+    //    || fit_transform_gmx(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
+    //);
 
     c.bench_function("fit kabsch", |b| b.iter(
-        || fit_transform(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
+        || fit_transform1(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
+    );
+
+    c.bench_function("fit kabsch ref", |b| b.iter(
+        || fit_transform(black_box(sel1.query()), sel2.query()).unwrap())
     );
 }
 

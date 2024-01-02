@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureParticles, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureParticles, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, Vector3f};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -316,6 +316,10 @@ where
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }    
+
+    fn iter_coords(&self) -> impl ExactSizeIterator<Item = &Vector3f> {
+        self.index.iter().map(|i| &self.state_ref.coords[*i].coords)
+    }
 }
 
 impl<T, S> MeasureAtoms for SelectionQueryGuard<'_, T, S>
@@ -340,7 +344,11 @@ where
             &self.state_ref.coords,
             &self.index,
         )
-    }    
+    }
+
+    fn iter_masses(&self) -> impl Iterator<Item = &f32> {
+        self.index.iter().map(|i| &self.topology_ref.atoms[*i].mass)
+    }
 }
 
 impl<T, S> MeasurePeriodic for SelectionQueryGuard<'_, T, S>
@@ -405,7 +413,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform},
+        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform1, fit_transform},
         io::*,
     };
     use lazy_static::lazy_static;
@@ -525,7 +533,7 @@ mod tests {
         drop(q);
 
 
-        let m = fit_transform(sel1.query().iter_particles(), sel2.query().iter_particles())?;
+        let m = fit_transform(sel1.query(), sel2.query())?;
         println!("{m}");
         sel1.modify().apply_transform(&m);
 

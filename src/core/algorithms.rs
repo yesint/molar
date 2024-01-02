@@ -17,7 +17,6 @@ use nalgebra::Unit;
 use nalgebra::SVD;
 use num_traits::Bounded;
 use num_traits::Zero;
-use uni_rc_lock::UniRcLock;
 
 // Trait that provides periodic box information
 pub trait MeasureBox {
@@ -28,6 +27,7 @@ pub trait MeasureBox {
 /// the iterator of positions.
 pub trait MeasurePos {
     fn iter_pos(&self) -> impl PosIterator<'_>;
+    fn iter_coords(&self) -> impl ExactSizeIterator<Item = &Vector3f>;
 
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -65,18 +65,20 @@ pub trait MeasureAtoms {
 /// implement `iter`
 pub trait MeasureParticles: MeasurePos {
     fn iter_particles(&self) -> impl ParticleIterator<'_>;
+    fn iter_masses(&self) -> impl Iterator<Item = &f32>;
 
     fn center_of_mass(&self) -> Result<Pos> {
-        let c = self
-            .iter_particles()
-            .fold((Vector3f::zero(), 0.0), |acc, p| {
-                (acc.0 + p.pos.coords * p.atom.mass, acc.1 + p.atom.mass)
-            });
+        let mut cm = Vector3f::zero();
+        let mut mass = 0.0;
+        for (c, m) in std::iter::zip(self.iter_coords(), self.iter_masses()) {
+            cm += c * (*m);
+            mass += m;
+        }
 
-        if c.1 == 0.0 {
+        if mass == 0.0 {
             bail!("Zero mass in COM!")
         } else {
-            Ok(Pos::from(c.0 / c.1))
+            Ok(Pos::from(cm / mass))
         }
     }
 }
@@ -86,17 +88,23 @@ pub trait MeasureParticles: MeasurePos {
 pub trait MeasurePeriodic: MeasureParticles + MeasureBox {
     fn center_of_mass_pbc(&self) -> Result<Pos> {
         let b = self.get_box()?;
-        let mut iter = self.iter_particles();
-        let p0 = iter.next().unwrap().pos;
-        let c = iter.fold((Vector3f::zero(), 0.0), |acc, p| {
-            let im = b.closest_image(p.pos, p0).coords;
-            (acc.0 + im * p.atom.mass, acc.1 + p.atom.mass)
-        });
+        let mut pos_iter = self.iter_pos();
+        let mut mass_iter = self.iter_masses();
+        
+        let mut mass = *mass_iter.next().unwrap();
+        let p0 = pos_iter.next().unwrap();
+        let mut cm = p0.coords;
 
-        if c.1 == 0.0 {
+        for (c, m) in std::iter::zip(pos_iter, mass_iter) {
+            let im = b.closest_image(c, p0).coords;
+            cm += im * (*m);
+            mass += *m;
+        }
+
+        if mass == 0.0 {
             bail!("Zero mass in COM!")
         } else {
-            Ok(Pos::from(c.0 / c.1))
+            Ok(Pos::from(cm / mass))
         }
     }
 }
@@ -361,13 +369,13 @@ pub fn rot_transform_gmx<'a>(
 pub fn rot_transform_kabsch<'a>(
     pos1: impl Iterator<Item =  Vector3f>,
     pos2: impl Iterator<Item =  Vector3f>,
-    masses: impl Iterator<Item =  f32>,
+    masses: impl Iterator<Item =  &'a f32>,
 ) -> Matrix3<f32> {
     //Calculate the covariance matrix
     let mut cov = Matrix3f::zeros();
 
     for (p1, p2, m) in itertools::izip!(pos1, pos2, masses) {
-        cov += p2 * p1.transpose() * m;
+        cov += p2 * p1.transpose() * *m;
     }
 
     // Perform Singular Value Decomposition (SVD) on the covariance matrix
@@ -444,12 +452,12 @@ pub fn fit_transform_matrix<'a>(
         * nalgebra::Translation3::from(-cm1))
 }
 
-pub fn fit_transform<'a>(
+pub fn fit_transform1<'a>(
     sel1: impl ParticleIterator<'a>,
     sel2: impl ParticleIterator<'a>,
 ) -> Result<nalgebra::IsometryMatrix3<f32>> {
     let (coords1, masses): (Vec<Vector3f>, Vec<f32>) =
-        sel1.map(|p| (p.pos.coords, p.atom.mass)).unzip();
+        sel1.map(|p| (&p.pos.coords, p.atom.mass)).unzip();
     let coords2: Vec<Vector3f> = sel2.map(|p| p.pos.coords).collect();    
 
     let cm1 = center_of_mass(coords1.iter(), masses.iter())?;
@@ -459,12 +467,31 @@ pub fn fit_transform<'a>(
     let rot = rot_transform_kabsch(
         coords1.iter().map(|p| p-cm1),
         coords2.iter().map(|p| p-cm2),
-        masses.into_iter());
+        masses.iter());
 
     Ok(nalgebra::Translation3::from(cm2)
         * Rotation3::from_matrix_unchecked(rot)
         * nalgebra::Translation3::from(-cm1))
 }
+
+pub fn fit_transform(
+    sel1: impl MeasureParticles,
+    sel2: impl MeasureParticles,
+) -> Result<nalgebra::IsometryMatrix3<f32>> {
+    let cm1 = sel1.center_of_mass()?.coords;
+    let cm2 = sel2.center_of_mass()?.coords;
+
+    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    let rot = rot_transform_kabsch(
+        sel1.iter_coords().map(|p| *p-cm1),
+        sel2.iter_coords().map(|p| *p-cm2),
+        sel1.iter_masses());
+
+    Ok(nalgebra::Translation3::from(cm2)
+        * Rotation3::from_matrix_unchecked(rot)
+        * nalgebra::Translation3::from(-cm1))
+}
+
 
 fn center_of_mass<'a>(
     coords: impl Iterator<Item = &'a Vector3f>,
