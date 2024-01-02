@@ -477,14 +477,6 @@ fn center_of_mass<'a>(
         cm += c * (*m);
         mass += m;
     }
-    
-
-    /*
-    let (cm,mass) = std::iter::zip(coords, masses)
-            .fold((Vector3f::zero(), 0.0), |acc, el| {
-                (acc.0 + el.0 * *el.1, acc.1 + el.1)
-            });
-    */
 
     if mass == 0.0 {
         bail!("Zero mass in COM!")
