@@ -48,8 +48,4 @@ impl MeasurePos for State {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         self.coords.iter()
     }
-
-    fn iter_coords(&self) -> impl ExactSizeIterator<Item = &super::Vector3f> {
-        self.coords.iter().map(|p| &p.coords)
-    }
 }

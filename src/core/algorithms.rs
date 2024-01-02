@@ -10,7 +10,6 @@ use super::{
 };
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result};
-use nalgebra::Isometry3;
 use nalgebra::Matrix3;
 use nalgebra::Rotation3;
 use nalgebra::Unit;
@@ -27,7 +26,6 @@ pub trait MeasureBox {
 /// the iterator of positions.
 pub trait MeasurePos {
     fn iter_pos(&self) -> impl PosIterator<'_>;
-    fn iter_coords(&self) -> impl ExactSizeIterator<Item = &Vector3f>;
 
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -63,15 +61,14 @@ pub trait MeasureAtoms {
 /// Trait for measuring various properties that requires only
 /// the iterator of particles. User types should
 /// implement `iter`
-pub trait MeasureParticles: MeasurePos {
-    fn iter_particles(&self) -> impl ParticleIterator<'_>;
+pub trait MeasureMasses: MeasurePos {
     fn iter_masses(&self) -> impl Iterator<Item = &f32>;
 
     fn center_of_mass(&self) -> Result<Pos> {
         let mut cm = Vector3f::zero();
         let mut mass = 0.0;
-        for (c, m) in std::iter::zip(self.iter_coords(), self.iter_masses()) {
-            cm += c * (*m);
+        for (c, m) in std::iter::zip(self.iter_pos(), self.iter_masses()) {
+            cm += c.coords * (*m);
             mass += m;
         }
 
@@ -85,7 +82,7 @@ pub trait MeasureParticles: MeasurePos {
 
 /// The trait for measuring properties that requires
 /// a periodic box information.
-pub trait MeasurePeriodic: MeasureParticles + MeasureBox {
+pub trait MeasurePeriodic: MeasureMasses + MeasureBox {
     fn center_of_mass_pbc(&self) -> Result<Pos> {
         let b = self.get_box()?;
         let mut pos_iter = self.iter_pos();
@@ -452,39 +449,17 @@ pub fn fit_transform_matrix<'a>(
         * nalgebra::Translation3::from(-cm1))
 }
 
-pub fn fit_transform1<'a>(
-    sel1: impl ParticleIterator<'a>,
-    sel2: impl ParticleIterator<'a>,
-) -> Result<nalgebra::IsometryMatrix3<f32>> {
-    let (coords1, masses): (Vec<Vector3f>, Vec<f32>) =
-        sel1.map(|p| (&p.pos.coords, p.atom.mass)).unzip();
-    let coords2: Vec<Vector3f> = sel2.map(|p| p.pos.coords).collect();    
-
-    let cm1 = center_of_mass(coords1.iter(), masses.iter())?;
-    let cm2 = center_of_mass(coords2.iter(), masses.iter())?;
-
-    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-    let rot = rot_transform_kabsch(
-        coords1.iter().map(|p| p-cm1),
-        coords2.iter().map(|p| p-cm2),
-        masses.iter());
-
-    Ok(nalgebra::Translation3::from(cm2)
-        * Rotation3::from_matrix_unchecked(rot)
-        * nalgebra::Translation3::from(-cm1))
-}
-
 pub fn fit_transform(
-    sel1: impl MeasureParticles,
-    sel2: impl MeasureParticles,
+    sel1: impl MeasureMasses,
+    sel2: impl MeasureMasses,
 ) -> Result<nalgebra::IsometryMatrix3<f32>> {
-    let cm1 = sel1.center_of_mass()?.coords;
-    let cm2 = sel2.center_of_mass()?.coords;
+    let cm1 = sel1.center_of_mass()?;
+    let cm2 = sel2.center_of_mass()?;
 
     //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
     let rot = rot_transform_kabsch(
-        sel1.iter_coords().map(|p| *p-cm1),
-        sel2.iter_coords().map(|p| *p-cm2),
+        sel1.iter_pos().map(|p| *p-cm1),
+        sel2.iter_pos().map(|p| *p-cm2),
         sel1.iter_masses());
 
     Ok(nalgebra::Translation3::from(cm2)

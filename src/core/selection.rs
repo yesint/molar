@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureParticles, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, Vector3f};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, Vector3f};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -315,10 +315,6 @@ where
 {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
-    }    
-
-    fn iter_coords(&self) -> impl ExactSizeIterator<Item = &Vector3f> {
-        self.index.iter().map(|i| &self.state_ref.coords[*i].coords)
     }
 }
 
@@ -333,11 +329,12 @@ where
 }
 
 
-impl<T, S> MeasureParticles for SelectionQueryGuard<'_, T, S>
+impl<T, S> MeasureMasses for SelectionQueryGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
+    /*
     fn iter_particles(&self) -> impl ParticleIterator<'_> {
         ParticleIteratorAdaptor::new(
             &self.topology_ref.atoms,
@@ -345,6 +342,7 @@ where
             &self.index,
         )
     }
+    */
 
     fn iter_masses(&self) -> impl Iterator<Item = &f32> {
         self.index.iter().map(|i| &self.topology_ref.atoms[*i].mass)
@@ -413,7 +411,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform1, fit_transform},
+        core::{selection::Select, Topology, MeasureMasses, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform},
         io::*,
     };
     use lazy_static::lazy_static;
