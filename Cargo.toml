@@ -52,13 +52,20 @@ nalgebra.workspace = true
 nalgebra-lapack.workspace = true
 peg.workspace = true
 regex.workspace = true
-lazy_static = "1.4.0"
 ndarray = "0.15.6"
 num-traits = "0.2.16"
 rayon = "1.8"
 itertools = "0.12"
 uni_rc_lock = "0.2"
 
+[dev-dependencies]
+lazy_static = "1.4.0"
+criterion = { version = "0.4", features = ["html_reports"] }
+
 [features]
 default = ["gromacs"]
 gromacs = ["dep:molar_gromacs"]
+
+[[bench]]
+name = "fit_benchmark"
+harness = false

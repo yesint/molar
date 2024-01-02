@@ -8,7 +8,7 @@ use uni_rc_lock::UniRcLock;
 //-----------------------------------------------------------------
 
 /// Trait whic provides select method operating with generic smart pointers
-trait Select<T, S>
+pub trait Select<T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
@@ -407,7 +407,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform},
+        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform_gmx, fit_transform},
         io::*,
     };
     use lazy_static::lazy_static;
@@ -528,7 +528,7 @@ mod tests {
 
 
         let m = fit_transform(sel1.query().iter_particles(), sel2.query().iter_particles())?;
-        println!("{m:?}");
+        println!("{m}");
         sel1.modify().apply_transform(&m);
 
 
