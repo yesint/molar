@@ -219,6 +219,7 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
     }
 }
 
+/*
 // Rotational fitting using quaternions
 // as described here: https://arxiv.org/pdf/physics/0506177.pdf, Page 3.
 // Positions are assumed to be at the center of masseses
@@ -361,13 +362,14 @@ pub fn rot_transform_gmx<'a>(
     //println!("rot =\n {}",rot);
     rot
 }
+*/
 
 // Straighforward implementation of Kabsch algorithm (written by AI).
 pub fn rot_transform_kabsch<'a>(
-    pos1: impl Iterator<Item =  Vector3f>,
-    pos2: impl Iterator<Item =  Vector3f>,
+    pos1: impl Iterator<Item = Vector3f>,
+    pos2: impl Iterator<Item = Vector3f>,
     masses: impl Iterator<Item =  &'a f32>,
-) -> Matrix3<f32> {
+) -> Rotation3<f32> {
     //Calculate the covariance matrix
     let mut cov = Matrix3f::zeros();
 
@@ -392,9 +394,10 @@ pub fn rot_transform_kabsch<'a>(
     d_matrix[(2, 2)] = d;
 
     // Compute the optimal rotation matrix
-    u * d_matrix * v_t
+    Rotation3::from_matrix_unchecked(u * d_matrix * v_t)
 }
 
+/*
 pub fn fit_transform_gmx<'a>(
     sel1: impl ParticleIterator<'a>,
     sel2: impl ParticleIterator<'a>,
@@ -448,6 +451,7 @@ pub fn fit_transform_matrix<'a>(
         * Rotation3::from_matrix_unchecked(rot)
         * nalgebra::Translation3::from(-cm1))
 }
+*/
 
 pub fn fit_transform(
     sel1: impl MeasureMasses,
@@ -463,27 +467,5 @@ pub fn fit_transform(
         sel1.iter_masses()
     );
 
-    Ok(nalgebra::Translation3::from(cm2)
-        * Rotation3::from_matrix_unchecked(rot)
-        * nalgebra::Translation3::from(-cm1))
-}
-
-
-fn center_of_mass<'a>(
-    coords: impl Iterator<Item = &'a Vector3f>,
-    masses: impl Iterator<Item = &'a f32>,
-) -> Result<Vector3f> {
-    
-    let mut cm = Vector3f::zero();
-    let mut mass = 0.0;
-    for (c, m) in std::iter::zip(coords, masses) {
-        cm += c * (*m);
-        mass += m;
-    }
-
-    if mass == 0.0 {
-        bail!("Zero mass in COM!")
-    } else {
-        Ok(cm / mass)
-    }
+    Ok(nalgebra::Translation3::from(cm2) * rot * nalgebra::Translation3::from(-cm1))
 }
