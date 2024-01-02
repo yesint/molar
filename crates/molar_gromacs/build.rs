@@ -1,11 +1,10 @@
-use cmake::Config;
 use std::env;
 use std::path::PathBuf;
 use std::fs::read_to_string;
 
 fn main() { 
     // Compilation of Gromacs. SLOW!
-    let dst = Config::new("gromacs").profile("Release").build();
+    let dst = cmake::Config::new("gromacs").profile("Release").build();
 
     println!("cargo:rustc-link-search=native={}", dst.display());
     println!("cargo:rustc-link-lib=stdc++");

@@ -1,5 +1,3 @@
-#
-# This file is a part of
 cmake_minimum_required(VERSION 3.18)
 project(gromacs_wrapper LANGUAGES CXX C)
 
@@ -22,18 +20,11 @@ CPMAddPackage(
 )
 # Variable GROMACS_SOURCE_DIR and GROMACS_BINARY_DIR are set by CMP at this point
 
-# File to be set as a byproduct to trigger buld correctly
+# Files to be set later as a byproduct to trigger buld correctly
 set(GROMACS_LIB_FILES
     ${GROMACS_BINARY_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}gromacs${CMAKE_STATIC_LIBRARY_SUFFIX}
     ${GROMACS_BINARY_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}muparser${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
-
-# Get actual gromacs version
-# Since Gromacs 2022.x version is stored in main CmakeLists file
-#file(READ ${GROMACS_SOURCE_DIR}/CMakeLists.txt gmxinfofile)
-#string(REGEX MATCH "Gromacs VERSION +([0-9]+)" match ${gmxinfofile})
-#set(GROMACS_VERSION ${CMAKE_MATCH_1})
-#message(STATUS "Gromacs version used: ${GROMACS_VERSION}")
 
 ExternalProject_add(Gromacs_external
     SOURCE_DIR ${GROMACS_SOURCE_DIR}
@@ -56,7 +47,9 @@ ExternalProject_add(Gromacs_external
                 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
 
+    # If you have not enough RAM uncomment the next line and set smaller number of parallel processes
     # BUILD_COMMAND ${CMAKE_COMMAND} --build ${GROMACS_BINARY_DIR} -j 12
+
     # Copy compiled libs to the place where cargo sees them
     INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${GROMACS_LIB_FILES} ${CMAKE_BINARY_DIR}/..
     BUILD_BYPRODUCTS ${GROMACS_LIB_FILES}
@@ -88,7 +81,3 @@ install(TARGETS gromacs_wrapper
     LIBRARY DESTINATION .
     ARCHIVE DESTINATION .
 )
-
-add_executable(gromacs_wrapper_test wrapper_test.cpp)
-target_link_libraries(gromacs_wrapper_test PRIVATE gromacs_wrapper)
-install(TARGETS gromacs_wrapper_test)
