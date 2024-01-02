@@ -397,17 +397,15 @@ where
     }
 }
 
-//==================================================================
-
-//##############################
+//############################################################
 //#  Tests
-//##############################
+//############################################################
 
 #[cfg(test)]
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform_gmx, fit_transform},
+        core::{selection::Select, Topology, MeasureParticles, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform},
         io::*,
     };
     use lazy_static::lazy_static;
