@@ -1,6 +1,6 @@
+Cargo.lock
 /target
 /build
 tests/1.pdb
-Cargo.lock
 *.py
 *.pdb

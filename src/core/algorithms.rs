@@ -1,16 +1,10 @@
-use core::f32::consts::SQRT_2;
-
 use super::Matrix3f;
-use super::Selection;
-use super::State;
-use super::Topology;
 use super::{
     AtomIterator, AtomMutIterator, ParticleIterator, ParticleMut, ParticleMutIterator, PbcDims,
     PeriodicBox, Pos, PosIterator, PosMutIterator, Vector3f,
 };
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result};
-use nalgebra::Matrix3;
 use nalgebra::Rotation3;
 use nalgebra::Unit;
 use nalgebra::SVD;
@@ -219,152 +213,7 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
     }
 }
 
-/*
-// Rotational fitting using quaternions
-// as described here: https://arxiv.org/pdf/physics/0506177.pdf, Page 3.
-// Positions are assumed to be at the center of masseses
-// This is SLOWER than Kabsch method!
-#[allow(non_snake_case)]
-pub fn rot_transform_quat<'a>(
-    pos1: impl Iterator<Item = &'a Vector3f>,
-    pos2: impl Iterator<Item = &'a Vector3f>,
-    masses: impl Iterator<Item = &'a f32>,
-) -> Unit<nalgebra::Quaternion<f32>> {
-    // a = pos2+pos1
-    // b = pos2-pos1
-    // A =  0   -b1 -b2 -b3
-    //      b1   0  -a3  a2
-    //      b2   a3  0  -a1
-    //      b3  -a2  a1  0
-    let mut B = nalgebra::Matrix4::<f32>::zeros();
-
-    for (p1, p2, m) in itertools::izip!(pos1, pos2, masses) {
-        let a = p2 + p1;
-        let b = p2 - p1;
-        let A = nalgebra::Matrix4::<f32>::new(
-            0.0, -b[0], -b[1], -b[2], b[0], 0.0, -a[2], a[1], b[1], a[2], 0.0, a[0], b[2], -a[1],
-            a[0], 0.0,
-        );
-
-        B += A.transpose() * A * (*m);
-    }
-    // We can skip normalizing by mass because resulting quaternion
-    // will be normalized anyway
-    // B /= M;
-
-    let eig = nalgebra_lapack::SymmetricEigen::new(B);
-    let om = eig.eigenvectors;
-
-    //println!("om =\n {}",om);
-    //println!("val =\n {}", eig.eigenvalues);
-
-    let q = nalgebra::Quaternion::<f32>::from_parts(om[(0, 0)], om.fixed_view::<3, 1>(1, 0));
-    Unit::new_normalize(q)
-}
-
-// Implementation of Kabsch algorithm from Gromacs with 6x6 matrix
-// This is less intuitive than direct implementation with SVD and currently requires
-// workarrounds because of nalgebra weird behavior with eigenvectors signs.
-pub fn rot_transform_gmx<'a>(
-    pos1: impl Iterator<Item = &'a Vector3f>,
-    pos2: impl Iterator<Item = &'a Vector3f>,
-    masses: impl Iterator<Item = &'a f32>,
-) -> Matrix3<f32> {
-    //Calculate the matrix U
-    let mut u = Matrix3f::zeros();
-
-    for (p1, p2, m) in itertools::izip!(pos1, pos2, masses) {
-        u += p1 * p2.transpose() * (*m);
-    }
-
-    //println!("u =\n {}",u);
-
-    //Construct omega
-    /*
-     u= 1 4 7
-        2 5 8
-        3 6 9
-    omega =
-    0 0 0 1 2 3
-    0 0 0 4 5 6
-    0 0 0 7 8 9
-    1 4 7 0 0 0
-    2 5 8 0 0 0
-    3 6 9 0 0 0
-    */
-    let mut omega = nalgebra::Matrix6::<f32>::zeros();
-    omega.fixed_view_mut::<3, 3>(0, 3).copy_from(&u.transpose());
-    omega.fixed_view_mut::<3, 3>(3, 0).copy_from(&u);
-
-    //println!("omega =\n {}",omega);
-
-    //Finding eigenvalues of omega
-    let eig = nalgebra_lapack::SymmetricEigen::new(omega);
-    let om = eig.eigenvectors;
-
-    //println!("om =\n {}",om);
-    //println!("val =\n {}", eig.eigenvalues);
-
-    /*  Copy only the first two eigenvectors
-        The eigenvectors are already sorted ascending by their eigenvalues!
-    */
-
-    /*
-     i0 1 2 3 4 5
-    j*-----------
-    0|0 0 0 0 1 7
-    1|0 0 0 0 2 8
-    2|0 0 0 0 3 9
-    3|0 0 0 0 4 10
-    4|0 0 0 0 5 11
-    5|0 0 0 0 6 12
-
-    vh:
-    7 8 9
-    1 2 3
-    ? ? ?
-
-    vk:
-    10 11 12
-     4  5  6
-     ?  ?  ?
-    */
-
-    // Calculate the last eigenvector as the cross-product of the first two.
-    // This insures that the conformation is not mirrored and
-    // prevents problems with completely flat reference structures.
-    let vh0 = om.fixed_view::<3, 1>(0, 5) * SQRT_2;
-    // For unknown reason nalgevra produces second-last eigenvector with wrong sign!
-    let vh1 = -om.fixed_view::<3, 1>(0, 4) * SQRT_2;
-    let vh2 = vh0.cross(&vh1);
-    let vh = Matrix3f::from_columns(&[vh0, vh1, vh2]).transpose();
-
-    let vk0 = om.fixed_view::<3, 1>(3, 5) * SQRT_2;
-    // For unknown reason nalgevra produces second-last eigenvector with wrong sign!
-    let vk1 = -om.fixed_view::<3, 1>(3, 4) * SQRT_2;
-    let vk2 = vk0.cross(&vk1);
-    let vk = Matrix3f::from_columns(&[vk0, vk1, vk2]).transpose();
-
-    //println!("vh =\n {}",vh);
-    //println!("vk =\n {}",vk);
-
-    /* Determine rotational part */
-    let mut rot = Matrix3f::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            rot[(c, r)] =
-                vk[(0, r)] * vh[(0, c)] + vk[(1, r)] * vh[(1, c)] + vk[(2, r)] * vh[(2, c)];
-        }
-    }
-    //rot
-
-    //let rot = vk * vh.transpose();
-    //println!("rot =\n {}",rot);
-    rot
-}
-*/
-
-// Straighforward implementation of Kabsch algorithm (written by AI).
+// Straighforward implementation of Kabsch algorithm
 pub fn rot_transform_kabsch<'a>(
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
@@ -397,62 +246,6 @@ pub fn rot_transform_kabsch<'a>(
     Rotation3::from_matrix_unchecked(u * d_matrix * v_t)
 }
 
-/*
-pub fn fit_transform_gmx<'a>(
-    sel1: impl ParticleIterator<'a>,
-    sel2: impl ParticleIterator<'a>,
-) -> Result<nalgebra::Isometry3<f32>> {
-    let (mut coords1, masses): (Vec<Vector3f>, Vec<f32>) =
-        sel1.map(|p| (p.pos.coords, p.atom.mass)).unzip();
-    let mut coords2: Vec<Vector3f> = sel2.map(|p| p.pos.coords).collect();
-
-    let cm1 = center_of_mass(coords1.iter(), masses.iter())?;
-    let cm2 = center_of_mass(coords2.iter(), masses.iter())?;
-
-    //println!("cm1={}",cm1);
-    //println!("cm2={}",cm2);
-
-    for c in coords1.iter_mut() {
-        *c -= cm1;
-    }
-    for c in coords2.iter_mut() {
-        *c -= cm2;
-    }
-    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-    let rot = rot_transform_quat(coords1.iter(), coords2.iter(), masses.iter());
-
-    Ok(nalgebra::Translation3::from(cm2) * rot * nalgebra::Translation3::from(-cm1))
-}
-
-pub fn fit_transform_matrix<'a>(
-    sel1: impl ParticleIterator<'a>,
-    sel2: impl ParticleIterator<'a>,
-) -> Result<nalgebra::IsometryMatrix3<f32>> {
-    let (mut coords1, masses): (Vec<Vector3f>, Vec<f32>) =
-        sel1.map(|p| (p.pos.coords, p.atom.mass)).unzip();
-    let mut coords2: Vec<Vector3f> = sel2.map(|p| p.pos.coords).collect();
-
-    let cm1 = center_of_mass(coords1.iter(), masses.iter())?;
-    let cm2 = center_of_mass(coords2.iter(), masses.iter())?;
-
-    //println!("cm1={}",cm1);
-    //println!("cm2={}",cm2);
-
-    for c in coords1.iter_mut() {
-        *c -= cm1;
-    }
-    for c in coords2.iter_mut() {
-        *c -= cm2;
-    }
-    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-    let rot = rot_transform_gmx(coords1.iter(), coords2.iter(), masses.iter());
-
-    Ok(nalgebra::Translation3::from(cm2)
-        * Rotation3::from_matrix_unchecked(rot)
-        * nalgebra::Translation3::from(-cm1))
-}
-*/
-
 pub fn fit_transform(
     sel1: impl MeasureMasses,
     sel2: impl MeasureMasses,
@@ -468,4 +261,19 @@ pub fn fit_transform(
     );
 
     Ok(nalgebra::Translation3::from(cm2) * rot * nalgebra::Translation3::from(-cm1))
+}
+
+// Version for selection with CM alredy at zero
+pub fn fit_transform_at_origin(
+    sel1: impl MeasureMasses,
+    sel2: impl MeasureMasses,
+) -> Result<nalgebra::IsometryMatrix3<f32>> {
+    
+    let rot = rot_transform_kabsch(
+        sel1.iter_pos().map(|p| p.coords),
+        sel2.iter_pos().map(|p| p.coords),
+        sel1.iter_masses()
+    );
+
+    Ok(nalgebra::convert(rot))
 }

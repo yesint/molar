@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, Vector3f};
+use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;

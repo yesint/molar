@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
-use molar::{core::{Topology, State, SelectionRc, Select, ModifyParticles, Vector3f, fit_transform}, io::{FileHandler, IoReader, IoTopologyReader, IoStateReader}};
+use molar::{core::{Topology, State, SelectionRc, Select, ModifyParticles, Vector3f, fit_transform, fit_transform_at_origin}, io::{FileHandler, IoReader, IoTopologyReader, IoStateReader}};
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (Topology, State) {
@@ -37,6 +37,10 @@ fn test_fit(c: &mut Criterion) {
 
     c.bench_function("fit kabsch ref", |b| b.iter(
         || fit_transform(black_box(sel1.query()), sel2.query()).unwrap())
+    );
+
+    c.bench_function("fit kabsch at origin", |b| b.iter(
+        || fit_transform_at_origin(black_box(sel1.query()), sel2.query()).unwrap())
     );
 }
 
