@@ -1,6 +1,6 @@
 use super::grid::*;
 use crate::{
-    core::{PbcDims, PeriodicBox, Pos, Vector3f, IdPosIterator, MeasurePos},
+    core::{PbcDims, PeriodicBox, Pos, Vector3f, IdPosIterator, PBC_NONE},
     distance_search::cell_pair_iterator::CellPairIter,
 };
 //use rayon::prelude::*;
@@ -123,7 +123,7 @@ impl DistanceSearcherSingle {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid.pbc.as_ref() {
             Some(pbc) => pbc.dims,
-            None => [false, false, false],
+            None => PBC_NONE,
         };
 
         // Get periodic or non-periodic distance function
@@ -260,7 +260,7 @@ impl DistanceSearcherDouble {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid1.pbc.as_ref() {
             Some(pbc) => pbc.dims,
-            None => [false, false, false],
+            None => PBC_NONE,
         };
 
         // Get periodic or non-periodic distance function
@@ -356,6 +356,8 @@ impl SearchOutputType for (usize, usize, f32) {
 #[test]
 fn test_single_periodic() {
     use crate::io::*;
+    use crate::core::PBC_FULL;
+
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
@@ -363,7 +365,7 @@ fn test_single_periodic() {
         0.3,
         (0..st.coords.len()).map(|i| (i,&st.coords[i])),
         st.box_.as_ref().unwrap(),
-        &[true, true, true],
+        &PBC_FULL,
     );
     let found: SearchConnectivity = searcher.search();
     println!("{:?}", found.len())
@@ -372,6 +374,8 @@ fn test_single_periodic() {
 #[test]
 fn test_single_non_periodic() {
     use crate::io::*;
+    use crate::core::MeasurePos;
+
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
@@ -389,6 +393,8 @@ fn test_single_non_periodic() {
 #[test]
 fn test_double_periodic() {
     use crate::io::*;
+    use crate::core::PBC_FULL;
+
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
@@ -397,7 +403,7 @@ fn test_double_periodic() {
         (0..st.coords.len()).map(|i| (i,&st.coords[i])),
         (0..st.coords.len()).map(|i| (i,&st.coords[i])),
         &st.box_.as_ref().unwrap(),
-        &[true, true, true],
+        &PBC_FULL,
     );
     let found: Vec<usize> = searcher.search();
     println!("{:?}", found.len())

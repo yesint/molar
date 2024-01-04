@@ -6,11 +6,11 @@ use regex::bytes::Regex;
 use super::atom::Atom;
 use super::state::State;
 use super::topology::Topology;
-use super::{IndexIterator, PbcDims};
+use super::{IndexIterator, PbcDims, PBC_NONE};
 use crate::distance_search::search::DistanceSearcherDouble;
 use std::collections::HashSet;
 
-use crate::core::{Pos, Vector3f};
+use crate::core::{Pos, Vector3f, PBC_FULL};
 
 //##############################
 //#  AST node types
@@ -243,7 +243,7 @@ impl LogicalNode {
                 let inner = node.apply(data)?;
                 //println!("{:?}", inner);
                 // Perform distance search
-                let searcher = if prop.pbc == [false, false, false] {
+                let searcher = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
@@ -681,7 +681,7 @@ peg::parser! {
         = "pbc" __ p:(pbc_dim()*<3>)? __ {
             match p {
                 Some(dim) => [dim[0],dim[1],dim[2]],
-                None => [true,true,true],
+                None => PBC_FULL,
             }
         }
 
@@ -691,7 +691,7 @@ peg::parser! {
             if let MathNode::Float(cutoff) = d {
                 let pbc = match p {
                     Some(dims) => dims,
-                    None => [false,false,false],
+                    None => PBC_NONE,
                 };
                 let include_inner = !s.is_empty();
                 WithinProp {cutoff, pbc, include_inner}

@@ -170,6 +170,8 @@ impl<T> std::ops::IndexMut<&CellLoc> for Grid<T> {
 fn test_grid() {
     use crate::io::*;
     use std::iter::zip;
+    use crate::core::PBC_FULL;
+
     let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let st = r.read_next_state().unwrap().unwrap();
 
@@ -179,6 +181,6 @@ fn test_grid() {
     gr.populate_periodic(
         zip(0..crd.len(), crd.iter().map(|el| el)),
         &st.box_.as_ref().unwrap(),
-        &[true, true, true],
+        &PBC_FULL,
     );
 }

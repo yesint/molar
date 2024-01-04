@@ -1,4 +1,4 @@
-use crate::core::PbcDims;
+use crate::core::{PbcDims, PBC_NONE};
 use super::grid::{CellLoc, CellPair};
 use nalgebra::Vector3;
 
@@ -50,7 +50,7 @@ impl CellPairIter {
     }
 
     fn cell_pair_from_stencil(&self, mut c1: CellLoc, mut c2: CellLoc) -> Option<CellPair> {
-        let mut wrapped = [false, false, false];
+        let mut wrapped = PBC_NONE;
         for d in 0..3 {
             let sz = self.grid_size[d];
             let pbc = self.periodic_dims[d];

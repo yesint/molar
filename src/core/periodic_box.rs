@@ -8,6 +8,8 @@ pub struct PeriodicBox {
 }
 
 pub type PbcDims = [bool; 3];
+pub const PBC_FULL: PbcDims = [true,true,true];
+pub const PBC_NONE: PbcDims = [false,false,false];
 
 impl PeriodicBox {
     pub fn from_matrix(matrix: Matrix3f) -> Result<Self> {
@@ -148,6 +150,7 @@ impl PeriodicBox {
         target + self.shortest_vector_dims(&(point - target), pbc_dims)
     }
 
+    #[inline(always)]
     pub fn get_matrix(&self) -> Matrix3f {
         self.matrix
     }

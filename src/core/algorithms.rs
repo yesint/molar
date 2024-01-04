@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use super::Matrix3f;
+use super::{Matrix3f, PBC_FULL};
 use super::{
     AtomIterator, AtomMutIterator, ParticleIterator, ParticleMut, ParticleMutIterator, PbcDims,
     PeriodicBox, Pos, PosIterator, PosMutIterator, Vector3f,
@@ -156,7 +156,7 @@ pub trait ModifyPeriodic: ModifyParticles + MeasureBox {
     }
 
     fn unwrap_simple(&mut self) -> Result<()> {
-        self.unwrap_simple_dim([true, true, true])
+        self.unwrap_simple_dim(PBC_FULL)
     }
 }
 
@@ -169,7 +169,7 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
     }
 
     fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<()> {
-        self.unwrap_connectivity_dim(cutoff, &[true, true, true])
+        self.unwrap_connectivity_dim(cutoff, &PBC_FULL)
     }
 
     fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: &PbcDims) -> Result<()> {
