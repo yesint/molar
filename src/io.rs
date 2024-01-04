@@ -204,7 +204,7 @@ impl<'a> IoStateWriter for FileHandler<'a> {
                 h.write_next_state(data)
             }
             Self::Xtc(ref mut h) => h.write_next_state(data),
-            _ => bail!("Unable to write state"),
+            //_ => bail!("Unable to write state"),
         }
     }
 }

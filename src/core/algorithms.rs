@@ -1,3 +1,5 @@
+use std::iter::zip;
+
 use super::Matrix3f;
 use super::{
     AtomIterator, AtomMutIterator, ParticleIterator, ParticleMut, ParticleMutIterator, PbcDims,
@@ -5,6 +7,7 @@ use super::{
 };
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result};
+use itertools::izip;
 use nalgebra::Rotation3;
 use nalgebra::Unit;
 use nalgebra::SVD;
@@ -56,13 +59,13 @@ pub trait MeasureAtoms {
 /// the iterator of particles. User types should
 /// implement `iter`
 pub trait MeasureMasses: MeasurePos {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = &f32>;
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32>;
 
     fn center_of_mass(&self) -> Result<Pos> {
         let mut cm = Vector3f::zero();
         let mut mass = 0.0;
-        for (c, m) in std::iter::zip(self.iter_pos(), self.iter_masses()) {
-            cm += c.coords * (*m);
+        for (c, m) in zip(self.iter_pos(), self.iter_masses()) {
+            cm += c.coords * m;
             mass += m;
         }
 
@@ -82,14 +85,14 @@ pub trait MeasurePeriodic: MeasureMasses + MeasureBox {
         let mut pos_iter = self.iter_pos();
         let mut mass_iter = self.iter_masses();
         
-        let mut mass = *mass_iter.next().unwrap();
+        let mut mass = mass_iter.next().unwrap();
         let p0 = pos_iter.next().unwrap();
         let mut cm = p0.coords;
 
-        for (c, m) in std::iter::zip(pos_iter, mass_iter) {
+        for (c, m) in zip(pos_iter, mass_iter) {
             let im = b.closest_image(c, p0).coords;
-            cm += im * (*m);
-            mass += *m;
+            cm += im * m;
+            mass += m;
         }
 
         if mass == 0.0 {
@@ -214,16 +217,16 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
 }
 
 // Straighforward implementation of Kabsch algorithm
-pub fn rot_transform_kabsch<'a>(
+pub fn rot_transform<'a>(
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
-    masses: impl Iterator<Item =  &'a f32>,
+    masses: impl Iterator<Item = f32>,
 ) -> Rotation3<f32> {
     //Calculate the covariance matrix
     let mut cov = Matrix3f::zeros();
 
-    for (p1, p2, m) in itertools::izip!(pos1, pos2, masses) {
-        cov += p2 * p1.transpose() * *m;
+    for (p1, p2, m) in izip!(pos1, pos2, masses) {
+        cov += p2 * p1.transpose() * m;
     }
 
     // Perform Singular Value Decomposition (SVD) on the covariance matrix
@@ -254,7 +257,7 @@ pub fn fit_transform(
     let cm2 = sel2.center_of_mass()?;
 
     //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-    let rot = rot_transform_kabsch(
+    let rot = rot_transform(
         sel1.iter_pos().map(|p| *p-cm1),
         sel2.iter_pos().map(|p| *p-cm2),
         sel1.iter_masses()
@@ -269,11 +272,56 @@ pub fn fit_transform_at_origin(
     sel2: impl MeasureMasses,
 ) -> Result<nalgebra::IsometryMatrix3<f32>> {
     
-    let rot = rot_transform_kabsch(
+    let rot = rot_transform(
         sel1.iter_pos().map(|p| p.coords),
         sel2.iter_pos().map(|p| p.coords),
         sel1.iter_masses()
     );
 
     Ok(nalgebra::convert(rot))
+}
+
+/// Mass-weighted RMSD
+pub fn rmsd_mw(sel1: impl MeasureMasses,sel2: impl MeasureMasses) -> Result<f32> {
+    let mut res = 0.0;
+    let mut m_tot = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
+
+    if iter1.len() != iter2.len() {
+        bail!("Different sizes in rmsd_mw: {} and {}",iter1.len(),iter2.len());
+    }
+
+    for (p1,p2,m) in izip!(iter1,iter2,sel1.iter_masses()){
+        res += (p2-p1).norm_squared()*m;
+        m_tot += m;
+    }
+
+    if m_tot==0.0 {
+        bail!("Zero mass in rmsd_mw")
+    } else {
+        Ok((res/m_tot).sqrt())
+    }
+}
+
+/// RMSD
+pub fn rmsd(sel1: impl MeasurePos,sel2: impl MeasurePos) -> Result<f32> {
+    let mut res = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
+
+    if iter1.len() != iter2.len() {
+        bail!("Different sizes in rmsd: {} and {}",iter1.len(),iter2.len());
+    }
+
+    let n = iter1.len();
+    if n==0 {
+        bail!("No atoms in rmsd")
+    }
+
+    for (p1,p2) in zip(iter1,iter2){
+        res += (p2-p1).norm_squared();
+    }
+
+    Ok((res/n as f32).sqrt())
 }
