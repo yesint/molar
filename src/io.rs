@@ -60,7 +60,7 @@ pub trait IoTopologyWriter: IoWriter {
 pub trait IoStateReader: IoReader {
     fn read_next_state(&mut self) -> Result<Option<State>>;
 
-    fn into_states_iter(self) -> IoStateIterator<Self>
+    fn iter_states<'a>(&'a mut self) -> IoStateIterator<'a,Self>
     where
         Self: Sized,
     {
@@ -89,14 +89,14 @@ pub trait IoRandomAccess: IoStateReader {
 //==================================================================
 // Iterator over the frames for any type implementing IoStateReader
 //==================================================================
-pub struct IoStateIterator<T>
+pub struct IoStateIterator<'a,T>
 where
     T: IoStateReader,
 {
-    reader: T,
+    reader: &'a mut T,
 }
 
-impl<T> Iterator for IoStateIterator<T>
+impl<'a,T> Iterator for IoStateIterator<'a,T>
 where
     T: IoStateReader,
 {
@@ -250,15 +250,15 @@ impl<'a> IoRandomAccess for FileHandler<'a> {
 fn test_read() -> Result<()>{
     use super::io::*;
 
-    let mut r = FileHandler::new_reader("tests/topol.tpr")?;
-    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.pdb"))?;
+    let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
+    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.xtc"))?;
 
-    let st = r.read_topology()?;
-    println!("{:?}", st.atoms);
+    //let st = r.read_topology()?;
+    //println!("{:?}", st.atoms);
 
-    for fr in r.into_states_iter() {
-        //println!("{:?}",fr);
-        w.write_topology(&st)?;
+    for fr in r.iter_states() {
+        println!("{}",fr.time);
+        //w.write_topology(&st)?;
         w.write_next_state(&fr)?;
         //w.write_structure(&st).unwrap();
         //w.write_next_state_subset(&fr,0..10).unwrap();

@@ -44,5 +44,3 @@ impl IoIndexAndTopologyProvider for Topology {
         (0..self.atoms.len(), &self)
     }
 }
-
-//pub type StructureHandle = Handle<Structure>;
