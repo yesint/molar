@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use super::{Matrix3f, PBC_FULL};
 use super::{
-    AtomIterator, AtomMutIterator, ParticleIterator, ParticleMut, ParticleMutIterator, PbcDims,
+    AtomIterator, PbcDims,
     PeriodicBox, Pos, PosIterator, PosMutIterator, Vector3f,
 };
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
@@ -103,22 +103,8 @@ pub trait MeasurePeriodic: MeasureMasses + MeasureBox {
     }
 }
 
-/// The trait for modifying the particles. User types should
-/// implement `iter_mut`.
-pub trait ModifyParticles {
-    fn iter_particles_mut(&mut self) -> impl ParticleMutIterator<'_>;
-
-    fn iter_particles(&mut self) -> impl ParticleIterator<'_> {
-        self.iter_particles_mut().map(|p| p.into())
-    }
-
-    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
-        self.iter_particles_mut().map(|p| p.pos)
-    }
-
-    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
-        self.iter_particles_mut().map(|p| p.atom)
-    }
+pub trait ModifyPos: MeasurePos {
+    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_>;
 
     fn translate(&mut self, shift: Vector3f) {
         for el in self.iter_pos_mut() {
@@ -140,9 +126,25 @@ pub trait ModifyParticles {
     }
 }
 
+/// The trait for modifying the particles. User types should
+/// implement `iter_mut`.
+/*
+pub trait ModifyParticles: ModifyPos {
+    fn iter_particles_mut(&mut self) -> impl ParticleMutIterator<'_>;
+
+    fn iter_particles(&mut self) -> impl ParticleIterator<'_> {
+        self.iter_particles_mut().map(|p| p.into())
+    }
+
+    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
+        self.iter_particles_mut().map(|p| p.atom)
+    }
+}
+*/
+
 /// The trait for modifying the particles that requires
 /// the periodic box.
-pub trait ModifyPeriodic: ModifyParticles + MeasureBox {
+pub trait ModifyPeriodic: ModifyPos + MeasureBox {
     fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<()> {
         let b = self.get_box()?.clone();
         let mut iter = self.iter_pos_mut();
@@ -161,7 +163,7 @@ pub trait ModifyPeriodic: ModifyParticles + MeasureBox {
 }
 
 pub trait ModifyRandomAccess: ModifyPeriodic {
-    fn nth_particle_mut(&mut self, i: usize) -> ParticleMut;
+    //fn nth_particle_mut(&mut self, i: usize) -> ParticleMut;
     fn nth_pos_mut(&mut self, i: usize) -> &mut Pos;
 
     fn nth_pos(&mut self, i: usize) -> &Pos {
@@ -176,7 +178,7 @@ pub trait ModifyRandomAccess: ModifyPeriodic {
         let b = self.get_box()?.to_owned();
         let conn: SearchConnectivity = DistanceSearcherSingle::new_periodic(
             cutoff,
-            self.iter_particles().map(|p| (p.id, p.pos)),
+            self.iter_pos().enumerate(),
             &b,
             &dims,
         )

@@ -154,7 +154,7 @@ impl IoTopologyReader for TprFileHandler {
 impl IoStateReader for TprFileHandler {
     fn read_next_state(&mut self) -> Result<Option<State>> {
         if self.state_read {
-            // State is read alredy, return EOF and fo nothing
+            // State is read alredy, return EOF and do nothing
             return Ok(None);
         }
         

@@ -28,5 +28,6 @@
         "initializer_list": "cpp",
         "span": "cpp"
     },
-    "cmake.sourceDirectory": "/home/semen/work/Projects/molar/target/debug/build/molar_gromacs-cc20be6f9a2f9e9f/out/build/_deps/gromacs-subbuild"
+    "cmake.sourceDirectory": "/home/semen/work/Projects/molar/target/debug/build/molar_gromacs-cc20be6f9a2f9e9f/out/build/_deps/gromacs-subbuild",
+    "C_Cpp.errorSquiggles": "disabled"
 }

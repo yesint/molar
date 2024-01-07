@@ -235,7 +235,7 @@ impl<'a> IoRandomAccess for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::{FileHandler, IoReader, IoWriter, IoStateReader};
-    use crate::{io::*, core::{SelectionAll, Select, ModifyParticles, Vector3f, SelectionExpr}};
+    use crate::{io::*, core::{SelectionAll, Select, Vector3f, SelectionExpr, ModifyPos}};
     use anyhow::Result;
     use nalgebra::Unit;
 

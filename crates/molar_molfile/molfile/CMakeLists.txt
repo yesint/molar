@@ -14,7 +14,7 @@ SET(MOLFILE_PLUGINS pdbplugin dcdplugin xyzplugin)
 SET(MOLFILE_PLUGINS_FILE_LIST "")
 
 foreach(P ${MOLFILE_PLUGINS})    
-    set_source_files_properties(${P}.c PROPERTIES COMPILE_DEFINITIONS VMDPLUGIN=${P})
+    set_source_files_properties(${P}.c PROPERTIES COMPILE_DEFINITIONS "VMDPLUGIN=${P};VMDUSECONECTRECORDS")
     list(APPEND MOLFILE_PLUGINS_FILE_LIST ${P}.c)
 endforeach()
 

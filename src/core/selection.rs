@@ -1,6 +1,6 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms};
+use super::{State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, PosMutIterator, ModifyPos, PosIterator};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -321,7 +321,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }
 }
@@ -336,22 +336,11 @@ where
     }    
 }
 
-
 impl<T, S> MeasureMasses for SelectionQueryGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    /*
-    fn iter_particles(&self) -> impl ParticleIterator<'_> {
-        ParticleIteratorAdaptor::new(
-            &self.topology_ref.atoms,
-            &self.state_ref.coords,
-            &self.index,
-        )
-    }
-    */
-
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.index.iter().map(|i| self.topology_ref.atoms[*i].mass)
     }
@@ -373,6 +362,34 @@ where
     }
 }
 
+//-------------------------------------------------------
+
+impl<T, S> MeasurePos for SelectionModifyGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.index.iter().map(|i| &self.state_ref.coords[*i])
+    }
+}
+
+impl<T, S> ModifyPos for SelectionModifyGuard<'_, T, S>
+where
+    T: UniRcLock<Topology>,
+    S: UniRcLock<State>,
+{
+    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
+        self.index.iter().map(|i|
+            unsafe {
+                &mut *self.state_ref.coords.as_mut_ptr().add(*i)
+            }
+        )
+    }
+}
+
+
+/*
 impl<T, S> ModifyParticles for SelectionModifyGuard<'_, T, S>
 where
     T: UniRcLock<Topology>,
@@ -386,6 +403,7 @@ where
         )
     }
 }
+*/
 
 impl<T, S> ModifyPeriodic for SelectionModifyGuard<'_, T, S>
 where
@@ -398,6 +416,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
+    /*
     fn nth_particle_mut(&mut self, i: usize) -> ParticleMut {
         ParticleMut{
             id: i,
@@ -405,7 +424,9 @@ where
             atom: &mut self.topology_ref.atoms[self.index[i]],
         }
     }
+    */
 
+    #[inline(always)]
     fn nth_pos_mut(&mut self, i: usize) -> &mut Pos {
         &mut self.state_ref.coords[self.index[i]]
     }
@@ -419,7 +440,7 @@ where
 mod tests {
     use crate::{
         core::State,
-        core::{selection::Select, Topology, MeasureMasses, MeasurePos, ModifyParticles, Vector3f, ModifyRandomAccess, fit_transform, PBC_FULL},
+        core::{selection::Select, Topology, MeasureMasses, MeasurePos, Vector3f, ModifyRandomAccess, fit_transform, PBC_FULL, ModifyPos},
         io::*,
     };
     use lazy_static::lazy_static;
