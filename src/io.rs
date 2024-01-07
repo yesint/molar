@@ -235,9 +235,8 @@ impl<'a> IoRandomAccess for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::{FileHandler, IoReader, IoWriter, IoStateReader};
-    use crate::{io::*, core::{SelectionAll, Select, Vector3f, SelectionExpr, ModifyPos}};
+    use crate::{io::*, core::{SelectionAll, Select, Vector3f, ModifyPos}};
     use anyhow::Result;
-    use nalgebra::Unit;
 
     #[test]
     fn test_read() -> Result<()> {
@@ -287,7 +286,7 @@ mod tests {
         println!("#1: {}",(*top1).borrow().atoms.len());
 
         let sel = SelectionAll::new().select(&top1,&st2)?;
-        sel.modify().rotate(&Unit::new_normalize(Vector3f::x()), 45.0_f32.to_radians());
+        sel.modify().rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
         
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
