@@ -1,6 +1,6 @@
 use crate::core::{IndexIterator, State, Topology};
 use anyhow::{anyhow, bail, Result};
-use std::path::Path;
+use std::{path::Path, ops::Deref};
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -33,11 +33,11 @@ pub trait IoWriter {
 // Traits for writing
 //===============================
 pub trait IoIndexAndTopologyProvider {
-    fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology);
+    fn get_index_and_topology(&self) -> (impl IndexIterator, impl Deref<Target = Topology>);
 }
 
 pub trait IoIndexAndStateProvider {
-    fn get_index_and_state(&self) -> (impl IndexIterator, &State);
+    fn get_index_and_state(&self) -> (impl IndexIterator, impl Deref<Target = State>);
 }
 
 //===============================
@@ -48,10 +48,7 @@ pub trait IoTopologyReader: IoReader {
 }
 
 pub trait IoTopologyWriter: IoWriter {
-    fn write_topology(
-        &mut self,
-        data: &impl IoIndexAndTopologyProvider
-    ) -> Result<()>;
+    fn write_topology(&mut self, data: &impl IoIndexAndTopologyProvider) -> Result<()>;
 }
 
 //===============================
@@ -60,7 +57,7 @@ pub trait IoTopologyWriter: IoWriter {
 pub trait IoStateReader: IoReader {
     fn read_next_state(&mut self) -> Result<Option<State>>;
 
-    fn iter_states<'a>(&'a mut self) -> IoStateIterator<'a,Self>
+    fn iter_states<'a>(&'a mut self) -> IoStateIterator<'a, Self>
     where
         Self: Sized,
     {
@@ -69,10 +66,7 @@ pub trait IoStateReader: IoReader {
 }
 
 pub trait IoStateWriter: IoWriter {
-    fn write_next_state(
-        &mut self,
-        data: &impl IoIndexAndStateProvider,
-    ) -> Result<()>;
+    fn write_next_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()>;
 }
 
 //==============================
@@ -89,14 +83,14 @@ pub trait IoRandomAccess: IoStateReader {
 //==================================================================
 // Iterator over the frames for any type implementing IoStateReader
 //==================================================================
-pub struct IoStateIterator<'a,T>
+pub struct IoStateIterator<'a, T>
 where
     T: IoStateReader,
 {
     reader: &'a mut T,
 }
 
-impl<'a,T> Iterator for IoStateIterator<'a,T>
+impl<'a, T> Iterator for IoStateIterator<'a, T>
 where
     T: IoStateReader,
 {
@@ -168,14 +162,9 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
 }
 
 impl<'a> IoTopologyWriter for FileHandler<'a> {
-    fn write_topology(
-        &mut self,
-        data: &impl IoIndexAndTopologyProvider,
-    ) -> Result<()> {
+    fn write_topology(&mut self, data: &impl IoIndexAndTopologyProvider) -> Result<()> {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
-                h.write_topology(data)
-            }
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(data),
             _ => bail!("Unable to write topology"),
         }
     }
@@ -195,10 +184,7 @@ impl<'a> IoStateReader for FileHandler<'a> {
 }
 
 impl<'a> IoStateWriter for FileHandler<'a> {
-    fn write_next_state(
-        &mut self,
-        data: &impl IoIndexAndStateProvider,
-    ) -> Result<()> {
+    fn write_next_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.write_next_state(data)
@@ -246,45 +232,76 @@ impl<'a> IoRandomAccess for FileHandler<'a> {
     }
 }
 
-#[test]
-fn test_read() -> Result<()>{
-    use super::io::*;
+#[cfg(test)]
+mod tests {
+    use super::{FileHandler, IoReader, IoWriter, IoStateReader};
+    use crate::{io::*, core::{SelectionAll, Select, ModifyParticles, Vector3f, SelectionExpr}};
+    use anyhow::Result;
+    use nalgebra::Unit;
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
-    let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.xtc"))?;
+    #[test]
+    fn test_read() -> Result<()> {
+        let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
+        let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.xtc"))?;
 
-    //let st = r.read_topology()?;
-    //println!("{:?}", st.atoms);
+        //let st = r.read_topology()?;
+        //println!("{:?}", st.atoms);
 
-    for fr in r.iter_states() {
-        println!("{}",fr.time);
-        //w.write_topology(&st)?;
-        w.write_next_state(&fr)?;
-        //w.write_structure(&st).unwrap();
-        //w.write_next_state_subset(&fr,0..10).unwrap();
+        for fr in r.iter_states() {
+            println!("{}", fr.time);
+            //w.write_topology(&st)?;
+            w.write_next_state(&fr)?;
+            //w.write_structure(&st).unwrap();
+            //w.write_next_state_subset(&fr,0..10).unwrap();
+        }
+
+        Ok(())
     }
 
-    Ok(())
-}
+    #[test]
+    fn test_traj() -> Result<()> {
+        let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
+        let (max_fr, max_t) = r.tell_last()?;
+        println!("max: {max_fr}:{max_t}");
 
-#[test]
-fn test_traj() -> Result<()> {
-    use super::io::*;
+        let (cur_fr, cur_t) = r.tell_current()?;
+        println!("cur: {cur_fr}:{cur_t}");
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
-    let (max_fr,max_t) = r.tell_last()?;
-    println!("max: {max_fr}:{max_t}");
+        r.seek_frame(2000)?;
+        let (cur_fr, cur_t) = r.tell_current()?;
+        println!("cur after seek to fr 2000: {cur_fr}:{cur_t}");
+
+        //r.seek_time(250000.0)?;
+        //let (cur_fr,cur_t) = r.tell_current()?;
+        //println!("cur after seek to t 250k: {cur_fr}:{cur_t}");
+
+        Ok(())
+    }
     
-    let (cur_fr,cur_t) = r.tell_current()?;
-    println!("cur: {cur_fr}:{cur_t}");
-    
-    r.seek_frame(2000)?;
-    let (cur_fr,cur_t) = r.tell_current()?;
-    println!("cur after seek to fr 2000: {cur_fr}:{cur_t}");
+    #[test]
+    fn test_pdb() -> Result<()> {
+        let mut r = FileHandler::new_reader("tests/no_ATP.pdb")?;
+        let top1 = r.read_topology()?.to_rc();
+        let st1 = r.read_next_state()?.unwrap().to_rc();
+        let st2 = (*st1).borrow().clone().to_rc();
+        println!("#1: {}",(*top1).borrow().atoms.len());
 
-    //r.seek_time(250000.0)?;
-    //let (cur_fr,cur_t) = r.tell_current()?;
-    //println!("cur after seek to t 250k: {cur_fr}:{cur_t}");
+        let sel = SelectionAll::new().select(&top1,&st2)?;
+        sel.modify().rotate(&Unit::new_normalize(Vector3f::x()), 45.0_f32.to_radians());
+        
+        let outname = concat!(env!("OUT_DIR"), "/2.pdb");
+        println!("{outname}");
+        let mut w = FileHandler::new_writer(outname)?;
+        w.write_topology(&top1)?;
+        w.write_next_state(&st1)?;
+        w.write_next_state(&st2)?;
 
-    Ok(())
+        //let top2 = r.read_topology()?;
+        //let st2 = r.read_next_state()?.unwrap();
+        //println!("#2: {}",top2.atoms.len());
+        //for fr in r.iter_states() {
+        //    println!("fr {}", fr.time);
+        //}
+        Ok(())
+    }
 }

@@ -1,4 +1,4 @@
-use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
+use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}, ops::Deref};
 use crate::io::IoIndexAndStateProvider;
 use anyhow::{Result, anyhow};
 use super::{PeriodicBox, Pos, MeasureBox, MeasurePos, IdPosIterator, IndexIterator};
@@ -30,10 +30,17 @@ impl State {
 }
 
 impl IoIndexAndStateProvider for State {
-    fn get_index_and_state(&self) -> (impl super::IndexIterator, &State) {
-        (0..self.coords.len(), &self)
+    fn get_index_and_state(&self) -> (impl super::IndexIterator, impl Deref<Target=State>) {
+        (0..self.coords.len(), self)
     }
 }
+
+impl IoIndexAndStateProvider for Rc<RefCell<State>> {
+    fn get_index_and_state(&self) -> (impl super::IndexIterator, impl Deref<Target=State>) {
+        (0..self.borrow().coords.len(), self.borrow())
+    }
+}
+
 
 impl MeasureBox for State {
     fn get_box(&self) -> Result<&PeriodicBox> {

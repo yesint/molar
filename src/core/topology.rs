@@ -1,4 +1,4 @@
-use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}};
+use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}, ops::Deref};
 
 use crate::io::IoIndexAndTopologyProvider;
 
@@ -40,7 +40,13 @@ impl Topology {
 }
 
 impl IoIndexAndTopologyProvider for Topology {
-    fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology) {
-        (0..self.atoms.len(), &self)
+    fn get_index_and_topology(&self) -> (impl IndexIterator, impl Deref<Target=Topology>) {
+        (0..self.atoms.len(), self)
+    }
+}
+
+impl IoIndexAndTopologyProvider for Rc<RefCell<Topology>> {
+    fn get_index_and_topology(&self) -> (impl IndexIterator, impl Deref<Target=Topology>) {
+        (0..self.borrow().atoms.len(), self.borrow())
     }
 }

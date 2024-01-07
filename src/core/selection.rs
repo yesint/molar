@@ -1,10 +1,11 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
 use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
-use super::{particle::*, selection_parser::SelectionExpr, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms};
+use super::{particle::*, State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, ModifyParticles, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
 
+pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
 
 /// Trait whic provides select method operating with generic smart pointers
@@ -13,7 +14,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>>;
+    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>>;
 }
 
 //-----------------------------------------------------------------
@@ -30,21 +31,26 @@ fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
     }
 }
 
-struct SelectionAll {}
+pub struct SelectionAll {}
+
+impl SelectionAll {
+    pub fn new() -> Self {
+        Self{}
+    }
+}
 
 impl<T, S> Select<T, S> for SelectionAll
 where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
-        let s = topology.clone();
-        check_sizes(&s.read(), &state.read())?;
+    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
+        check_sizes(&topology.read(), &state.read())?;
         let index: Vec<usize> = (0..state.read().coords.len()).collect();
         if index.len() >0 {
             Ok(Selection {
-                topology,
-                state,
+                topology: topology.clone(),
+                state: state.clone(),
                 index,
             })
         } else {
@@ -58,13 +64,13 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
         check_sizes(&topology.read(), &state.read())?;
         let index = self.apply_whole(&topology.read(), &state.read()).unwrap();
         if index.len() >0 {
             Ok(Selection {
-                topology,
-                state,
+                topology: topology.clone(),
+                state: state.clone(),
                 index,
             })
         } else {
@@ -78,7 +84,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
         check_sizes(&topology.read(), &state.read())?;
         let index = SelectionExpr::try_from(self)
             .unwrap()
@@ -86,8 +92,8 @@ where
             .unwrap();
         if index.len() >0 {
             Ok(Selection {
-                topology: topology,
-                state,
+                topology: topology.clone(),
+                state: state.clone(),
                 index,
             })
         } else {
@@ -101,7 +107,7 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
         check_sizes(&topology.read(), &state.read())?;
         let n = topology.read().atoms.len();
         if self.start > n - 1 || self.end > n - 1 {
@@ -115,8 +121,8 @@ where
         let index: Vec<usize> = self.clone().collect();
         if index.len() >0 {
             Ok(Selection {
-                topology,
-                state,
+                topology: topology.clone(),
+                state: state.clone(),
                 index,
             })
         } else {
@@ -130,12 +136,12 @@ where
     T: UniRcLock<Topology>,
     S: UniRcLock<State>,
 {
-    fn select(&self, topology: T, state: S) -> Result<Selection<T, S>> {
+    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
         let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
         if index.len() >0 {
             Ok(Selection {
-                topology,
-                state,
+                topology: topology.clone(),
+                state: state.clone(),
                 index,
             })
         } else {
@@ -269,6 +275,7 @@ where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
+    #[allow(refining_impl_trait)]
     fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology) {
         (self.index.iter().cloned(), &self.topology_ref)
     }
@@ -279,6 +286,7 @@ where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
+    #[allow(refining_impl_trait)]
     fn get_index_and_state(&self) -> (impl IndexIterator, &State) {
         (self.index.iter().cloned(), &self.state_ref)
     }
@@ -434,14 +442,14 @@ mod tests {
     fn make_sel() -> anyhow::Result<SelectionRc> {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
-        let sel = SelectionAll{}.select(t, s)?;
+        let sel = SelectionAll{}.select(&t, &s)?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<SelectionRc> {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
-        let sel = "not resname TIP3 POT CLA".select(t, s)?;
+        let sel = "not resname TIP3 POT CLA".select(&t, &s)?;
         Ok(sel)
     }
 
