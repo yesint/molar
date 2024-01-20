@@ -6,7 +6,7 @@ use nalgebra::Unit;
 fn read_test_pdb() -> (Topology, State) {
     let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
     let top = h.read_topology().unwrap();
-    let state = h.read_next_state().unwrap().unwrap();
+    let state = h.read_state().unwrap().unwrap();
     (top, state)
 }
 

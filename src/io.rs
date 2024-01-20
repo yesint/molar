@@ -4,7 +4,7 @@ use std::{path::Path, ops::Deref};
 
 mod vmd_molfile_handler;
 mod xtc_handler;
-
+mod gro_handler;
 #[cfg(feature = "gromacs")]
 mod tpr_handler;
 
@@ -13,6 +13,7 @@ mod tpr_handler;
 pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::VmdMolFileHandler;
 pub use xtc_handler::XtcFileHandler;
+pub use gro_handler::GroFileHandler;
 
 //===============================
 // Traits for file opening
@@ -55,7 +56,7 @@ pub trait IoTopologyWriter: IoWriter {
 // Traits for State IO
 //===============================
 pub trait IoStateReader: IoReader {
-    fn read_next_state(&mut self) -> Result<Option<State>>;
+    fn read_state(&mut self) -> Result<Option<State>>;
 
     fn iter_states<'a>(&'a mut self) -> IoStateIterator<'a, Self>
     where
@@ -66,7 +67,7 @@ pub trait IoStateReader: IoReader {
 }
 
 pub trait IoStateWriter: IoWriter {
-    fn write_next_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()>;
+    fn write_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()>;
 }
 
 //==============================
@@ -96,7 +97,7 @@ where
 {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
-        self.reader.read_next_state().expect("Error reading state")
+        self.reader.read_state().expect("Error reading state")
     }
 }
 
@@ -171,12 +172,12 @@ impl<'a> IoTopologyWriter for FileHandler<'a> {
 }
 
 impl<'a> IoStateReader for FileHandler<'a> {
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_state(&mut self) -> Result<Option<State>> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
-                h.read_next_state()
+                h.read_state()
             }
-            Self::Xtc(ref mut h) => h.read_next_state(),
+            Self::Xtc(ref mut h) => h.read_state(),
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read_next_state(),
         }
@@ -184,12 +185,12 @@ impl<'a> IoStateReader for FileHandler<'a> {
 }
 
 impl<'a> IoStateWriter for FileHandler<'a> {
-    fn write_next_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()> {
+    fn write_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
-                h.write_next_state(data)
+                h.write_state(data)
             }
-            Self::Xtc(ref mut h) => h.write_next_state(data),
+            Self::Xtc(ref mut h) => h.write_state(data),
             //_ => bail!("Unable to write state"),
         }
     }
@@ -249,7 +250,7 @@ mod tests {
         for fr in r.iter_states() {
             println!("{}", fr.time);
             //w.write_topology(&st)?;
-            w.write_next_state(&fr)?;
+            w.write_state(&fr)?;
             //w.write_structure(&st).unwrap();
             //w.write_next_state_subset(&fr,0..10).unwrap();
         }
@@ -281,7 +282,7 @@ mod tests {
     fn test_pdb() -> Result<()> {
         let mut r = FileHandler::new_reader("tests/no_ATP.pdb")?;
         let top1 = r.read_topology()?.to_rc();
-        let st1 = r.read_next_state()?.unwrap().to_rc();
+        let st1 = r.read_state()?.unwrap().to_rc();
         let st2 = (*st1).borrow().clone().to_rc();
         println!("#1: {}",(*top1).borrow().atoms.len());
 
@@ -292,8 +293,8 @@ mod tests {
         println!("{outname}");
         let mut w = FileHandler::new_writer(outname)?;
         w.write_topology(&top1)?;
-        w.write_next_state(&st1)?;
-        w.write_next_state(&st2)?;
+        w.write_state(&st1)?;
+        w.write_state(&st2)?;
 
         //let top2 = r.read_topology()?;
         //let st2 = r.read_next_state()?.unwrap();

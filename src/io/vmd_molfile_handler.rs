@@ -252,7 +252,7 @@ impl IoTopologyWriter for VmdMolFileHandler<'_> {
 }
 
 impl IoStateReader for VmdMolFileHandler<'_> {
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_state(&mut self) -> Result<Option<State>> {
         let mut state: State = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
@@ -307,7 +307,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 }
 
 impl IoStateWriter for VmdMolFileHandler<'_> {
-    fn write_next_state(
+    fn write_state(
         &mut self,
         data: &impl IoIndexAndStateProvider,
     ) -> Result<()> {

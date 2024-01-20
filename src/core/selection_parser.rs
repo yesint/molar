@@ -786,14 +786,14 @@ mod tests {
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/triclinic.pdb").unwrap();
         let structure = h.read_topology().unwrap();
-        let state = h.read_next_state().unwrap().unwrap();
+        let state = h.read_state().unwrap().unwrap();
         (structure, state)
     }
 
     fn read_test_pdb2() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
         let structure = h.read_topology().unwrap();
-        let state = h.read_next_state().unwrap().unwrap();
+        let state = h.read_state().unwrap().unwrap();
         (structure, state)
     }
 

@@ -451,7 +451,7 @@ mod tests {
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
         let top = h.read_topology().unwrap();
-        let state = h.read_next_state().unwrap().unwrap();
+        let state = h.read_state().unwrap().unwrap();
         (top, state)
     }
 
@@ -520,7 +520,7 @@ mod tests {
 
         let mut h = FileHandler::new_writer("f.pdb")?;
         h.write_topology(&q)?;
-        h.write_next_state(&q)?;
+        h.write_state(&q)?;
         Ok(())
     }
 
@@ -532,7 +532,7 @@ mod tests {
         let mut h = FileHandler::new_writer("unwrapped.pdb")?;
         let q = sel.query();
         h.write_topology(&q)?;
-        h.write_next_state(&q)?;
+        h.write_state(&q)?;
         Ok(())
     }
 
@@ -550,13 +550,13 @@ mod tests {
         let mut h = FileHandler::new_writer("sel2.pdb")?;
         let q = sel2.query();
         h.write_topology(&q)?;
-        h.write_next_state(&q)?;
+        h.write_state(&q)?;
         drop(q);
 
         let mut h = FileHandler::new_writer("sel1_before.pdb")?;
         let q = sel1.query();
         h.write_topology(&q)?;
-        h.write_next_state(&q)?;
+        h.write_state(&q)?;
         drop(q);
 
 
@@ -568,7 +568,7 @@ mod tests {
         let mut h = FileHandler::new_writer("sel1_after.pdb")?;
         let q = sel1.query();
         h.write_topology(&q)?;
-        h.write_next_state(&q)?;
+        h.write_state(&q)?;
 
         Ok(())
     }
