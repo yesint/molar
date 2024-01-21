@@ -1,4 +1,4 @@
-use super::{IoReader, IoTopologyReader, IoStateReader};
+use super::{IoReader, IoOnceReader};
 use crate::core::*;
 use ascii::{AsciiString,AsciiChar};
 
@@ -11,7 +11,6 @@ use molar_gromacs::gromacs_bindings::*;
 
 pub struct TprFileHandler {
     handle: TprHelper,
-    state_read: bool,
 }
 
 impl TprFileHandler {
@@ -19,7 +18,6 @@ impl TprFileHandler {
         let f_name = CString::new(fname.to_owned())?;
         Ok(TprFileHandler {
             handle: unsafe{ TprHelper::new(f_name.as_ptr()) },
-            state_read: false,
         })
     }
 }
@@ -50,25 +48,28 @@ fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
 }
 
 
-impl IoTopologyReader for TprFileHandler {
-    fn read_topology(&mut self) -> Result<Topology> {
-        let top = unsafe{ self.handle.get_top().as_ref().unwrap() };
-        let natoms = top.atoms.nr as usize;
-        let nres = top.atoms.nres as usize;
+impl IoOnceReader for TprFileHandler {
+    fn read(&mut self) -> Result<(Topology,State)> {
+        //================
+        // Read top
+        //================
+        let gmx_top = unsafe{ self.handle.get_top().as_ref().unwrap() };
+        let natoms = gmx_top.atoms.nr as usize;
+        let nres = gmx_top.atoms.nres as usize;
 
-        let mut structure: Topology = Default::default();
-        structure.atoms.reserve(natoms);
+        let mut top: Topology = Default::default();
+        top.atoms.reserve(natoms);
 
-        let gmx_atoms = c_array_to_slice(top.atoms.atom, natoms);
-        let gmx_atomnames = c_array_to_slice(top.atoms.atomname, natoms);
-        let gmx_resinfo = c_array_to_slice(top.atoms.resinfo, nres);
+        let gmx_atoms = c_array_to_slice(gmx_top.atoms.atom, natoms);
+        let gmx_atomnames = c_array_to_slice(gmx_top.atoms.atomname, natoms);
+        let gmx_resinfo = c_array_to_slice(gmx_top.atoms.resinfo, nres);
         let gmx_pdbinfo: Option<&[t_pdbinfo]> =
-            if top.atoms.pdbinfo != null_mut() {
-                Some(c_array_to_slice(top.atoms.pdbinfo, natoms))
+            if gmx_top.atoms.pdbinfo != null_mut() {
+                Some(c_array_to_slice(gmx_top.atoms.pdbinfo, natoms))
             } else {
                 None
             };
-        let gmx_atomtypes = c_array_to_slice(top.atoms.atomtype, natoms);
+        let gmx_atomtypes = c_array_to_slice(gmx_top.atoms.atomtype, natoms);
         
         unsafe{
             for i in 0..natoms {
@@ -103,13 +104,13 @@ impl IoTopologyReader for TprFileHandler {
                     ..Default::default()
                 };
                 
-                structure.atoms.push(new_atom);
+                top.atoms.push(new_atom);
             } //for atoms
 
             // Parsing idef for bonds
-            let functypes = c_array_to_slice(top.idef.functype,top.idef.ntypes);
+            let functypes = c_array_to_slice(gmx_top.idef.functype,gmx_top.idef.ntypes);
             // Iterate over non-empty interaction lists 
-            for il in top.idef.il.iter().filter(|el| el.nr>0) {
+            for il in gmx_top.idef.il.iter().filter(|el| el.nr>0) {
                 let iatoms = c_array_to_slice(il.iatoms,il.nr);
                 // We can check the first type only since we only
                 // need to evaluate the interaction type and not
@@ -120,46 +121,35 @@ impl IoTopologyReader for TprFileHandler {
                     | F_CONSTR |  F_CONSTRNC => {
                         for el in iatoms.chunks_exact(3) {
                             // el[0] is type and not needed
-                            structure.bonds.push([el[1] as usize, el[2] as usize]);
+                            top.bonds.push([el[1] as usize, el[2] as usize]);
                         }        
                     },
                     F_SETTLE => {
                         for el in iatoms.chunks_exact(4){
                             // el[0] is type and not needed
                             // Each settle is 2 bonds
-                            structure.bonds.push([el[1] as usize, el[2] as usize]);
-                            structure.bonds.push([el[1] as usize, el[3] as usize]);
+                            top.bonds.push([el[1] as usize, el[2] as usize]);
+                            top.bonds.push([el[1] as usize, el[3] as usize]);
                         }
                     }
                     _ => (),
                 } //match
-                
             } //for
 
             // Read molecules
-            let mol_index = c_array_to_slice(top.mols.index, top.mols.nr);
+            let mol_index = c_array_to_slice(gmx_top.mols.index, gmx_top.mols.nr);
             for m in mol_index.chunks_exact(2) {
-                structure.molecules.push([m[0] as usize, m[1] as usize -1]);
+                top.molecules.push([m[0] as usize, m[1] as usize -1]);
             }
         } //unsafe
 
         // Assign resindexes
-        structure.assign_resindex();
-        
-        Ok(structure.into())
-    }
-}
+        top.assign_resindex();
 
-
-impl IoStateReader for TprFileHandler {
-    fn read_state(&mut self) -> Result<Option<State>> {
-        if self.state_read {
-            // State is read alredy, return EOF and do nothing
-            return Ok(None);
-        }
-        
+        //================
+        // Now read state
+        //================
         let mut st = State::default();
-        let natoms = unsafe{ self.handle.get_natoms() };
         // Gromacs stores coordinates in TPR in internal non-standard vectors
         // So we will need to copy them atom by atom
         st.coords.resize(natoms, Default::default());
@@ -175,23 +165,19 @@ impl IoStateReader for TprFileHandler {
             std::slice::from_raw_parts(self.handle.get_box(), 9)
         };
         let m = Matrix3::from_column_slice(sl);
-        st.box_ = PeriodicBox::from_matrix(m).ok();
+        st.box_ = Some(PeriodicBox::from_matrix(m)?);
+
         
-        // Set a marker that state is already read
-        self.state_read = true;
-        Ok(Some(st.into()))
+        Ok((top,st))
     }
 }
-
 
 #[test]
 fn test_tpr() {
     let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
-    let st = h.read_topology().unwrap();
-    println!("natoms: {:?}",st.atoms.len());
-    println!("nbonds: {:?}",st.bonds.len());
-    println!("molecules: {:?}",st.molecules.len());
-
-    let state = h.read_next_state().unwrap().unwrap();
-    println!("state sz: {:?}",state.coords.len());
+    let (top,st) = h.read().unwrap();
+    println!("natoms: {:?}",top.atoms.len());
+    println!("nbonds: {:?}",top.bonds.len());
+    println!("molecules: {:?}",top.molecules.len());
+    println!("state sz: {:?}",st.coords.len());
 }

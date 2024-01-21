@@ -179,4 +179,10 @@ impl PeriodicBox {
     pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: &PbcDims) -> f32 {
         self.distance_squared(p1, p2, pbc).sqrt()
     }
+
+    pub fn is_triclinic(&self) -> bool {
+        self.matrix[(0,1)]!=0.0 || self.matrix[(0,2)]!=0.0 ||
+        self.matrix[(1,0)]!=0.0 || self.matrix[(1,2)]!=0.0 ||
+        self.matrix[(2,0)]!=0.0 || self.matrix[(2,1)]!=0.0
+    }
 }

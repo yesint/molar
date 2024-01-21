@@ -1,76 +1,42 @@
-use super::{IoReader, IoTopologyReader, IoStateReader, IoTopologyWriter, IoWriter, IoStateWriter, IoIndexProvider, IoTopologyProvider};
-use crate::core::{Topology, Atom, Pos, State, Matrix3f, PeriodicBox, IndexIterator};
-use anyhow::{Result, anyhow};
+use super::{
+    IoIndexProvider, IoOnceReader, IoOnceWriter, IoReader, IoTopologyProvider, IoWriter,
+};
+use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, Topology};
+use anyhow::Result;
+use ascii::{AsciiChar, AsciiString};
 use std::{
     fs::File,
-    io::{BufRead, BufReader}, ops::Deref,
+    io::{BufRead, BufReader, BufWriter, Write},
 };
-use ascii::{AsciiString, AsciiChar};
 
-pub struct GroFileHandler<'a> {
+pub struct GroFileHandler {
     file_name: String,
-    top: Option<Topology>,
-    state: Option<State>,
-    is_read: bool,
-    w: GroWriter<'a>,
 }
 
-#[derive(Default)]
-struct GroWriter<'a> {
-    index: Option<&'a dyn IndexIterator>,
-    top: Option<&'a dyn Deref<Target=Topology>>,
-    state: Option<&'a dyn Deref<Target=State>>,
-}
-
-
-impl IoReader for GroFileHandler<'_> {
+impl IoReader for GroFileHandler {
     fn open(fname: &str) -> Result<Self>
     where
         Self: Sized,
     {
         Ok(Self {
             file_name: fname.to_owned(),
-            top: None,
-            state: None,
-            is_read: false,
-            w: Default::default()
         })
     }
 }
 
-impl IoWriter for GroFileHandler<'_> {
+impl IoWriter for GroFileHandler {
     fn create(fname: &str) -> Result<Self>
-        where
-            Self: Sized 
+    where
+        Self: Sized,
     {
-        todo!();
+        Ok(Self {
+            file_name: fname.to_owned(),
+        })
     }
 }
 
-impl IoTopologyReader for GroFileHandler<'_> {
-    fn read_topology(&mut self) -> Result<Topology> {
-        if !self.is_read {
-            let (t,st) = self.read()?;
-            self.top = Some(t);
-            self.state = Some(st);
-        }
-        self.top.take().ok_or(anyhow!("Already read topology"))
-    }
-}
-
-impl IoStateReader for GroFileHandler<'_> {
-    fn read_state(&mut self) -> Result<Option<State>> {
-        if !self.is_read {
-            let (t,st) = self.read()?;
-            self.top = Some(t);
-            self.state = Some(st);
-        }
-        Ok(self.state.take())
-    }
-}
-
-impl GroFileHandler<'_> {
-    fn read(&mut self) -> Result<(Topology,State)> {
+impl IoOnceReader for GroFileHandler {
+    fn read(&mut self) -> Result<(Topology, State)> {
         let mut top = Topology::new();
         let mut state = State::new();
 
@@ -80,7 +46,7 @@ impl GroFileHandler<'_> {
         // Read number of atoms
         let natoms = lines.next().unwrap()?.parse::<usize>()?;
         // Go over atoms line by line
-        for i in 0..natoms {
+        for _ in 0..natoms {
             let line = lines.next().unwrap()?;
 
             let at = Atom {
@@ -103,9 +69,9 @@ impl GroFileHandler<'_> {
             let v = Pos::new(
                 line[20..28].parse()?,
                 line[28..36].parse()?,
-                line[36..44].parse()?
+                line[36..44].parse()?,
             );
-            state.coords.push(v);    
+            state.coords.push(v);
         }
         /* Read the box
         Format: (https://manual.gromacs.org/archive/5.0.3/online/gro.html)
@@ -119,47 +85,100 @@ impl GroFileHandler<'_> {
         So, the sequence of reads is:
         (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
         */
-        let l = lines.next().unwrap()?.split(" ").map(|s| s.parse().unwrap()).collect::<Vec<f32>>();
+        let l = lines
+            .next()
+            .unwrap()?
+            .split(" ")
+            .map(|s| s.parse().unwrap())
+            .collect::<Vec<f32>>();
         let mut m = Matrix3f::zeros();
-        m[(0,0)] = l[0];
-        m[(1,1)] = l[1];
-        m[(2,2)] = l[2];
-        if l.len()==9 {
-            m[(1,0)] = l[3];
-            m[(2,0)] = l[4];
-            m[(0,1)] = l[5];
-            m[(2,1)] = l[6];
-            m[(0,2)] = l[7];
-            m[(1,2)] = l[8];
+        m[(0, 0)] = l[0];
+        m[(1, 1)] = l[1];
+        m[(2, 2)] = l[2];
+        if l.len() == 9 {
+            m[(1, 0)] = l[3];
+            m[(2, 0)] = l[4];
+            m[(0, 1)] = l[5];
+            m[(2, 1)] = l[6];
+            m[(0, 2)] = l[7];
+            m[(1, 2)] = l[8];
         }
         state.box_ = Some(PeriodicBox::from_matrix(m)?);
 
         // Assign resindex
         top.assign_resindex();
-        Ok((top,state))
-    }
 
-    
-}
-
-
-/*
-impl IoTopologyWriter for GroFileHandler<'_> {    
-    fn write_topology(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider)) -> Result<()> {
-        self.w.index = Some(&data.get_index());
-        self.w.top = Some(&data.get_topology());
-        // Try writing
-        //self.try_write()
-        todo!()
+        Ok((top, state))
     }
 }
 
-impl IoStateWriter for GroFileHandler<'_> {
-    fn write_state(&mut self, data: &(impl IoIndexProvider+super::IoStateProvider)) -> Result<()> {
-        self.w.state = Some(&data.get_state());
-        // Try writing
-        //self.try_write()
-        todo!()
+impl IoOnceWriter for GroFileHandler {
+    fn write(
+        &mut self,
+        data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider),
+    ) -> Result<()> {
+        // Open file for writing
+        let mut buf = BufWriter::new(File::create(self.file_name.to_owned())?);
+        let index = data.get_index();
+        let natoms = index.len();
+        let top = data.get_topology();
+        let state = data.get_state();
+        // Print title
+        writeln!(buf, "Created by Molar")?;
+        // Write number of atoms
+        writeln!(buf, "{natoms}")?;
+        // Write atom lines
+        for i in 0..natoms {
+            let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
+            let resid = top.atoms[i].resid % 99999; // Prevents overflow of resid field.
+
+            writeln!(
+                buf,
+                "{:>5}{:<5}{:>5}{:>5}{:>8.3}{:>8.3}{:>8.3}",
+                resid,
+                top.atoms[i].resname,
+                top.atoms[i].name,
+                ind,
+                state.coords[i].x,
+                state.coords[i].y,
+                state.coords[i].z
+            )?;
+        }
+
+        // Write periodic box
+        if let Some(b) = state.box_.as_ref() {
+            let m = b.get_matrix();
+            // Diagonal elements
+            // Use same format as Gromacs for consistency, but this is free format
+            write!(
+                buf,
+                "{:>10.4} {:>10.4} {:>10.4}",
+                m[(0, 0)],
+                m[(1, 1)],
+                m[(2, 2)]
+            )?;
+
+            // Write off-diagonal only for triclinic boxes
+            if b.is_triclinic() {
+                // note leading space added after diagonal
+                write!(
+                    buf,
+                    " {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>10.4}",
+                    m[(1, 0)],
+                    m[(2, 0)],
+                    m[(0, 1)],
+                    m[(2, 1)],
+                    m[(0, 2)],
+                    m[(1, 2)]
+                )?;
+            }
+            // Add training newline
+            writeln!(buf)?;
+        } else {
+            // No box, write zero diagonal
+            writeln!(buf, "0.0 0.0 0.0")?;
+        }
+
+        Ok(())
     }
 }
-*/

@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoIndexProvider, IoStateProvider};
+use super::{IoReader, IoTrajectoryReader, IoTrajectoryWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoIndexProvider, IoStateProvider};
 use crate::core::*;
 use crate::io::get_ext;
 use anyhow::{bail, Result};
@@ -252,7 +252,7 @@ impl IoTopologyWriter for VmdMolFileHandler<'_> {
     }
 }
 
-impl IoStateReader for VmdMolFileHandler<'_> {
+impl IoTrajectoryReader for VmdMolFileHandler<'_> {
     fn read_state(&mut self) -> Result<Option<State>> {
         let mut state: State = Default::default();
 
@@ -307,7 +307,7 @@ impl IoStateReader for VmdMolFileHandler<'_> {
     }
 }
 
-impl IoStateWriter for VmdMolFileHandler<'_> {
+impl IoTrajectoryWriter for VmdMolFileHandler<'_> {
     fn write_state(
         &mut self,
         data: &(impl IoIndexProvider+IoStateProvider),
