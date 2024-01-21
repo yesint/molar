@@ -1,8 +1,8 @@
 use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}, ops::Deref};
 
-use crate::io::IoIndexAndTopologyProvider;
+use crate::io::{IoIndexProvider, IoTopologyProvider};
 
-use super::{Atom, IndexIterator};
+use super::Atom;
 //use super::handle::{SharedHandle, Handle};
 
 #[allow(dead_code)]
@@ -39,14 +39,38 @@ impl Topology {
     }
 }
 
-impl IoIndexAndTopologyProvider for Topology {
-    fn get_index_and_topology(&self) -> (impl IndexIterator, impl Deref<Target=Topology>) {
-        (0..self.atoms.len(), self)
+impl IoIndexProvider for Topology {
+    fn get_index(&self) -> impl super::IndexIterator {
+        0..self.atoms.len()
     }
 }
 
-impl IoIndexAndTopologyProvider for Rc<RefCell<Topology>> {
-    fn get_index_and_topology(&self) -> (impl IndexIterator, impl Deref<Target=Topology>) {
-        (0..self.borrow().atoms.len(), self.borrow())
+impl IoTopologyProvider for Topology {
+    fn get_topology(&self) -> impl Deref<Target = Topology> {
+        self
+    }
+}
+
+impl IoIndexProvider for Rc<RefCell<Topology>> {
+    fn get_index(&self) -> impl super::IndexIterator {
+        0..self.borrow().atoms.len()
+    }
+}
+
+impl IoTopologyProvider for Rc<RefCell<Topology>> {
+    fn get_topology(&self) -> impl Deref<Target = Topology> {
+        self.borrow()
+    }
+}
+
+impl IoIndexProvider for Arc<RwLock<Topology>> {
+    fn get_index(&self) -> impl super::IndexIterator {
+        0..self.read().unwrap().atoms.len()
+    }
+}
+
+impl IoTopologyProvider for Arc<RwLock<Topology>> {
+    fn get_topology(&self) -> impl Deref<Target = Topology> {
+        self.read().unwrap()
     }
 }

@@ -1,5 +1,5 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}, ops::Deref};
-use crate::io::IoIndexAndStateProvider;
+use crate::io::{IoIndexProvider, IoStateProvider};
 use anyhow::{Result, anyhow};
 use super::{PeriodicBox, Pos, MeasureBox, MeasurePos, IdPosIterator, IndexIterator};
 //use super::handle::{SharedHandle, Handle};
@@ -29,18 +29,41 @@ impl State {
     }
 }
 
-impl IoIndexAndStateProvider for State {
-    fn get_index_and_state(&self) -> (impl super::IndexIterator, impl Deref<Target=State>) {
-        (0..self.coords.len(), self)
+impl IoIndexProvider for State {
+    fn get_index(&self) -> impl super::IndexIterator {
+        0..self.coords.len()
     }
 }
 
-impl IoIndexAndStateProvider for Rc<RefCell<State>> {
-    fn get_index_and_state(&self) -> (impl super::IndexIterator, impl Deref<Target=State>) {
-        (0..self.borrow().coords.len(), self.borrow())
+impl IoStateProvider for State {
+    fn get_state(&self) -> impl Deref<Target = State> {
+        self
     }
 }
 
+impl IoIndexProvider for Rc<RefCell<State>> {
+    fn get_index(&self) -> impl super::IndexIterator {
+        0..self.borrow().coords.len()
+    }
+}
+
+impl IoStateProvider for Rc<RefCell<State>> {
+    fn get_state(&self) -> impl Deref<Target = State> {
+        self.borrow()
+    }
+}
+
+impl IoIndexProvider for Arc<RwLock<State>> {
+    fn get_index(&self) -> impl super::IndexIterator {
+        0..self.read().unwrap().coords.len()
+    }
+}
+
+impl IoStateProvider for Arc<RwLock<State>> {
+    fn get_state(&self) -> impl Deref<Target = State> {
+        self.read().unwrap()
+    }
+}
 
 impl MeasureBox for State {
     fn get_box(&self) -> Result<&PeriodicBox> {

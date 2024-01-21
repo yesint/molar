@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoIndexAndTopologyProvider, IoIndexAndStateProvider};
+use super::{IoReader, IoStateReader, IoStateWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoIndexProvider, IoStateProvider};
 use crate::core::*;
 use crate::io::get_ext;
 use anyhow::{bail, Result};
@@ -126,7 +126,7 @@ impl VmdMolFileHandler<'_> {
 }
 
 impl IoReader for VmdMolFileHandler<'_> {
-    fn new_reader(fname: &str) -> Result<Self> {
+    fn open(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname)?;
         instance.open_read()?;
         Ok(instance)
@@ -134,7 +134,7 @@ impl IoReader for VmdMolFileHandler<'_> {
 }
 
 impl IoWriter for VmdMolFileHandler<'_> {
-    fn new_writer(fname: &str) -> Result<Self> {
+    fn create(fname: &str) -> Result<Self> {
         let instance = Self::new(fname)?;
         // We can't open for writing here because we don't know
         // the number of atoms to write yet. Defer it to
@@ -211,9 +211,10 @@ fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
 impl IoTopologyWriter for VmdMolFileHandler<'_> {
     fn write_topology(
         &mut self,
-        data: &impl IoIndexAndTopologyProvider,
+        data: &(impl IoIndexProvider+IoTopologyProvider),
     ) -> Result<()> {
-        let (index,top) = data.get_index_and_topology();
+        let index = data.get_index();
+        let top = data.get_topology();
         let n = index.len();
         // Open file if not yet opened
         self.try_open_write(n)?;
@@ -309,9 +310,10 @@ impl IoStateReader for VmdMolFileHandler<'_> {
 impl IoStateWriter for VmdMolFileHandler<'_> {
     fn write_state(
         &mut self,
-        data: &impl IoIndexAndStateProvider,
+        data: &(impl IoIndexProvider+IoStateProvider),
     ) -> Result<()> {
-        let (index,st) = data.get_index_and_state();
+        let index = data.get_index();
+        let st = data.get_state();
         let n = index.len();
 
         // Open file if not yet opened

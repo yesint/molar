@@ -19,13 +19,13 @@ pub use gro_handler::GroFileHandler;
 // Traits for file opening
 //===============================
 pub trait IoReader {
-    fn new_reader(fname: &str) -> Result<Self>
+    fn open(fname: &str) -> Result<Self>
     where
         Self: Sized;
 }
 
 pub trait IoWriter {
-    fn new_writer(fname: &str) -> Result<Self>
+    fn create(fname: &str) -> Result<Self>
     where
         Self: Sized;
 }
@@ -33,12 +33,17 @@ pub trait IoWriter {
 //===============================
 // Traits for writing
 //===============================
-pub trait IoIndexAndTopologyProvider {
-    fn get_index_and_topology(&self) -> (impl IndexIterator, impl Deref<Target = Topology>);
+
+pub trait IoIndexProvider {
+    fn get_index(&self) -> impl IndexIterator;
 }
 
-pub trait IoIndexAndStateProvider {
-    fn get_index_and_state(&self) -> (impl IndexIterator, impl Deref<Target = State>);
+pub trait IoTopologyProvider {
+    fn get_topology(&self) -> impl Deref<Target = Topology>;
+}
+
+pub trait IoStateProvider {
+    fn get_state(&self) -> impl Deref<Target = State>;
 }
 
 //===============================
@@ -49,7 +54,7 @@ pub trait IoTopologyReader: IoReader {
 }
 
 pub trait IoTopologyWriter: IoWriter {
-    fn write_topology(&mut self, data: &impl IoIndexAndTopologyProvider) -> Result<()>;
+    fn write_topology(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider)) -> Result<()>;
 }
 
 //===============================
@@ -67,7 +72,7 @@ pub trait IoStateReader: IoReader {
 }
 
 pub trait IoStateWriter: IoWriter {
-    fn write_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()>;
+    fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()>;
 }
 
 //==============================
@@ -124,28 +129,28 @@ pub fn get_ext(fname: &str) -> Result<&str> {
 }
 
 impl<'a> IoReader for FileHandler<'a> {
-    fn new_reader(fname: &str) -> Result<Self> {
+    fn open(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
-            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::new_reader(fname)?)),
-            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::new_reader(fname)?)),
-            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::new_reader(fname)?)),
-            "xtc" => Ok(Self::Xtc(XtcFileHandler::new_reader(fname)?)),
+            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::open(fname)?)),
+            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::open(fname)?)),
+            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::open(fname)?)),
+            "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname)?)),
             #[cfg(feature = "gromacs")]
-            "tpr" => Ok(Self::Tpr(TprFileHandler::new_reader(fname)?)),
+            "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname)?)),
             _ => bail!("Unrecognized extension {ext}"),
         }
     }
 }
 
 impl<'a> IoWriter for FileHandler<'a> {
-    fn new_writer(fname: &str) -> Result<Self> {
+    fn create(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
-            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::new_writer(fname)?)),
-            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::new_writer(fname)?)),
-            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::new_writer(fname)?)),
-            "xtc" => Ok(Self::Xtc(XtcFileHandler::new_writer(fname)?)),
+            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::create(fname)?)),
+            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::create(fname)?)),
+            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::create(fname)?)),
+            "xtc" => Ok(Self::Xtc(XtcFileHandler::create(fname)?)),
             _ => bail!("Unrecognized extension {ext}"),
         }
     }
@@ -163,7 +168,7 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
 }
 
 impl<'a> IoTopologyWriter for FileHandler<'a> {
-    fn write_topology(&mut self, data: &impl IoIndexAndTopologyProvider) -> Result<()> {
+    fn write_topology(&mut self, data: &(impl IoIndexProvider+IoTopologyProvider)) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(data),
             _ => bail!("Unable to write topology"),
@@ -179,19 +184,19 @@ impl<'a> IoStateReader for FileHandler<'a> {
             }
             Self::Xtc(ref mut h) => h.read_state(),
             #[cfg(feature = "gromacs")]
-            Self::Tpr(ref mut h) => h.read_next_state(),
+            Self::Tpr(ref mut h) => h.read_state(),
         }
     }
 }
 
 impl<'a> IoStateWriter for FileHandler<'a> {
-    fn write_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()> {
+    fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.write_state(data)
             }
             Self::Xtc(ref mut h) => h.write_state(data),
-            //_ => bail!("Unable to write state"),
+            _ => bail!("Unable to write state"),
         }
     }
 }
@@ -241,8 +246,8 @@ mod tests {
 
     #[test]
     fn test_read() -> Result<()> {
-        let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
-        let mut w = FileHandler::new_writer(concat!(env!("OUT_DIR"), "/1.xtc"))?;
+        let mut r = FileHandler::open("tests/no_ATP.xtc")?;
+        let mut w = FileHandler::create(concat!(env!("OUT_DIR"), "/1.xtc"))?;
 
         //let st = r.read_topology()?;
         //println!("{:?}", st.atoms);
@@ -260,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_traj() -> Result<()> {
-        let mut r = FileHandler::new_reader("tests/no_ATP.xtc")?;
+        let mut r = FileHandler::open("tests/no_ATP.xtc")?;
         let (max_fr, max_t) = r.tell_last()?;
         println!("max: {max_fr}:{max_t}");
 
@@ -280,7 +285,7 @@ mod tests {
     
     #[test]
     fn test_pdb() -> Result<()> {
-        let mut r = FileHandler::new_reader("tests/no_ATP.pdb")?;
+        let mut r = FileHandler::open("tests/no_ATP.pdb")?;
         let top1 = r.read_topology()?.to_rc();
         let st1 = r.read_state()?.unwrap().to_rc();
         let st2 = (*st1).borrow().clone().to_rc();
@@ -291,8 +296,8 @@ mod tests {
         
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
-        let mut w = FileHandler::new_writer(outname)?;
-        w.write_topology(&top1)?;
+        let mut w = FileHandler::create(outname)?;
+        w.write_topology(&sel.query())?;
         w.write_state(&st1)?;
         w.write_state(&st2)?;
 

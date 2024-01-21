@@ -32,7 +32,7 @@ impl Drop for TprFileHandler {
 }
 
 impl IoReader for TprFileHandler {
-    fn new_reader(fname: &str) -> Result<Self> {
+    fn open(fname: &str) -> Result<Self> {
         TprFileHandler::new(fname)        
     }
 }
@@ -152,7 +152,7 @@ impl IoTopologyReader for TprFileHandler {
 
 
 impl IoStateReader for TprFileHandler {
-    fn read_next_state(&mut self) -> Result<Option<State>> {
+    fn read_state(&mut self) -> Result<Option<State>> {
         if self.state_read {
             // State is read alredy, return EOF and do nothing
             return Ok(None);
@@ -186,7 +186,7 @@ impl IoStateReader for TprFileHandler {
 
 #[test]
 fn test_tpr() {
-    let mut h = TprFileHandler::new_reader("tests/topol.tpr").unwrap();
+    let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
     let st = h.read_topology().unwrap();
     println!("natoms: {:?}",st.atoms.len());
     println!("nbonds: {:?}",st.bonds.len());

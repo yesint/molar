@@ -172,7 +172,7 @@ fn test_grid() {
     use std::iter::zip;
     use crate::core::PBC_FULL;
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+    let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let st = r.read_state().unwrap().unwrap();
 
     let crd = &st.coords;

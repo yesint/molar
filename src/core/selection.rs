@@ -1,5 +1,5 @@
 use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
-use crate::io::{IoIndexAndTopologyProvider, IoIndexAndStateProvider};
+use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
 use super::{State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, PosMutIterator, ModifyPos, PosIterator};
 use anyhow::{bail, Result};
 use itertools::Itertools;
@@ -270,27 +270,38 @@ where
     index: &'a Vec<usize>,
 }
 
-impl<'a,T,S> IoIndexAndTopologyProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IoIndexProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
-    #[allow(refining_impl_trait)]
-    fn get_index_and_topology(&self) -> (impl IndexIterator, &Topology) {
-        (self.index.iter().cloned(), &self.topology_ref)
+    fn get_index(&self) -> impl IndexIterator {
+        self.index.iter().cloned()
     }
 }
 
-impl<'a,T,S> IoIndexAndStateProvider for SelectionQueryGuard<'a, T, S>
+impl<'a,T,S> IoTopologyProvider for SelectionQueryGuard<'a, T, S>
 where
     T: UniRcLock<Topology> + 'a,
     S: UniRcLock<State> + 'a,
 {
     #[allow(refining_impl_trait)]
-    fn get_index_and_state(&self) -> (impl IndexIterator, &State) {
-        (self.index.iter().cloned(), &self.state_ref)
+    fn get_topology(&self) -> &Topology {
+        &self.topology_ref
     }
 }
+
+impl<'a,T,S> IoStateProvider for SelectionQueryGuard<'a, T, S>
+where
+    T: UniRcLock<Topology> + 'a,
+    S: UniRcLock<State> + 'a,
+{
+    #[allow(refining_impl_trait)]
+    fn get_state(&self) -> &State {
+        &self.state_ref
+    }
+}
+
 
 /// Scoped guard giving read-write access to selection
 pub struct SelectionModifyGuard<'a, T, S>
@@ -449,7 +460,7 @@ mod tests {
     use super::{SelectionRc, SelectionAll};
 
     fn read_test_pdb() -> (Topology, State) {
-        let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+        let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
         let top = h.read_topology().unwrap();
         let state = h.read_state().unwrap().unwrap();
         (top, state)
@@ -518,7 +529,7 @@ mod tests {
         let sel = make_sel()?;
         let q = sel.query();
 
-        let mut h = FileHandler::new_writer("f.pdb")?;
+        let mut h = FileHandler::create("f.pdb")?;
         h.write_topology(&q)?;
         h.write_state(&q)?;
         Ok(())
@@ -529,7 +540,7 @@ mod tests {
         let sel = make_sel_prot()?;
         sel.modify().unwrap_connectivity_dim(0.2, &PBC_FULL)?;
         
-        let mut h = FileHandler::new_writer("unwrapped.pdb")?;
+        let mut h = FileHandler::create("unwrapped.pdb")?;
         let q = sel.query();
         h.write_topology(&q)?;
         h.write_state(&q)?;
@@ -547,13 +558,13 @@ mod tests {
         
         sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 80.0_f32.to_radians());
         
-        let mut h = FileHandler::new_writer("sel2.pdb")?;
+        let mut h = FileHandler::create("sel2.pdb")?;
         let q = sel2.query();
         h.write_topology(&q)?;
         h.write_state(&q)?;
         drop(q);
 
-        let mut h = FileHandler::new_writer("sel1_before.pdb")?;
+        let mut h = FileHandler::create("sel1_before.pdb")?;
         let q = sel1.query();
         h.write_topology(&q)?;
         h.write_state(&q)?;
@@ -565,7 +576,7 @@ mod tests {
         sel1.modify().apply_transform(&m);
 
 
-        let mut h = FileHandler::new_writer("sel1_after.pdb")?;
+        let mut h = FileHandler::create("sel1_after.pdb")?;
         let q = sel1.query();
         h.write_topology(&q)?;
         h.write_state(&q)?;

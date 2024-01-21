@@ -358,7 +358,7 @@ fn test_single_periodic() {
     use crate::io::*;
     use crate::core::PBC_FULL;
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+    let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let st = r.read_state().unwrap().unwrap();
 
     let searcher = DistanceSearcherSingle::new_periodic(
@@ -376,7 +376,7 @@ fn test_single_non_periodic() {
     use crate::io::*;
     use crate::core::MeasurePos;
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+    let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let st = r.read_state().unwrap().unwrap();
 
     let (lower,upper) = st.min_max();
@@ -395,7 +395,7 @@ fn test_double_periodic() {
     use crate::io::*;
     use crate::core::PBC_FULL;
 
-    let mut r = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+    let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let st = r.read_state().unwrap().unwrap();
 
     let searcher = DistanceSearcherDouble::new_periodic(

@@ -1,35 +1,45 @@
-use super::{IoReader, IoTopologyReader, IoStateReader, IoTopologyWriter, IoWriter};
-use crate::core::{Topology, Atom, Pos, State, Matrix3f, PeriodicBox};
+use super::{IoReader, IoTopologyReader, IoStateReader, IoTopologyWriter, IoWriter, IoStateWriter, IoIndexProvider, IoTopologyProvider};
+use crate::core::{Topology, Atom, Pos, State, Matrix3f, PeriodicBox, IndexIterator};
 use anyhow::{Result, anyhow};
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Lines},
+    io::{BufRead, BufReader}, ops::Deref,
 };
 use ascii::{AsciiString, AsciiChar};
 
-pub struct GroFileHandler {
-    lines: Lines<BufReader<File>>,
+pub struct GroFileHandler<'a> {
+    file_name: String,
     top: Option<Topology>,
     state: Option<State>,
     is_read: bool,
+    w: GroWriter<'a>,
 }
 
-impl IoReader for GroFileHandler {
-    fn new_reader(fname: &str) -> Result<Self>
+#[derive(Default)]
+struct GroWriter<'a> {
+    index: Option<&'a dyn IndexIterator>,
+    top: Option<&'a dyn Deref<Target=Topology>>,
+    state: Option<&'a dyn Deref<Target=State>>,
+}
+
+
+impl IoReader for GroFileHandler<'_> {
+    fn open(fname: &str) -> Result<Self>
     where
         Self: Sized,
     {
         Ok(Self {
-            lines: BufReader::new(File::open(fname)?).lines(),
+            file_name: fname.to_owned(),
             top: None,
             state: None,
             is_read: false,
+            w: Default::default()
         })
     }
 }
 
-impl IoWriter for GroFileHandler {
-    fn new_writer(fname: &str) -> Result<Self>
+impl IoWriter for GroFileHandler<'_> {
+    fn create(fname: &str) -> Result<Self>
         where
             Self: Sized 
     {
@@ -37,7 +47,7 @@ impl IoWriter for GroFileHandler {
     }
 }
 
-impl IoTopologyReader for GroFileHandler {
+impl IoTopologyReader for GroFileHandler<'_> {
     fn read_topology(&mut self) -> Result<Topology> {
         if !self.is_read {
             let (t,st) = self.read()?;
@@ -48,7 +58,7 @@ impl IoTopologyReader for GroFileHandler {
     }
 }
 
-impl IoStateReader for GroFileHandler {
+impl IoStateReader for GroFileHandler<'_> {
     fn read_state(&mut self) -> Result<Option<State>> {
         if !self.is_read {
             let (t,st) = self.read()?;
@@ -59,18 +69,19 @@ impl IoStateReader for GroFileHandler {
     }
 }
 
-impl GroFileHandler {
+impl GroFileHandler<'_> {
     fn read(&mut self) -> Result<(Topology,State)> {
         let mut top = Topology::new();
         let mut state = State::new();
 
+        let mut lines = BufReader::new(File::open(self.file_name.to_owned())?).lines();
         // Skip the title
-        let _ = self.lines.next().unwrap();
+        let _ = lines.next().unwrap();
         // Read number of atoms
-        let natoms = self.lines.next().unwrap()?.parse::<usize>()?;
+        let natoms = lines.next().unwrap()?.parse::<usize>()?;
         // Go over atoms line by line
         for i in 0..natoms {
-            let line = self.lines.next().unwrap()?;
+            let line = lines.next().unwrap()?;
 
             let at = Atom {
                 resid: line[0..5].parse()?,
@@ -108,7 +119,7 @@ impl GroFileHandler {
         So, the sequence of reads is:
         (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
         */
-        let l = self.lines.next().unwrap()?.split(" ").map(|s| s.parse().unwrap()).collect::<Vec<f32>>();
+        let l = lines.next().unwrap()?.split(" ").map(|s| s.parse().unwrap()).collect::<Vec<f32>>();
         let mut m = Matrix3f::zeros();
         m[(0,0)] = l[0];
         m[(1,1)] = l[1];
@@ -127,10 +138,28 @@ impl GroFileHandler {
         top.assign_resindex();
         Ok((top,state))
     }
+
+    
 }
 
-impl IoTopologyWriter for GroFileHandler {
-    fn write_topology(&mut self, data: &impl super::IoIndexAndTopologyProvider) -> Result<()> {
+
+/*
+impl IoTopologyWriter for GroFileHandler<'_> {    
+    fn write_topology(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider)) -> Result<()> {
+        self.w.index = Some(&data.get_index());
+        self.w.top = Some(&data.get_topology());
+        // Try writing
+        //self.try_write()
         todo!()
     }
 }
+
+impl IoStateWriter for GroFileHandler<'_> {
+    fn write_state(&mut self, data: &(impl IoIndexProvider+super::IoStateProvider)) -> Result<()> {
+        self.w.state = Some(&data.get_state());
+        // Try writing
+        //self.try_write()
+        todo!()
+    }
+}
+*/

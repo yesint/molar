@@ -1,4 +1,4 @@
-use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, IoIndexAndStateProvider};
+use super::{IoReader, IoStateReader, IoStateWriter, IoWriter, IoRandomAccess, IoStateProvider, IoIndexProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
@@ -131,7 +131,7 @@ impl XtcFileHandler {
 
 
 impl IoReader for XtcFileHandler {
-    fn new_reader(fname: &str) -> Result<Self> {
+    fn open(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_read()?;
         Ok(instance)
@@ -139,7 +139,7 @@ impl IoReader for XtcFileHandler {
 }
 
 impl IoWriter for XtcFileHandler {
-    fn new_writer(fname: &str) -> Result<Self> {
+    fn create(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_write()?;
         Ok(instance)
@@ -197,9 +197,10 @@ impl IoStateReader for XtcFileHandler {
 }
 
 impl IoStateWriter for XtcFileHandler {
-    fn write_state(&mut self, data: &impl IoIndexAndStateProvider) -> Result<()> 
+    fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> 
     {
-        let (index,st) = data.get_index_and_state();
+        let index = data.get_index();
+        let st = data.get_state();
         let n = index.len();
 
         // Box have to be transposed because XTC contains row-major box
