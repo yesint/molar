@@ -158,6 +158,7 @@ impl<'a> IoReader for FileHandler<'a> {
             "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname)?)),
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname)?)),
+            "gro" => Ok(Self::Gro(GroFileHandler::open(fname)?)),
             _ => bail!("Unrecognized extension for reading {ext}"),
         }
     }
@@ -171,6 +172,7 @@ impl<'a> IoWriter for FileHandler<'a> {
             "dcd" => Ok(Self::Dcd(VmdMolFileHandler::create(fname)?)),
             "xyz" => Ok(Self::Xyz(VmdMolFileHandler::create(fname)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::create(fname)?)),
+            "gro" => Ok(Self::Gro(GroFileHandler::create(fname)?)),
             _ => bail!("Unrecognized extension for writing {ext}"),
         }
     }
@@ -183,12 +185,7 @@ impl IoOnceReader for FileHandler<'_> {
             Self::Tpr(ref mut h) => h.read(),
             Self::Gro(ref mut h) => h.read(),
             Self::Pdb(ref mut h) | 
-            Self::Xyz(ref mut h) => {
-                // Read topology and first frame at once
-                let top = h.read_topology()?;
-                let st = h.read_state()?.unwrap();
-                Ok((top,st))
-            },
+            Self::Xyz(ref mut h) => h.read(),
             _ => bail!("Not a once-read format"),
         }
     }
@@ -199,12 +196,7 @@ impl IoOnceWriter for FileHandler<'_> {
         match self {
             Self::Gro(ref mut h) => h.write(data),
             Self::Pdb(ref mut h) |
-            Self::Xyz(ref mut h) => {
-                // Write topology and one frame at once
-                h.write_topology(data)?;
-                h.write_state(data)?;
-                Ok(())
-            },
+            Self::Xyz(ref mut h) => h.write(data),
             _ => bail!("Not a once-write format"),
         }
     }
@@ -236,9 +228,7 @@ impl<'a> IoTrajectoryReader for FileHandler<'a> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) |
-            Self::Dcd(ref mut h) => {
-                h.read_state()
-            }
+            Self::Dcd(ref mut h) => h.read_state(),
             Self::Xtc(ref mut h) => h.read_state(),
             _ => bail!("Not a trajectory reader format!"),
         }
@@ -250,9 +240,7 @@ impl<'a> IoTrajectoryWriter for FileHandler<'a> {
         match self {
             Self::Pdb(ref mut h) |
             Self::Xyz(ref mut h) |
-            Self::Dcd(ref mut h) => {
-                h.write_state(data)
-            }
+            Self::Dcd(ref mut h) => h.write_state(data),
             Self::Xtc(ref mut h) => h.write_state(data),
             _ => bail!("Not a trajectory writer format!"),
         }

@@ -1,4 +1,4 @@
-use super::{IoReader, IoTrajectoryReader, IoTrajectoryWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoIndexProvider, IoStateProvider};
+use super::{IoReader, IoTrajectoryReader, IoTrajectoryWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoIndexProvider, IoStateProvider, IoOnceReader, IoOnceWriter};
 use crate::core::*;
 use crate::io::get_ext;
 use anyhow::{bail, Result};
@@ -369,5 +369,23 @@ impl Drop for VmdMolFileHandler<'_> {
                 OpenMode::None => (),
             };
         }
+    }
+}
+
+impl IoOnceReader for VmdMolFileHandler<'_> {
+    fn read(&mut self) -> Result<(Topology,State)> {
+        // Read topology and first frame at once
+        let top = self.read_topology()?;
+        let st = self.read_state()?.unwrap();
+        Ok((top,st))
+    }
+}
+
+impl IoOnceWriter for VmdMolFileHandler<'_> {
+    fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
+        // Write topology and first frame at once
+        self.write_topology(data)?;
+        self.write_state(data)?;
+        Ok(())
     }
 }

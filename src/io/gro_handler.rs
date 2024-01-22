@@ -1,8 +1,8 @@
 use super::{
-    IoIndexProvider, IoOnceReader, IoOnceWriter, IoReader, IoTopologyProvider, IoWriter,
+    IoIndexProvider, IoOnceReader, IoOnceWriter, IoReader, IoTopologyProvider, IoWriter, IoTopologyReader, IoTrajectoryReader,
 };
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, Topology};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use ascii::{AsciiChar, AsciiString};
 use std::{
     fs::File,
@@ -11,6 +11,9 @@ use std::{
 
 pub struct GroFileHandler {
     file_name: String,
+    top: Option<Topology>,
+    state: Option<State>,
+    io_done: bool,
 }
 
 impl IoReader for GroFileHandler {
@@ -20,6 +23,9 @@ impl IoReader for GroFileHandler {
     {
         Ok(Self {
             file_name: fname.to_owned(),
+            top: None,
+            state: None,
+            io_done: false,
         })
     }
 }
@@ -31,12 +37,71 @@ impl IoWriter for GroFileHandler {
     {
         Ok(Self {
             file_name: fname.to_owned(),
+            top: None,
+            state: None,
+            io_done: false,
         })
     }
 }
 
 impl IoOnceReader for GroFileHandler {
-    fn read(&mut self) -> Result<(Topology, State)> {
+    fn read(&mut self) -> Result<(Topology,State)> {
+        self.io_done = true;
+        self.do_read()
+    }
+}
+
+impl IoOnceWriter for GroFileHandler {
+    fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider)) -> Result<()> {
+        self.io_done = true;
+        self.do_write(data)
+    }
+}
+
+impl IoTopologyReader for GroFileHandler {
+    fn read_topology(&mut self) -> Result<Topology> {
+        self.try_read()?;
+        self.top.take().ok_or_else(|| anyhow!("Topology already read!"))
+    }
+}
+
+impl IoTrajectoryReader for GroFileHandler {
+    fn read_state(&mut self) -> Result<Option<State>> {
+        self.try_read()?;
+        Ok(self.state.take())
+    }
+}
+
+impl GroFileHandler {
+    // Reads the file once
+    fn try_read(&mut self) -> Result<()> {
+        if !self.io_done {
+            let (top,st) = self.do_read()?;
+            self.top = Some(top);
+            self.state = Some(st);
+            self.io_done = true;
+        }
+        Ok(())
+    }
+
+    /*
+    // Writes once
+    fn try_write(
+        &mut self,
+        data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider),
+    ) -> Result<()> 
+    {
+        if !self.io_done {
+            self.do_write(data)
+            self.top = Some(top);
+            self.state = Some(st);
+            self.io_done = true;
+        }
+        Ok(())
+    }
+    */
+
+    fn do_read(&mut self) -> Result<(Topology, State)> {
         let mut top = Topology::new();
         let mut state = State::new();
 
@@ -110,10 +175,8 @@ impl IoOnceReader for GroFileHandler {
 
         Ok((top, state))
     }
-}
 
-impl IoOnceWriter for GroFileHandler {
-    fn write(
+    fn do_write(
         &mut self,
         data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider),
     ) -> Result<()> {
