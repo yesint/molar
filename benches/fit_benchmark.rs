@@ -4,7 +4,7 @@ use molar::{core::{Topology, State, SelectionRc, Select, Vector3f, fit_transform
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (Topology, State) {
-    let mut h = FileHandler::new_reader("tests/no_ATP.pdb").unwrap();
+    let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let top = h.read_topology().unwrap();
     let state = h.read_state().unwrap().unwrap();
     (top, state)

@@ -182,6 +182,13 @@ impl IoOnceReader for FileHandler<'_> {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read(),
             Self::Gro(ref mut h) => h.read(),
+            Self::Pdb(ref mut h) | 
+            Self::Xyz(ref mut h) => {
+                // Read topology and first frame at once
+                let top = h.read_topology()?;
+                let st = h.read_state()?.unwrap();
+                Ok((top,st))
+            },
             _ => bail!("Not a once-read format"),
         }
     }
@@ -191,6 +198,13 @@ impl IoOnceWriter for FileHandler<'_> {
     fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
         match self {
             Self::Gro(ref mut h) => h.write(data),
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) => {
+                // Write topology and one frame at once
+                h.write_topology(data)?;
+                h.write_state(data)?;
+                Ok(())
+            },
             _ => bail!("Not a once-write format"),
         }
     }
@@ -200,8 +214,9 @@ impl IoOnceWriter for FileHandler<'_> {
 impl<'a> IoTopologyReader for FileHandler<'a> {
     fn read_topology(&mut self) -> Result<Topology> {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology(),
-            _ => bail!("Unable to read topology"),
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) => h.read_topology(),
+            _ => bail!("Unable to read topology separately"),
         }
     }
 }
@@ -209,8 +224,9 @@ impl<'a> IoTopologyReader for FileHandler<'a> {
 impl<'a> IoTopologyWriter for FileHandler<'a> {
     fn write_topology(&mut self, data: &(impl IoIndexProvider+IoTopologyProvider)) -> Result<()> {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(data),
-            _ => bail!("Unable to write topology"),
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) => h.write_topology(data),
+            _ => bail!("Unable to write topology separately"),
         }
     }
 }
@@ -218,7 +234,9 @@ impl<'a> IoTopologyWriter for FileHandler<'a> {
 impl<'a> IoTrajectoryReader for FileHandler<'a> {
     fn read_state(&mut self) -> Result<Option<State>> {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) |
+            Self::Dcd(ref mut h) => {
                 h.read_state()
             }
             Self::Xtc(ref mut h) => h.read_state(),
@@ -230,7 +248,9 @@ impl<'a> IoTrajectoryReader for FileHandler<'a> {
 impl<'a> IoTrajectoryWriter for FileHandler<'a> {
     fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
+            Self::Pdb(ref mut h) |
+            Self::Xyz(ref mut h) |
+            Self::Dcd(ref mut h) => {
                 h.write_state(data)
             }
             Self::Xtc(ref mut h) => h.write_state(data),
