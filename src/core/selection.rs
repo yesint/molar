@@ -461,7 +461,10 @@ mod tests {
 
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
-        (top, state) = h.read().unwrap()
+        //let top = h.read_topology().unwrap();
+        //let state = h.read_state().unwrap().unwrap();
+        //(top, state)
+        h.read().unwrap()
     }
 
     // Read the test PDB file once and provide the content for tests

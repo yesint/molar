@@ -182,6 +182,7 @@ impl IoOnceReader for FileHandler<'_> {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read(),
             Self::Gro(ref mut h) => h.read(),
+            Self::Pdb(ref mut h) => h.read(),
             _ => bail!("Not a once-read format"),
         }
     }
@@ -191,6 +192,7 @@ impl IoOnceWriter for FileHandler<'_> {
     fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
         match self {
             Self::Gro(ref mut h) => h.write(data),
+            Self::Pdb(ref mut h) => h.write(data),
             _ => bail!("Not a once-write format"),
         }
     }
