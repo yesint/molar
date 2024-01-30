@@ -7,28 +7,20 @@ mod xtc_handler;
 mod gro_handler;
 #[cfg(feature = "gromacs")]
 mod tpr_handler;
+mod file_content;
 
 // Reexports
 #[cfg(feature = "gromacs")]
 pub use tpr_handler::TprFileHandler;
-pub use vmd_molfile_handler::VmdMolFileHandler;
+pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 pub use gro_handler::GroFileHandler;
+
+pub use file_content::FileContent;
 
 //===============================
 // Traits for file opening
 //===============================
-pub trait IoReader {
-    fn open(fname: &str) -> Result<Self>
-    where
-        Self: Sized;
-}
-
-pub trait IoWriter {
-    fn create(fname: &str) -> Result<Self>
-    where
-        Self: Sized;
-}
 
 // There are the following types of data file handlers:
 // (1)  All-in-once files (GRO, TPR)
@@ -40,7 +32,6 @@ pub trait IoWriter {
 //===============================
 // Traits for writing
 //===============================
-
 pub trait IoIndexProvider {
     fn get_index(&self) -> impl IndexIterator;
 }
@@ -53,72 +44,14 @@ pub trait IoStateProvider {
     fn get_state(&self) -> impl Deref<Target = State>;
 }
 
-//===================================================
-// Traits for Topology IO (separate from trajectory)
-//===================================================
-pub trait IoTopologyReader: IoReader {
-    fn read_topology(&mut self) -> Result<Topology>;
-}
-
-pub trait IoTopologyWriter: IoWriter {
-    fn write_topology(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider)) -> Result<()>;
-}
-
-//===============================
-// Traits for trajectory IO
-//===============================
-pub trait IoTrajectoryReader: IoReader {
-    fn read_state(&mut self) -> Result<Option<State>>;
-
-    fn iter_states<'a>(&'a mut self) -> IoStateIterator<'a, Self>
-    where
-        Self: Sized,
-    {
-        IoStateIterator { reader: self }
-    }
-}
-
-pub trait IoTrajectoryWriter: IoWriter {
-    fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()>;
-}
-
-//===============================
-// Traits for all-in-one formats
-//===============================
-pub trait IoOnceReader: IoReader {
-    fn read(&mut self) -> Result<(Topology,State)>;
-}
-
-pub trait IoOnceWriter: IoWriter {
-    fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()>;
-}
-
-
-//==============================
-// Random access trait
-//==============================
-pub trait IoRandomAccess: IoTrajectoryReader {
-    fn seek_frame(&mut self, fr: usize) -> Result<()>;
-    fn seek_time(&mut self, t: f32) -> Result<()>;
-    fn tell_first(&self) -> Result<(usize, f32)>;
-    fn tell_current(&self) -> Result<(usize, f32)>;
-    fn tell_last(&self) -> Result<(usize, f32)>;
-}
-
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
-pub struct IoStateIterator<'a, T>
-where
-    T: IoTrajectoryReader,
-{
-    reader: &'a mut T,
+pub struct IoStateIterator<'a> {
+    reader: FileHandler<'a>,
 }
 
-impl<'a, T> Iterator for IoStateIterator<'a, T>
-where
-    T: IoTrajectoryReader,
-{
+impl<'a> Iterator for IoStateIterator<'a> {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
@@ -128,7 +61,6 @@ where
 //================================
 // General type for file handlers
 //================================
-
 pub enum FileHandler<'a> {
     Pdb(VmdMolFileHandler<'a>),
     Dcd(VmdMolFileHandler<'a>),
@@ -145,80 +77,76 @@ pub fn get_ext(fname: &str) -> Result<&str> {
         .extension()
         .ok_or(anyhow!("File with extension expected, given {fname}"))?
         .to_str()
-        .ok_or(anyhow!("Failed getting file extension from {fname}"))?)
+        .ok_or(anyhow!("Failed getting file extension from {fname}"))?
+    )
 }
 
-impl<'a> IoReader for FileHandler<'a> {
-    fn open(fname: &str) -> Result<Self> {
+impl<'a> FileHandler<'a> {
+    pub fn open(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
-            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::open(fname)?)),
-            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::open(fname)?)),
-            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::open(fname)?)),
+            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::open(fname,VmdMolFileType::Pdb)?)),
+            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::open(fname,VmdMolFileType::Dcd)?)),
+            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::open(fname,VmdMolFileType::Xyz)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname)?)),
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname)?)),
             _ => bail!("Unrecognized extension for reading {ext}"),
         }
     }
-}
 
-impl<'a> IoWriter for FileHandler<'a> {
-    fn create(fname: &str) -> Result<Self> {
+    pub fn create(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
-            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::create(fname)?)),
-            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::create(fname)?)),
-            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::create(fname)?)),
+            "pdb" => Ok(Self::Pdb(VmdMolFileHandler::create(fname,VmdMolFileType::Pdb)?)),
+            "dcd" => Ok(Self::Dcd(VmdMolFileHandler::create(fname,VmdMolFileType::Dcd)?)),
+            "xyz" => Ok(Self::Xyz(VmdMolFileHandler::create(fname,VmdMolFileType::Xyz)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::create(fname)?)),
             _ => bail!("Unrecognized extension for writing {ext}"),
         }
     }
-}
 
-impl IoOnceReader for FileHandler<'_> {
-    fn read(&mut self) -> Result<(Topology,State)> {
+    pub fn read(&mut self) -> Result<(Topology,State)> {
         match self {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read(),
             Self::Gro(ref mut h) => h.read(),
-            Self::Pdb(ref mut h) => h.read(),
+            Self::Pdb(ref mut h) => {
+                let top = h.read_topology()?;
+                let st = h.read_state()?.ok_or_else(|| anyhow!("Can't read first state!"))?;
+                Ok((top,st))
+            },
             _ => bail!("Not a once-read format"),
         }
     }
-}
 
-impl IoOnceWriter for FileHandler<'_> {
-    fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
+    pub fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
         match self {
             Self::Gro(ref mut h) => h.write(data),
-            Self::Pdb(ref mut h) => h.write(data),
+            Self::Pdb(ref mut h) => {
+                h.write_topology(data)?;
+                h.write_state(data)?;
+                Ok(())
+            }
             _ => bail!("Not a once-write format"),
         }
     }
-}
 
-
-impl<'a> IoTopologyReader for FileHandler<'a> {
-    fn read_topology(&mut self) -> Result<Topology> {
+    pub fn read_topology(&mut self) -> Result<Topology> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology(),
             _ => bail!("Unable to read topology"),
         }
     }
-}
 
-impl<'a> IoTopologyWriter for FileHandler<'a> {
-    fn write_topology(&mut self, data: &(impl IoIndexProvider+IoTopologyProvider)) -> Result<()> {
+    pub fn write_topology(&mut self, data: &(impl IoIndexProvider+IoTopologyProvider)) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(data),
             _ => bail!("Unable to write topology"),
         }
     }
-}
 
-impl<'a> IoTrajectoryReader for FileHandler<'a> {
-    fn read_state(&mut self) -> Result<Option<State>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.read_state()
@@ -227,10 +155,8 @@ impl<'a> IoTrajectoryReader for FileHandler<'a> {
             _ => bail!("Not a trajectory reader format!"),
         }
     }
-}
 
-impl<'a> IoTrajectoryWriter for FileHandler<'a> {
-    fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> {
+    pub fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> {
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.write_state(data)
@@ -239,38 +165,36 @@ impl<'a> IoTrajectoryWriter for FileHandler<'a> {
             _ => bail!("Not a trajectory writer format!"),
         }
     }
-}
 
-impl<'a> IoRandomAccess for FileHandler<'a> {
-    fn seek_frame(&mut self, fr: usize) -> Result<()> {
+    pub fn seek_frame(&mut self, fr: usize) -> Result<()> {
         match self {
             Self::Xtc(ref mut h) => h.seek_frame(fr),
             _ => bail!("Not a random access format!"),
         }
     }
 
-    fn seek_time(&mut self, t: f32) -> Result<()> {
+    pub fn seek_time(&mut self, t: f32) -> Result<()> {
         match self {
             Self::Xtc(ref mut h) => h.seek_time(t),
             _ => bail!("Not a random access format!"),
         }
     }
 
-    fn tell_first(&self) -> Result<(usize, f32)> {
+    pub fn tell_first(&self) -> Result<(usize, f32)> {
         match self {
             Self::Xtc(ref h) => h.tell_first(),
             _ => bail!("Not a random access format!"),
         }
     }
 
-    fn tell_current(&self) -> Result<(usize, f32)> {
+    pub fn tell_current(&self) -> Result<(usize, f32)> {
         match self {
             Self::Xtc(ref h) => h.tell_current(),
             _ => bail!("Not a random access format!"),
         }
     }
 
-    fn tell_last(&self) -> Result<(usize, f32)> {
+    pub fn tell_last(&self) -> Result<(usize, f32)> {
         match self {
             Self::Xtc(ref h) => h.tell_last(),
             _ => bail!("Not a random access format!"),
@@ -278,21 +202,30 @@ impl<'a> IoRandomAccess for FileHandler<'a> {
     }
 }
 
+impl<'a> IntoIterator for FileHandler<'a> {
+    type Item = State;
+    type IntoIter = IoStateIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IoStateIterator{reader: self}
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FileHandler, IoReader, IoWriter, IoTrajectoryReader};
-    use crate::{io::*, core::{SelectionAll, Select, Vector3f, ModifyPos}};
+    use super::FileHandler;
+    use crate::core::{SelectionAll, Select, Vector3f, ModifyPos};
     use anyhow::Result;
 
     #[test]
     fn test_read() -> Result<()> {
-        let mut r = FileHandler::open("tests/no_ATP.xtc")?;
+        let r = FileHandler::open("tests/no_ATP.xtc")?;
         let mut w = FileHandler::create(concat!(env!("OUT_DIR"), "/1.xtc"))?;
 
         //let st = r.read_topology()?;
         //println!("{:?}", st.atoms);
 
-        for fr in r.iter_states() {
+        for fr in r {
             println!("{}", fr.time);
             //w.write_topology(&st)?;
             w.write_state(&fr)?;

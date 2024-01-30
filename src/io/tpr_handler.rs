@@ -1,4 +1,3 @@
-use super::{IoReader, IoOnceReader};
 use crate::core::*;
 use ascii::{AsciiString,AsciiChar};
 
@@ -20,36 +19,12 @@ impl TprFileHandler {
             handle: unsafe{ TprHelper::new(f_name.as_ptr()) },
         })
     }
-}
 
-impl Drop for TprFileHandler {
-    fn drop(&mut self) {
-        // Call destructor of C++ helper class
-        unsafe{self.handle.destruct()};
-    }
-}
-
-impl IoReader for TprFileHandler {
-    fn open(fname: &str) -> Result<Self> {
+    pub fn open(fname: &str) -> Result<Self> {
         TprFileHandler::new(fname)        
     }
-}
 
-unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
-    let cstr = CStr::from_ptr(ptr).to_bytes();
-    AsciiString::from_ascii_unchecked(cstr)    
-}
-
-fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
-    match n.try_into() {
-        Ok(sz) => unsafe{ std::slice::from_raw_parts(ptr,sz)  },
-        _ => panic!("Array size is not convertible to usize")
-    }
-}
-
-
-impl IoOnceReader for TprFileHandler {
-    fn read(&mut self) -> Result<(Topology,State)> {
+    pub fn read(&mut self) -> Result<(Topology,State)> {
         //================
         // Read top
         //================
@@ -180,4 +155,23 @@ fn test_tpr() {
     println!("nbonds: {:?}",top.bonds.len());
     println!("molecules: {:?}",top.molecules.len());
     println!("state sz: {:?}",st.coords.len());
+}
+
+impl Drop for TprFileHandler {
+    fn drop(&mut self) {
+        // Call destructor of C++ helper class
+        unsafe{self.handle.destruct()};
+    }
+}
+
+unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
+    let cstr = CStr::from_ptr(ptr).to_bytes();
+    AsciiString::from_ascii_unchecked(cstr)    
+}
+
+fn c_array_to_slice<'a,T,I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a[T] {
+    match n.try_into() {
+        Ok(sz) => unsafe{ std::slice::from_raw_parts(ptr,sz)  },
+        _ => panic!("Array size is not convertible to usize")
+    }
 }

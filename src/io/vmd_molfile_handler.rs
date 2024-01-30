@@ -1,6 +1,5 @@
-use super::{IoReader, IoTrajectoryReader, IoTrajectoryWriter, IoTopologyReader, IoTopologyWriter, IoWriter, IoTopologyProvider, IoIndexProvider, IoStateProvider, IoOnceReader, IoOnceWriter};
+use super::{IoTopologyProvider, IoIndexProvider, IoStateProvider};
 use crate::core::*;
-use crate::io::get_ext;
 use anyhow::{bail, Result};
 use ascii::{AsciiStr, AsciiString};
 use molar_molfile::molfile_bindings::*;
@@ -12,6 +11,12 @@ enum OpenMode {
     Read,
     Write,
     None,
+}
+
+pub enum VmdMolFileType {
+    Pdb,
+    Xyz,
+    Dcd,
 }
 
 pub struct VmdMolFileHandler<'a> {
@@ -34,17 +39,15 @@ fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
 
 /// Universal handler of different VMD molfile file formats
 impl VmdMolFileHandler<'_> {
-    fn new(fname: &str) -> Result<Self> {
+    fn new(fname: &str, ftype: VmdMolFileType) -> Result<Self> {
         // Get plugin pointer
         // C funtion registers plugin on first call
         // and returns stored pointer on later invocations
         let plugin = unsafe {
-            let ext = get_ext(fname)?;
-            match ext {
-                "pdb" => pdb_get_plugin_ptr(),
-                "xyz" => xyz_get_plugin_ptr(),
-                "dcd" => dcd_get_plugin_ptr(),
-                &_ => bail!("Unrecognized extention {ext}!"),
+            match ftype {
+                VmdMolFileType::Pdb => pdb_get_plugin_ptr(),
+                VmdMolFileType::Xyz => xyz_get_plugin_ptr(),
+                VmdMolFileType::Dcd => dcd_get_plugin_ptr(),
             }
             .as_ref()
             .unwrap()
@@ -123,28 +126,22 @@ impl VmdMolFileHandler<'_> {
             OpenMode::Read => unreachable!(),
         }
     }
-}
 
-impl IoReader for VmdMolFileHandler<'_> {
-    fn open(fname: &str) -> Result<Self> {
-        let mut instance = Self::new(fname)?;
+    pub fn open(fname: &str, ftype: VmdMolFileType) -> Result<Self> {
+        let mut instance = Self::new(fname,ftype)?;
         instance.open_read()?;
         Ok(instance)
     }
-}
 
-impl IoWriter for VmdMolFileHandler<'_> {
-    fn create(fname: &str) -> Result<Self> {
-        let instance = Self::new(fname)?;
+    pub fn create(fname: &str, ftype: VmdMolFileType) -> Result<Self> {
+        let instance = Self::new(fname,ftype)?;
         // We can't open for writing here because we don't know
         // the number of atoms to write yet. Defer it to
         // actual writing operation
         Ok(instance)
     }
-}
 
-impl IoTopologyReader for VmdMolFileHandler<'_> {
-    fn read_topology(&mut self) -> Result<Topology> {
+    pub fn read_topology(&mut self) -> Result<Topology> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -195,21 +192,8 @@ impl IoTopologyReader for VmdMolFileHandler<'_> {
 
         Ok(topology)
     }
-}
-
-fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
-    let n = st.len();
-    if n + 1 >= cbuf.len() {
-        panic!("VMD fixed size field is too short!");
-    }
-    for i in 0..n {
-        cbuf[i] = st[i] as i8;
-    }
-    cbuf[n + 1] = '\0' as i8;
-}
-
-impl IoTopologyWriter for VmdMolFileHandler<'_> {
-    fn write_topology(
+    
+    pub fn write_topology(
         &mut self,
         data: &(impl IoIndexProvider+IoTopologyProvider),
     ) -> Result<()> {
@@ -250,10 +234,8 @@ impl IoTopologyWriter for VmdMolFileHandler<'_> {
             _ => bail!("Error writing structure"),
         }
     }
-}
 
-impl IoTrajectoryReader for VmdMolFileHandler<'_> {
-    fn read_state(&mut self) -> Result<Option<State>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         let mut state: State = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
@@ -305,10 +287,8 @@ impl IoTrajectoryReader for VmdMolFileHandler<'_> {
             _ => bail!("Error reading timestep!"),
         }
     }
-}
 
-impl IoTrajectoryWriter for VmdMolFileHandler<'_> {
-    fn write_state(
+    pub fn write_state(
         &mut self,
         data: &(impl IoIndexProvider+IoStateProvider),
     ) -> Result<()> {
@@ -372,20 +352,13 @@ impl Drop for VmdMolFileHandler<'_> {
     }
 }
 
-impl IoOnceReader for VmdMolFileHandler<'_> {
-    fn read(&mut self) -> Result<(Topology,State)> {
-        // Read topology and first frame at once
-        let top = self.read_topology()?;
-        let st = self.read_state()?.unwrap();
-        Ok((top,st))
+fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
+    let n = st.len();
+    if n + 1 >= cbuf.len() {
+        panic!("VMD fixed size field is too short!");
     }
-}
-
-impl IoOnceWriter for VmdMolFileHandler<'_> {
-    fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
-        // Write topology and first frame at once
-        self.write_topology(data)?;
-        self.write_state(data)?;
-        Ok(())
+    for i in 0..n {
+        cbuf[i] = st[i] as i8;
     }
+    cbuf[n + 1] = '\0' as i8;
 }

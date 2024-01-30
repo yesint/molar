@@ -1,5 +1,5 @@
 use super::{
-    IoIndexProvider, IoOnceReader, IoOnceWriter, IoReader, IoTopologyProvider, IoWriter, IoTopologyReader, IoTrajectoryReader,
+    IoIndexProvider, IoTopologyProvider,
 };
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, Topology};
 use anyhow::{Result, anyhow};
@@ -16,8 +16,9 @@ pub struct GroFileHandler {
     io_done: bool,
 }
 
-impl IoReader for GroFileHandler {
-    fn open(fname: &str) -> Result<Self>
+impl GroFileHandler {
+
+    pub fn open(fname: &str) -> Result<Self>
     where
         Self: Sized,
     {
@@ -28,10 +29,8 @@ impl IoReader for GroFileHandler {
             io_done: false,
         })
     }
-}
 
-impl IoWriter for GroFileHandler {
-    fn create(fname: &str) -> Result<Self>
+    pub fn create(fname: &str) -> Result<Self>
     where
         Self: Sized,
     {
@@ -42,37 +41,27 @@ impl IoWriter for GroFileHandler {
             io_done: false,
         })
     }
-}
 
-impl IoOnceReader for GroFileHandler {
-    fn read(&mut self) -> Result<(Topology,State)> {
+    pub fn read(&mut self) -> Result<(Topology,State)> {
         self.io_done = true;
         self.do_read()
     }
-}
 
-impl IoOnceWriter for GroFileHandler {
-    fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider)) -> Result<()> {
+    pub fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider)) -> Result<()> {
         self.io_done = true;
         self.do_write(data)
     }
-}
 
-impl IoTopologyReader for GroFileHandler {
-    fn read_topology(&mut self) -> Result<Topology> {
+    pub fn read_topology(&mut self) -> Result<Topology> {
         self.try_read()?;
         self.top.take().ok_or_else(|| anyhow!("Topology already read!"))
     }
-}
 
-impl IoTrajectoryReader for GroFileHandler {
-    fn read_state(&mut self) -> Result<Option<State>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         self.try_read()?;
         Ok(self.state.take())
     }
-}
 
-impl GroFileHandler {
     // Reads the file once
     fn try_read(&mut self) -> Result<()> {
         if !self.io_done {

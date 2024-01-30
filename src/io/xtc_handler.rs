@@ -1,4 +1,4 @@
-use super::{IoReader, IoTrajectoryReader, IoTrajectoryWriter, IoWriter, IoRandomAccess, IoStateProvider, IoIndexProvider};
+use super::{IoStateProvider, IoIndexProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
@@ -127,39 +127,21 @@ impl XtcFileHandler {
         self.handle = get_xdr_handle(&self.file_name,"w")?;
         Ok(())
     }
-}
 
-
-impl IoReader for XtcFileHandler {
-    fn open(fname: &str) -> Result<Self> {
+    pub fn open(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_read()?;
         Ok(instance)
     }
-}
 
-impl IoWriter for XtcFileHandler {
-    fn create(fname: &str) -> Result<Self> {
+    pub fn create(fname: &str) -> Result<Self> {
         let mut instance = Self::new(fname);
         instance.open_write()?;
         Ok(instance)
     }
-}
 
-impl Drop for XtcFileHandler {
-    fn drop(&mut self) {
-        if self.handle != ptr::null_mut() {
-            let ok = unsafe { xdrfile_close(self.handle) } as u32;
-            if ok != exdrOK {
-                panic!("Error closing XTC file {}!",self.file_name)
-            }
-        }
-    }
-}
-
-impl IoTrajectoryReader for XtcFileHandler {
     #[allow(non_upper_case_globals)]
-    fn read_state(&mut self) -> Result<Option<State>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         let mut st: State = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;
@@ -194,10 +176,8 @@ impl IoTrajectoryReader for XtcFileHandler {
             _ => bail!("Error reading timestep!"),
         }
     }
-}
 
-impl IoTrajectoryWriter for XtcFileHandler {
-    fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> 
+    pub fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> 
     {
         let index = data.get_index();
         let st = data.get_state();
@@ -246,10 +226,8 @@ impl IoTrajectoryWriter for XtcFileHandler {
 
         Ok(())
     }
-}
 
-impl IoRandomAccess for XtcFileHandler {
-    fn seek_frame(&mut self, fr: usize) -> Result<()> {
+    pub fn seek_frame(&mut self, fr: usize) -> Result<()> {
         if !self.is_random_access {
             bail!("Random access is not possible for this XTC file!");
         }
@@ -272,7 +250,7 @@ impl IoRandomAccess for XtcFileHandler {
         Ok(())
     }
 
-    fn seek_time(&mut self, t: f32) -> Result<()> {
+    pub fn seek_time(&mut self, t: f32) -> Result<()> {
         if !self.is_random_access {
             bail!("Random access is not possible for this XTC file!");
         }
@@ -300,7 +278,7 @@ impl IoRandomAccess for XtcFileHandler {
         Ok(())
     }
 
-    fn tell_current(&self) -> Result<(usize,f32)> {
+    pub fn tell_current(&self) -> Result<(usize,f32)> {
         let mut ok = false;
         let ret = unsafe{
             xtc_get_current_frame_number(
@@ -325,17 +303,28 @@ impl IoRandomAccess for XtcFileHandler {
         Ok((step as usize,t))
     }
 
-    fn tell_first(&self) -> Result<(usize,f32)> {
+    pub fn tell_first(&self) -> Result<(usize,f32)> {
         if !self.is_random_access {
             bail!("Random access is not possible for this XTC file!");
         }
         Ok((self.frame_range.0,self.time_range.0))
     }
 
-    fn tell_last(&self) -> Result<(usize,f32)> {
+    pub fn tell_last(&self) -> Result<(usize,f32)> {
         if !self.is_random_access {
             bail!("Random access is not possible for this XTC file!");
         }
         Ok((self.frame_range.1,self.time_range.1))
+    }
+}
+
+impl Drop for XtcFileHandler {
+    fn drop(&mut self) {
+        if self.handle != ptr::null_mut() {
+            let ok = unsafe { xdrfile_close(self.handle) } as u32;
+            if ok != exdrOK {
+                panic!("Error closing XTC file {}!",self.file_name)
+            }
+        }
     }
 }
