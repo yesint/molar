@@ -7,6 +7,8 @@ use nalgebra::Matrix3;
 use std::{ffi::{CStr, CString}, ptr::null_mut};
 use molar_gromacs::gromacs_bindings::*;
 
+use super::io_splitter::ReadTopAndState;
+
 
 pub struct TprFileHandler {
     handle: TprHelper,
@@ -23,8 +25,10 @@ impl TprFileHandler {
     pub fn open(fname: &str) -> Result<Self> {
         TprFileHandler::new(fname)        
     }
+}
 
-    pub fn read(&mut self) -> Result<(Topology,State)> {
+impl ReadTopAndState for TprFileHandler {
+    fn read_top_and_state(&mut self) -> Result<(Topology,State)> {
         //================
         // Read top
         //================
@@ -150,7 +154,7 @@ impl TprFileHandler {
 #[test]
 fn test_tpr() {
     let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
-    let (top,st) = h.read().unwrap();
+    let (top,st) = h.read_top_and_state().unwrap();
     println!("natoms: {:?}",top.atoms.len());
     println!("nbonds: {:?}",top.bonds.len());
     println!("molecules: {:?}",top.molecules.len());

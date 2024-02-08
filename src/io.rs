@@ -8,6 +8,7 @@ mod gro_handler;
 #[cfg(feature = "gromacs")]
 mod tpr_handler;
 mod file_content;
+mod io_splitter;
 
 // Reexports
 #[cfg(feature = "gromacs")]
@@ -17,6 +18,8 @@ pub use xtc_handler::XtcFileHandler;
 pub use gro_handler::GroFileHandler;
 
 pub use file_content::FileContent;
+
+use self::io_splitter::IoSplitter;
 
 //===============================
 // Traits for file opening
@@ -44,6 +47,8 @@ pub trait IoStateProvider {
     fn get_state(&self) -> impl Deref<Target = State>;
 }
 
+pub trait IoIndexedTopologyProvider: IoIndexProvider+IoTopologyProvider {}
+pub trait IoIndexedStateProvider: IoIndexProvider+IoStateProvider {}
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
@@ -67,8 +72,8 @@ pub enum FileHandler<'a> {
     Xyz(VmdMolFileHandler<'a>),
     Xtc(XtcFileHandler),
     #[cfg(feature = "gromacs")]
-    Tpr(TprFileHandler),
-    Gro(GroFileHandler),
+    Tpr(IoSplitter<TprFileHandler>),
+    Gro(IoSplitter<GroFileHandler>),
 }
 
 pub fn get_ext(fname: &str) -> Result<&str> {
@@ -89,8 +94,9 @@ impl<'a> FileHandler<'a> {
             "dcd" => Ok(Self::Dcd(VmdMolFileHandler::open(fname,VmdMolFileType::Dcd)?)),
             "xyz" => Ok(Self::Xyz(VmdMolFileHandler::open(fname,VmdMolFileType::Xyz)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname)?)),
+            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::open(fname)?))),
             #[cfg(feature = "gromacs")]
-            "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname)?)),
+            "tpr" => Ok(Self::Tpr(IoSplitter::new(TprFileHandler::open(fname)?))),
             _ => bail!("Unrecognized extension for reading {ext}"),
         }
     }
@@ -102,6 +108,7 @@ impl<'a> FileHandler<'a> {
             "dcd" => Ok(Self::Dcd(VmdMolFileHandler::create(fname,VmdMolFileType::Dcd)?)),
             "xyz" => Ok(Self::Xyz(VmdMolFileHandler::create(fname,VmdMolFileType::Xyz)?)),
             "xtc" => Ok(Self::Xtc(XtcFileHandler::create(fname)?)),
+            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::create(fname)?))),
             _ => bail!("Unrecognized extension for writing {ext}"),
         }
     }
@@ -122,7 +129,7 @@ impl<'a> FileHandler<'a> {
 
     pub fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
         match self {
-            Self::Gro(ref mut h) => h.write(data),
+            Self::Gro(ref mut h) => h.handler.write(data),
             Self::Pdb(ref mut h) => {
                 h.write_topology(data)?;
                 h.write_state(data)?;

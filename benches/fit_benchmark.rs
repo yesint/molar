@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
-use molar::{core::{Topology, State, SelectionRc, Select, Vector3f, fit_transform, fit_transform_at_origin, ModifyPos}, io::{FileHandler, IoReader, IoTopologyReader, IoTrajectoryReader}};
+use molar::{core::{Topology, State, SelectionRc, Select, Vector3f, fit_transform, fit_transform_at_origin, ModifyPos}, io::FileHandler};
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (Topology, State) {
