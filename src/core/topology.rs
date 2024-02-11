@@ -13,6 +13,8 @@ pub struct Topology {
     pub molecules: Vec<[usize; 2]>,
 }
 
+pub type TopologyRc = Rc<RefCell<Topology>>;
+
 impl Topology {
     pub fn new() -> Self {
         Default::default()

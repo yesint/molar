@@ -1,6 +1,6 @@
-use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}};
+use std::{cell::{Ref, RefCell, RefMut}, rc::Rc, sync::{Arc, RwLock}};
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
-use super::{State, Topology, Pos, MeasureBox, PeriodicBox, MeasureMasses, MeasurePeriodic, ModifyPeriodic, IndexIterator, ModifyRandomAccess, MeasurePos, MeasureAtoms, PosMutIterator, ModifyPos, PosIterator};
+use super::{IndexIterator, MeasureAtoms, MeasureBox, MeasureMasses, MeasurePeriodic, MeasurePos, ModifyPeriodic, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use uni_rc_lock::UniRcLock;
@@ -9,12 +9,8 @@ pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
 
 /// Trait whic provides select method operating with generic smart pointers
-pub trait Select<T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>>;
+pub trait Select {
+    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection>;
 }
 
 //-----------------------------------------------------------------
@@ -39,12 +35,8 @@ impl SelectionAll {
     }
 }
 
-impl<T, S> Select<T, S> for SelectionAll
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
+impl Select for SelectionAll {
+    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
         check_sizes(&topology.read(), &state.read())?;
         let index: Vec<usize> = (0..state.read().coords.len()).collect();
         if index.len() >0 {
@@ -59,12 +51,8 @@ where
     }
 }
 
-impl<T, S> Select<T, S> for SelectionExpr
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
+impl Select for SelectionExpr {
+    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
         check_sizes(&topology.read(), &state.read())?;
         let index = self.apply_whole(&topology.read(), &state.read()).unwrap();
         if index.len() >0 {
@@ -79,12 +67,8 @@ where
     }
 }
 
-impl<T, S> Select<T, S> for str
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
+impl Select for str {
+    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
         check_sizes(&topology.read(), &state.read())?;
         let index = SelectionExpr::try_from(self)
             .unwrap()
@@ -102,12 +86,8 @@ where
     }
 }
 
-impl<T, S> Select<T, S> for std::ops::Range<usize>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
+impl Select for std::ops::Range<usize> {
+    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
         check_sizes(&topology.read(), &state.read())?;
         let n = topology.read().atoms.len();
         if self.start > n - 1 || self.end > n - 1 {
@@ -131,12 +111,8 @@ where
     }
 }
 
-impl<T, S> Select<T, S> for Vec<usize>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn select(&self, topology: &T, state: &S) -> Result<Selection<T, S>> {
+impl Select for Vec<usize> {
+    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
         let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
         if index.len() >0 {
             Ok(Selection {
@@ -151,26 +127,15 @@ where
 }
 
 //---------------------------------------
-pub struct Selection<T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    topology: T,
-    state: S,
+pub struct Selection {
+    topology: TopologyRc,
+    state: StateRc,
     index: Vec<usize>,
 }
 
-pub type SelectionRc = Selection< Rc<RefCell<Topology>>, Rc<RefCell<State>> >;
-pub type SelectionArc = Selection< Arc<RwLock<Topology>>, Arc<RwLock<State>> >;
-
-impl<T, S> Selection<T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl Selection {
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection<T, S>> {
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection> {
         let index = expr.apply_subset(&self.topology.read(), &self.state.read(), &self.index)?;
         if index.len() >0 {
             Ok(Selection {
@@ -184,7 +149,7 @@ where
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Selection<T, S>> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Selection> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
@@ -193,7 +158,7 @@ where
     pub fn subsel_from_local_range(
         &self,
         range: std::ops::Range<usize>,
-    ) -> Result<Selection<T, S>> {
+    ) -> Result<Selection> {
         // Translate range of local indexes to global indexes
         let index: Vec<usize> = self
             .index
@@ -226,7 +191,7 @@ where
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Selection<T, S>> {
+    ) -> Result<Selection> {
         let index: Vec<usize> = iter.sorted().dedup().map(|i| self.index[i]).collect();
         if index.len() >0 {
             Ok(Selection {
@@ -239,7 +204,7 @@ where
         }
     }
 
-    pub fn query<'a>(&'a self) -> SelectionQueryGuard<'a, T, S> {
+    pub fn query<'a>(&'a self) -> SelectionQueryGuard<'a> {
         SelectionQueryGuard {
             topology_ref: self.topology.read(),
             state_ref: self.state.read(),
@@ -247,7 +212,7 @@ where
         }
     }
 
-    pub fn modify<'a>(&'a self) -> SelectionModifyGuard<'a, T, S> {
+    pub fn modify<'a>(&'a self) -> SelectionModifyGuard<'a> {
         SelectionModifyGuard {
             topology_ref: self.topology.write(),
             state_ref: self.state.write(),
@@ -260,42 +225,26 @@ where
 //---------------,-------------------------------------
 
 /// Scoped guard giving read-only access to selection
-pub struct SelectionQueryGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{
-    topology_ref: <T as UniRcLock<Topology>>::OutRead<'a>,
-    state_ref: <S as UniRcLock<State>>::OutRead<'a>,
+pub struct SelectionQueryGuard<'a> {
+    topology_ref: Ref<'a,Topology>,
+    state_ref: Ref<'a,State>,
     index: &'a Vec<usize>,
 }
 
-impl<'a,T,S> IoIndexProvider for SelectionQueryGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{
+impl<'a> IoIndexProvider for SelectionQueryGuard<'a> {
     fn get_index(&self) -> impl IndexIterator {
         self.index.iter().cloned()
     }
 }
 
-impl<'a,T,S> IoTopologyProvider for SelectionQueryGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{
+impl<'a> IoTopologyProvider for SelectionQueryGuard<'a> {
     #[allow(refining_impl_trait)]
     fn get_topology(&self) -> &Topology {
         &self.topology_ref
     }
 }
 
-impl<'a,T,S> IoStateProvider for SelectionQueryGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{
+impl<'a> IoStateProvider for SelectionQueryGuard<'a> {
     #[allow(refining_impl_trait)]
     fn get_state(&self) -> &State {
         &self.state_ref
@@ -304,70 +253,42 @@ where
 
 
 /// Scoped guard giving read-write access to selection
-pub struct SelectionModifyGuard<'a, T, S>
-where
-    T: UniRcLock<Topology> + 'a,
-    S: UniRcLock<State> + 'a,
-{
-    topology_ref: <T as UniRcLock<Topology>>::OutWrite<'a>,
-    state_ref: <S as UniRcLock<State>>::OutWrite<'a>,
+pub struct SelectionModifyGuard<'a> {
+    topology_ref: RefMut<'a,Topology>,
+    state_ref: RefMut<'a,State>,
     index: &'a Vec<usize>,
 }
 
 //==================================================================
 // Implement analysis traits
 
-impl<T,S> MeasureBox for SelectionQueryGuard<'_,T,S> 
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl MeasureBox for SelectionQueryGuard<'_> {
     fn get_box(&self) -> Result<&PeriodicBox> {
         self.state_ref.get_box()
     }
 }
 
-impl<T, S> MeasurePos for SelectionQueryGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl MeasurePos for SelectionQueryGuard<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }
 }
 
-impl<T, S> MeasureAtoms for SelectionQueryGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl MeasureAtoms for SelectionQueryGuard<'_> {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
         self.index.iter().map(|i| &self.topology_ref.atoms[*i])
     }    
 }
 
-impl<T, S> MeasureMasses for SelectionQueryGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl MeasureMasses for SelectionQueryGuard<'_> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.index.iter().map(|i| self.topology_ref.atoms[*i].mass)
     }
 }
 
-impl<T, S> MeasurePeriodic for SelectionQueryGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{}
+impl MeasurePeriodic for SelectionQueryGuard<'_> {}
 
-impl<T,S> MeasureBox for SelectionModifyGuard<'_,T,S> 
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl MeasureBox for SelectionModifyGuard<'_> {
     fn get_box(&self) -> Result<&PeriodicBox> {
         self.state_ref.get_box()
     }
@@ -375,21 +296,13 @@ where
 
 //-------------------------------------------------------
 
-impl<T, S> MeasurePos for SelectionModifyGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl MeasurePos for SelectionModifyGuard<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }
 }
 
-impl<T, S> ModifyPos for SelectionModifyGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl ModifyPos for SelectionModifyGuard<'_> {
     fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
         self.index.iter().map(|i|
             unsafe {
@@ -416,17 +329,9 @@ where
 }
 */
 
-impl<T, S> ModifyPeriodic for SelectionModifyGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{}
+impl ModifyPeriodic for SelectionModifyGuard<'_> {}
 
-impl<T, S> ModifyRandomAccess for SelectionModifyGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
+impl ModifyRandomAccess for SelectionModifyGuard<'_> {
     /*
     fn nth_particle_mut(&mut self, i: usize) -> ParticleMut {
         ParticleMut{
@@ -457,7 +362,7 @@ mod tests {
     use lazy_static::lazy_static;
     use nalgebra::Unit;
 
-    use super::{SelectionRc, SelectionAll};
+    use super::{Selection, SelectionAll};
 
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
@@ -472,14 +377,14 @@ mod tests {
         static ref SS: (Topology, State) = read_test_pdb();
     }
 
-    fn make_sel() -> anyhow::Result<SelectionRc> {
+    fn make_sel() -> anyhow::Result<Selection> {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
         let sel = SelectionAll{}.select(&t, &s)?;
         Ok(sel)
     }
 
-    fn make_sel_prot() -> anyhow::Result<SelectionRc> {
+    fn make_sel_prot() -> anyhow::Result<Selection> {
         let t = SS.0.clone().to_rc();
         let s = SS.1.clone().to_rc();
         let sel = "not resname TIP3 POT CLA".select(&t, &s)?;

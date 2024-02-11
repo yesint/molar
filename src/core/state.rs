@@ -11,6 +11,8 @@ pub struct State {
     pub box_: Option<PeriodicBox>,
 }
 
+pub type StateRc = Rc<RefCell<State>>;
+
 impl State {
     pub fn new() -> Self {
         Default::default()

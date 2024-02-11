@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
-use molar::{core::{Topology, State, SelectionRc, Select, Vector3f, fit_transform, fit_transform_at_origin, ModifyPos}, io::FileHandler};
+use molar::{core::{fit_transform, fit_transform_at_origin, ModifyPos, Select, Selection, State, Topology, Vector3f}, io::FileHandler};
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (Topology, State) {
@@ -15,7 +15,7 @@ lazy_static! {
     static ref SS: (Topology, State) = read_test_pdb();
 }
 
-fn make_sel_prot() -> anyhow::Result<SelectionRc> {
+fn make_sel_prot() -> anyhow::Result<Selection> {
     let t = SS.0.clone().to_rc();
     let s = SS.1.clone().to_rc();
     let sel = "not resname TIP3 POT CLA".select(&t, &s)?;
