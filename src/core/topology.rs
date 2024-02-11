@@ -48,31 +48,20 @@ impl IoIndexProvider for Topology {
 }
 
 impl IoTopologyProvider for Topology {
-    fn get_topology(&self) -> impl Deref<Target = Topology> {
+    #[allow(refining_impl_trait)]
+    fn get_topology(&self) -> &Topology {
         self
     }
 }
 
-impl IoIndexProvider for Rc<RefCell<Topology>> {
+impl IoIndexProvider for TopologyRc {
     fn get_index(&self) -> impl super::IndexIterator {
         0..self.borrow().atoms.len()
     }
 }
 
-impl IoTopologyProvider for Rc<RefCell<Topology>> {
+impl IoTopologyProvider for TopologyRc {
     fn get_topology(&self) -> impl Deref<Target = Topology> {
         self.borrow()
-    }
-}
-
-impl IoIndexProvider for Arc<RwLock<Topology>> {
-    fn get_index(&self) -> impl super::IndexIterator {
-        0..self.read().unwrap().atoms.len()
-    }
-}
-
-impl IoTopologyProvider for Arc<RwLock<Topology>> {
-    fn get_topology(&self) -> impl Deref<Target = Topology> {
-        self.read().unwrap()
     }
 }

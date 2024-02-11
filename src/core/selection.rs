@@ -1,9 +1,8 @@
-use std::{cell::{Ref, RefCell, RefMut}, rc::Rc, sync::{Arc, RwLock}};
+use std::cell::{Ref, RefMut};
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
 use super::{IndexIterator, MeasureAtoms, MeasureBox, MeasureMasses, MeasurePeriodic, MeasurePos, ModifyPeriodic, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
-use uni_rc_lock::UniRcLock;
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
@@ -37,8 +36,9 @@ impl SelectionAll {
 
 impl Select for SelectionAll {
     fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        check_sizes(&topology.read(), &state.read())?;
-        let index: Vec<usize> = (0..state.read().coords.len()).collect();
+        let st = state.borrow();
+        check_sizes(&topology.borrow(), &st)?;
+        let index: Vec<usize> = (0..st.coords.len()).collect();
         if index.len() >0 {
             Ok(Selection {
                 topology: topology.clone(),
@@ -53,8 +53,8 @@ impl Select for SelectionAll {
 
 impl Select for SelectionExpr {
     fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        check_sizes(&topology.read(), &state.read())?;
-        let index = self.apply_whole(&topology.read(), &state.read()).unwrap();
+        check_sizes(&topology.borrow(), &state.borrow())?;
+        let index = self.apply_whole(&topology.borrow(), &state.borrow()).unwrap();
         if index.len() >0 {
             Ok(Selection {
                 topology: topology.clone(),
@@ -69,10 +69,12 @@ impl Select for SelectionExpr {
 
 impl Select for str {
     fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        check_sizes(&topology.read(), &state.read())?;
+        let top = topology.borrow();
+        let st = state.borrow();
+        check_sizes(&top, &st)?;
         let index = SelectionExpr::try_from(self)
             .unwrap()
-            .apply_whole(&topology.read(), &state.read())
+            .apply_whole(&top, &st)
             .unwrap();
         if index.len() >0 {
             Ok(Selection {
@@ -88,14 +90,16 @@ impl Select for str {
 
 impl Select for std::ops::Range<usize> {
     fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        check_sizes(&topology.read(), &state.read())?;
-        let n = topology.read().atoms.len();
+        let top = topology.borrow();
+        let st = state.borrow();
+        check_sizes(&top, &st)?;
+        let n = top.atoms.len();
         if self.start > n - 1 || self.end > n - 1 {
             bail!(
                 "Index range {}:{} is invalid, 0:{} is allowed.",
                 self.start,
                 self.end,
-                topology.read().atoms.len()
+                top.atoms.len()
             );
         }
         let index: Vec<usize> = self.clone().collect();
@@ -127,7 +131,8 @@ impl Select for Vec<usize> {
 }
 
 //---------------------------------------
-pub struct Selection {
+pub struct Selection 
+{
     topology: TopologyRc,
     state: StateRc,
     index: Vec<usize>,
@@ -136,7 +141,11 @@ pub struct Selection {
 impl Selection {
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection> {
-        let index = expr.apply_subset(&self.topology.read(), &self.state.read(), &self.index)?;
+        let index = expr.apply_subset(
+            &self.topology.borrow(),
+            &self.state.borrow(),
+            self.index.iter().cloned()
+        )?;
         if index.len() >0 {
             Ok(Selection {
                 topology: self.topology.clone(),
@@ -206,16 +215,16 @@ impl Selection {
 
     pub fn query<'a>(&'a self) -> SelectionQueryGuard<'a> {
         SelectionQueryGuard {
-            topology_ref: self.topology.read(),
-            state_ref: self.state.read(),
+            topology_ref: self.topology.borrow(),
+            state_ref: self.state.borrow(),
             index: &self.index,
         }
     }
 
     pub fn modify<'a>(&'a self) -> SelectionModifyGuard<'a> {
         SelectionModifyGuard {
-            topology_ref: self.topology.write(),
-            state_ref: self.state.write(),
+            topology_ref: self.topology.borrow_mut(),
+            state_ref: self.state.borrow_mut(),
             index: &self.index,
         }
     }
@@ -253,6 +262,7 @@ impl<'a> IoStateProvider for SelectionQueryGuard<'a> {
 
 
 /// Scoped guard giving read-write access to selection
+#[allow(dead_code)]
 pub struct SelectionModifyGuard<'a> {
     topology_ref: RefMut<'a,Topology>,
     state_ref: RefMut<'a,State>,

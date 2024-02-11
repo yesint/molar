@@ -43,27 +43,15 @@ impl IoStateProvider for State {
     }
 }
 
-impl IoIndexProvider for Rc<RefCell<State>> {
+impl IoIndexProvider for StateRc {
     fn get_index(&self) -> impl super::IndexIterator {
         0..self.borrow().coords.len()
     }
 }
 
-impl IoStateProvider for Rc<RefCell<State>> {
+impl IoStateProvider for StateRc {
     fn get_state(&self) -> impl Deref<Target = State> {
         self.borrow()
-    }
-}
-
-impl IoIndexProvider for Arc<RwLock<State>> {
-    fn get_index(&self) -> impl super::IndexIterator {
-        0..self.read().unwrap().coords.len()
-    }
-}
-
-impl IoStateProvider for Arc<RwLock<State>> {
-    fn get_state(&self) -> impl Deref<Target = State> {
-        self.read().unwrap()
     }
 }
 

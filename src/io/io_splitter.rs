@@ -1,16 +1,12 @@
-use std::ops::Deref;
-
-use anyhow::{anyhow, bail, Result};
-
-use crate::core::{IndexIterator, State, Topology};
-
-use super::{IoIndexProvider, IoIndexedTopologyProvider, IoStateProvider, IoTopologyProvider};
+use anyhow::{anyhow, Result};
+use crate::core::{State, Topology};
 
 pub trait ReadTopAndState {    
     fn read_top_and_state(&mut self) -> Result<(Topology, State)>;
-    fn write_top_and_state(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
-        unimplemented!()
-    }
+    
+    //fn write_top_and_state(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
+    //    unimplemented!()
+    //}
 }
 
 pub struct IoSplitter<T: ReadTopAndState> {
@@ -64,6 +60,7 @@ impl<T: ReadTopAndState> IoSplitter<T> {
         Ok(())
     }
     
+    /*
     pub fn write(
         &mut self,
         data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider),
@@ -72,7 +69,7 @@ impl<T: ReadTopAndState> IoSplitter<T> {
         self.handler.write_top_and_state(data)
     }
 
-    /*
+    
     pub fn write_topology(&mut self, data: &(impl IoIndexProvider+IoTopologyProvider)) -> Result<()> {
         self.top_ref = Some(&data.get_topology());
         if self.index_ref.is_none() {

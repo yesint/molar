@@ -752,14 +752,14 @@ impl SelectionExpr {
         &self,
         structure: &Topology,
         state: &State,
-        subset: &Vec<usize>,
+        subset: impl Iterator<Item = usize>,
     ) -> Result<Vec<usize>> {
         let data = ApplyData {
             structure,
             state,
-            subset: SubsetType::from_iter(subset.iter().cloned()),
+            subset: SubsetType::from_iter(subset),
         };
-        let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
+        let mut index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
         index.sort();
         Ok(index)
     }
