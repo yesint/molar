@@ -1,7 +1,7 @@
-use std::{rc::Rc, cell::RefCell, sync::{RwLock, Arc}, ops::Deref};
+use std::{cell::{Ref, RefCell, RefMut}, rc::Rc, sync::{Arc, RwLock}};
 use crate::io::{IoIndexProvider, IoStateProvider};
 use anyhow::{Result, anyhow};
-use super::{PeriodicBox, Pos, MeasureBox, MeasurePos, IdPosIterator, IndexIterator};
+use super::{BoxProvider, IdPosIterator, IndexIterator, Measure, PeriodicBox, Pos, PosProvider};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
@@ -31,31 +31,33 @@ impl State {
     }
 }
 
-impl IoIndexProvider for State {
+impl Measure for StateRc {
+    type Provider<'a> = Ref<'a,State>;
+    fn get_provider<'a>(&'a self) -> Self::Provider<'a> {
+        self.borrow()
+    }
+}
+
+impl IoIndexProvider for Ref<'_,State> {
     fn get_index(&self) -> impl super::IndexIterator {
         0..self.coords.len()
     }
 }
 
-impl IoStateProvider for State {
-    fn get_state(&self) -> impl Deref<Target = State> {
+impl IoStateProvider for Ref<'_,State> {
+    #[allow(refining_impl_trait)]
+    fn get_state(&self) -> &State {
         self
     }
 }
 
-impl IoIndexProvider for StateRc {
-    fn get_index(&self) -> impl super::IndexIterator {
-        0..self.borrow().coords.len()
+impl PosProvider for Ref<'_,State> {
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        self.coords.iter()
     }
 }
 
-impl IoStateProvider for StateRc {
-    fn get_state(&self) -> impl Deref<Target = State> {
-        self.borrow()
-    }
-}
-
-impl MeasureBox for State {
+impl BoxProvider for Ref<'_,State> {
     fn get_box(&self) -> Result<&PeriodicBox> {
         let r = self.box_
             .as_ref()
@@ -64,8 +66,11 @@ impl MeasureBox for State {
     }
 }
 
-impl MeasurePos for State {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.coords.iter()
+impl BoxProvider for RefMut<'_,State> {
+    fn get_box(&self) -> Result<&PeriodicBox> {
+        let r = self.box_
+            .as_ref()
+            .ok_or(anyhow!("No periodic box"))?;
+        Ok(&r)
     }
 }

@@ -1,4 +1,4 @@
-use crate::core::{IndexIterator, State, Topology};
+use crate::core::{IndexIterator, Measure, State, StateRc, Topology, TopologyRc};
 use anyhow::{anyhow, bail, Result};
 use std::{path::Path, ops::Deref};
 
@@ -40,15 +40,13 @@ pub trait IoIndexProvider {
 }
 
 pub trait IoTopologyProvider {
-    fn get_topology(&self) -> impl Deref<Target = Topology>;
+    fn get_topology(&self) -> &Topology;
 }
 
 pub trait IoStateProvider {
     fn get_state(&self) -> impl Deref<Target = State>;
 }
 
-pub trait IoIndexedTopologyProvider: IoIndexProvider+IoTopologyProvider {}
-pub trait IoIndexedStateProvider: IoIndexProvider+IoStateProvider {}
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
@@ -56,8 +54,8 @@ pub struct IoStateIterator<'a> {
     reader: FileHandler<'a>,
 }
 
-impl<'a> Iterator for IoStateIterator<'a> {
-    type Item = State;
+impl Iterator for IoStateIterator<'_> {
+    type Item = StateRc;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
     }
@@ -86,7 +84,7 @@ pub fn get_ext(fname: &str) -> Result<&str> {
     )
 }
 
-impl<'a> FileHandler<'a> {
+impl FileHandler<'_> {
     pub fn open(fname: &str) -> Result<Self> {
         let ext = get_ext(fname)?;
         match ext {
@@ -113,62 +111,89 @@ impl<'a> FileHandler<'a> {
         }
     }
 
-    pub fn read(&mut self) -> Result<(Topology,State)> {
-        match self {
+    pub fn read_raw(&mut self) -> Result<(Topology,State)> {
+        let (top,st) = match self {
             #[cfg(feature = "gromacs")]
-            Self::Tpr(ref mut h) => h.read(),
-            Self::Gro(ref mut h) => h.read(),
+            Self::Tpr(ref mut h) => h.read()?,
+            Self::Gro(ref mut h) => h.read()?,
             Self::Pdb(ref mut h) => {
                 let top = h.read_topology()?;
                 let st = h.read_state()?.ok_or_else(|| anyhow!("Can't read first state!"))?;
-                Ok((top,st))
+                (top,st)
             },
             _ => bail!("Not a once-read format"),
-        }
+        };
+        Ok((top,st))
     }
 
-    pub fn write(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
+    pub fn read(&mut self) -> Result<(TopologyRc,StateRc)> {
+        let (top,st) = self.read_raw()?;
+        Ok((top.to_rc(),st.to_rc()))
+    }
+
+    pub fn write<T>(&mut self, data: &T) -> Result<()> 
+    where T: Measure, for<'a> T::Provider<'a>: IoIndexProvider+IoTopologyProvider+IoStateProvider
+    {
+        let dp = data.get_provider();
         match self {
-            Self::Gro(ref mut h) => h.handler.write(data),
+            Self::Gro(ref mut h) => h.handler.write(&dp),
             Self::Pdb(ref mut h) => {
-                h.write_topology(data)?;
-                h.write_state(data)?;
+                h.write_topology(&dp)?;
+                h.write_state(&dp)?;
                 Ok(())
             }
             _ => bail!("Not a once-write format"),
         }
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology> {
-        match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology(),
+    pub fn read_topology_raw(&mut self) -> Result<Topology> {
+        let top = match self {
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology()?,
             _ => bail!("Unable to read topology"),
-        }
+        };
+        Ok(top)
     }
 
-    pub fn write_topology(&mut self, data: &(impl IoIndexProvider+IoTopologyProvider)) -> Result<()> {
+    pub fn read_topology(&mut self) -> Result<TopologyRc> {
+        Ok(self.read_topology_raw()?.to_rc())
+    }
+
+    pub fn write_topology<'a,T:'a>(&mut self, data: &'a T) -> Result<()> 
+    where T: Measure, T::Provider<'a>: IoIndexProvider+IoTopologyProvider
+    {
+        let dp = data.get_provider();
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(data),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(&dp),
             _ => bail!("Unable to write topology"),
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>> {
-        match self {
+    pub fn read_state_raw(&mut self) -> Result<Option<State>> {
+        let st = match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
-                h.read_state()
-            }
-            Self::Xtc(ref mut h) => h.read_state(),
+                h.read_state()?
+            },
+            Self::Xtc(ref mut h) => {
+                h.read_state()?
+            },
             _ => bail!("Not a trajectory reader format!"),
-        }
+        };
+        Ok(st)
     }
 
-    pub fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> {
+    pub fn read_state(&mut self) -> Result<Option<StateRc>> {
+        self.read_state_raw()?.map_or(Ok(None), |v| Ok(Some(v.to_rc())))
+    }
+
+    pub fn write_state<'a,T:'a>(&mut self, data: &'a T) -> Result<()> 
+    where T: Measure, T::Provider<'a>: IoIndexProvider+IoStateProvider
+    {
+        let dp = data.get_provider();
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
-                h.write_state(data)
+                h.write_state(&dp)
             }
-            Self::Xtc(ref mut h) => h.write_state(data),
+            Self::Xtc(ref mut h) => h.write_state(&dp),
             _ => bail!("Not a trajectory writer format!"),
         }
     }
@@ -210,7 +235,7 @@ impl<'a> FileHandler<'a> {
 }
 
 impl<'a> IntoIterator for FileHandler<'a> {
-    type Item = State;
+    type Item = StateRc;
     type IntoIter = IoStateIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -221,7 +246,7 @@ impl<'a> IntoIterator for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::FileHandler;
-    use crate::core::{SelectionAll, Select, Vector3f, ModifyPos};
+    use crate::core::{ModifyPos, Select, SelectionAll, Vector3f};
     use anyhow::Result;
 
     #[test]
@@ -233,11 +258,9 @@ mod tests {
         //println!("{:?}", st.atoms);
 
         for fr in r {
-            println!("{}", fr.time);
-            //w.write_topology(&st)?;
             w.write_state(&fr)?;
-            //w.write_structure(&st).unwrap();
-            //w.write_next_state_subset(&fr,0..10).unwrap();
+            //let f = fr.into_inner();
+            //println!("{}", f.time);
         }
 
         Ok(())
@@ -266,18 +289,18 @@ mod tests {
     #[test]
     fn test_pdb() -> Result<()> {
         let mut r = FileHandler::open("tests/no_ATP.pdb")?;
-        let top1 = r.read_topology()?.to_rc();
-        let st1 = r.read_state()?.unwrap().to_rc();
+        let top1 = r.read_topology()?;
+        let st1 = r.read_state()?.unwrap();
         let st2 = (*st1).borrow().clone().to_rc();
         println!("#1: {}",(*top1).borrow().atoms.len());
 
         let sel = SelectionAll::new().select(&top1,&st2)?;
-        sel.modify().rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
+        sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
         
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
         let mut w = FileHandler::create(outname)?;
-        w.write_topology(&sel.query())?;
+        w.write_topology(&sel)?;
         w.write_state(&st1)?;
         w.write_state(&st2)?;
 

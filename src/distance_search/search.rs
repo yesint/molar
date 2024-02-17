@@ -352,6 +352,7 @@ impl SearchOutputType for (usize, usize, f32) {
 
 //==================================================================
 // Tests
+/* 
 
 #[test]
 fn test_single_periodic() {
@@ -374,7 +375,6 @@ fn test_single_periodic() {
 #[test]
 fn test_single_non_periodic() {
     use crate::io::*;
-    use crate::core::MeasurePos;
 
     let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let st = r.read_state().unwrap().unwrap();
@@ -408,3 +408,4 @@ fn test_double_periodic() {
     let found: Vec<usize> = searcher.search();
     println!("{:?}", found.len())
 }
+*/

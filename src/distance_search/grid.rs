@@ -173,7 +173,7 @@ fn test_grid() {
     use crate::core::PBC_FULL;
 
     let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
-    let st = r.read_state().unwrap().unwrap();
+    let st = r.read_state_raw().unwrap().unwrap();
 
     let crd = &st.coords;
 

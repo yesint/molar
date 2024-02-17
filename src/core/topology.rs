@@ -1,8 +1,8 @@
-use std::{rc::Rc, cell::RefCell, sync::{Arc, RwLock}, ops::Deref};
+use std::{cell::{Ref, RefCell}, rc::Rc};
 
 use crate::io::{IoIndexProvider, IoTopologyProvider};
 
-use super::Atom;
+use super::{Atom, Measure};
 //use super::handle::{SharedHandle, Handle};
 
 #[allow(dead_code)]
@@ -24,10 +24,6 @@ impl Topology {
         Rc::new(RefCell::new(self))
     }
 
-    pub fn to_arc(self) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(self))
-    }
-
     pub fn assign_resindex(&mut self) {
         let mut resindex = 0usize;
         let mut cur_resid = self.atoms[0].resid;
@@ -41,27 +37,22 @@ impl Topology {
     }
 }
 
-impl IoIndexProvider for Topology {
+impl Measure for TopologyRc {
+    type Provider<'a> = Ref<'a,Topology>;
+    fn get_provider<'a>(&'a self) -> Self::Provider<'a> {
+        self.borrow()
+    }
+}
+
+impl IoIndexProvider for Ref<'_,Topology> {
     fn get_index(&self) -> impl super::IndexIterator {
         0..self.atoms.len()
     }
 }
 
-impl IoTopologyProvider for Topology {
+impl IoTopologyProvider for Ref<'_,Topology> {
     #[allow(refining_impl_trait)]
     fn get_topology(&self) -> &Topology {
         self
-    }
-}
-
-impl IoIndexProvider for TopologyRc {
-    fn get_index(&self) -> impl super::IndexIterator {
-        0..self.borrow().atoms.len()
-    }
-}
-
-impl IoTopologyProvider for TopologyRc {
-    fn get_topology(&self) -> impl Deref<Target = Topology> {
-        self.borrow()
     }
 }

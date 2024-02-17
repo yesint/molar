@@ -1,6 +1,6 @@
 use std::cell::{Ref, RefMut};
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
-use super::{IndexIterator, MeasureAtoms, MeasureBox, MeasureMasses, MeasurePeriodic, MeasurePos, ModifyPeriodic, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
+use super::{AtomIterator, AtomsProvider, BoxProvider, IndexIterator, MassesProvider, Measure, MeasureMasses, MeasurePeriodic, MeasurePos, Modify, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, PosMutProvider, PosProvider, RandomPosMutProvider, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 
@@ -212,24 +212,6 @@ impl Selection {
             bail!("Selection is empty")
         }
     }
-
-    pub fn query<'a>(&'a self) -> SelectionQueryGuard<'a> {
-        SelectionQueryGuard {
-            topology_ref: self.topology.borrow(),
-            state_ref: self.state.borrow(),
-            index: &self.index,
-        }
-    }
-
-    pub fn modify<'a>(&'a self) -> SelectionModifyGuard<'a> {
-        SelectionModifyGuard {
-            topology_ref: self.topology.borrow_mut(),
-            state_ref: self.state.borrow_mut(),
-            index: &self.index,
-        }
-    }
-
-
 }
 //---------------,-------------------------------------
 
@@ -239,6 +221,17 @@ pub struct SelectionQueryGuard<'a> {
     state_ref: Ref<'a,State>,
     index: &'a Vec<usize>,
 }
+
+/// Scoped guard giving read-write access to selection
+#[allow(dead_code)]
+pub struct SelectionModifyGuard<'a> {
+    topology_ref: RefMut<'a,Topology>,
+    state_ref: RefMut<'a,State>,
+    index: &'a Vec<usize>,
+}
+
+//---------------------------------------------
+// Implement traits for IO
 
 impl<'a> IoIndexProvider for SelectionQueryGuard<'a> {
     fn get_index(&self) -> impl IndexIterator {
@@ -260,59 +253,69 @@ impl<'a> IoStateProvider for SelectionQueryGuard<'a> {
     }
 }
 
-
-/// Scoped guard giving read-write access to selection
-#[allow(dead_code)]
-pub struct SelectionModifyGuard<'a> {
-    topology_ref: RefMut<'a,Topology>,
-    state_ref: RefMut<'a,State>,
-    index: &'a Vec<usize>,
-}
-
 //==================================================================
 // Implement analysis traits
 
-impl MeasureBox for SelectionQueryGuard<'_> {
+impl Measure for Selection {
+    type Provider<'a> = SelectionQueryGuard<'a>;
+    fn get_provider<'a>(&'a self) -> Self::Provider<'a> {
+        SelectionQueryGuard {
+            topology_ref: self.topology.borrow(),
+            state_ref: self.state.borrow(),
+            index: &self.index,
+        }
+    }
+}
+
+impl BoxProvider for SelectionQueryGuard<'_> {
     fn get_box(&self) -> Result<&PeriodicBox> {
         self.state_ref.get_box()
     }
 }
 
-impl MeasurePos for SelectionQueryGuard<'_> {
+impl MeasurePeriodic for Selection {}
+
+impl PosProvider for SelectionQueryGuard<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }
 }
 
-impl MeasureAtoms for SelectionQueryGuard<'_> {
-    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+impl MeasurePos for Selection {}
+
+impl AtomsProvider for SelectionQueryGuard<'_> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.index.iter().map(|i| &self.topology_ref.atoms[*i])
     }    
 }
 
-impl MeasureMasses for SelectionQueryGuard<'_> {
+impl MassesProvider for SelectionQueryGuard<'_> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.index.iter().map(|i| self.topology_ref.atoms[*i].mass)
     }
 }
 
-impl MeasurePeriodic for SelectionQueryGuard<'_> {}
+impl MeasureMasses for Selection {}
 
-impl MeasureBox for SelectionModifyGuard<'_> {
+//-------------------------------------------------------
+impl Modify for Selection {
+    type DataMutProvider<'a> = SelectionModifyGuard<'a>;
+    fn get_mut_provider<'a>(&'a self) -> Self::DataMutProvider<'a> {
+        SelectionModifyGuard {
+            topology_ref: self.topology.borrow_mut(),
+            state_ref: self.state.borrow_mut(),
+            index: &self.index,
+        }
+    }
+}
+
+impl BoxProvider for SelectionModifyGuard<'_> {
     fn get_box(&self) -> Result<&PeriodicBox> {
         self.state_ref.get_box()
     }
 }
 
-//-------------------------------------------------------
-
-impl MeasurePos for SelectionModifyGuard<'_> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.index.iter().map(|i| &self.state_ref.coords[*i])
-    }
-}
-
-impl ModifyPos for SelectionModifyGuard<'_> {
+impl PosMutProvider for SelectionModifyGuard<'_> {
     fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
         self.index.iter().map(|i|
             unsafe {
@@ -322,41 +325,21 @@ impl ModifyPos for SelectionModifyGuard<'_> {
     }
 }
 
-
-/*
-impl<T, S> ModifyParticles for SelectionModifyGuard<'_, T, S>
-where
-    T: UniRcLock<Topology>,
-    S: UniRcLock<State>,
-{
-    fn iter_particles_mut(&mut self) -> impl ParticleMutIterator<'_> {
-        ParticleMutIteratorAdaptor::new(
-            &mut self.topology_ref.atoms,
-            &mut self.state_ref.coords,
-            &self.index,
-        )
+impl PosProvider for SelectionModifyGuard<'_> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.index.iter().map(|i| &self.state_ref.coords[*i])
     }
 }
-*/
 
-impl ModifyPeriodic for SelectionModifyGuard<'_> {}
-
-impl ModifyRandomAccess for SelectionModifyGuard<'_> {
-    /*
-    fn nth_particle_mut(&mut self, i: usize) -> ParticleMut {
-        ParticleMut{
-            id: i,
-            pos: &mut self.state_ref.coords[self.index[i]],
-            atom: &mut self.topology_ref.atoms[self.index[i]],
-        }
-    }
-    */
-
+impl RandomPosMutProvider for SelectionModifyGuard<'_> {
     #[inline(always)]
     fn nth_pos_mut(&mut self, i: usize) -> &mut Pos {
         &mut self.state_ref.coords[self.index[i]]
-    }
+    }    
 }
+
+impl ModifyPos for Selection {}
+impl ModifyRandomAccess for Selection {}
 
 //############################################################
 //#  Tests
@@ -365,12 +348,10 @@ impl ModifyRandomAccess for SelectionModifyGuard<'_> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::State,
-        core::{selection::Select, Topology, MeasureMasses, MeasurePos, Vector3f, ModifyRandomAccess, fit_transform, PBC_FULL, ModifyPos},
+        core::{algorithms::*, selection::Select, State, Topology, Vector3f, PBC_FULL},
         io::*,
     };
     use lazy_static::lazy_static;
-    use nalgebra::Unit;
 
     use super::{Selection, SelectionAll};
 
@@ -379,7 +360,8 @@ mod tests {
         //let top = h.read_topology().unwrap();
         //let state = h.read_state().unwrap().unwrap();
         //(top, state)
-        h.read().unwrap()
+        let (top,st) = h.read_raw().unwrap();
+        (top,st)
     }
 
     // Read the test PDB file once and provide the content for tests
@@ -409,15 +391,14 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()>{
         let sel = make_sel()?;
+        println!("before {}",sel.get_provider().iter_pos().next().unwrap());
 
-        println!("before {}",sel.query().iter_pos().next().unwrap());
-
-        let (minv,maxv) = sel.query().min_max();
+        let (minv,maxv) = sel.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",sel.query().iter_pos().next().unwrap());
-        println!("{:?}",sel.query().min_max());
+        println!("after {}",sel.get_provider().iter_pos().next().unwrap());
+        println!("{:?}",sel.min_max());
         Ok(())
     }
     
@@ -425,77 +406,65 @@ mod tests {
     fn test_measure_pbc() -> anyhow::Result<()>{
         let sel = make_sel()?;
 
-        let cm = sel.query().center_of_mass()?;
+        let cm = sel.center_of_mass()?;
         println!("{cm}");
         Ok(())
     }
 
     #[test]
-    fn test_translate() {
-        let sel = make_sel().unwrap();
-        let mut w = sel.modify();
+    fn test_translate() -> anyhow::Result<()> {
+        let mut sel = make_sel()?;
 
-        println!("before {}",w.iter_pos_mut().next().unwrap());
-        w.translate(Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",w.iter_pos_mut().next().unwrap());
+        println!("before {}",sel.get_mut_provider().iter_pos_mut().next().unwrap());
+        sel.translate(Vector3f::new(10.0,10.0,10.0));
+        println!("after {}",sel.get_mut_provider().iter_pos_mut().next().unwrap());
+        Ok(())
     }
 
     #[test]
     fn test_write_to_file() -> anyhow::Result<()> {
         let sel = make_sel()?;
-        let q = sel.query();
-
+        
         let mut h = FileHandler::create("f.pdb")?;
-        h.write_topology(&q)?;
-        h.write_state(&q)?;
+        h.write_topology(&sel)?;
+        h.write_state(&sel)?;
         Ok(())
     }
 
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
-        let sel = make_sel_prot()?;
-        sel.modify().unwrap_connectivity_dim(0.2, &PBC_FULL)?;
+        let mut sel = make_sel_prot()?;
+        sel.unwrap_connectivity_dim(0.2, &PBC_FULL)?;
         
         let mut h = FileHandler::create("unwrapped.pdb")?;
-        let q = sel.query();
-        h.write_topology(&q)?;
-        h.write_state(&q)?;
+        h.write_topology(&sel)?;
+        h.write_state(&sel)?;
         Ok(())
     }
 
     #[test]
     fn eigen_test() -> anyhow::Result<()> {
-        let sel1 = make_sel_prot().unwrap();
-        let sel2 = make_sel_prot().unwrap();
-        //let cm1 = sel1.query().center_of_mass()?.coords;
-        //let cm2 = sel2.query().center_of_mass()?.coords;
-        //sel1.modify().translate(-cm1);
-        //sel2.modify().translate(-cm2);
+        let sel1 = make_sel_prot()?;
+        let sel2 = make_sel_prot()?;
         
-        sel2.modify().rotate(&Unit::new_normalize(Vector3f::x()), 80.0_f32.to_radians());
-        
+        sel2.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());        
+
         let mut h = FileHandler::create("sel2.pdb")?;
-        let q = sel2.query();
-        h.write_topology(&q)?;
-        h.write_state(&q)?;
-        drop(q);
+        h.write_topology(&sel2)?;
+        h.write_state(&sel2)?;
 
         let mut h = FileHandler::create("sel1_before.pdb")?;
-        let q = sel1.query();
-        h.write_topology(&q)?;
-        h.write_state(&q)?;
-        drop(q);
-
-
-        let m = fit_transform(sel1.query(), sel2.query())?;
+        h.write_topology(&sel1)?;
+        h.write_state(&sel1)?;
+        
+        let m = Selection::fit_transform(&sel1,&sel2)?;
         println!("{m}");
-        sel1.modify().apply_transform(&m);
 
+        sel1.apply_transform(&m);
 
         let mut h = FileHandler::create("sel1_after.pdb")?;
-        let q = sel1.query();
-        h.write_topology(&q)?;
-        h.write_state(&q)?;
+        h.write_topology(&sel1)?;
+        h.write_state(&sel1)?;
 
         Ok(())
     }
