@@ -57,7 +57,7 @@ impl GroFileHandler {
         }
 
         // Write periodic box
-        if let Some(b) = state.box_.as_ref() {
+        if let Some(b) = state.pbox.as_ref() {
             let m = b.get_matrix();
             // Diagonal elements
             // Use same format as Gromacs for consistency, but this is free format
@@ -162,7 +162,7 @@ impl ReadTopAndState for GroFileHandler {
             m[(0, 2)] = l[7];
             m[(1, 2)] = l[8];
         }
-        state.box_ = Some(PeriodicBox::from_matrix(m)?);
+        state.pbox = Some(PeriodicBox::from_matrix(m)?);
 
         // Assign resindex
         top.assign_resindex();

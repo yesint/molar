@@ -180,7 +180,7 @@ fn test_grid() {
     let mut gr = Grid::new([10, 10, 10]);
     gr.populate_periodic(
         zip(0..crd.len(), crd.iter().map(|el| el)),
-        &st.box_.as_ref().unwrap(),
+        &st.pbox.as_ref().unwrap(),
         &PBC_FULL,
     );
 }

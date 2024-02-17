@@ -264,7 +264,7 @@ impl VmdMolFileHandler<'_> {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { state.coords.set_len(self.natoms as usize) }
             // Convert the box
-            state.box_ = PeriodicBox::from_vectors_angles(
+            state.pbox = PeriodicBox::from_vectors_angles(
                 ts.A * 0.1,
                 ts.B * 0.1,
                 ts.C * 0.1,
@@ -309,7 +309,7 @@ impl VmdMolFileHandler<'_> {
         }
 
         // Periodic box
-        let (box_vec, box_ang) = match st.box_.as_ref() {
+        let (box_vec, box_ang) = match st.pbox.as_ref() {
             Some(b) => b.to_vectors_angles(),
             None => (Vector3f::zeros(), Vector3f::zeros()),
         };

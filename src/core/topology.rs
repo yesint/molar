@@ -2,7 +2,7 @@ use std::{cell::{Ref, RefCell}, rc::Rc};
 
 use crate::io::{IoIndexProvider, IoTopologyProvider};
 
-use super::{Atom, Measure};
+use super::{Atom, GuardedQuery};
 //use super::handle::{SharedHandle, Handle};
 
 #[allow(dead_code)]
@@ -37,9 +37,9 @@ impl Topology {
     }
 }
 
-impl Measure for TopologyRc {
-    type Provider<'a> = Ref<'a,Topology>;
-    fn get_provider<'a>(&'a self) -> Self::Provider<'a> {
+impl GuardedQuery for TopologyRc {
+    type Guard<'a> = Ref<'a,Topology>;
+    fn guard<'a>(&'a self) -> Self::Guard<'a> {
         self.borrow()
     }
 }

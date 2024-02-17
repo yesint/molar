@@ -1,6 +1,6 @@
 use std::cell::{Ref, RefMut};
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
-use super::{AtomIterator, AtomsProvider, BoxProvider, IndexIterator, MassesProvider, Measure, MeasureMasses, MeasurePeriodic, MeasurePos, Modify, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, PosMutProvider, PosProvider, RandomPosMutProvider, State, StateRc, Topology, TopologyRc};
+use super::{AtomIterator, AtomsProvider, BoxProvider, IndexIterator, MassesProvider, GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos, GuardedModify, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, PosMutProvider, PosProvider, RandomPosMutProvider, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 
@@ -240,14 +240,12 @@ impl<'a> IoIndexProvider for SelectionQueryGuard<'a> {
 }
 
 impl<'a> IoTopologyProvider for SelectionQueryGuard<'a> {
-    #[allow(refining_impl_trait)]
     fn get_topology(&self) -> &Topology {
         &self.topology_ref
     }
 }
 
 impl<'a> IoStateProvider for SelectionQueryGuard<'a> {
-    #[allow(refining_impl_trait)]
     fn get_state(&self) -> &State {
         &self.state_ref
     }
@@ -256,9 +254,9 @@ impl<'a> IoStateProvider for SelectionQueryGuard<'a> {
 //==================================================================
 // Implement analysis traits
 
-impl Measure for Selection {
-    type Provider<'a> = SelectionQueryGuard<'a>;
-    fn get_provider<'a>(&'a self) -> Self::Provider<'a> {
+impl GuardedQuery for Selection {
+    type Guard<'a> = SelectionQueryGuard<'a>;
+    fn guard<'a>(&'a self) -> Self::Guard<'a> {
         SelectionQueryGuard {
             topology_ref: self.topology.borrow(),
             state_ref: self.state.borrow(),
@@ -298,9 +296,9 @@ impl MassesProvider for SelectionQueryGuard<'_> {
 impl MeasureMasses for Selection {}
 
 //-------------------------------------------------------
-impl Modify for Selection {
-    type DataMutProvider<'a> = SelectionModifyGuard<'a>;
-    fn get_mut_provider<'a>(&'a self) -> Self::DataMutProvider<'a> {
+impl GuardedModify for Selection {
+    type GuardMut<'a> = SelectionModifyGuard<'a>;
+    fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a> {
         SelectionModifyGuard {
             topology_ref: self.topology.borrow_mut(),
             state_ref: self.state.borrow_mut(),
@@ -391,13 +389,13 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()>{
         let sel = make_sel()?;
-        println!("before {}",sel.get_provider().iter_pos().next().unwrap());
+        println!("before {}",sel.guard().iter_pos().next().unwrap());
 
         let (minv,maxv) = sel.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",sel.get_provider().iter_pos().next().unwrap());
+        println!("after {}",sel.guard().iter_pos().next().unwrap());
         println!("{:?}",sel.min_max());
         Ok(())
     }
@@ -413,11 +411,11 @@ mod tests {
 
     #[test]
     fn test_translate() -> anyhow::Result<()> {
-        let mut sel = make_sel()?;
+        let sel = make_sel()?;
 
-        println!("before {}",sel.get_mut_provider().iter_pos_mut().next().unwrap());
+        println!("before {}",sel.guard_mut().iter_pos_mut().next().unwrap());
         sel.translate(Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",sel.get_mut_provider().iter_pos_mut().next().unwrap());
+        println!("after {}",sel.guard_mut().iter_pos_mut().next().unwrap());
         Ok(())
     }
 
@@ -433,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
-        let mut sel = make_sel_prot()?;
+        let sel = make_sel_prot()?;
         sel.unwrap_connectivity_dim(0.2, &PBC_FULL)?;
         
         let mut h = FileHandler::create("unwrapped.pdb")?;

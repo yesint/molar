@@ -1,6 +1,6 @@
-use crate::core::{IndexIterator, Measure, State, StateRc, Topology, TopologyRc};
+use crate::core::{IndexIterator, GuardedQuery, State, StateRc, Topology, TopologyRc};
 use anyhow::{anyhow, bail, Result};
-use std::{path::Path, ops::Deref};
+use std::path::Path;
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -44,7 +44,7 @@ pub trait IoTopologyProvider {
 }
 
 pub trait IoStateProvider {
-    fn get_state(&self) -> impl Deref<Target = State>;
+    fn get_state(&self) -> &State;
 }
 
 //=======================================================================
@@ -131,10 +131,10 @@ impl FileHandler<'_> {
         Ok((top.to_rc(),st.to_rc()))
     }
 
-    pub fn write<T>(&mut self, data: &T) -> Result<()> 
-    where T: Measure, for<'a> T::Provider<'a>: IoIndexProvider+IoTopologyProvider+IoStateProvider
+    pub fn write<'a,T>(&mut self, data: &'a T) -> Result<()> 
+    where T: GuardedQuery + 'a, T::Guard<'a>: IoIndexProvider+IoTopologyProvider+IoStateProvider
     {
-        let dp = data.get_provider();
+        let dp = data.guard();
         match self {
             Self::Gro(ref mut h) => h.handler.write(&dp),
             Self::Pdb(ref mut h) => {
@@ -158,10 +158,10 @@ impl FileHandler<'_> {
         Ok(self.read_topology_raw()?.to_rc())
     }
 
-    pub fn write_topology<'a,T:'a>(&mut self, data: &'a T) -> Result<()> 
-    where T: Measure, T::Provider<'a>: IoIndexProvider+IoTopologyProvider
+    pub fn write_topology<'a,T>(&mut self, data: &'a T) -> Result<()> 
+    where T: GuardedQuery + 'a, T::Guard<'a>: IoIndexProvider+IoTopologyProvider
     {
-        let dp = data.get_provider();
+        let dp = data.guard();
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(&dp),
             _ => bail!("Unable to write topology"),
@@ -185,10 +185,10 @@ impl FileHandler<'_> {
         self.read_state_raw()?.map_or(Ok(None), |v| Ok(Some(v.to_rc())))
     }
 
-    pub fn write_state<'a,T:'a>(&mut self, data: &'a T) -> Result<()> 
-    where T: Measure, T::Provider<'a>: IoIndexProvider+IoStateProvider
+    pub fn write_state<'a,T>(&mut self, data: &'a T) -> Result<()> 
+    where T: GuardedQuery + 'a, T::Guard<'a>: IoIndexProvider+IoStateProvider
     {
-        let dp = data.get_provider();
+        let dp = data.guard();
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.write_state(&dp)

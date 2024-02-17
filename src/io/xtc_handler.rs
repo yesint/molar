@@ -167,7 +167,7 @@ impl XtcFileHandler {
             unsafe { st.coords.set_len(self.natoms) };
             // Convert box to column-major form.
             box_matrix.transpose_mut();
-            st.box_ = Some(PeriodicBox::from_matrix(box_matrix)?);
+            st.pbox = Some(PeriodicBox::from_matrix(box_matrix)?);
         }
         
         match ok as u32 {
@@ -184,7 +184,7 @@ impl XtcFileHandler {
         let n = index.len();
 
         // Box have to be transposed because XTC contains row-major box
-        let box_ = match st.box_.as_ref() {
+        let box_ = match st.pbox.as_ref() {
             Some(b) => b.get_matrix().transpose(),
             None => Matrix3::<f32>::zeros(),
         };

@@ -286,64 +286,64 @@ fn rmsd (
 // Traits for measuring (immutable access)
 //==============================================================
 
-// Main trait for types providing analysis data
-pub trait Measure {
-    type Provider<'a> where Self: 'a;
-    fn get_provider<'a>(&'a self) -> Self::Provider<'a>;
+// Main trait giving scoped read-only data provider
+pub trait GuardedQuery {
+    type Guard<'a> where Self: 'a;
+    fn guard<'a>(&'a self) -> Self::Guard<'a>;
 }
 
 /// Trait for analysis requiring only positions
-pub trait MeasurePos: Measure
-    where for<'a> Self::Provider<'a>: PosProvider
+pub trait MeasurePos: GuardedQuery
+    where for<'a> Self::Guard<'a>: PosProvider
 {
     fn min_max(&self) -> (Pos, Pos) {
-        min_max(&self.get_provider())
+        min_max(&self.guard())
     }
 
     fn center_of_geometry(&self) -> Pos {
-        center_of_geometry(&self.get_provider())
+        center_of_geometry(&self.guard())
     }
 
     fn rmsd_(sel1: &Self, sel2: &Self) -> Result<f32> {
-        let dp1 = sel1.get_provider();
-        let dp2 = sel2.get_provider();
+        let dp1 = sel1.guard();
+        let dp2 = sel2.guard();
         rmsd(&dp1, &dp2)
     }
 }
 
 /// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: Measure
-    where for<'a> Self::Provider<'a>: PosProvider + MassesProvider
+pub trait MeasureMasses: GuardedQuery
+    where for<'a> Self::Guard<'a>: PosProvider + MassesProvider
 {
     fn center_of_mass(&self) -> Result<Pos> {
-        center_of_mass(&self.get_provider())
+        center_of_mass(&self.guard())
     }
 
     fn fit_transform(sel1: &Self, sel2: &Self) -> Result<nalgebra::IsometryMatrix3<f32>> {
-        let dp1 = sel1.get_provider();
-        let dp2 = sel2.get_provider();
+        let dp1 = sel1.guard();
+        let dp2 = sel2.guard();
         fit_transform(&dp1, &dp2)
     }
 
     fn fit_transform_at_origin(sel1: &Self, sel2: &Self) -> Result<nalgebra::IsometryMatrix3<f32>> {
-        let dp1 = sel1.get_provider();
-        let dp2 = sel2.get_provider();
+        let dp1 = sel1.guard();
+        let dp2 = sel2.guard();
         fit_transform_at_origin(&dp1, &dp2)
     }
 
     fn  rmsd_mw(sel1: &Self, sel2: &Self) -> Result<f32> {
-        let dp1 = sel1.get_provider();
-        let dp2 = sel2.get_provider();
+        let dp1 = sel1.guard();
+        let dp2 = sel2.guard();
         rmsd_mw(&dp1, &dp2)
     }
 }
 
 /// Trait for analysis requiring positions, masses and pbc
-pub trait MeasurePeriodic: Measure
-    where for<'a> Self::Provider<'a>: PosProvider + MassesProvider + BoxProvider
+pub trait MeasurePeriodic: GuardedQuery
+    where for<'a> Self::Guard<'a>: PosProvider + MassesProvider + BoxProvider
 {
     fn center_of_mass_pbc(&self) -> Result<Pos> {
-        center_of_mass_pbc(&self.get_provider())
+        center_of_mass_pbc(&self.guard())
     }
 }
 
@@ -372,51 +372,51 @@ pub trait BoxProvider {
 // Traits for modification (mutable access)
 //==============================================================
 
-pub trait Modify {
-    type DataMutProvider<'a> where Self: 'a;
-    fn get_mut_provider<'a>(&'a self) -> Self::DataMutProvider<'a>;
+pub trait GuardedModify {
+    type GuardMut<'a> where Self: 'a;
+    fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a>;
 }
 
 /// Trait for modification requiring only positions
-pub trait ModifyPos: Modify 
-    where for<'a> Self::DataMutProvider<'a>: PosMutProvider + PosProvider
+pub trait ModifyPos: GuardedModify 
+    where for<'a> Self::GuardMut<'a>: PosMutProvider + PosProvider
 {
-    fn translate(&mut self, shift: Vector3f) {
-        translate(&mut self.get_mut_provider(), shift)
+    fn translate(&self, shift: Vector3f) {
+        translate(&mut self.guard_mut(), shift)
     }
 
     fn rotate(&self, ax: &Unit<Vector3f>, ang: f32) {
-        rotate(&mut self.get_mut_provider(), ax, ang)
+        rotate(&mut self.guard_mut(), ax, ang)
     }
 
     fn apply_transform(&self, tr: &nalgebra::IsometryMatrix3<f32>) {
-        apply_transform(&mut self.get_mut_provider(), tr)
+        apply_transform(&mut self.guard_mut(), tr)
     }
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: Modify 
-    where for<'a> Self::DataMutProvider<'a>: PosMutProvider + BoxProvider
+pub trait ModifyPeriodic: GuardedModify 
+    where for<'a> Self::GuardMut<'a>: PosMutProvider + BoxProvider
 {
-    fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<()> {
-        unwrap_simple_dim(&mut self.get_mut_provider(), dims)
+    fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<()> {
+        unwrap_simple_dim(&mut self.guard_mut(), dims)
     }
 
-    fn unwrap_simple(&mut self) -> Result<()> {
+    fn unwrap_simple(&self) -> Result<()> {
         self.unwrap_simple_dim(PBC_FULL)
     }
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: Modify
-    where for<'a> Self::DataMutProvider<'a>: PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
+pub trait ModifyRandomAccess: GuardedModify
+    where for<'a> Self::GuardMut<'a>: PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
 {
-    fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<()> {
-        self.unwrap_connectivity_dim(cutoff, &PBC_FULL)
+    fn unwrap_connectivity(&self, cutoff: f32) -> Result<()> {
+        unwrap_connectivity_dim(&mut self.guard_mut(), cutoff, &PBC_FULL)
     }
 
-    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: &PbcDims) -> Result<()> {
-        unwrap_connectivity_dim(&mut self.get_mut_provider(), cutoff, dims)
+    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: &PbcDims) -> Result<()> {
+        unwrap_connectivity_dim(&mut self.guard_mut(), cutoff, dims)
     }
 }
 
@@ -427,7 +427,7 @@ pub trait PosMutProvider {
     fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_>;
 }
 
-pub trait  RandomPosMutProvider {
+pub trait RandomPosMutProvider {
     fn nth_pos_mut(&mut self, i: usize) -> &mut Pos;
 
     fn nth_pos(&mut self, i: usize) -> &Pos {

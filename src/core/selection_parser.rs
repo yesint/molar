@@ -263,7 +263,7 @@ impl LogicalNode {
                         prop.cutoff,
                         data.state.iter_id_pos_indexed(data.subset.iter().cloned()),
                         data.state.iter_id_pos_indexed(inner.iter().cloned()),
-                        data.state.box_.as_ref().unwrap(),
+                        data.state.pbox.as_ref().unwrap(),
                         &prop.pbc,
                     )
                 };

@@ -144,7 +144,7 @@ impl ReadTopAndState for TprFileHandler {
             std::slice::from_raw_parts(self.handle.get_box(), 9)
         };
         let m = Matrix3::from_column_slice(sl);
-        st.box_ = Some(PeriodicBox::from_matrix(m)?);
+        st.pbox = Some(PeriodicBox::from_matrix(m)?);
 
         
         Ok((top,st))
