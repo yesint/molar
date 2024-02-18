@@ -3,24 +3,48 @@ use std::path::PathBuf;
 use std::fs::read_to_string;
 
 fn main() { 
-    // Compilation of Gromacs. SLOW!
-    let dst = cmake::Config::new("gromacs").profile("Release").build();
+    // Configure Gromacs
+    let mut cfg = cmake::Config::new("gromacs");
 
+    // Transfer env vars to cmake if they are provided to cargo
+    let src_env = option_env!("GROMACS_SOURCE_DIR");
+    let bin_env = option_env!("GROMACS_BINARY_DIR");
+    let lib_env = option_env!("GROMACS_LIB_DIR");
+
+    let external_gmx = src_env.is_some() && bin_env.is_some() && lib_env.is_some();
+
+    let mut gmx_source_dir = String::new();
+    let mut gmx_binary_dir = String::new();
+
+    if external_gmx {
+        gmx_source_dir = src_env.unwrap().to_owned();
+        gmx_binary_dir = bin_env.unwrap().to_owned();
+        cfg.configure_arg(format!("-DGROMACS_SOURCE_DIR={}",gmx_source_dir));
+        cfg.configure_arg(format!("-DGROMACS_BINARY_DIR={}",gmx_binary_dir));
+        cfg.configure_arg(format!("-DGROMACS_LIB_DIR={}",lib_env.unwrap()));
+    }
+
+    // Do CMAKE build (could be very slow if Gromacs is built in place)
+    let dst = cfg.profile("Release").build();
+
+    // Link pathes and libs
     println!("cargo:rustc-link-search=native={}", dst.display());
     println!("cargo:rustc-link-lib=stdc++");
-    println!("cargo:rustc-link-lib=static=gromacs");
-    println!("cargo:rustc-link-lib=static=muparser");
-    println!("cargo:rustc-link-lib=static=gromacs_wrapper");
+    println!("cargo:rustc-link-lib=gromacs");
+    println!("cargo:rustc-link-lib=muparser");
+    println!("cargo:rustc-link-lib=gromacs_wrapper");
 
-    // Bindgen
+    // Generate the bindings
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Read text file wih pathes written by CMake
-    let content = read_to_string(out_path.join("cmake_to_cargo.txt")).unwrap();
-    let mut it = content.lines();
-    let gmx_source_dir = it.next().unwrap();
-    let gmx_binary_dir = it.next().unwrap();
-
+    if !external_gmx {
+        // Read text file wih pathes written by CMake
+        let content = read_to_string(out_path.join("cmake_to_cargo.txt")).unwrap();
+        let mut it = content.lines();
+        gmx_source_dir = it.next().unwrap().to_owned();
+        gmx_binary_dir = it.next().unwrap().to_owned();
+    }
+    
     let bindings = bindgen::Builder::default()
         .header("gromacs/wrapper.hpp")
         // Tell cargo to invalidate the built crate whenever any of the
