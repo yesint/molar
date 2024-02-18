@@ -6,16 +6,21 @@ mod periodic_box;
 mod selection_parser;
 mod selection;
 mod algorithms;
-mod particle;
+//mod particle;
+mod providers;
+mod measure;
+mod modify;
 
 pub use {
-    atom::Atom, 
-    topology::*, 
+    atom::*, 
+    topology::*,
     state::*,
     periodic_box::*,
     algorithms::*,
     selection::*,
-    particle::*,
+//    particle::*,
+    measure::*,
+    modify::*
 }; 
 
 // Aliases for vector and points

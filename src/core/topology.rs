@@ -1,8 +1,8 @@
-use std::{cell::{Ref, RefCell}, rc::Rc};
+use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
 
 use crate::io::{IoIndexProvider, IoTopologyProvider};
 
-use super::{Atom, GuardedQuery};
+use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, modify::GuardedModify, measure::GuardedQuery};
 //use super::handle::{SharedHandle, Handle};
 
 #[allow(dead_code)]
@@ -44,6 +44,13 @@ impl GuardedQuery for TopologyRc {
     }
 }
 
+impl GuardedModify for TopologyRc {
+    type GuardMut<'a> = RefMut<'a,Topology>;
+    fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a> {
+        self.borrow_mut()
+    }
+}
+
 impl IoIndexProvider for Ref<'_,Topology> {
     fn get_index(&self) -> impl super::IndexIterator {
         0..self.atoms.len()
@@ -51,8 +58,25 @@ impl IoIndexProvider for Ref<'_,Topology> {
 }
 
 impl IoTopologyProvider for Ref<'_,Topology> {
-    #[allow(refining_impl_trait)]
     fn get_topology(&self) -> &Topology {
         self
+    }
+}
+
+impl AtomsProvider for Ref<'_,Topology> {
+    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+        self.atoms.iter()
+    }
+}
+
+impl AtomsMutProvider for RefMut<'_,Topology> {
+    fn iter_atoms_mut(&mut self) -> impl super::AtomMutIterator<'_> {
+        self.atoms.iter_mut()
+    }
+}
+
+impl MassesProvider for Ref<'_,Topology> {
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+        self.atoms.iter().map(|at| at.mass)
     }
 }

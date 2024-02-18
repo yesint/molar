@@ -1,6 +1,6 @@
 use std::cell::{Ref, RefMut};
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
-use super::{AtomIterator, AtomsProvider, BoxProvider, IndexIterator, MassesProvider, GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos, GuardedModify, ModifyPos, ModifyRandomAccess, PeriodicBox, Pos, PosIterator, PosMutIterator, PosMutProvider, PosProvider, RandomPosMutProvider, State, StateRc, Topology, TopologyRc};
+use super::{measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos}, modify::{GuardedModify, ModifyPos, ModifyRandomAccess}, providers::{AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider, RandomPosMutProvider}, AtomIterator, IndexIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 
@@ -346,11 +346,10 @@ impl ModifyRandomAccess for Selection {}
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::{algorithms::*, selection::Select, State, Topology, Vector3f, PBC_FULL},
+        core::{providers::{PosMutProvider, PosProvider}, selection::Select, GuardedModify, GuardedQuery, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL},
         io::*,
     };
     use lazy_static::lazy_static;
-
     use super::{Selection, SelectionAll};
 
     fn read_test_pdb() -> (Topology, State) {

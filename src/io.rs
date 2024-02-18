@@ -1,4 +1,4 @@
-use crate::core::{IndexIterator, GuardedQuery, State, StateRc, Topology, TopologyRc};
+use crate::core::{GuardedQuery, IndexIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 

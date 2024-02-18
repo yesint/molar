@@ -19,9 +19,13 @@ fn main() {
     if external_gmx {
         gmx_source_dir = src_env.unwrap().to_owned();
         gmx_binary_dir = bin_env.unwrap().to_owned();
+        let gmx_lib_dir = lib_env.unwrap().to_owned();
+        
         cfg.configure_arg(format!("-DGROMACS_SOURCE_DIR={}",gmx_source_dir));
         cfg.configure_arg(format!("-DGROMACS_BINARY_DIR={}",gmx_binary_dir));
-        cfg.configure_arg(format!("-DGROMACS_LIB_DIR={}",lib_env.unwrap()));
+        cfg.configure_arg(format!("-DGROMACS_LIB_DIR={}",gmx_lib_dir));
+        
+        println!("cargo:rustc-link-search=native={}", gmx_lib_dir);
     }
 
     // Do CMAKE build (could be very slow if Gromacs is built in place)
@@ -32,7 +36,7 @@ fn main() {
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=gromacs");
     println!("cargo:rustc-link-lib=muparser");
-    println!("cargo:rustc-link-lib=gromacs_wrapper");
+    println!("cargo:rustc-link-lib=static=gromacs_wrapper");
 
     // Generate the bindings
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -49,7 +53,7 @@ fn main() {
         .header("gromacs/wrapper.hpp")
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .allowlist_type("t_topology")
         .allowlist_type("TprHelper")
         .allowlist_var("F_.*")

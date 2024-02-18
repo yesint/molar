@@ -1,10 +1,7 @@
 use std::iter::zip;
 
-use super::{Matrix3f, PBC_FULL};
-use super::{
-    AtomIterator, PbcDims,
-    PeriodicBox, Pos, PosIterator, PosMutIterator, Vector3f,
-};
+use super::Matrix3f;
+use super::{ PbcDims, Pos, Vector3f};
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result};
 use itertools::izip;
@@ -13,12 +10,13 @@ use nalgebra::Unit;
 use nalgebra::SVD;
 use num_traits::Bounded;
 use num_traits::Zero;
+use super::providers::*;
 
 //---------------------------------------------------
 // Free functions for computing properties that
 // acceps a needed type of data provider as argument
 //---------------------------------------------------
-fn min_max(dp: &impl PosProvider) -> (Pos, Pos) {
+pub fn min_max(dp: &impl PosProvider) -> (Pos, Pos) {
     let mut lower = Pos::max_value();
     let mut upper = Pos::min_value();
     for p in dp.iter_pos() {
@@ -34,7 +32,7 @@ fn min_max(dp: &impl PosProvider) -> (Pos, Pos) {
     (lower, upper)
 }
 
-fn center_of_geometry(dp: &impl PosProvider) -> Pos {
+pub fn center_of_geometry(dp: &impl PosProvider) -> Pos {
     let iter = dp.iter_pos();
     let n = iter.len();
     let mut cog = Vector3f::zero();
@@ -44,7 +42,7 @@ fn center_of_geometry(dp: &impl PosProvider) -> Pos {
     Pos::from(cog / n as f32)
 }
 
-fn center_of_mass(dp: &(impl PosProvider+MassesProvider)) -> Result<Pos> {
+pub fn center_of_mass(dp: &(impl PosProvider+MassesProvider)) -> Result<Pos> {
     let mut cm = Vector3f::zero();
     let mut mass = 0.0;
     for (c, m) in zip(dp.iter_pos(), dp.iter_masses()) {
@@ -59,7 +57,7 @@ fn center_of_mass(dp: &(impl PosProvider+MassesProvider)) -> Result<Pos> {
     }
 }
 
-fn center_of_mass_pbc(dp: &(impl PosProvider+MassesProvider+BoxProvider)) -> Result<Pos> {
+pub fn center_of_mass_pbc(dp: &(impl PosProvider+MassesProvider+BoxProvider)) -> Result<Pos> {
     let b = dp.get_box()?;
     let mut pos_iter = dp.iter_pos();
     let mut mass_iter = dp.iter_masses();
@@ -82,29 +80,50 @@ fn center_of_mass_pbc(dp: &(impl PosProvider+MassesProvider+BoxProvider)) -> Res
 }
 
 //-------------------------------------------------------
+// Free functions for modifying atoms
+//-------------------------------------------------------
+
+pub fn assign_resindex(dp: &mut impl AtomsMutProvider) {
+    let mut resindex = 0usize;
+    let mut at_iter = dp.iter_atoms_mut();
+    if at_iter.len()>1 {
+        let at0 = at_iter.next().unwrap();
+        let mut cur_resid = at0.resid;
+        at0.resindex = resindex;
+        for at in at_iter {
+            if at.resid != cur_resid {
+                cur_resid = at.resid;
+                resindex += 1;
+            }
+            at.resindex = resindex;
+        }
+    }
+}
+
+//-------------------------------------------------------
 // Free functions for modifying that
 // acceps a needed type of mut data provider as argument
 //-------------------------------------------------------
-fn translate(dp: &mut impl PosMutProvider, shift: Vector3f) {
+pub fn translate(dp: &mut impl PosMutProvider, shift: Vector3f) {
     for el in dp.iter_pos_mut() {
         *el += shift;
     }
 }
 
-fn rotate(dp: &mut impl PosMutProvider, ax: &Unit<Vector3f>, ang: f32) {
+pub fn rotate(dp: &mut impl PosMutProvider, ax: &Unit<Vector3f>, ang: f32) {
     let tr = Rotation3::<f32>::from_axis_angle(ax, ang);
     for p in dp.iter_pos_mut() {
         p.coords = tr * p.coords;
     }
 }
 
-fn apply_transform(dp: &mut impl PosMutProvider, tr: &nalgebra::IsometryMatrix3<f32>) {
+pub fn apply_transform(dp: &mut impl PosMutProvider, tr: &nalgebra::IsometryMatrix3<f32>) {
     for p in dp.iter_pos_mut() {
         *p = tr * (*p);
     }
 }
 
-fn unwrap_simple_dim(dp: &mut (impl PosMutProvider+BoxProvider), dims: PbcDims) -> Result<()> {
+pub fn unwrap_simple_dim(dp: &mut (impl PosMutProvider+BoxProvider), dims: PbcDims) -> Result<()> {
     let b = dp.get_box()?.to_owned();
     let mut iter = dp.iter_pos_mut();
     if iter.len() > 0 {
@@ -116,7 +135,7 @@ fn unwrap_simple_dim(dp: &mut (impl PosMutProvider+BoxProvider), dims: PbcDims) 
     Ok(())
 }
 
-fn unwrap_connectivity_dim(dp: &mut (impl PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider), cutoff: f32, dims: &PbcDims) -> Result<()> {
+pub fn unwrap_connectivity_dim(dp: &mut (impl PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider), cutoff: f32, dims: &PbcDims) -> Result<()> {
     let b = dp.get_box()?.to_owned();
     let conn: SearchConnectivity = DistanceSearcherSingle::new_periodic(
         cutoff,
@@ -163,7 +182,7 @@ fn unwrap_connectivity_dim(dp: &mut (impl PosMutProvider + PosProvider + BoxProv
 // Free functions for RMSD and fitting
 //---------------------------------------------------
 // Straighforward implementation of Kabsch algorithm
-fn rot_transform (
+pub fn rot_transform (
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
     masses: impl Iterator<Item = f32>,
@@ -195,7 +214,7 @@ fn rot_transform (
     Rotation3::from_matrix_unchecked(u * d_matrix * v_t)
 }
 
-fn fit_transform (
+pub fn fit_transform (
     dp1: &(impl PosProvider+MassesProvider),
     dp2: &(impl PosProvider+MassesProvider),
 ) -> Result<nalgebra::IsometryMatrix3<f32>> 
@@ -214,7 +233,7 @@ fn fit_transform (
 }
 
 // Version for selection with CM alredy at zero
-fn fit_transform_at_origin (
+pub fn fit_transform_at_origin (
     dp1: &(impl PosProvider+MassesProvider),
     dp2: &(impl PosProvider+MassesProvider),
 ) -> Result<nalgebra::IsometryMatrix3<f32>> 
@@ -228,7 +247,7 @@ fn fit_transform_at_origin (
 }
 
 /// Mass-weighted RMSD
-fn rmsd_mw (
+pub fn rmsd_mw (
     dp1: &(impl PosProvider+MassesProvider),
     dp2: &(impl PosProvider+MassesProvider),
 ) -> Result<f32> 
@@ -255,7 +274,7 @@ fn rmsd_mw (
 }
 
 /// RMSD
-fn rmsd (
+pub fn rmsd (
     dp1: &impl PosProvider,
     dp2: &impl PosProvider,
 ) -> Result<f32> 
@@ -280,157 +299,3 @@ fn rmsd (
     Ok((res/n as f32).sqrt())
 }
 
-// Traits 
-
-//==============================================================
-// Traits for measuring (immutable access)
-//==============================================================
-
-// Main trait giving scoped read-only data provider
-pub trait GuardedQuery {
-    type Guard<'a> where Self: 'a;
-    fn guard<'a>(&'a self) -> Self::Guard<'a>;
-}
-
-/// Trait for analysis requiring only positions
-pub trait MeasurePos: GuardedQuery
-    where for<'a> Self::Guard<'a>: PosProvider
-{
-    fn min_max(&self) -> (Pos, Pos) {
-        min_max(&self.guard())
-    }
-
-    fn center_of_geometry(&self) -> Pos {
-        center_of_geometry(&self.guard())
-    }
-
-    fn rmsd_(sel1: &Self, sel2: &Self) -> Result<f32> {
-        let dp1 = sel1.guard();
-        let dp2 = sel2.guard();
-        rmsd(&dp1, &dp2)
-    }
-}
-
-/// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: GuardedQuery
-    where for<'a> Self::Guard<'a>: PosProvider + MassesProvider
-{
-    fn center_of_mass(&self) -> Result<Pos> {
-        center_of_mass(&self.guard())
-    }
-
-    fn fit_transform(sel1: &Self, sel2: &Self) -> Result<nalgebra::IsometryMatrix3<f32>> {
-        let dp1 = sel1.guard();
-        let dp2 = sel2.guard();
-        fit_transform(&dp1, &dp2)
-    }
-
-    fn fit_transform_at_origin(sel1: &Self, sel2: &Self) -> Result<nalgebra::IsometryMatrix3<f32>> {
-        let dp1 = sel1.guard();
-        let dp2 = sel2.guard();
-        fit_transform_at_origin(&dp1, &dp2)
-    }
-
-    fn  rmsd_mw(sel1: &Self, sel2: &Self) -> Result<f32> {
-        let dp1 = sel1.guard();
-        let dp2 = sel2.guard();
-        rmsd_mw(&dp1, &dp2)
-    }
-}
-
-/// Trait for analysis requiring positions, masses and pbc
-pub trait MeasurePeriodic: GuardedQuery
-    where for<'a> Self::Guard<'a>: PosProvider + MassesProvider + BoxProvider
-{
-    fn center_of_mass_pbc(&self) -> Result<Pos> {
-        center_of_mass_pbc(&self.guard())
-    }
-}
-
-//--------------------------------------------------------------
-// Traits to be implemented by data provider types themselves
-//--------------------------------------------------------------
-
-pub trait PosProvider {
-    fn iter_pos(&self) -> impl PosIterator<'_>;
-}
-
-pub trait MassesProvider {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32>;
-}
-
-pub trait AtomsProvider {
-    fn iter_atoms(&self) -> impl AtomIterator<'_>;
-}
-
-
-pub trait BoxProvider {
-    fn get_box(&self) -> Result<&PeriodicBox>;
-}
-
-//==============================================================
-// Traits for modification (mutable access)
-//==============================================================
-
-pub trait GuardedModify {
-    type GuardMut<'a> where Self: 'a;
-    fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a>;
-}
-
-/// Trait for modification requiring only positions
-pub trait ModifyPos: GuardedModify 
-    where for<'a> Self::GuardMut<'a>: PosMutProvider + PosProvider
-{
-    fn translate(&self, shift: Vector3f) {
-        translate(&mut self.guard_mut(), shift)
-    }
-
-    fn rotate(&self, ax: &Unit<Vector3f>, ang: f32) {
-        rotate(&mut self.guard_mut(), ax, ang)
-    }
-
-    fn apply_transform(&self, tr: &nalgebra::IsometryMatrix3<f32>) {
-        apply_transform(&mut self.guard_mut(), tr)
-    }
-}
-
-/// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: GuardedModify 
-    where for<'a> Self::GuardMut<'a>: PosMutProvider + BoxProvider
-{
-    fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<()> {
-        unwrap_simple_dim(&mut self.guard_mut(), dims)
-    }
-
-    fn unwrap_simple(&self) -> Result<()> {
-        self.unwrap_simple_dim(PBC_FULL)
-    }
-}
-
-/// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: GuardedModify
-    where for<'a> Self::GuardMut<'a>: PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
-{
-    fn unwrap_connectivity(&self, cutoff: f32) -> Result<()> {
-        unwrap_connectivity_dim(&mut self.guard_mut(), cutoff, &PBC_FULL)
-    }
-
-    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: &PbcDims) -> Result<()> {
-        unwrap_connectivity_dim(&mut self.guard_mut(), cutoff, dims)
-    }
-}
-
-//--------------------------------------------------------------
-// Traits to be implemented by mut data provider types themselves
-//--------------------------------------------------------------
-pub trait PosMutProvider {
-    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_>;
-}
-
-pub trait RandomPosMutProvider {
-    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos;
-
-    fn nth_pos(&mut self, i: usize) -> &Pos {
-        self.nth_pos_mut(i)
-    }
-}
