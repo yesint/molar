@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefMut};
+use std::{cell::{Ref, RefMut}, rc::Rc};
 use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
 use super::{measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos}, modify::{GuardedModify, ModifyPos, ModifyRandomAccess}, providers::{AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider, RandomPosMutProvider}, AtomIterator, IndexIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
@@ -139,6 +139,10 @@ pub struct Selection
 }
 
 impl Selection {
+    //===================
+    // Subselections
+    //===================
+
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection> {
         let index = expr.apply_subset(
@@ -212,8 +216,26 @@ impl Selection {
             bail!("Selection is empty")
         }
     }
+
+    //======================
+    // Combining selections
+    //======================
+    pub fn union(&mut self, other: &Selection) -> Result<()> {
+        if !Rc::ptr_eq(&self.topology,&other.topology)
+        || !Rc::ptr_eq(&self.state,&other.state) {
+            bail!("Can't combine selection pointing to different topologies or states!")
+        };
+        self.index.extend(other.index.iter());
+        self.index = self.index.iter().cloned().sorted().dedup().collect();
+        Ok(())
+    }
+
+    pub fn get_index_vec(&self) -> Vec<usize> {
+        self.index.clone()
+    }
+    
 }
-//---------------,-------------------------------------
+//----------------------------------------------------
 
 /// Scoped guard giving read-only access to selection
 pub struct SelectionQueryGuard<'a> {
