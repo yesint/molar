@@ -185,7 +185,7 @@ pub fn unwrap_simple_dim(
 }
 
 pub fn unwrap_connectivity_dim(
-    dp: &mut (impl PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider),
+    dp: &mut (impl PosProvider + BoxProvider + RandomPosMutProvider),
     cutoff: f32,
     dims: &PbcDims,
 ) -> Result<()> {

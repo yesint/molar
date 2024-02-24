@@ -252,8 +252,8 @@ impl LogicalNode {
                     
                     DistanceSearcherDouble::new(
                         prop.cutoff,
-                        data.state.iter_id_pos_indexed(data.subset.iter().cloned()),
-                        data.state.iter_id_pos_indexed(inner.iter().cloned()),
+                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
+                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
                         &lower,
                         &upper,
                     )
@@ -261,8 +261,8 @@ impl LogicalNode {
                     // Periodic variant
                     DistanceSearcherDouble::new_periodic(
                         prop.cutoff,
-                        data.state.iter_id_pos_indexed(data.subset.iter().cloned()),
-                        data.state.iter_id_pos_indexed(inner.iter().cloned()),
+                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
+                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
                         data.state.pbox.as_ref().unwrap(),
                         &prop.pbc,
                     )

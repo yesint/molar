@@ -1,7 +1,7 @@
 use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
 use crate::io::{IoIndexProvider, IoStateProvider};
 use anyhow::{Result, anyhow};
-use super::{measure::GuardedQuery, providers::{BoxProvider, PosProvider}, IdPosIterator, IndexIterator, PeriodicBox, Pos};
+use super::{measure::GuardedQuery, providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
@@ -20,10 +20,6 @@ impl State {
 
     pub fn to_rc(self) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(self))
-    }
-
-    pub fn iter_id_pos_indexed<'a>(&'a self, index: impl IndexIterator) -> impl IdPosIterator<'a> {
-        index.map(|i| (i,&self.coords[i]))
     }
 }
 
