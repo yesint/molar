@@ -1,7 +1,8 @@
 use std::iter::zip;
 
+use super::providers::*;
 use super::Matrix3f;
-use super::{ PbcDims, Pos, Vector3f};
+use super::{PbcDims, Pos, Vector3f};
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result};
 use itertools::izip;
@@ -10,7 +11,6 @@ use nalgebra::Unit;
 use nalgebra::SVD;
 use num_traits::Bounded;
 use num_traits::Zero;
-use super::providers::*;
 
 //---------------------------------------------------
 // Free functions for computing properties that
@@ -42,7 +42,7 @@ pub fn center_of_geometry(dp: &impl PosProvider) -> Pos {
     Pos::from(cog / n as f32)
 }
 
-pub fn center_of_mass(dp: &(impl PosProvider+MassesProvider)) -> Result<Pos> {
+pub fn center_of_mass(dp: &(impl PosProvider + MassesProvider)) -> Result<Pos> {
     let mut cm = Vector3f::zero();
     let mut mass = 0.0;
     for (c, m) in zip(dp.iter_pos(), dp.iter_masses()) {
@@ -57,11 +57,11 @@ pub fn center_of_mass(dp: &(impl PosProvider+MassesProvider)) -> Result<Pos> {
     }
 }
 
-pub fn center_of_mass_pbc(dp: &(impl PosProvider+MassesProvider+BoxProvider)) -> Result<Pos> {
+pub fn center_of_mass_pbc(dp: &(impl PosProvider + MassesProvider + BoxProvider)) -> Result<Pos> {
     let b = dp.get_box()?;
     let mut pos_iter = dp.iter_pos();
     let mut mass_iter = dp.iter_masses();
-    
+
     let mut mass = mass_iter.next().unwrap();
     let p0 = pos_iter.next().unwrap();
     let mut cm = p0.coords;
@@ -80,13 +80,59 @@ pub fn center_of_mass_pbc(dp: &(impl PosProvider+MassesProvider+BoxProvider)) ->
 }
 
 //-------------------------------------------------------
+// Splitting functions
+//-------------------------------------------------------
+/* 
+pub struct SelectionSplitter<G,I> {
+    guard: G,
+    iter: I,
+    cur: usize,
+}
+
+impl SelectionSplitter<(),()>
+{
+    pub fn new(guard: impl IoIndexProvider + AtomsProvider + PosProvider, func: fn(usize, &Atom, &Pos) -> usize) -> SelectionSplitter<impl IoIndexProvider + AtomsProvider + PosProvider, impl Iterator<Item = (usize,usize)>>  {
+        //let iter = izip!(guard.get_index(),guard.iter_atoms(),guard.iter_pos()).map(|(i,a,p)| (i,func(i,a,p)));
+        let mut ret = SelectionSplitter {
+            guard,
+            iter: None,//izip!(guard.get_index(),guard.iter_atoms(),guard.iter_pos()).map(|(i,a,p)| (i,func(i,a,p))),
+            cur: 0,
+        };
+        ret.iter = Some(izip!(ret.guard.get_index(),ret.guard.iter_atoms(),ret.guard.iter_pos()).map(|(i,a,p)| (i,func(i,a,p))));
+        ret
+    }
+}
+
+impl<G,I> Iterator for SelectionSplitter<G,I>
+where
+    G: IoIndexProvider + AtomsProvider + PosProvider,
+    I: Iterator<Item = (usize,usize)>,
+{
+    type Item = Vec<usize>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut index = vec![];
+        loop {
+            let (i,ind) = self.iter.next()?;
+            if ind == self.cur {
+                // Add current index
+                index.push(i);
+            } else if !index.is_empty() {
+                break;
+            }
+        }
+        Some(index)
+    }
+}
+*/
+
+//-------------------------------------------------------
 // Free functions for modifying atoms
 //-------------------------------------------------------
 
 pub fn assign_resindex(dp: &mut impl AtomsMutProvider) {
     let mut resindex = 0usize;
     let mut at_iter = dp.iter_atoms_mut();
-    if at_iter.len()>1 {
+    if at_iter.len() > 1 {
         let at0 = at_iter.next().unwrap();
         let mut cur_resid = at0.resid;
         at0.resindex = resindex;
@@ -123,7 +169,10 @@ pub fn apply_transform(dp: &mut impl PosMutProvider, tr: &nalgebra::IsometryMatr
     }
 }
 
-pub fn unwrap_simple_dim(dp: &mut (impl PosMutProvider+BoxProvider), dims: PbcDims) -> Result<()> {
+pub fn unwrap_simple_dim(
+    dp: &mut (impl PosMutProvider + BoxProvider),
+    dims: PbcDims,
+) -> Result<()> {
     let b = dp.get_box()?.to_owned();
     let mut iter = dp.iter_pos_mut();
     if iter.len() > 0 {
@@ -135,15 +184,14 @@ pub fn unwrap_simple_dim(dp: &mut (impl PosMutProvider+BoxProvider), dims: PbcDi
     Ok(())
 }
 
-pub fn unwrap_connectivity_dim(dp: &mut (impl PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider), cutoff: f32, dims: &PbcDims) -> Result<()> {
+pub fn unwrap_connectivity_dim(
+    dp: &mut (impl PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider),
+    cutoff: f32,
+    dims: &PbcDims,
+) -> Result<()> {
     let b = dp.get_box()?.to_owned();
-    let conn: SearchConnectivity = DistanceSearcherSingle::new_periodic(
-        cutoff,
-        dp.iter_pos().enumerate(),
-        &b,
-        &dims,
-    )
-    .search();
+    let conn: SearchConnectivity =
+        DistanceSearcherSingle::new_periodic(cutoff, dp.iter_pos().enumerate(), &b, &dims).search();
 
     // used atoms
     let mut used = vec![false; conn.len()];
@@ -182,7 +230,7 @@ pub fn unwrap_connectivity_dim(dp: &mut (impl PosMutProvider + PosProvider + Box
 // Free functions for RMSD and fitting
 //---------------------------------------------------
 // Straighforward implementation of Kabsch algorithm
-pub fn rot_transform (
+pub fn rot_transform(
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
     masses: impl Iterator<Item = f32>,
@@ -214,88 +262,88 @@ pub fn rot_transform (
     Rotation3::from_matrix_unchecked(u * d_matrix * v_t)
 }
 
-pub fn fit_transform (
-    dp1: &(impl PosProvider+MassesProvider),
-    dp2: &(impl PosProvider+MassesProvider),
-) -> Result<nalgebra::IsometryMatrix3<f32>> 
-{
+pub fn fit_transform(
+    dp1: &(impl PosProvider + MassesProvider),
+    dp2: &(impl PosProvider + MassesProvider),
+) -> Result<nalgebra::IsometryMatrix3<f32>> {
     let cm1 = center_of_mass(dp1)?;
     let cm2 = center_of_mass(dp2)?;
 
     //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
     let rot = rot_transform(
-        dp1.iter_pos().map(|p| *p-cm1),
-        dp2.iter_pos().map(|p| *p-cm2),
-        dp1.iter_masses()
+        dp1.iter_pos().map(|p| *p - cm1),
+        dp2.iter_pos().map(|p| *p - cm2),
+        dp1.iter_masses(),
     );
 
     Ok(nalgebra::Translation3::from(cm2) * rot * nalgebra::Translation3::from(-cm1))
 }
 
 // Version for selection with CM alredy at zero
-pub fn fit_transform_at_origin (
-    dp1: &(impl PosProvider+MassesProvider),
-    dp2: &(impl PosProvider+MassesProvider),
-) -> Result<nalgebra::IsometryMatrix3<f32>> 
-{
+pub fn fit_transform_at_origin(
+    dp1: &(impl PosProvider + MassesProvider),
+    dp2: &(impl PosProvider + MassesProvider),
+) -> Result<nalgebra::IsometryMatrix3<f32>> {
     let rot = rot_transform(
         dp1.iter_pos().map(|p| p.coords),
         dp2.iter_pos().map(|p| p.coords),
-        dp1.iter_masses()
+        dp1.iter_masses(),
     );
     Ok(nalgebra::convert(rot))
 }
 
 /// Mass-weighted RMSD
-pub fn rmsd_mw (
-    dp1: &(impl PosProvider+MassesProvider),
-    dp2: &(impl PosProvider+MassesProvider),
-) -> Result<f32> 
-{
+pub fn rmsd_mw(
+    dp1: &(impl PosProvider + MassesProvider),
+    dp2: &(impl PosProvider + MassesProvider),
+) -> Result<f32> {
     let mut res = 0.0;
     let mut m_tot = 0.0;
     let iter1 = dp1.iter_pos();
     let iter2 = dp2.iter_pos();
 
     if iter1.len() != iter2.len() {
-        bail!("Different sizes in rmsd_mw: {} and {}",iter1.len(),iter2.len());
+        bail!(
+            "Different sizes in rmsd_mw: {} and {}",
+            iter1.len(),
+            iter2.len()
+        );
     }
 
-    for (p1,p2,m) in izip!(iter1,iter2,dp1.iter_masses()){
-        res += (p2-p1).norm_squared()*m;
+    for (p1, p2, m) in izip!(iter1, iter2, dp1.iter_masses()) {
+        res += (p2 - p1).norm_squared() * m;
         m_tot += m;
     }
 
-    if m_tot==0.0 {
+    if m_tot == 0.0 {
         bail!("Zero mass in rmsd_mw")
     } else {
-        Ok((res/m_tot).sqrt())
+        Ok((res / m_tot).sqrt())
     }
 }
 
 /// RMSD
-pub fn rmsd (
-    dp1: &impl PosProvider,
-    dp2: &impl PosProvider,
-) -> Result<f32> 
-{
+pub fn rmsd(dp1: &impl PosProvider, dp2: &impl PosProvider) -> Result<f32> {
     let mut res = 0.0;
     let iter1 = dp1.iter_pos();
     let iter2 = dp2.iter_pos();
 
     if iter1.len() != iter2.len() {
-        bail!("Different sizes in rmsd: {} and {}",iter1.len(),iter2.len());
+        bail!(
+            "Different sizes in rmsd: {} and {}",
+            iter1.len(),
+            iter2.len()
+        );
     }
 
     let n = iter1.len();
-    if n==0 {
+    if n == 0 {
         bail!("No atoms in rmsd")
     }
 
-    for (p1,p2) in zip(iter1,iter2){
-        res += (p2-p1).norm_squared();
+    for (p1, p2) in zip(iter1, iter2) {
+        res += (p2 - p1).norm_squared();
     }
 
-    Ok((res/n as f32).sqrt())
+    Ok((res / n as f32).sqrt())
 }
-

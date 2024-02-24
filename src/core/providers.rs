@@ -4,7 +4,6 @@ use anyhow::Result;
 //--------------------------------------------------------------
 // Immutable providers
 //--------------------------------------------------------------
-
 pub trait PosProvider {
     fn iter_pos(&self) -> impl PosIterator<'_>;
 }
