@@ -140,29 +140,29 @@ enum Keyword {
 //##############################
 
 // Intermediate index type for applying AST
-type SubsetType = HashSet<usize>;
+type SubsetType = rustc_hash::FxHashSet<usize>;
 
 #[derive(Debug, Clone)]
 pub struct ApplyData<'a> {
-    structure: &'a Topology,
+    topology: &'a Topology,
     state: &'a State,
     subset: SubsetType,
 }
 
 impl<'a> ApplyData<'a> {
-    fn new(structure: &'a Topology, state: &'a State, subset: &SubsetType) -> Result<Self> {
-        if structure.atoms.len() != state.coords.len() {
+    fn new(topology: &'a Topology, state: &'a State, subset: SubsetType) -> Result<Self> {
+        if topology.atoms.len() != state.coords.len() {
             bail!(
                 "There are {} atoms but {} positions",
-                structure.atoms.len(),
+                topology.atoms.len(),
                 state.coords.len()
             );
         }
 
         Ok(Self {
-            structure,
+            topology,
             state,
-            subset: subset.clone(),
+            subset: subset,
         })
     }
 
@@ -172,19 +172,19 @@ impl<'a> ApplyData<'a> {
 
     fn iter_ind_atom_pos(&self) -> impl Iterator<Item=(usize,&Atom,&Pos)> {
         self.subset.iter().map(|i| {
-            (*i,&self.structure.atoms[*i],&self.state.coords[*i])
+            (*i,&self.topology.atoms[*i],&self.state.coords[*i])
         })
     }
     
     fn iter_ind_atom(&self) -> impl Iterator<Item=(usize,&Atom)> {
         self.subset.iter().map(|i| {
-            (*i,&self.structure.atoms[*i])
+            (*i,&self.topology.atoms[*i])
         })
     }
 
     fn iter_atom_index(&self,index: impl Iterator<Item=usize>) -> impl Iterator<Item=&Atom> {
         index.map(|i| {
-            &self.structure.atoms[i]
+            &self.topology.atoms[i]
         })
     }
 
@@ -229,7 +229,7 @@ impl LogicalNode {
         }
 
         // Now loop over current cubset and add all atoms with the same property
-        let mut res = SubsetType::new();
+        let mut res = SubsetType::default();
         for (i,at) in data.iter_ind_atom() {
             for prop in properties.iter() {
                 if prop_fn(at) == prop {
@@ -251,8 +251,9 @@ impl LogicalNode {
             Self::Or(a, b) => Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect()),
             Self::And(a, b) => {
                 let a_res = a.apply(data)?;
-                let b_data = ApplyData::new(data.structure, data.state, &a_res)?;
-                Ok(a_res.intersection(&b.apply(&b_data)?).cloned().collect())
+                let b_data = ApplyData::new(data.topology, data.state, a_res)?;
+                // a_res is moved to b_data.subset but we can still use it without copying
+                Ok(b_data.subset.intersection(&b.apply(&b_data)?).cloned().collect())
             }
             Self::Keyword(node) => node.apply(data),
             Self::Comparison(node) => node.apply(data),
@@ -328,7 +329,7 @@ impl KeywordNode {
         values: &Vec<StrKeywordValue>,
         f: fn(&Atom) -> &AsciiString,
     ) -> SubsetType {
-        let mut res = SubsetType::new();
+        let mut res = SubsetType::default();
         for (ind,a) in data.iter_ind_atom() {
             for val in values {
                 match val {
@@ -356,7 +357,7 @@ impl KeywordNode {
         values: &Vec<IntKeywordValue>,
         f: fn(&Atom, usize) -> i32,
     ) -> SubsetType {
-        let mut res = SubsetType::new();
+        let mut res = SubsetType::default();
         for (ind,a) in data.iter_ind_atom() {
             for val in values {
                 match *val {
@@ -389,7 +390,7 @@ impl KeywordNode {
             }
             Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
-                let mut res = SubsetType::new();
+                let mut res = SubsetType::default();
                 for (i, a) in data.iter_ind_atom() {
                     for c in values {
                         if c == &a.chain {
@@ -435,7 +436,7 @@ impl ComparisonNode {
         v2: &MathNode,
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
-        let mut res = SubsetType::new();
+        let mut res = SubsetType::default();
         for (i,atom,pos) in data.iter_ind_atom_pos() {
             if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
                 res.insert(i);
@@ -452,7 +453,7 @@ impl ComparisonNode {
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
-        let mut res = SubsetType::new();
+        let mut res = SubsetType::default();
         for (i,atom,pos) in data.iter_ind_atom_pos() {
             let mid = v2.eval(atom, pos)?;
             if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
@@ -760,12 +761,12 @@ impl TryFrom<&str> for SelectionExpr {
 }
 
 impl SelectionExpr {
-    pub fn apply_whole(&self, structure: &Topology, state: &State) -> Result<Vec<usize>> {
-        let data = ApplyData {
-            structure,
+    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+        let data = ApplyData::new(
+            topology,
             state,
-            subset: SubsetType::from_iter(0..structure.atoms.len()),
-        };
+            SubsetType::from_iter(0..topology.atoms.len())
+        )?;
         let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         index.sort();
         Ok(index)
@@ -773,15 +774,15 @@ impl SelectionExpr {
 
     pub fn apply_subset(
         &self,
-        structure: &Topology,
+        topology: &Topology,
         state: &State,
         subset: impl Iterator<Item = usize>,
     ) -> Result<Vec<usize>> {
-        let data = ApplyData {
-            structure,
+        let data = ApplyData::new(
+            topology,
             state,
-            subset: SubsetType::from_iter(subset),
-        };
+            SubsetType::from_iter(subset),
+        )?;
         let mut index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
         index.sort();
         Ok(index)
