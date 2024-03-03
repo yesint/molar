@@ -169,6 +169,31 @@ impl<'a> ApplyData<'a> {
     fn len(&self) -> usize {
         self.subset.len()
     }
+
+    fn iter_ind_atom_pos(&self) -> impl Iterator<Item=(usize,&Atom,&Pos)> {
+        self.subset.iter().map(|i| {
+            (*i,&self.structure.atoms[*i],&self.state.coords[*i])
+        })
+    }
+    
+    fn iter_ind_atom(&self) -> impl Iterator<Item=(usize,&Atom)> {
+        self.subset.iter().map(|i| {
+            (*i,&self.structure.atoms[*i])
+        })
+    }
+
+    fn iter_atom_index(&self,index: impl Iterator<Item=usize>) -> impl Iterator<Item=&Atom> {
+        index.map(|i| {
+            &self.structure.atoms[i]
+        })
+    }
+
+    fn iter_ind_pos_index(&self,index: impl ExactSizeIterator<Item=usize>) -> impl ExactSizeIterator<Item=(usize,&Pos)> {
+        index.map(|i| {
+            (i,&self.state.coords[i])
+        })
+    }
+    
 }
 
 //###################################
@@ -199,16 +224,16 @@ impl LogicalNode {
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        for el in inner.iter().cloned() {
-            properties.insert(*prop_fn(&data.structure.atoms[el]));
+        for at in data.iter_atom_index(inner.iter().cloned()){
+            properties.insert(*prop_fn(at));
         }
 
         // Now loop over current cubset and add all atoms with the same property
         let mut res = SubsetType::new();
-        for el in data.subset.iter().cloned() {
+        for (i,at) in data.iter_ind_atom() {
             for prop in properties.iter() {
-                if prop_fn(&data.structure.atoms[el]) == prop {
-                    res.insert(el);
+                if prop_fn(at) == prop {
+                    res.insert(i);
                     break;
                 }
             }
@@ -252,8 +277,8 @@ impl LogicalNode {
                     
                     DistanceSearcherDouble::new(
                         prop.cutoff,
-                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
-                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
+                        data.iter_ind_pos_index(data.subset.iter().cloned()),
+                        data.iter_ind_pos_index(inner.iter().cloned()),
                         &lower,
                         &upper,
                     )
@@ -261,8 +286,8 @@ impl LogicalNode {
                     // Periodic variant
                     DistanceSearcherDouble::new_periodic(
                         prop.cutoff,
-                        data.subset.iter().map(|i| (*i,&data.state.coords[*i])),
-                        inner.iter().map(|i| (*i,&data.state.coords[*i])),
+                        data.iter_ind_pos_index(data.subset.iter().cloned()),
+                        data.iter_ind_pos_index(inner.iter().cloned()),
                         data.state.pbox.as_ref().unwrap(),
                         &prop.pbc,
                     )
@@ -304,8 +329,7 @@ impl KeywordNode {
         f: fn(&Atom) -> &AsciiString,
     ) -> SubsetType {
         let mut res = SubsetType::new();
-        for ind in data.subset.iter().cloned() {
-            let a = &data.structure.atoms[ind];
+        for (ind,a) in data.iter_ind_atom() {
             for val in values {
                 match val {
                     StrKeywordValue::Str(s) => {
@@ -333,8 +357,7 @@ impl KeywordNode {
         f: fn(&Atom, usize) -> i32,
     ) -> SubsetType {
         let mut res = SubsetType::new();
-        for ind in data.subset.iter().cloned() {
-            let a = &data.structure.atoms[ind];
+        for (ind,a) in data.iter_ind_atom() {
             for val in values {
                 match *val {
                     IntKeywordValue::Int(v) => {
@@ -367,7 +390,7 @@ impl KeywordNode {
             Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
                 let mut res = SubsetType::new();
-                for (i, a) in data.structure.atoms.iter().enumerate() {
+                for (i, a) in data.iter_ind_atom() {
                     for c in values {
                         if c == &a.chain {
                             res.insert(i);
@@ -413,9 +436,7 @@ impl ComparisonNode {
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::new();
-        for i in data.subset.iter().cloned() {
-            let atom = &data.structure.atoms[i];
-            let pos = &data.state.coords[i];
+        for (i,atom,pos) in data.iter_ind_atom_pos() {
             if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
                 res.insert(i);
             }
@@ -432,9 +453,7 @@ impl ComparisonNode {
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::new();
-        for i in data.subset.iter().cloned() {
-            let atom = &data.structure.atoms[i];
-            let pos = &data.state.coords[i];
+        for (i,atom,pos) in data.iter_ind_atom_pos() {
             let mid = v2.eval(atom, pos)?;
             if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
                 res.insert(i);
