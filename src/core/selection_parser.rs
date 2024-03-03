@@ -381,26 +381,26 @@ impl KeywordNode {
 }
 
 impl MathNode {
-    fn eval(&self, data: &ApplyData, i: usize) -> Result<f32> {
+    fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32> {
         match self {
             Self::Float(v) => Ok(*v),
-            Self::X => Ok(data.state.coords[i][0]),
-            Self::Y => Ok(data.state.coords[i][1]),
-            Self::Z => Ok(data.state.coords[i][2]),
-            Self::Bfactor => Ok(data.structure.atoms[i].bfactor),
-            Self::Occupancy => Ok(data.structure.atoms[i].occupancy),
-            Self::Plus(a, b) => Ok(a.eval(data, i)? + b.eval(data, i)?),
-            Self::Minus(a, b) => Ok(a.eval(data, i)? - b.eval(data, i)?),
-            Self::Mul(a, b) => Ok(a.eval(data, i)? * b.eval(data, i)?),
+            Self::X => Ok(pos[0]),
+            Self::Y => Ok(pos[1]),
+            Self::Z => Ok(pos[2]),
+            Self::Bfactor => Ok(atom.bfactor),
+            Self::Occupancy => Ok(atom.occupancy),
+            Self::Plus(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
+            Self::Minus(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
+            Self::Mul(a, b) => Ok(a.eval(atom, pos)? * b.eval(atom, pos)?),
             Self::Div(a, b) => {
-                let b_val = b.eval(data, i)?;
+                let b_val = b.eval(atom, pos)?;
                 if b_val == 0.0 {
-                    bail!("Division by zero at atom {i}")
+                    bail!("Division by zero")
                 }
-                Ok(a.eval(data, i)? / b_val)
+                Ok(a.eval(atom, pos)? / b_val)
             }
-            Self::Pow(a, b) => Ok(a.eval(data, i)?.powf(b.eval(data, i)?)),
-            Self::Neg(v) => Ok(-v.eval(data, i)?),
+            Self::Pow(a, b) => Ok(a.eval(atom, pos)?.powf(b.eval(atom, pos)?)),
+            Self::Neg(v) => Ok(-v.eval(atom, pos)?),
         }
     }
 }
@@ -414,7 +414,9 @@ impl ComparisonNode {
     ) -> Result<SubsetType> {
         let mut res = SubsetType::new();
         for i in data.subset.iter().cloned() {
-            if op(v1.eval(data, i)?, v2.eval(data, i)?) {
+            let atom = &data.structure.atoms[i];
+            let pos = &data.state.coords[i];
+            if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
                 res.insert(i);
             }
         }
@@ -431,8 +433,10 @@ impl ComparisonNode {
     ) -> Result<SubsetType> {
         let mut res = SubsetType::new();
         for i in data.subset.iter().cloned() {
-            let mid = v2.eval(data, i)?;
-            if op1(v1.eval(data, i)?, mid) && op2(mid, v3.eval(data, i)?) {
+            let atom = &data.structure.atoms[i];
+            let pos = &data.state.coords[i];
+            let mid = v2.eval(atom, pos)?;
+            if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
                 res.insert(i);
             }
         }
