@@ -4,7 +4,7 @@ use super::providers::*;
 use super::Matrix3f;
 use super::{PbcDims, Pos, Vector3f};
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
-use anyhow::{bail, Result};
+use anyhow::{bail, Result, anyhow};
 use itertools::izip;
 use nalgebra::Rotation3;
 use nalgebra::Unit;
@@ -58,7 +58,7 @@ pub fn center_of_mass(dp: &(impl PosProvider + MassesProvider)) -> Result<Pos> {
 }
 
 pub fn center_of_mass_pbc(dp: &(impl PosProvider + MassesProvider + BoxProvider)) -> Result<Pos> {
-    let b = dp.get_box()?;
+    let b = dp.get_box().ok_or_else(|| anyhow!("No periodicity!"))?;
     let mut pos_iter = dp.iter_pos();
     let mut mass_iter = dp.iter_masses();
 
@@ -173,7 +173,7 @@ pub fn unwrap_simple_dim(
     dp: &mut (impl PosMutProvider + BoxProvider),
     dims: PbcDims,
 ) -> Result<()> {
-    let b = dp.get_box()?.to_owned();
+    let b = dp.get_box().ok_or_else(|| anyhow!("No periodicity!"))?.to_owned();
     let mut iter = dp.iter_pos_mut();
     if iter.len() > 0 {
         let p0 = iter.next().unwrap();
@@ -189,7 +189,7 @@ pub fn unwrap_connectivity_dim(
     cutoff: f32,
     dims: &PbcDims,
 ) -> Result<()> {
-    let b = dp.get_box()?.to_owned();
+    let b = dp.get_box().ok_or_else(|| anyhow!("No periodicity!"))?.to_owned();
     let conn: SearchConnectivity =
         DistanceSearcherSingle::new_periodic(cutoff, dp.iter_pos().enumerate(), &b, &dims).search();
 

@@ -1,6 +1,5 @@
 use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
-
-use crate::io::{IoIndexProvider, IoTopologyProvider};
+use crate::io::TopologyProvider;
 
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, modify::GuardedModify, measure::GuardedQuery};
 //use super::handle::{SharedHandle, Handle};
@@ -51,15 +50,13 @@ impl GuardedModify for TopologyRc {
     }
 }
 
-impl IoIndexProvider for Ref<'_,Topology> {
-    fn get_index(&self) -> impl super::IndexIterator {
-        0..self.atoms.len()
+impl TopologyProvider for Ref<'_,Topology> {
+    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
+        self.atoms.iter()
     }
-}
 
-impl IoTopologyProvider for Ref<'_,Topology> {
-    fn get_topology(&self) -> &Topology {
-        self
+    fn num_atoms(&self) -> usize {
+        self.atoms.len()
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{io_splitter::ReadTopAndState, IoIndexProvider, IoTopologyProvider};
+use super::{io_splitter::ReadTopAndState, StateProvider, TopologyProvider};
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, Topology};
 use anyhow::Result;
 use ascii::{AsciiChar, AsciiString};
@@ -24,40 +24,29 @@ impl GroFileHandler {
         })
     }
 
-    pub fn write(
-        &mut self,
-        data: &(impl IoIndexProvider + IoTopologyProvider + super::IoStateProvider),
-    ) -> Result<()> {
+    pub fn write(&mut self, data: &(impl TopologyProvider + StateProvider)) -> Result<()> {
         // Open file for writing
         let mut buf = BufWriter::new(File::create(self.file_name.to_owned())?);
-        let index = data.get_index();
-        let natoms = index.len();
-        let top = data.get_topology();
-        let state = data.get_state();
+        let natoms = data.num_atoms();
+
         // Print title
         writeln!(buf, "Created by Molar")?;
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
         // Write atom lines
-        for i in 0..natoms {
+        for (i, (at, pos)) in std::iter::zip(data.iter_atoms(), data.iter_coords()).enumerate() {
             let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
-            let resid = top.atoms[i].resid % 99999; // Prevents overflow of resid field.
+            let resid = at.resid % 99999; // Prevents overflow of resid field.
 
             writeln!(
                 buf,
                 "{:>5}{:<5}{:>5}{:>5}{:>8.3}{:>8.3}{:>8.3}",
-                resid,
-                top.atoms[i].resname,
-                top.atoms[i].name,
-                ind,
-                state.coords[i].x,
-                state.coords[i].y,
-                state.coords[i].z
+                resid, at.resname, at.name, ind, pos.x, pos.y, pos.z
             )?;
         }
 
         // Write periodic box
-        if let Some(b) = state.pbox.as_ref() {
+        if let Some(b) = data.get_box() {
             let m = b.get_matrix();
             // Diagonal elements
             // Use same format as Gromacs for consistency, but this is free format

@@ -1,4 +1,4 @@
-use super::{IoTopologyProvider, IoIndexProvider, IoStateProvider};
+use super::{StateProvider, TopologyProvider};
 use crate::core::*;
 use anyhow::{bail, Result};
 use ascii::{AsciiStr, AsciiString};
@@ -128,13 +128,13 @@ impl VmdMolFileHandler<'_> {
     }
 
     pub fn open(fname: &str, ftype: VmdMolFileType) -> Result<Self> {
-        let mut instance = Self::new(fname,ftype)?;
+        let mut instance = Self::new(fname, ftype)?;
         instance.open_read()?;
         Ok(instance)
     }
 
     pub fn create(fname: &str, ftype: VmdMolFileType) -> Result<Self> {
-        let instance = Self::new(fname,ftype)?;
+        let instance = Self::new(fname, ftype)?;
         // We can't open for writing here because we don't know
         // the number of atoms to write yet. Defer it to
         // actual writing operation
@@ -192,20 +192,14 @@ impl VmdMolFileHandler<'_> {
 
         Ok(topology)
     }
-    
-    pub fn write_topology(
-        &mut self,
-        data: &(impl IoIndexProvider+IoTopologyProvider),
-    ) -> Result<()> {
-        let index = data.get_index();
-        let top = data.get_topology();
-        let n = index.len();
+
+    pub fn write_topology(&mut self, data: &impl TopologyProvider) -> Result<()> {
+        let n = data.num_atoms();
         // Open file if not yet opened
         self.try_open_write(n)?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
-        for ind in index {
-            let at = &top.atoms[ind];
+        for at in data.iter_atoms() {
             let mut vmd_at = molfile_atom_t::default();
             copy_str_to_c_buffer(&at.name, &mut vmd_at.name);
             copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname);
@@ -288,34 +282,38 @@ impl VmdMolFileHandler<'_> {
         }
     }
 
-    pub fn write_state(
-        &mut self,
-        data: &(impl IoIndexProvider+IoStateProvider),
-    ) -> Result<()> {
-        let index = data.get_index();
-        let st = data.get_state();
-        let n = index.len();
+    pub fn write_state(&mut self, data: &impl StateProvider) -> Result<()> {
+        let n = data.num_coords();
 
         // Open file if not yet opened
         self.try_open_write(n)?;
 
         // Buffer for coordinates allocated on heap
+        /*
         let mut buf = Vec::<f32>::with_capacity(3 * n);
         // Fill the buffer and convert to angstroms
-        for ind in index {
+        for pos in data.iter_coords() {
             for dim in 0..3 {
-                buf.push(st.coords[ind][dim] * 10.0);
+                buf.push(pos[dim] * 10.0);
             }
         }
+        */
+
+        let mut buf = Vec::from_iter(
+            data.iter_coords()
+                .map(|p| p.coords.iter().cloned())
+                .flatten()
+                .map(|el| el * 10.0),
+        );
 
         // Periodic box
-        let (box_vec, box_ang) = match st.pbox.as_ref() {
+        let (box_vec, box_ang) = match data.get_box() {
             Some(b) => b.to_vectors_angles(),
             None => (Vector3f::zeros(), Vector3f::zeros()),
         };
 
         let ts = molfile_timestep_t {
-            coords: buf.as_mut_ptr(),
+            coords: buf.as_mut_ptr(), // MolFile API requires a mut ptr for some reason
             velocities: null_mut(),
             A: box_vec[0] * 10.0,
             B: box_vec[1] * 10.0,
@@ -323,7 +321,7 @@ impl VmdMolFileHandler<'_> {
             alpha: box_ang[0],
             beta: box_ang[1],
             gamma: box_ang[2],
-            physical_time: st.time as f64,
+            physical_time: data.get_time() as f64,
         };
 
         let ret = unsafe {

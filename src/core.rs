@@ -7,7 +7,7 @@ mod selection_parser;
 mod selection;
 mod algorithms;
 //mod particle;
-mod providers;
+pub mod providers;
 mod measure;
 mod modify;
 
@@ -20,7 +20,7 @@ pub use {
     selection::*,
 //    particle::*,
     measure::*,
-    modify::*
+    modify::*,    
 }; 
 
 // Aliases for vector and points

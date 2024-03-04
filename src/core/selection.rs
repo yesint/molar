@@ -1,5 +1,5 @@
 use std::{cell::{Ref, RefMut}, rc::Rc};
-use crate::io::{IoIndexProvider, IoTopologyProvider, IoStateProvider};
+use crate::io::{IndexProvider, StateProvider, TopologyProvider};
 use super::{measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos}, modify::{GuardedModify, ModifyPos, ModifyRandomAccess}, providers::{AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider, RandomPosMutProvider}, AtomIterator, IndexIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
@@ -255,21 +255,37 @@ pub struct SelectionModifyGuard<'a> {
 //---------------------------------------------
 // Implement traits for IO
 
-impl<'a> IoIndexProvider for SelectionQueryGuard<'a> {
-    fn get_index(&self) -> impl IndexIterator {
+impl<'a> IndexProvider for SelectionQueryGuard<'a> {
+    fn iter_index(&self) -> impl Iterator<Item=usize> {
         self.index.iter().cloned()
     }
 }
 
-impl<'a> IoTopologyProvider for SelectionQueryGuard<'a> {
-    fn get_topology(&self) -> &Topology {
-        &self.topology_ref
+impl<'a> TopologyProvider for SelectionQueryGuard<'a> {
+    fn iter_atoms(&self) -> impl Iterator<Item = &super::Atom> {
+        self.index.iter().map(|i| &self.topology_ref.atoms[*i])
+    }
+
+    fn num_atoms(&self) -> usize {
+        self.index.len()
     }
 }
 
-impl<'a> IoStateProvider for SelectionQueryGuard<'a> {
-    fn get_state(&self) -> &State {
-        &self.state_ref
+impl<'a> StateProvider for SelectionQueryGuard<'a> {
+    fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
+        self.index.iter().map(|i| &self.state_ref.coords[*i])
+    }
+
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state_ref.pbox.as_ref()
+    }
+
+    fn get_time(&self) -> f32 {
+        self.state_ref.time
+    }
+
+    fn num_coords(&self) -> usize {
+        self.index.len()
     }
 }
 
@@ -288,8 +304,8 @@ impl GuardedQuery for Selection {
 }
 
 impl BoxProvider for SelectionQueryGuard<'_> {
-    fn get_box(&self) -> Result<&PeriodicBox> {
-        self.state_ref.get_box()
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state_ref.pbox.as_ref()
     }
 }
 
@@ -330,7 +346,7 @@ impl GuardedModify for Selection {
 }
 
 impl BoxProvider for SelectionModifyGuard<'_> {
-    fn get_box(&self) -> Result<&PeriodicBox> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
         self.state_ref.get_box()
     }
 }
@@ -410,13 +426,13 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()>{
         let sel = make_sel()?;
-        println!("before {}",sel.guard().iter_pos().next().unwrap());
+        println!("before {}",sel.guard().iter_coords().next().unwrap());
 
         let (minv,maxv) = sel.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}",sel.guard().iter_pos().next().unwrap());
+        println!("after {}",sel.guard().iter_coords().next().unwrap());
         println!("{:?}",sel.min_max());
         Ok(())
     }

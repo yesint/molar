@@ -1,5 +1,5 @@
 use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
-use crate::io::{IoIndexProvider, IoStateProvider};
+use crate::io::StateProvider;
 use anyhow::{Result, anyhow};
 use super::{measure::GuardedQuery, providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
@@ -30,15 +30,21 @@ impl GuardedQuery for StateRc {
     }
 }
 
-impl IoIndexProvider for Ref<'_,State> {
-    fn get_index(&self) -> impl super::IndexIterator {
-        0..self.coords.len()
+impl StateProvider for Ref<'_,State> {
+    fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
+        self.coords.iter()
     }
-}
 
-impl IoStateProvider for Ref<'_,State> {
-    fn get_state(&self) -> &State {
-        self
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.pbox.as_ref()
+    }
+
+    fn get_time(&self) -> f32 {
+        self.time
+    }
+
+    fn num_coords(&self) -> usize {
+        self.coords.len()
     }
 }
 
@@ -49,19 +55,13 @@ impl PosProvider for Ref<'_,State> {
 }
 
 impl BoxProvider for Ref<'_,State> {
-    fn get_box(&self) -> Result<&PeriodicBox> {
-        let r = self.pbox
-            .as_ref()
-            .ok_or(anyhow!("No periodic box"))?;
-        Ok(&r)
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.pbox.as_ref()
     }
 }
 
 impl BoxProvider for RefMut<'_,State> {
-    fn get_box(&self) -> Result<&PeriodicBox> {
-        let r = self.pbox
-            .as_ref()
-            .ok_or(anyhow!("No periodic box"))?;
-        Ok(&r)
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.pbox.as_ref()
     }
 }

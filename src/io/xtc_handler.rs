@@ -1,4 +1,4 @@
-use super::{IoStateProvider, IoIndexProvider};
+use super::StateProvider;
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
@@ -177,43 +177,28 @@ impl XtcFileHandler {
         }
     }
 
-    pub fn write_state(&mut self, data: &(impl IoIndexProvider+IoStateProvider)) -> Result<()> 
-    {
-        let index = data.get_index();
-        let st = data.get_state();
-        let n = index.len();
+    pub fn write_state(&mut self, data: &impl StateProvider) -> Result<()> 
+    {        
+        let n = data.num_coords();
 
         // Box have to be transposed because XTC contains row-major box
-        let box_ = match st.pbox.as_ref() {
+        let box_ = match data.get_box() {
             Some(b) => b.get_matrix().transpose(),
             None => Matrix3::<f32>::zeros(),
         };
 
         // Coordinate buffer
-        let mut buf = Vec::<Point3<f32>>::new();
-        // Pointer to coordinates
-        let mut coord_ptr: *const Point3<f32> = st.coords.as_ptr();
-
-        // If not all coordinates are written we have to extract them
-        // to a buffer instead of passing the pointer to original coords
-        if n != st.coords.len() {
-            // Fill the buffer
-            buf.reserve(n);
-            for ind in index {
-                buf.push(st.coords[ind]);
-            }
-            // Reset the pointer to buffer
-            coord_ptr = buf.as_ptr();
-        }
-
+        #[allow(unused_mut)]
+        let mut buf = Vec::<Point3<f32>>::from_iter(data.iter_coords().cloned());
+        
         let ok = unsafe {
             write_xtc(
                 self.handle,
                 n as i32,
                 self.step,
-                st.time,
+                data.get_time(),
                 box_.as_ptr().cast::<rvec>(),
-                coord_ptr.cast::<rvec>(),
+                buf.as_ptr().cast::<rvec>(),
                 1000.0,
             )
         };

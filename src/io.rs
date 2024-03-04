@@ -1,4 +1,4 @@
-use crate::core::{GuardedQuery, IndexIterator, State, StateRc, Topology, TopologyRc};
+use crate::core::{Atom, GuardedQuery, IndexIterator, PeriodicBox, Pos, State, StateRc, Topology, TopologyRc};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
@@ -18,7 +18,6 @@ pub use xtc_handler::XtcFileHandler;
 pub use gro_handler::GroFileHandler;
 
 pub use file_content::FileContent;
-
 use self::io_splitter::IoSplitter;
 
 //===============================
@@ -35,16 +34,20 @@ use self::io_splitter::IoSplitter;
 //===============================
 // Traits for writing
 //===============================
-pub trait IoIndexProvider {
-    fn get_index(&self) -> impl IndexIterator;
+pub trait IndexProvider {    
+    fn iter_index(&self) -> impl Iterator<Item = usize>;    
 }
 
-pub trait IoTopologyProvider {
-    fn get_topology(&self) -> &Topology;
+pub trait TopologyProvider {    
+    fn iter_atoms(&self) -> impl Iterator<Item = &Atom>;
+    fn num_atoms(&self) -> usize;
 }
 
-pub trait IoStateProvider {
-    fn get_state(&self) -> &State;
+pub trait StateProvider {
+    fn iter_coords(&self) -> impl Iterator<Item = &Pos>;
+    fn get_box(&self) -> Option<&PeriodicBox>;
+    fn get_time(&self) -> f32;
+    fn num_coords(&self) -> usize;
 }
 
 //=======================================================================
@@ -132,7 +135,7 @@ impl FileHandler<'_> {
     }
 
     pub fn write<'a,T>(&mut self, data: &'a T) -> Result<()> 
-    where T: GuardedQuery + 'a, T::Guard<'a>: IoIndexProvider+IoTopologyProvider+IoStateProvider
+    where T: GuardedQuery + 'a, T::Guard<'a>: TopologyProvider+StateProvider
     {
         let dp = data.guard();
         match self {
@@ -159,7 +162,7 @@ impl FileHandler<'_> {
     }
 
     pub fn write_topology<'a,T>(&mut self, data: &'a T) -> Result<()> 
-    where T: GuardedQuery + 'a, T::Guard<'a>: IoIndexProvider+IoTopologyProvider
+    where T: GuardedQuery + 'a, T::Guard<'a>: TopologyProvider
     {
         let dp = data.guard();
         match self {
@@ -186,7 +189,7 @@ impl FileHandler<'_> {
     }
 
     pub fn write_state<'a,T>(&mut self, data: &'a T) -> Result<()> 
-    where T: GuardedQuery + 'a, T::Guard<'a>: IoIndexProvider+IoStateProvider
+    where T: GuardedQuery + 'a, T::Guard<'a>: StateProvider
     {
         let dp = data.guard();
         match self {

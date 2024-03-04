@@ -1,5 +1,4 @@
 use super::{AtomIterator, AtomMutIterator, PeriodicBox, Pos, PosIterator, PosMutIterator};
-use anyhow::Result;
 
 //--------------------------------------------------------------
 // Immutable providers
@@ -17,7 +16,7 @@ pub trait AtomsProvider {
 }
 
 pub trait BoxProvider {
-    fn get_box(&self) -> Result<&PeriodicBox>;
+    fn get_box(&self) -> Option<&PeriodicBox>;
 }
 
 //--------------------------------------------------------------
