@@ -1,6 +1,5 @@
 use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
 use crate::io::StateProvider;
-use anyhow::{Result, anyhow};
 use super::{measure::GuardedQuery, providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
 

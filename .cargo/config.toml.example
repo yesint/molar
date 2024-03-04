@@ -1,8 +1,11 @@
 [env]
 # Variables for external Gromacs installation.
+
 # Location of Gromacs source tree
 GROMACS_SOURCE_DIR = "/home/semen/install/gromacs-2023"
+
 # Location of Gromacs *build* directory (for generated headers)
 GROMACS_BINARY_DIR = "/home/semen/install/gromacs-2023/build"
+
 # Location of compiled gromacs libraries
 GROMACS_LIB_DIR = "/home/semen/programs/gromacs-2023-plumed/lib64"

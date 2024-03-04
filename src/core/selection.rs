@@ -1,6 +1,6 @@
 use std::{cell::{Ref, RefMut}, rc::Rc};
 use crate::io::{IndexProvider, StateProvider, TopologyProvider};
-use super::{measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos}, modify::{GuardedModify, ModifyPos, ModifyRandomAccess}, providers::{AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider, RandomPosMutProvider}, AtomIterator, IndexIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
+use super::{measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos}, modify::{GuardedModify, ModifyPos, ModifyRandomAccess}, providers::{AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider, RandomPosMutProvider}, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 
@@ -384,7 +384,7 @@ impl ModifyRandomAccess for Selection {}
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::{providers::{PosMutProvider, PosProvider}, selection::Select, GuardedModify, GuardedQuery, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL},
+        core::{providers::PosMutProvider, selection::Select, GuardedModify, GuardedQuery, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL},
         io::*,
     };
     use lazy_static::lazy_static;
