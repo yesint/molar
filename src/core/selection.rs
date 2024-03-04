@@ -1,5 +1,5 @@
 use std::{cell::{Ref, RefMut}, rc::Rc};
-use crate::io::{IndexProvider, StateProvider, TopologyProvider};
+use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use super::{measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos}, modify::{GuardedModify, ModifyPos, ModifyRandomAccess}, providers::{AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider, RandomPosMutProvider}, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateRc, Topology, TopologyRc};
 use anyhow::{bail, Result};
 use itertools::Itertools;
@@ -232,6 +232,12 @@ impl Selection {
 
     pub fn get_index_vec(&self) -> Vec<usize> {
         self.index.clone()
+    }
+
+
+    pub fn save(&self, fname: &str) -> Result<()> {
+        let mut h = FileHandler::create(fname)?;
+        h.write(self)
     }
     
 }
@@ -485,8 +491,7 @@ mod tests {
         sel2.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());        
 
         let mut h = FileHandler::create("sel2.pdb")?;
-        h.write_topology(&sel2)?;
-        h.write_state(&sel2)?;
+        h.write(&sel2)?;
 
         let mut h = FileHandler::create("sel1_before.pdb")?;
         h.write_topology(&sel1)?;
