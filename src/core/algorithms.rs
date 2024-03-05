@@ -1,7 +1,11 @@
 use std::iter::zip;
 
 use super::providers::*;
+use super::Atom;
+use super::GuardedQuery;
 use super::Matrix3f;
+use super::Selection;
+use super::SelectionQueryGuard;
 use super::{PbcDims, Pos, Vector3f};
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result, anyhow};
@@ -80,50 +84,73 @@ pub fn center_of_mass_pbc(dp: &(impl PosProvider + MassesProvider + BoxProvider)
 }
 
 //-------------------------------------------------------
-// Splitting functions
+// Splitting iterator
 //-------------------------------------------------------
-/* 
-pub struct SelectionSplitter<G,I> {
-    guard: G,
-    iter: I,
-    cur: usize,
+
+pub struct SelectionSplitIterator<'a,T,F> {
+    sel: &'a Selection,
+    guard: SelectionQueryGuard<'a>,
+    func: F,
+    counter: usize,
+    id: T,
 }
 
-impl SelectionSplitter<(),()>
+impl SelectionSplitIterator<'_,(),()>
 {
-    pub fn new(guard: impl IoIndexProvider + AtomsProvider + PosProvider, func: fn(usize, &Atom, &Pos) -> usize) -> SelectionSplitter<impl IoIndexProvider + AtomsProvider + PosProvider, impl Iterator<Item = (usize,usize)>>  {
-        //let iter = izip!(guard.get_index(),guard.iter_atoms(),guard.iter_pos()).map(|(i,a,p)| (i,func(i,a,p)));
-        let mut ret = SelectionSplitter {
-            guard,
-            iter: None,//izip!(guard.get_index(),guard.iter_atoms(),guard.iter_pos()).map(|(i,a,p)| (i,func(i,a,p))),
-            cur: 0,
-        };
-        ret.iter = Some(izip!(ret.guard.get_index(),ret.guard.iter_atoms(),ret.guard.iter_pos()).map(|(i,a,p)| (i,func(i,a,p))));
-        ret
+    pub fn new<T,F>(sel: &Selection, func: F) -> SelectionSplitIterator<'_,T,F> 
+    where 
+        T: Default + std::cmp::PartialEq,
+        F: Fn(usize, &Atom, &Pos) -> T,
+    {
+        SelectionSplitIterator {
+            sel,
+            guard: sel.guard(), 
+            func,
+            counter: 0,
+            id: T::default(),
+        }
     }
 }
 
-impl<G,I> Iterator for SelectionSplitter<G,I>
-where
-    G: IoIndexProvider + AtomsProvider + PosProvider,
-    I: Iterator<Item = (usize,usize)>,
+impl<T,F> Iterator for SelectionSplitIterator<'_,T,F> 
+where 
+    T: Default + std::cmp::PartialEq,
+    F: Fn(usize, &Atom, &Pos) -> T,
 {
-    type Item = Vec<usize>;
+    type Item = Selection;
     fn next(&mut self) -> Option<Self::Item> {
         let mut index = vec![];
-        loop {
-            let (i,ind) = self.iter.next()?;
-            if ind == self.cur {
-                // Add current index
+        while self.counter < self.guard.len() {
+            let (i,at,pos) = self.guard.nth(self.counter);
+            let id = (self.func)(i,at,pos);
+
+            if id == self.id {
+                // Current selection continues. Add current index
                 index.push(i);
-            } else if !index.is_empty() {
-                break;
+            } else if index.is_empty() {
+                // The very first id is not default, this is Ok, add index
+                // and update self.id
+                self.id = id;
+                index.push(i);
+            } else {
+                // The end of current selection
+                self.id = id; // Update self.id for the next selection
+                return unsafe{ Some(self.sel.subsel_from_vec_unchecked(index).unwrap()) };
             }
+            // Next element
+            self.counter+=1;
+        };
+
+        // Return any remaining index as last selection
+        if !index.is_empty() {
+            return unsafe{ Some(self.sel.subsel_from_vec_unchecked(index).unwrap()) };
         }
-        Some(index)
+        
+        // If we are here stop iterating
+        None
     }
 }
-*/
+
 
 //-------------------------------------------------------
 // Free functions for modifying atoms
