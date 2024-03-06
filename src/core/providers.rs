@@ -28,10 +28,10 @@ pub trait PosMutProvider {
 }
 
 pub trait RandomPosMutProvider {
-    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos;
+    unsafe fn nth_pos_unchecked_mut(&mut self, i: usize) -> &mut Pos;
 
-    fn nth_pos(&mut self, i: usize) -> &Pos {
-        self.nth_pos_mut(i)
+    unsafe fn nth_pos_unchecked(&mut self, i: usize) -> &Pos {
+        self.nth_pos_unchecked_mut(i)
     }
 }
 

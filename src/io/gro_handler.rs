@@ -34,7 +34,7 @@ impl GroFileHandler {
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
         // Write atom lines
-        for (i, (at, pos)) in std::iter::zip(data.iter_atoms(), data.iter_coords()).enumerate() {
+        for (i, (at, pos)) in std::iter::zip(data.iter_atoms(), data.iter_pos()).enumerate() {
             let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
             let resid = at.resid % 99999; // Prevents overflow of resid field.
 

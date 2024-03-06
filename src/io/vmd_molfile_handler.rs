@@ -300,7 +300,7 @@ impl VmdMolFileHandler<'_> {
         */
 
         let mut buf = Vec::from_iter(
-            data.iter_coords()
+            data.iter_pos()
                 .map(|p| p.coords.iter().cloned())
                 .flatten()
                 .map(|el| el * 10.0),

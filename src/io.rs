@@ -1,4 +1,4 @@
-use crate::core::{Atom, GuardedQuery, PeriodicBox, Pos, State, StateRc, Topology, TopologyRc};
+use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, Atom, GuardedQuery, PeriodicBox, Pos, State, StateRc, Topology, TopologyRc};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
@@ -38,14 +38,11 @@ pub trait IndexProvider {
     fn iter_index(&self) -> impl Iterator<Item = usize>;    
 }
 
-pub trait TopologyProvider {    
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom>;
+pub trait TopologyProvider: AtomsProvider {    
     fn num_atoms(&self) -> usize;
 }
 
-pub trait StateProvider {
-    fn iter_coords(&self) -> impl Iterator<Item = &Pos>;
-    fn get_box(&self) -> Option<&PeriodicBox>;
+pub trait StateProvider: PosProvider + BoxProvider {
     fn get_time(&self) -> f32;
     fn num_coords(&self) -> usize;
 }

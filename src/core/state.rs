@@ -24,20 +24,14 @@ impl State {
 
 impl GuardedQuery for StateRc {
     type Guard<'a> = Ref<'a,State>;
+    
+    #[inline(always)]
     fn guard<'a>(&'a self) -> Self::Guard<'a> {
         self.borrow()
     }
 }
 
 impl StateProvider for Ref<'_,State> {
-    fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
-        self.coords.iter()
-    }
-
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.pbox.as_ref()
-    }
-
     fn get_time(&self) -> f32 {
         self.time
     }

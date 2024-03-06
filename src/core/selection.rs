@@ -347,24 +347,12 @@ impl<'a> IndexProvider for SelectionQueryGuard<'a> {
 }
 
 impl<'a> TopologyProvider for SelectionQueryGuard<'a> {
-    fn iter_atoms(&self) -> impl Iterator<Item = &super::Atom> {
-        self.index.iter().map(|i| &self.topology_ref.atoms[*i])
-    }
-
     fn num_atoms(&self) -> usize {
         self.index.len()
     }
 }
 
 impl<'a> StateProvider for SelectionQueryGuard<'a> {
-    fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
-        self.index.iter().map(|i| &self.state_ref.coords[*i])
-    }
-
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state_ref.pbox.as_ref()
-    }
-
     fn get_time(&self) -> f32 {
         self.state_ref.time
     }
@@ -379,6 +367,7 @@ impl<'a> StateProvider for SelectionQueryGuard<'a> {
 
 impl GuardedQuery for Selection {
     type Guard<'a> = SelectionQueryGuard<'a>;
+
     fn guard<'a>(&'a self) -> Self::Guard<'a> {
         SelectionQueryGuard {
             topology_ref: self.topology.borrow(),
@@ -394,15 +383,11 @@ impl BoxProvider for SelectionQueryGuard<'_> {
     }
 }
 
-impl MeasurePeriodic for Selection {}
-
 impl PosProvider for SelectionQueryGuard<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.index.iter().map(|i| &self.state_ref.coords[*i])
     }
 }
-
-impl MeasurePos for Selection {}
 
 impl AtomsProvider for SelectionQueryGuard<'_> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
@@ -416,11 +401,14 @@ impl MassesProvider for SelectionQueryGuard<'_> {
     }
 }
 
+impl MeasurePos for Selection {}
 impl MeasureMasses for Selection {}
+impl MeasurePeriodic for Selection {}
 
 //-------------------------------------------------------
 impl GuardedModify for Selection {
     type GuardMut<'a> = SelectionModifyGuard<'a>;
+
     fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a> {
         SelectionModifyGuard {
             topology_ref: self.topology.borrow_mut(),
@@ -452,8 +440,9 @@ impl PosProvider for SelectionModifyGuard<'_> {
 
 impl RandomPosMutProvider for SelectionModifyGuard<'_> {
     #[inline(always)]
-    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos {
-        &mut self.state_ref.coords[self.index[i]]
+    unsafe fn nth_pos_unchecked_mut(&mut self, i: usize) -> &mut Pos {
+        let ind = *self.index.get_unchecked(i);
+        self.state_ref.coords.get_unchecked_mut(ind)
     }
 }
 
@@ -469,7 +458,7 @@ mod tests {
     use super::{Selection, SelectionAll};
     use crate::{
         core::{
-            providers::PosMutProvider, selection::Select, GuardedModify, GuardedQuery,
+            providers::{PosMutProvider, PosProvider}, selection::Select, GuardedModify, GuardedQuery,
             MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f,
             PBC_FULL,
         },
@@ -513,13 +502,13 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()> {
         let sel = make_sel()?;
-        println!("before {}", sel.guard().iter_coords().next().unwrap());
+        println!("before {}", sel.guard().iter_pos().next().unwrap());
 
         let (minv, maxv) = sel.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}", sel.guard().iter_coords().next().unwrap());
+        println!("after {}", sel.guard().iter_pos().next().unwrap());
         println!("{:?}", sel.min_max());
         Ok(())
     }

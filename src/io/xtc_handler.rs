@@ -189,7 +189,7 @@ impl XtcFileHandler {
 
         // Coordinate buffer
         #[allow(unused_mut)]
-        let mut buf = Vec::<Point3<f32>>::from_iter(data.iter_coords().cloned());
+        let mut buf = Vec::<Point3<f32>>::from_iter(data.iter_pos().cloned());
         
         let ok = unsafe {
             write_xtc(

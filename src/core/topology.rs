@@ -38,6 +38,8 @@ impl Topology {
 
 impl GuardedQuery for TopologyRc {
     type Guard<'a> = Ref<'a,Topology>;
+    
+    #[inline(always)]
     fn guard<'a>(&'a self) -> Self::Guard<'a> {
         self.borrow()
     }
@@ -51,10 +53,6 @@ impl GuardedModify for TopologyRc {
 }
 
 impl TopologyProvider for Ref<'_,Topology> {
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
-        self.atoms.iter()
-    }
-
     fn num_atoms(&self) -> usize {
         self.atoms.len()
     }
