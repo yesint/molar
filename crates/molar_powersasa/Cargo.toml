@@ -19,3 +19,4 @@ anyhow.workspace = true
 
 [build-dependencies]
 cmake.workspace = true
+bindgen = "0.69"

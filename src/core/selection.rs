@@ -7,9 +7,11 @@ use super::{
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, os::raw::c_void, rc::Rc};
 
 pub use super::selection_parser::SelectionExpr;
+use molar_powersasa::powersasa_bindings::powersasa;
+
 //-----------------------------------------------------------------
 
 /// Trait which provides select method operating with generic smart pointers
@@ -221,15 +223,19 @@ impl Selection {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Selection> {        
+    ) -> Result<Selection> {
         // Remove duplicates if any
         let index = iter
             .sorted()
             .dedup()
             .map(|i| {
-                self.index.get(i)
-                .cloned()
-                .ok_or_else(|| anyhow!("Index {} is out of allowed range [0:{}]",i,self.index.len()))
+                self.index.get(i).cloned().ok_or_else(|| {
+                    anyhow!(
+                        "Index {} is out of allowed range [0:{}]",
+                        i,
+                        self.index.len()
+                    )
+                })
             })
             .collect::<Result<Vec<usize>>>()?;
         // Now it's safe to call
@@ -299,15 +305,56 @@ impl Selection {
     }
 
     // Pre-defined splitters
-    pub fn split_contig_resid(&self) -> SelectionSplitIterator<'_,i32,fn(usize, &Atom, &Pos)->i32> {
-        self.split_contig(|_,at,_| at.resid)
+    pub fn split_contig_resid(
+        &self,
+    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32> {
+        self.split_contig(|_, at, _| at.resid)
     }
 
     pub fn split_resid<C>(&self) -> C
-    where        
+    where
         C: FromIterator<Selection> + Default,
     {
-        self.split(|_,at,_| at.resid)
+        self.split(|_, at, _| at.resid)
+    }
+
+    // Actual rust closure is passed as arg
+    unsafe extern "C" fn crd_cb(i: usize, arg: *mut ::std::os::raw::c_void) -> *mut f32 {
+        let closure: &mut &mut dyn FnMut(usize) -> *mut f32 = unsafe { std::mem::transmute(arg) };
+        closure(i)        
+    }
+
+    unsafe extern "C" fn vdw_cb(i: usize, context: *mut ::std::os::raw::c_void) -> f32 {
+        42.0
+    }
+
+    // Sasa
+    pub fn sasa(&self) -> Result<f32> {
+        // Arrays for areas and volumes
+        let areas = Vec::<f32>::with_capacity(self.len());
+        let volumes = Vec::<f32>::with_capacity(self.len());       
+
+        
+        //let cb = &mut cb;
+        //unsafe { do_something(Some(do_something_handler), cb as *mut _ as *mut c_void) 
+
+        unsafe {
+            let mut cb: &mut dyn FnMut(usize) -> *mut f32 = &mut |i| self.nth_pos_unchecked(i).coords.as_mut_ptr();
+
+            powersasa(
+                areas.as_mut_ptr(),
+                volumes.as_mut_ptr(),
+                Some(Self::crd_cb),
+                Some(Self::vdw_cb),
+                self.len(),
+                cb as *mut _ as *mut c_void
+            );
+            // Resize vectors accordingly
+            areas.set_len(self.len());
+            volumes.set_len(self.len());
+        }
+
+        ()
     }
 
     //======================
@@ -336,17 +383,14 @@ impl Selection {
     }
 
     pub fn nth(&self, i: usize) -> Result<(usize, &Atom, &Pos)> {
-        if i>self.len() {
-            bail!("Index {} is beyond the allowed range [0:{}]",i,self.len())
+        if i > self.len() {
+            bail!("Index {} is beyond the allowed range [0:{}]", i, self.len())
         }
-        Ok(unsafe {self.nth_unchecked(i)})
+        Ok(unsafe { self.nth_unchecked(i) })
     }
 
     pub fn iter(&self) -> SelectionIterator {
-        SelectionIterator {
-            sel: self,
-            cur: 0,
-        }
+        SelectionIterator { sel: self, cur: 0 }
     }
 }
 
@@ -360,7 +404,7 @@ impl<'a> Iterator for SelectionIterator<'a> {
     type Item = (usize, &'a Atom, &'a Pos);
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
-            let ret = unsafe{ self.sel.nth_unchecked(self.cur) };
+            let ret = unsafe { self.sel.nth_unchecked(self.cur) };
             self.cur += 1;
             Some(ret)
         } else {
@@ -531,8 +575,10 @@ mod tests {
     use super::{Selection, SelectionAll};
     use crate::{
         core::{
-            providers::PosProvider, selection::{AtomsProvider, Select}, MeasureMasses, MeasurePos, ModifyPos,
-            ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL,
+            providers::PosProvider,
+            selection::{AtomsProvider, Select},
+            MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f,
+            PBC_FULL,
         },
         io::*,
     };
@@ -645,8 +691,8 @@ mod tests {
     #[test]
     fn split_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        for res in sel1.split_contig(|_,at,_| at.resid) {
-            println!("Res: {}",res.iter_atoms().next().unwrap().resid)
+        for res in sel1.split_contig(|_, at, _| at.resid) {
+            println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
         Ok(())
     }

@@ -112,6 +112,7 @@ public:
 			.with_radiiGiven(1).with_calculate(1).with_cells(1).with_zeroPoints(1).with_Warnings(0).withoutCheck(1));
 		Init();
 	}
+	
 	template<class Coordcontainer, class Floatcontainer>
 	PowerSasa(Coordcontainer const& coords, Floatcontainer const& radii,
 			const bool with_Sasa=1, const bool with_dSasa=0, const bool with_Vol=0, const bool with_dVol=0) :
