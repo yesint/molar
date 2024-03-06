@@ -1,66 +1,94 @@
-use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
+use std::{cell::{Ref, RefCell, RefMut, UnsafeCell}, rc::Rc};
 use crate::io::StateProvider;
 use super::{measure::GuardedQuery, providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
-pub struct State {
+pub struct StateStorage {
     pub coords: Vec<Pos>,
     pub time: f32,
     pub pbox: Option<PeriodicBox>,
 }
 
+pub struct State(UnsafeCell<StateStorage>);
+
 pub type StateRc = Rc<RefCell<State>>;
 
+impl From<StateStorage> for State {
+    fn from(value: StateStorage) -> Self {
+        Self(UnsafeCell::new(value))
+    }
+}
+
 impl State {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn to_rc(self) -> Rc<Self> {
+        Rc::new(self)
     }
 
-    pub fn to_rc(self) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(self))
+    #[inline(always)]
+    fn get(&self) -> &StateStorage {
+        unsafe {&*self.0.get()}
     }
+
+    #[inline(always)]
+    fn get_mut(&self) -> &mut StateStorage {
+        unsafe {&mut *self.0.get()}
+    }
+
+    #[inline(always)]
+    pub unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+        self.get().coords.get_unchecked(i)
+    }
+
+    #[inline(always)]
+    pub unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
+        self.get().coords.get_unchecked_mut(i)
+    }
+
+    #[inline(always)]
+    pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
+        unsafe { self.get().coords.get(i) }
+    }
+
+    #[inline(always)]
+    pub fn get_box(&self) -> Option<&PeriodicBox> {
+        unsafe { self.get().pbox.as_ref() }
+    }
+
+    #[inline(always)]
+    pub fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
+        unsafe { self.get_mut().pbox.as_mut() }
+    }
+
+    
 }
 
-impl GuardedQuery for StateRc {
-    type Guard<'a> = Ref<'a,State>;
-    fn guard<'a>(&'a self) -> Self::Guard<'a> {
-        self.borrow()
-    }
-}
-
-impl StateProvider for Ref<'_,State> {
+impl StateProvider for State {
     fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
-        self.coords.iter()
+        unsafe { self.get().coords.iter() }
     }
 
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.pbox.as_ref()
+        unsafe { self.get().pbox.as_ref() }
     }
 
     fn get_time(&self) -> f32 {
-        self.time
+        unsafe { self.get().time }
     }
 
     fn num_coords(&self) -> usize {
-        self.coords.len()
+        unsafe { self.get().coords.len() }
     }
 }
 
-impl PosProvider for Ref<'_,State> {
+impl PosProvider for State {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.coords.iter()
+        unsafe { self.get().coords.iter() }
     }
 }
 
-impl BoxProvider for Ref<'_,State> {
+impl BoxProvider for State {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.pbox.as_ref()
-    }
-}
-
-impl BoxProvider for RefMut<'_,State> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.pbox.as_ref()
+        unsafe { self.get().pbox.as_ref() }
     }
 }
