@@ -1,6 +1,6 @@
-use crate::core::{Atom, GuardedQuery, PeriodicBox, Pos, State, StateRc, Topology, TopologyRc};
+use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, State, Topology};
 use anyhow::{anyhow, bail, Result};
-use std::path::Path;
+use std::{path::Path, rc::Rc};
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -38,14 +38,11 @@ pub trait IndexProvider {
     fn iter_index(&self) -> impl Iterator<Item = usize>;    
 }
 
-pub trait TopologyProvider {    
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom>;
+pub trait TopologyProvider: AtomsProvider {    
     fn num_atoms(&self) -> usize;
 }
 
-pub trait StateProvider {
-    fn iter_coords(&self) -> impl Iterator<Item = &Pos>;
-    fn get_box(&self) -> Option<&PeriodicBox>;
+pub trait StateProvider: PosProvider + BoxProvider {
     fn get_time(&self) -> f32;
     fn num_coords(&self) -> usize;
 }
@@ -58,7 +55,7 @@ pub struct IoStateIterator<'a> {
 }
 
 impl Iterator for IoStateIterator<'_> {
-    type Item = StateRc;
+    type Item = Rc<State>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
     }
@@ -129,20 +126,19 @@ impl FileHandler<'_> {
         Ok((top,st))
     }
 
-    pub fn read(&mut self) -> Result<(TopologyRc,StateRc)> {
+    pub fn read(&mut self) -> Result<(Rc<Topology>,Rc<State>)> {
         let (top,st) = self.read_raw()?;
         Ok((top.to_rc(),st.to_rc()))
     }
 
     pub fn write<'a,T>(&mut self, data: &'a T) -> Result<()> 
-    where T: GuardedQuery + 'a, T::Guard<'a>: TopologyProvider+StateProvider
+    where T: TopologyProvider+StateProvider
     {
-        let dp = data.guard();
         match self {
-            Self::Gro(ref mut h) => h.handler.write(&dp),
+            Self::Gro(ref mut h) => h.handler.write(data),
             Self::Pdb(ref mut h) => {
-                h.write_topology(&dp)?;
-                h.write_state(&dp)?;
+                h.write_topology(data)?;
+                h.write_state(data)?;
                 Ok(())
             }
             _ => bail!("Not a once-write format"),
@@ -157,16 +153,15 @@ impl FileHandler<'_> {
         Ok(top)
     }
 
-    pub fn read_topology(&mut self) -> Result<TopologyRc> {
+    pub fn read_topology(&mut self) -> Result<Rc<Topology>> {
         Ok(self.read_topology_raw()?.to_rc())
     }
 
     pub fn write_topology<'a,T>(&mut self, data: &'a T) -> Result<()> 
-    where T: GuardedQuery + 'a, T::Guard<'a>: TopologyProvider
+    where T: TopologyProvider
     {
-        let dp = data.guard();
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(&dp),
+            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.write_topology(data),
             _ => bail!("Unable to write topology"),
         }
     }
@@ -184,19 +179,18 @@ impl FileHandler<'_> {
         Ok(st)
     }
 
-    pub fn read_state(&mut self) -> Result<Option<StateRc>> {
+    pub fn read_state(&mut self) -> Result<Option<Rc<State>>> {
         self.read_state_raw()?.map_or(Ok(None), |v| Ok(Some(v.to_rc())))
     }
 
     pub fn write_state<'a,T>(&mut self, data: &'a T) -> Result<()> 
-    where T: GuardedQuery + 'a, T::Guard<'a>: StateProvider
+    where T: StateProvider
     {
-        let dp = data.guard();
         match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
-                h.write_state(&dp)
+                h.write_state(data)
             }
-            Self::Xtc(ref mut h) => h.write_state(&dp),
+            Self::Xtc(ref mut h) => h.write_state(data),
             _ => bail!("Not a trajectory writer format!"),
         }
     }
@@ -238,7 +232,7 @@ impl FileHandler<'_> {
 }
 
 impl<'a> IntoIterator for FileHandler<'a> {
-    type Item = StateRc;
+    type Item = Rc<State>;
     type IntoIter = IoStateIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -249,7 +243,7 @@ impl<'a> IntoIterator for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::FileHandler;
-    use crate::core::{ModifyPos, Select, SelectionAll, Vector3f};
+    use crate::{core::{ModifyPos, Select, SelectionAll, Vector3f}, io::TopologyProvider};
     use anyhow::Result;
 
     #[test]
@@ -261,7 +255,7 @@ mod tests {
         //println!("{:?}", st.atoms);
 
         for fr in r {
-            w.write_state(&fr)?;
+            w.write_state(&*fr)?;
             //let f = fr.into_inner();
             //println!("{}", f.time);
         }
@@ -294,8 +288,8 @@ mod tests {
         let mut r = FileHandler::open("tests/no_ATP.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = (*st1).borrow().clone().to_rc();
-        println!("#1: {}",(*top1).borrow().atoms.len());
+        let st2 = (*st1).clone().to_rc();
+        println!("#1: {}",(*top1).num_atoms());
 
         let sel = SelectionAll::new().select(&top1,&st2)?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
@@ -303,9 +297,9 @@ mod tests {
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
         let mut w = FileHandler::create(outname)?;
-        w.write_topology(&sel)?;
-        w.write_state(&st1)?;
-        w.write_state(&st2)?;
+        w.write_topology(&*top1)?;
+        w.write_state(&*st1)?;
+        w.write_state(&*st2)?;
 
         //let top2 = r.read_topology()?;
         //let st2 = r.read_next_state()?.unwrap();

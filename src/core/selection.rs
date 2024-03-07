@@ -1,18 +1,17 @@
 use super::{
-    measure::{GuardedQuery, MeasureMasses, MeasurePeriodic, MeasurePos},
-    modify::{GuardedModify, ModifyPos, ModifyRandomAccess},
+    measure::{MeasureMasses, MeasurePeriodic, MeasurePos},
+    modify::{ModifyPos, ModifyRandomAccess},
     providers::{
         AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider,
         RandomPosMutProvider,
     },
     Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, SelectionSplitIterator,
-    State, StateRc, Topology, TopologyRc,
+    State, Topology,
 };
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use std::{
-    cell::{Ref, RefMut},
     collections::HashMap,
     rc::Rc,
 };
@@ -22,13 +21,13 @@ pub use super::selection_parser::SelectionExpr;
 
 /// Trait whic provides select method operating with generic smart pointers
 pub trait Select {
-    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection>;
+    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection>;
 }
 
 //-----------------------------------------------------------------
 fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
-    let n1 = topology.atoms.len();
-    let n2 = state.coords.len();
+    let n1 = topology.num_atoms();
+    let n2 = state.num_coords();
     match n1 == n2 {
         true => Ok(()),
         false => bail!(
@@ -48,10 +47,9 @@ impl SelectionAll {
 }
 
 impl Select for SelectionAll {
-    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        let st = state.borrow();
-        check_sizes(&topology.borrow(), &st)?;
-        let index: Vec<usize> = (0..st.coords.len()).collect();
+    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+        check_sizes(&topology, &state)?;
+        let index: Vec<usize> = (0..state.num_coords()).collect();
         if index.len() > 0 {
             Ok(Selection {
                 topology: topology.clone(),
@@ -65,10 +63,10 @@ impl Select for SelectionAll {
 }
 
 impl Select for SelectionExpr {
-    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        check_sizes(&topology.borrow(), &state.borrow())?;
+    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+        check_sizes(&topology, &state)?;
         let index = self
-            .apply_whole(&topology.borrow(), &state.borrow())
+            .apply_whole(&topology, &state)
             .unwrap();
         if index.len() > 0 {
             Ok(Selection {
@@ -83,13 +81,11 @@ impl Select for SelectionExpr {
 }
 
 impl Select for str {
-    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        let top = topology.borrow();
-        let st = state.borrow();
-        check_sizes(&top, &st)?;
+    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+        check_sizes(&topology, &state)?;
         let index = SelectionExpr::try_from(self)
             .unwrap()
-            .apply_whole(&top, &st)
+            .apply_whole(&topology, &state)
             .unwrap();
         if index.len() > 0 {
             Ok(Selection {
@@ -104,17 +100,15 @@ impl Select for str {
 }
 
 impl Select for std::ops::Range<usize> {
-    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
-        let top = topology.borrow();
-        let st = state.borrow();
-        check_sizes(&top, &st)?;
-        let n = top.atoms.len();
+    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+        check_sizes(&topology, &state)?;
+        let n = topology.num_atoms();
         if self.start > n - 1 || self.end > n - 1 {
             bail!(
                 "Index range {}:{} is invalid, 0:{} is allowed.",
                 self.start,
                 self.end,
-                top.atoms.len()
+                topology.num_atoms()
             );
         }
         let index: Vec<usize> = self.clone().collect();
@@ -131,7 +125,7 @@ impl Select for std::ops::Range<usize> {
 }
 
 impl Select for Vec<usize> {
-    fn select(&self, topology: &TopologyRc, state: &StateRc) -> Result<Selection> {
+    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
         let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
         if index.len() > 0 {
             Ok(Selection {
@@ -171,8 +165,8 @@ makes changing the number of atoms impossible.
 */
 
 pub struct Selection {
-    topology: TopologyRc,
-    state: StateRc,
+    topology: Rc<Topology>,
+    state: Rc<State>,
     index: Vec<usize>,
 }
 
@@ -180,12 +174,15 @@ impl Selection {
     //===================
     // Subselections
     //===================
+    pub fn len(&self) -> usize {
+        self.num_atoms()
+    }
 
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection> {
         let index = expr.apply_subset(
-            &self.topology.borrow(),
-            &self.state.borrow(),
+            &self.topology,
+            &self.state,
             self.index.iter().cloned(),
         )?;
         if index.len() > 0 {
@@ -256,6 +253,15 @@ impl Selection {
         }
     }
 
+    pub unsafe fn nth_unchecked(&self, i: usize) -> (usize,&Atom,&Pos) {
+        let ind = *self.index.get_unchecked(i);
+        (
+            ind,
+            self.topology.nth_atom_unchecked(ind),
+            self.state.nth_pos_unchecked(ind)
+        )
+    }
+
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computer lazily when iterating.
@@ -277,11 +283,10 @@ impl Selection {
         F: Fn(usize, &Atom, &Pos) -> T,
         C: FromIterator<Selection> + Default,
     {
-        let guard = self.guard();
         let mut ids = HashMap::<T, Vec<usize>>::default();
 
-        for i in 0..guard.len() {
-            let (ind, at, pos) = unsafe { guard.nth_unchecked(i) };
+        for i in 0..self.index.len() {
+            let (ind, at, pos) = unsafe { self.nth_unchecked(i) };
             let id = func(ind, at, pos);
             if let Some(el) = ids.get_mut(&id) {
                 el.push(ind);
@@ -319,78 +324,25 @@ impl Selection {
         h.write(self)
     }
 }
-//----------------------------------------------------
-
-/// Scoped guard giving read-only access to selection
-pub struct SelectionQueryGuard<'a> {
-    topology_ref: Ref<'a, Topology>,
-    state_ref: Ref<'a, State>,
-    index: &'a Vec<usize>,
-}
-
-impl SelectionQueryGuard<'_> {
-    pub fn len(&self) -> usize {
-        self.index.len()
-    }
-
-    pub fn nth(&self, i: usize) -> (usize, &Atom, &Pos) {
-        let ind = self.index[i];
-        assert!(ind < self.len());
-        (
-            ind,
-            &self.topology_ref.atoms[ind],
-            &self.state_ref.coords[ind],
-        )
-    }
-
-    pub unsafe fn nth_unchecked(&self, i: usize) -> (usize, &Atom, &Pos) {
-        let ind = *self.index.get_unchecked(i);
-        (
-            ind,
-            &self.topology_ref.atoms.get_unchecked(ind),
-            &self.state_ref.coords.get_unchecked(ind),
-        )
-    }
-}
-
-/// Scoped guard giving read-write access to selection
-#[allow(dead_code)]
-pub struct SelectionModifyGuard<'a> {
-    topology_ref: RefMut<'a, Topology>,
-    state_ref: RefMut<'a, State>,
-    index: &'a Vec<usize>,
-}
 
 //---------------------------------------------
 // Implement traits for IO
 
-impl<'a> IndexProvider for SelectionQueryGuard<'a> {
+impl IndexProvider for Selection {
     fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
 
-impl<'a> TopologyProvider for SelectionQueryGuard<'a> {
-    fn iter_atoms(&self) -> impl Iterator<Item = &super::Atom> {
-        self.index.iter().map(|i| &self.topology_ref.atoms[*i])
-    }
-
+impl TopologyProvider for Selection {
     fn num_atoms(&self) -> usize {
         self.index.len()
     }
 }
 
-impl<'a> StateProvider for SelectionQueryGuard<'a> {
-    fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
-        self.index.iter().map(|i| &self.state_ref.coords[*i])
-    }
-
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state_ref.pbox.as_ref()
-    }
-
+impl StateProvider for Selection {
     fn get_time(&self) -> f32 {
-        self.state_ref.time
+        self.state.get_time()
     }
 
     fn num_coords(&self) -> usize {
@@ -401,83 +353,59 @@ impl<'a> StateProvider for SelectionQueryGuard<'a> {
 //==================================================================
 // Implement analysis traits
 
-impl GuardedQuery for Selection {
-    type Guard<'a> = SelectionQueryGuard<'a>;
-    fn guard<'a>(&'a self) -> Self::Guard<'a> {
-        SelectionQueryGuard {
-            topology_ref: self.topology.borrow(),
-            state_ref: self.state.borrow(),
-            index: &self.index,
-        }
-    }
-}
-
-impl BoxProvider for SelectionQueryGuard<'_> {
+impl BoxProvider for Selection {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state_ref.pbox.as_ref()
+        self.state.get_box()
     }
 }
 
 impl MeasurePeriodic for Selection {}
 
-impl PosProvider for SelectionQueryGuard<'_> {
+impl PosProvider for Selection {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.index.iter().map(|i| &self.state_ref.coords[*i])
+        unsafe {
+            self.index.iter().map(|i| self.state.nth_pos_unchecked(*i))
+        }
     }
 }
 
 impl MeasurePos for Selection {}
 
-impl AtomsProvider for SelectionQueryGuard<'_> {
+impl AtomsProvider for Selection {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.index.iter().map(|i| &self.topology_ref.atoms[*i])
+        unsafe {
+            self.index.iter().map(|i| self.topology.nth_atom_unchecked(*i))
+        }
     }
 }
 
-impl MassesProvider for SelectionQueryGuard<'_> {
+impl MassesProvider for Selection {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
-        self.index.iter().map(|i| self.topology_ref.atoms[*i].mass)
+        unsafe {
+            self.index.iter().map(|i| self.topology.nth_atom_unchecked(*i).mass)
+        }
     }
 }
 
 impl MeasureMasses for Selection {}
 
 //-------------------------------------------------------
-impl GuardedModify for Selection {
-    type GuardMut<'a> = SelectionModifyGuard<'a>;
-    fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a> {
-        SelectionModifyGuard {
-            topology_ref: self.topology.borrow_mut(),
-            state_ref: self.state.borrow_mut(),
-            index: &self.index,
+
+impl PosMutProvider for Selection {
+    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
+        unsafe {
+            self.index
+            .iter()
+            .map(|i| self.state.nth_pos_unchecked_mut(*i) )
         }
     }
 }
 
-impl BoxProvider for SelectionModifyGuard<'_> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state_ref.get_box()
-    }
-}
-
-impl PosMutProvider for SelectionModifyGuard<'_> {
-    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
-        self.index
-            .iter()
-            .map(|i| unsafe { &mut *self.state_ref.coords.as_mut_ptr().add(*i) })
-    }
-}
-
-impl PosProvider for SelectionModifyGuard<'_> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.index.iter().map(|i| &self.state_ref.coords[*i])
-    }
-}
-
-impl RandomPosMutProvider for SelectionModifyGuard<'_> {
+impl RandomPosMutProvider for Selection {
     #[inline(always)]
-    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos {
-        &mut self.state_ref.coords[self.index[i]]
+    unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
+        let ind = *self.index.get_unchecked(i);
+        self.state.nth_pos_unchecked_mut(ind)
     }
 }
 
@@ -493,13 +421,12 @@ mod tests {
     use super::{Selection, SelectionAll};
     use crate::{
         core::{
-            providers::PosMutProvider, selection::Select, GuardedModify, GuardedQuery,
+            providers::PosProvider, selection::Select,
             MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f,
             PBC_FULL,
         },
         io::*,
     };
-    use lazy_static::lazy_static;
 
     fn read_test_pdb() -> (Topology, State) {
         let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
@@ -510,21 +437,18 @@ mod tests {
         (top, st)
     }
 
-    // Read the test PDB file once and provide the content for tests
-    lazy_static! {
-        static ref SS: (Topology, State) = read_test_pdb();
-    }
-
     fn make_sel() -> anyhow::Result<Selection> {
-        let t = SS.0.clone().to_rc();
-        let s = SS.1.clone().to_rc();
+        let topst = read_test_pdb();
+        let t = topst.0.clone().to_rc();
+        let s = topst.1.clone().to_rc();
         let sel = SelectionAll {}.select(&t, &s)?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<Selection> {
-        let t = SS.0.clone().to_rc();
-        let s = SS.1.clone().to_rc();
+        let topst = read_test_pdb();
+        let t = topst.0.clone().to_rc();
+        let s = topst.1.clone().to_rc();
         let sel = "not resname TIP3 POT CLA".select(&t, &s)?;
         Ok(sel)
     }
@@ -537,13 +461,13 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()> {
         let sel = make_sel()?;
-        println!("before {}", sel.guard().iter_coords().next().unwrap());
+        println!("before {}", sel.iter_pos().next().unwrap());
 
         let (minv, maxv) = sel.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}", sel.guard().iter_coords().next().unwrap());
+        println!("after {}", sel.iter_pos().next().unwrap());
         println!("{:?}", sel.min_max());
         Ok(())
     }
@@ -561,9 +485,9 @@ mod tests {
     fn test_translate() -> anyhow::Result<()> {
         let sel = make_sel()?;
 
-        println!("before {}", sel.guard_mut().iter_pos_mut().next().unwrap());
+        println!("before {}", sel.iter_pos().next().unwrap());
         sel.translate(Vector3f::new(10.0, 10.0, 10.0));
-        println!("after {}", sel.guard_mut().iter_pos_mut().next().unwrap());
+        println!("after {}", sel.iter_pos().next().unwrap());
         Ok(())
     }
 

@@ -2,10 +2,8 @@ use std::iter::zip;
 
 use super::providers::*;
 use super::Atom;
-use super::GuardedQuery;
 use super::Matrix3f;
 use super::Selection;
-use super::SelectionQueryGuard;
 use super::{PbcDims, Pos, Vector3f};
 use crate::distance_search::search::{DistanceSearcherSingle, SearchConnectivity};
 use anyhow::{bail, Result, anyhow};
@@ -89,7 +87,6 @@ pub fn center_of_mass_pbc(dp: &(impl PosProvider + MassesProvider + BoxProvider)
 
 pub struct SelectionSplitIterator<'a,T,F> {
     sel: &'a Selection,
-    guard: SelectionQueryGuard<'a>,
     func: F,
     counter: usize,
     id: T,
@@ -104,7 +101,6 @@ impl SelectionSplitIterator<'_,(),()>
     {
         SelectionSplitIterator {
             sel,
-            guard: sel.guard(), 
             func,
             counter: 0,
             id: T::default(),
@@ -120,8 +116,8 @@ where
     type Item = Selection;
     fn next(&mut self) -> Option<Self::Item> {
         let mut index = vec![];
-        while self.counter < self.guard.len() {
-            let (i,at,pos) = self.guard.nth(self.counter);
+        while self.counter < self.sel.len() {
+            let (i,at,pos) = unsafe{ self.sel.nth_unchecked(self.counter) };
             let id = (self.func)(i,at,pos);
 
             if id == self.id {
@@ -177,27 +173,27 @@ pub fn assign_resindex(dp: &mut impl AtomsMutProvider) {
 // Free functions for modifying that
 // acceps a needed type of mut data provider as argument
 //-------------------------------------------------------
-pub fn translate(dp: &mut impl PosMutProvider, shift: Vector3f) {
+pub fn translate(dp: &impl PosMutProvider, shift: Vector3f) {
     for el in dp.iter_pos_mut() {
         *el += shift;
     }
 }
 
-pub fn rotate(dp: &mut impl PosMutProvider, ax: &Unit<Vector3f>, ang: f32) {
+pub fn rotate(dp: &impl PosMutProvider, ax: &Unit<Vector3f>, ang: f32) {
     let tr = Rotation3::<f32>::from_axis_angle(ax, ang);
     for p in dp.iter_pos_mut() {
         p.coords = tr * p.coords;
     }
 }
 
-pub fn apply_transform(dp: &mut impl PosMutProvider, tr: &nalgebra::IsometryMatrix3<f32>) {
+pub fn apply_transform(dp: &impl PosMutProvider, tr: &nalgebra::IsometryMatrix3<f32>) {
     for p in dp.iter_pos_mut() {
         *p = tr * (*p);
     }
 }
 
 pub fn unwrap_simple_dim(
-    dp: &mut (impl PosMutProvider + BoxProvider),
+    dp: &(impl PosMutProvider + BoxProvider),
     dims: PbcDims,
 ) -> Result<()> {
     let b = dp.get_box().ok_or_else(|| anyhow!("No periodicity!"))?.to_owned();
@@ -212,7 +208,7 @@ pub fn unwrap_simple_dim(
 }
 
 pub fn unwrap_connectivity_dim(
-    dp: &mut (impl PosProvider + BoxProvider + RandomPosMutProvider),
+    dp: &(impl PosProvider + BoxProvider + RandomPosMutProvider),
     cutoff: f32,
     dims: &PbcDims,
 ) -> Result<()> {
@@ -231,12 +227,12 @@ pub fn unwrap_connectivity_dim(
     // Loop while stack is not empty
     while let Some(c) = todo.pop() {
         // Central point
-        let p0 = dp.nth_pos(c).to_owned();
+        let p0 = unsafe {dp.nth_pos_unchecked(c)}.to_owned();
         // Iterate over connected points
         for ind in &conn[c] {
             // Unwrap this point if it is not used yet
             if !used[*ind] {
-                let p = dp.nth_pos_mut(*ind);
+                let p = unsafe{ dp.nth_pos_unchecked_mut(*ind) };
                 *p = b.closest_image_dims(p, &p0, &dims);
                 // Add it to the stack
                 todo.push(*ind);

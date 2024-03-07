@@ -10,17 +10,11 @@ use super::PBC_FULL;
 // Traits for modification (mutable access)
 //==============================================================
 
-pub trait GuardedModify {
-    type GuardMut<'a> where Self: 'a;
-    fn guard_mut<'a>(&'a self) -> Self::GuardMut<'a>;
-}
-
 /// Trait for modification requiring only positions
-pub trait ModifyPos: GuardedModify 
-    where for<'a> Self::GuardMut<'a>: PosMutProvider + PosProvider
+pub trait ModifyPos: PosMutProvider + PosProvider
 {
     fn translate(&self, shift: Vector3f) {
-        translate(&mut self.guard_mut(), shift)
+        translate(self, shift)
     }
 
     fn rotate(&self, ax: &Unit<Vector3f>, ang: f32) {
@@ -33,8 +27,7 @@ pub trait ModifyPos: GuardedModify
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: GuardedModify 
-    where for<'a> Self::GuardMut<'a>: PosMutProvider + BoxProvider
+pub trait ModifyPeriodic: PosMutProvider + BoxProvider
 {
     fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<()> {
         unwrap_simple_dim(&mut self.guard_mut(), dims)
@@ -46,21 +39,19 @@ pub trait ModifyPeriodic: GuardedModify
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: GuardedModify
-    where for<'a> Self::GuardMut<'a>: PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
+pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
 {
     fn unwrap_connectivity(&self, cutoff: f32) -> Result<()> {
-        unwrap_connectivity_dim(&mut self.guard_mut(), cutoff, &PBC_FULL)
+        unwrap_connectivity_dim(&self, cutoff, &PBC_FULL)
     }
 
     fn unwrap_connectivity_dim(&self, cutoff: f32, dims: &PbcDims) -> Result<()> {
-        unwrap_connectivity_dim(&mut self.guard_mut(), cutoff, dims)
+        unwrap_connectivity_dim(&self, cutoff, dims)
     }
 }
 
 /// Trait for modification requiring atoms
-pub trait ModifyAtoms: GuardedModify
-    where for<'a> Self::GuardMut<'a>: AtomsMutProvider
+pub trait ModifyAtoms: AtomsMutProvider
 {
     fn assign_resindex(&self) {
         assign_resindex(&mut self.guard_mut())

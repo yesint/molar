@@ -24,17 +24,17 @@ pub trait BoxProvider {
 //--------------------------------------------------------------
 
 pub trait PosMutProvider {
-    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_>;
+    fn iter_pos_mut(&self) -> impl PosMutIterator<'_>;
 }
 
 pub trait RandomPosMutProvider {
-    fn nth_pos_mut(&mut self, i: usize) -> &mut Pos;
+    unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos;
 
-    fn nth_pos(&mut self, i: usize) -> &Pos {
-        self.nth_pos_mut(i)
+    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+        self.nth_pos_unchecked_mut(i)
     }
 }
 
 pub trait AtomsMutProvider {
-    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_>;
+    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
 }

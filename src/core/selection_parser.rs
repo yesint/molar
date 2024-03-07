@@ -8,6 +8,7 @@ use super::state::State;
 use super::topology::Topology;
 use super::{IndexIterator, PbcDims, PBC_NONE};
 use crate::distance_search::search::DistanceSearcherDouble;
+use crate::io::{StateProvider, TopologyProvider};
 use std::collections::HashSet;
 
 use crate::core::{Pos, Vector3f, PBC_FULL};
@@ -151,11 +152,11 @@ pub struct ApplyData<'a> {
 
 impl<'a> ApplyData<'a> {
     fn new(topology: &'a Topology, state: &'a State, subset: SubsetType) -> Result<Self> {
-        if topology.atoms.len() != state.coords.len() {
+        if topology.num_atoms() != state.num_coords() {
             bail!(
                 "There are {} atoms but {} positions",
-                topology.atoms.len(),
-                state.coords.len()
+                topology.num_atoms(),
+                state.num_coords()
             );
         }
 
@@ -172,25 +173,29 @@ impl<'a> ApplyData<'a> {
 
     fn iter_ind_atom_pos(&self) -> impl Iterator<Item=(usize,&Atom,&Pos)> {
         self.subset.iter().map(|i| {
-            (*i,&self.topology.atoms[*i],&self.state.coords[*i])
+            unsafe{(
+                *i,
+                self.topology.nth_atom_unchecked(*i),
+                self.state.nth_pos_unchecked(*i)
+            )}
         })
     }
     
     fn iter_ind_atom(&self) -> impl Iterator<Item=(usize,&Atom)> {
         self.subset.iter().map(|i| {
-            (*i,&self.topology.atoms[*i])
+            unsafe{ (*i,self.topology.nth_atom_unchecked(*i)) }
         })
     }
 
     fn iter_atom_index(&self,index: impl Iterator<Item=usize>) -> impl Iterator<Item=&Atom> {
         index.map(|i| {
-            &self.topology.atoms[i]
+            unsafe{ self.topology.nth_atom_unchecked(i) }
         })
     }
 
     fn iter_ind_pos_index(&self,index: impl ExactSizeIterator<Item=usize>) -> impl ExactSizeIterator<Item=(usize,&Pos)> {
         index.map(|i| {
-            (i,&self.state.coords[i])
+            unsafe{ (i,self.state.nth_pos_unchecked(i)) }
         })
     }
     
@@ -289,7 +294,7 @@ impl LogicalNode {
                         prop.cutoff,
                         data.iter_ind_pos_index(data.subset.iter().cloned()),
                         data.iter_ind_pos_index(inner.iter().cloned()),
-                        data.state.pbox.as_ref().unwrap(),
+                        data.state.get_box().unwrap(),
                         &prop.pbc,
                     )
                 };
@@ -310,12 +315,13 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
+        let mut crd = unsafe{ state.nth_pos_unchecked_mut(i) };
         for d in 0..3 {
-            if state.coords[i][d] < lower[d] {
-                lower[d] = state.coords[i][d]
+            if crd[d] < lower[d] {
+                lower[d] = crd[d]
             }
-            if state.coords[i][d] > upper[d] {
-                upper[d] = state.coords[i][d]
+            if crd[d] > upper[d] {
+                upper[d] = crd[d]
             }
         }
     }
@@ -765,7 +771,7 @@ impl SelectionExpr {
         let data = ApplyData::new(
             topology,
             state,
-            SubsetType::from_iter(0..topology.atoms.len())
+            SubsetType::from_iter(0..topology.num_atoms())
         )?;
         let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         index.sort();
@@ -800,7 +806,6 @@ mod tests {
         core::{Topology, State},
         io::*,
     };
-    use lazy_static::lazy_static;
 
     #[test]
     fn within_syntax_test() {
@@ -821,25 +826,21 @@ mod tests {
         (structure, state)
     }
 
-    // Read the test PDB file once and provide the content for tests
-    lazy_static! {
-        static ref SS: (Topology, State) = read_test_pdb();
-        static ref SS2: (Topology, State) = read_test_pdb2();
-    }
-
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
+        let topst = read_test_pdb();
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         ast.apply_whole(
-            &SS.0, 
-            &SS.1
+            &topst.0, 
+            &topst.1
         ).expect("Error applying AST")
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        let topst = read_test_pdb2();
         ast.apply_whole(
-            &SS2.0, 
-            &SS2.1
+            &topst.0, 
+            &topst.1
         ).expect("Error applying AST")
     }
 

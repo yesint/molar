@@ -1,5 +1,5 @@
 use super::{io_splitter::ReadTopAndState, StateProvider, TopologyProvider};
-use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, Topology};
+use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, StateStorage, Topology, TopologyStorage};
 use anyhow::Result;
 use ascii::{AsciiChar, AsciiString};
 use std::{
@@ -34,7 +34,7 @@ impl GroFileHandler {
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
         // Write atom lines
-        for (i, (at, pos)) in std::iter::zip(data.iter_atoms(), data.iter_coords()).enumerate() {
+        for (i, (at, pos)) in std::iter::zip(data.iter_atoms(), data.iter_pos()).enumerate() {
             let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
             let resid = at.resid % 99999; // Prevents overflow of resid field.
 
@@ -85,8 +85,8 @@ impl GroFileHandler {
 
 impl ReadTopAndState for GroFileHandler {
     fn read_top_and_state(&mut self) -> Result<(Topology, State)> {
-        let mut top = Topology::new();
-        let mut state = State::new();
+        let mut top = TopologyStorage::default();
+        let mut state = StateStorage::default();
 
         let mut lines = BufReader::new(File::open(self.file_name.to_owned())?).lines();
         // Skip the title
@@ -153,9 +153,10 @@ impl ReadTopAndState for GroFileHandler {
         }
         state.pbox = Some(PeriodicBox::from_matrix(m)?);
 
+        let mut top: Topology = top.into();
         // Assign resindex
         top.assign_resindex();
 
-        Ok((top, state))
+        Ok((top, state.into()))
     }
 }

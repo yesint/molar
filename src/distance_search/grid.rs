@@ -1,6 +1,6 @@
 use num_traits::clamp_min;
 
-use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f,IdPosIterator};
+use crate::core::{providers::PosProvider, IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f};
 
 //====================================================================
 // Cell location in the grid
@@ -175,12 +175,10 @@ fn test_grid() {
     let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
     let st = r.read_state_raw().unwrap().unwrap();
 
-    let crd = &st.coords;
-
     let mut gr = Grid::new([10, 10, 10]);
     gr.populate_periodic(
-        zip(0..crd.len(), crd.iter().map(|el| el)),
-        &st.pbox.as_ref().unwrap(),
+        zip(0..st.num_coords(), st.iter_pos()),
+        &st.get_box().unwrap(),
         &PBC_FULL,
     );
 }

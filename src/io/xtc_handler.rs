@@ -2,7 +2,7 @@ use super::StateProvider;
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
-use crate::core::{State, PeriodicBox};
+use crate::core::{PeriodicBox, State, StateStorage};
 
 use anyhow::{bail, Result};
 use std::ffi::CString;
@@ -142,7 +142,7 @@ impl XtcFileHandler {
 
     #[allow(non_upper_case_globals)]
     pub fn read_state(&mut self) -> Result<Option<State>> {
-        let mut st: State = Default::default();
+        let mut st: StateStorage = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;
         // Allocate storage for coordinates, but don't initialize them
@@ -171,7 +171,7 @@ impl XtcFileHandler {
         }
         
         match ok as u32 {
-            exdrOK => Ok(Some(st)),
+            exdrOK => Ok(Some(st.into())),
             exdrENDOFFILE => Ok(None),
             _ => bail!("Error reading timestep!"),
         }
@@ -189,7 +189,7 @@ impl XtcFileHandler {
 
         // Coordinate buffer
         #[allow(unused_mut)]
-        let mut buf = Vec::<Point3<f32>>::from_iter(data.iter_coords().cloned());
+        let mut buf = Vec::<Point3<f32>>::from_iter(data.iter_pos().cloned());
         
         let ok = unsafe {
             write_xtc(

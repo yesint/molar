@@ -1,6 +1,6 @@
-use std::{cell::{Ref, RefCell, RefMut, UnsafeCell}, rc::Rc};
+use std::{cell::UnsafeCell, rc::Rc};
 use crate::io::StateProvider;
-use super::{measure::GuardedQuery, providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
+use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
 
 #[derive(Debug, Default,Clone)]
@@ -10,9 +10,14 @@ pub struct StateStorage {
     pub pbox: Option<PeriodicBox>,
 }
 
+#[derive(Debug)]
 pub struct State(UnsafeCell<StateStorage>);
 
-pub type StateRc = Rc<RefCell<State>>;
+impl Clone for State {
+    fn clone(&self) -> Self {
+        Self(UnsafeCell::new(self.get().clone()))
+    }
+}
 
 impl From<StateStorage> for State {
     fn from(value: StateStorage) -> Self {
@@ -64,14 +69,6 @@ impl State {
 }
 
 impl StateProvider for State {
-    fn iter_coords(&self) -> impl Iterator<Item = &Pos> {
-        unsafe { self.get().coords.iter() }
-    }
-
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        unsafe { self.get().pbox.as_ref() }
-    }
-
     fn get_time(&self) -> f32 {
         unsafe { self.get().time }
     }

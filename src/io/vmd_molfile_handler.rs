@@ -162,8 +162,8 @@ impl VmdMolFileHandler<'_> {
         unsafe { vmd_atoms.set_len(self.natoms) }
 
         // Convert to Structure
-        let mut topology: Topology = Default::default();
-        topology.atoms.reserve(self.natoms);
+        let mut top: TopologyStorage = Default::default();
+        top.atoms.reserve(self.natoms);
 
         for ref vmd_at in vmd_atoms {
             let mut at = Atom {
@@ -184,13 +184,14 @@ impl VmdMolFileHandler<'_> {
                 at.atomic_number = vmd_at.atomicnumber as u8;
                 at.mass = vmd_at.mass;
             }
-            topology.atoms.push(at);
+            top.atoms.push(at);
         }
 
         // Assign resindexes
-        topology.assign_resindex();
+        let mut top: Topology = top.into();
+        top.assign_resindex();
 
-        Ok(topology)
+        Ok(top)
     }
 
     pub fn write_topology(&mut self, data: &impl TopologyProvider) -> Result<()> {
@@ -230,7 +231,7 @@ impl VmdMolFileHandler<'_> {
     }
 
     pub fn read_state(&mut self) -> Result<Option<State>> {
-        let mut state: State = Default::default();
+        let mut state: StateStorage = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
         // This doesn't waste time for initialization, which will be overwritten anyway
@@ -276,7 +277,7 @@ impl VmdMolFileHandler<'_> {
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(Some(state)),
+            MOLFILE_SUCCESS => Ok(Some(state.into())),
             MOLFILE_EOF => Ok(None),
             _ => bail!("Error reading timestep!"),
         }
@@ -300,7 +301,7 @@ impl VmdMolFileHandler<'_> {
         */
 
         let mut buf = Vec::from_iter(
-            data.iter_coords()
+            data.iter_pos()
                 .map(|p| p.coords.iter().cloned())
                 .flatten()
                 .map(|el| el * 10.0),

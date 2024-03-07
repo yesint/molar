@@ -6,18 +6,8 @@ use anyhow::Result;
 // Traits for measuring (immutable access)
 //==============================================================
 
-// Main trait giving scoped read-only data provider
-pub trait GuardedQuery {
-    type Guard<'a>
-    where
-        Self: 'a;
-    fn guard<'a>(&'a self) -> Self::Guard<'a>;
-}
-
 /// Trait for analysis requiring only positions
-pub trait MeasurePos: GuardedQuery
-where
-    for<'a> Self::Guard<'a>: PosProvider,
+pub trait MeasurePos: PosProvider
 {
     fn min_max(&self) -> (Pos, Pos) {
         min_max(&self.guard())
@@ -33,9 +23,7 @@ where
 }
 
 /// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: GuardedQuery
-where
-    for<'a> Self::Guard<'a>: PosProvider + MassesProvider,
+pub trait MeasureMasses: PosProvider + MassesProvider
 {
     fn center_of_mass(&self) -> Result<Pos> {
         center_of_mass(&self.guard())
@@ -55,12 +43,10 @@ where
 }
 
 /// Trait for analysis requiring positions, masses and pbc
-pub trait MeasurePeriodic: GuardedQuery
-where
-    for<'a> Self::Guard<'a>: PosProvider + MassesProvider + BoxProvider,
+pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider
 {
     fn center_of_mass_pbc(&self) -> Result<Pos> {
-        center_of_mass_pbc(&self.guard())
+        center_of_mass_pbc(&self)
     }
 }
 
