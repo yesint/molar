@@ -1,6 +1,4 @@
 use std::iter::zip;
-
-use super::algorithms::*;
 use super::providers::*;
 use super::Matrix3f;
 use super::Pos;

@@ -5,16 +5,12 @@ use super::{
         AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider,
         RandomPosMutProvider,
     },
-    Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, SelectionSplitIterator,
-    State, Topology,
+    Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, Topology,
 };
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use std::{
-    collections::HashMap,
-    rc::Rc,
-};
+use std::{collections::HashMap, rc::Rc};
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
@@ -65,9 +61,7 @@ impl Select for SelectionAll {
 impl Select for SelectionExpr {
     fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
         check_sizes(&topology, &state)?;
-        let index = self
-            .apply_whole(&topology, &state)
-            .unwrap();
+        let index = self.apply_whole(&topology, &state).unwrap();
         if index.len() > 0 {
             Ok(Selection {
                 topology: topology.clone(),
@@ -156,7 +150,7 @@ In principle even aliasing access from multiple threads to *individual* atoms is
 in a sence that no UB could happen. The data races may result in incorrect values,
 but no unsafe memory access is possible.
 
-So Rc<UnsafeCell<State>> or Arc<UnsafeCell<State>> should be fine if API 
+So Rc<UnsafeCell<State>> or Arc<UnsafeCell<State>> should be fine if API
 makes changing the number of atoms impossible.
 
 - Should pbox be always immutable?
@@ -171,20 +165,17 @@ pub struct Selection {
 }
 
 impl Selection {
-    //===================
-    // Subselections
-    //===================
     pub fn len(&self) -> usize {
         self.num_atoms()
     }
 
+    //===================
+    // Subselections
+    //===================
+
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection> {
-        let index = expr.apply_subset(
-            &self.topology,
-            &self.state,
-            self.index.iter().cloned(),
-        )?;
+        let index = expr.apply_subset(&self.topology, &self.state, self.index.iter().cloned())?;
         if index.len() > 0 {
             Ok(Selection {
                 topology: self.topology.clone(),
@@ -233,15 +224,23 @@ impl Selection {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Selection> {
+    ) -> Result<Selection> {        
         // Remove duplicates if any
-        let index: Vec<usize> = iter.sorted().dedup().map(|i| self.index[i]).collect();
+        let index = iter
+            .sorted()
+            .dedup()
+            .map(|i| {
+                self.index.get(i)
+                .cloned()
+                .ok_or_else(|| anyhow!("Index {} is out of allowed range [0:{}]",i,self.index.len()))
+            })
+            .collect::<Result<Vec<usize>>>()?;
         // Now it's safe to call
         unsafe { self.subsel_from_vec_unchecked(index) }
     }
 
     // This method doesn't check if the vector has duplicates and thus unsafe
-    pub unsafe fn subsel_from_vec_unchecked(&self, index: Vec<usize>) -> Result<Selection> {
+    unsafe fn subsel_from_vec_unchecked(&self, index: Vec<usize>) -> Result<Selection> {
         if index.len() > 0 {
             Ok(Selection {
                 topology: self.topology.clone(),
@@ -253,12 +252,12 @@ impl Selection {
         }
     }
 
-    pub unsafe fn nth_unchecked(&self, i: usize) -> (usize,&Atom,&Pos) {
+    unsafe fn nth_unchecked(&self, i: usize) -> (usize, &Atom, &Pos) {
         let ind = *self.index.get_unchecked(i);
         (
             ind,
             self.topology.nth_atom_unchecked(ind),
-            self.state.nth_pos_unchecked(ind)
+            self.state.nth_pos_unchecked(ind),
         )
     }
 
@@ -297,10 +296,21 @@ impl Selection {
 
         C::from_iter(
             ids.into_values()
-                .map(|ind| unsafe {
-                    self.subsel_from_vec_unchecked(ind).unwrap() 
-                }),
+                .map(|ind| unsafe { self.subsel_from_vec_unchecked(ind).unwrap() }),
+            // This should never fail because `ind` can't be empty
         )
+    }
+
+    // Pre-defined splitters
+    pub fn split_contig_resid(&self) -> SelectionSplitIterator<'_,i32,fn(usize, &Atom, &Pos)->i32> {
+        self.split_contig(|_,at,_| at.resid)
+    }
+
+    pub fn split_resid<C>(&self) -> C
+    where        
+        C: FromIterator<Selection> + Default,
+    {
+        self.split(|_,at,_| at.resid)
     }
 
     //======================
@@ -363,9 +373,7 @@ impl MeasurePeriodic for Selection {}
 
 impl PosProvider for Selection {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        unsafe {
-            self.index.iter().map(|i| self.state.nth_pos_unchecked(*i))
-        }
+        unsafe { self.index.iter().map(|i| self.state.nth_pos_unchecked(*i)) }
     }
 }
 
@@ -374,7 +382,9 @@ impl MeasurePos for Selection {}
 impl AtomsProvider for Selection {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
-            self.index.iter().map(|i| self.topology.nth_atom_unchecked(*i))
+            self.index
+                .iter()
+                .map(|i| self.topology.nth_atom_unchecked(*i))
         }
     }
 }
@@ -382,7 +392,9 @@ impl AtomsProvider for Selection {
 impl MassesProvider for Selection {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
-            self.index.iter().map(|i| self.topology.nth_atom_unchecked(*i).mass)
+            self.index
+                .iter()
+                .map(|i| self.topology.nth_atom_unchecked(*i).mass)
         }
     }
 }
@@ -395,8 +407,8 @@ impl PosMutProvider for Selection {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.index
-            .iter()
-            .map(|i| self.state.nth_pos_unchecked_mut(*i) )
+                .iter()
+                .map(|i| self.state.nth_pos_unchecked_mut(*i))
         }
     }
 }
@@ -412,6 +424,71 @@ impl RandomPosMutProvider for Selection {
 impl ModifyPos for Selection {}
 impl ModifyRandomAccess for Selection {}
 
+//-------------------------------------------------------
+// Splitting iterator
+//-------------------------------------------------------
+
+pub struct SelectionSplitIterator<'a, T, F> {
+    sel: &'a Selection,
+    func: F,
+    counter: usize,
+    id: T,
+}
+
+impl SelectionSplitIterator<'_, (), ()> {
+    pub fn new<T, F>(sel: &Selection, func: F) -> SelectionSplitIterator<'_, T, F>
+    where
+        T: Default + std::cmp::PartialEq,
+        F: Fn(usize, &Atom, &Pos) -> T,
+    {
+        SelectionSplitIterator {
+            sel,
+            func,
+            counter: 0,
+            id: T::default(),
+        }
+    }
+}
+
+impl<T, F> Iterator for SelectionSplitIterator<'_, T, F>
+where
+    T: Default + std::cmp::PartialEq,
+    F: Fn(usize, &Atom, &Pos) -> T,
+{
+    type Item = Selection;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut index = vec![];
+        while self.counter < self.sel.len() {
+            let (i, at, pos) = unsafe { self.sel.nth_unchecked(self.counter) };
+            let id = (self.func)(i, at, pos);
+
+            if id == self.id {
+                // Current selection continues. Add current index
+                index.push(i);
+            } else if index.is_empty() {
+                // The very first id is not default, this is Ok, add index
+                // and update self.id
+                self.id = id;
+                index.push(i);
+            } else {
+                // The end of current selection
+                self.id = id; // Update self.id for the next selection
+                return unsafe { Some(self.sel.subsel_from_vec_unchecked(index).unwrap()) };
+            }
+            // Next element
+            self.counter += 1;
+        }
+
+        // Return any remaining index as last selection
+        if !index.is_empty() {
+            return unsafe { Some(self.sel.subsel_from_vec_unchecked(index).unwrap()) };
+        }
+
+        // If we are here stop iterating
+        None
+    }
+}
+
 //############################################################
 //#  Tests
 //############################################################
@@ -421,9 +498,8 @@ mod tests {
     use super::{Selection, SelectionAll};
     use crate::{
         core::{
-            providers::PosProvider, selection::Select,
-            MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f,
-            PBC_FULL,
+            providers::PosProvider, selection::Select, MeasureMasses, MeasurePos, ModifyPos,
+            ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL,
         },
         io::*,
     };

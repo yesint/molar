@@ -5,7 +5,6 @@ mod periodic_box;
 #[allow(dead_code)]
 mod selection_parser;
 mod selection;
-mod algorithms;
 //mod particle;
 pub mod providers;
 mod measure;
@@ -15,8 +14,7 @@ pub use {
     atom::*, 
     topology::*,
     state::*,
-    periodic_box::*,
-    algorithms::*,
+    periodic_box::*,    
     selection::*,
 //    particle::*,
     measure::*,
