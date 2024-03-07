@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, rc::Rc};
+use std::{cell::UnsafeCell, ops::Deref, rc::Rc};
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
@@ -47,45 +47,69 @@ impl State {
 
     #[inline(always)]
     pub unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
-        self.get().coords.get_unchecked_mut(i)
+        self.get_mut().coords.get_unchecked_mut(i)
     }
 
     #[inline(always)]
     pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
-        unsafe { self.get().coords.get(i) }
+        self.get().coords.get(i)
     }
 
     #[inline(always)]
     pub fn get_box(&self) -> Option<&PeriodicBox> {
-        unsafe { self.get().pbox.as_ref() }
+        self.get().pbox.as_ref()
     }
 
     #[inline(always)]
     pub fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        unsafe { self.get_mut().pbox.as_mut() }
+        self.get_mut().pbox.as_mut()
     }
 
     
 }
 
-impl StateProvider for State {
+// Impls for smart pointers
+impl<T: Deref<Target=State>> StateProvider for T {
     fn get_time(&self) -> f32 {
-        unsafe { self.get().time }
+        self.get().time
     }
 
     fn num_coords(&self) -> usize {
-        unsafe { self.get().coords.len() }
+        self.get().coords.len()
+    }
+}
+
+impl<T: Deref<Target=State>> PosProvider for T {
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        self.get().coords.iter()
+    }
+}
+
+impl<T: Deref<Target=State>> BoxProvider for T {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.get().pbox.as_ref()
+    }
+}
+
+// Impls for State itself
+impl StateProvider for State {
+    fn get_time(&self) -> f32 {
+        self.get().time
+    }
+
+    fn num_coords(&self) -> usize {
+        self.get().coords.len()
     }
 }
 
 impl PosProvider for State {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        unsafe { self.get().coords.iter() }
+        self.get().coords.iter()
     }
 }
 
 impl BoxProvider for State {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        unsafe { self.get().pbox.as_ref() }
+        self.get().pbox.as_ref()
     }
 }

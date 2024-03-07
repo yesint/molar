@@ -255,7 +255,7 @@ mod tests {
         //println!("{:?}", st.atoms);
 
         for fr in r {
-            w.write_state(&*fr)?;
+            w.write_state(&fr)?;
             //let f = fr.into_inner();
             //println!("{}", f.time);
         }
@@ -298,8 +298,8 @@ mod tests {
         println!("{outname}");
         let mut w = FileHandler::create(outname)?;
         w.write_topology(&*top1)?;
-        w.write_state(&*st1)?;
-        w.write_state(&*st2)?;
+        w.write_state(&st1)?;
+        w.write_state(&st2)?;
 
         //let top2 = r.read_topology()?;
         //let st2 = r.read_next_state()?.unwrap();

@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, rc::Rc};
+use std::{cell::UnsafeCell, ops::Deref, rc::Rc};
 use crate::io::TopologyProvider;
 
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
@@ -49,12 +49,12 @@ impl Topology {
 
     #[inline(always)]
     pub unsafe fn nth_atom_unchecked_mut(&self, i: usize) -> &mut Atom {
-        self.get().atoms.get_unchecked_mut(i)
+        self.get_mut().atoms.get_unchecked_mut(i)
     }
 
     #[inline(always)]
     pub fn nth_atom(&self, i: usize) -> Option<&Atom> {
-        unsafe { self.get().atoms.get(i) }
+        self.get().atoms.get(i)
     }
 
     pub fn assign_resindex(&mut self) {
@@ -70,6 +70,7 @@ impl Topology {
     }
 }
 
+// Impls for Topology itself
 impl TopologyProvider for Topology {
     fn num_atoms(&self) -> usize {
         self.get().atoms.len()
@@ -89,6 +90,31 @@ impl AtomsMutProvider for Topology {
 }
 
 impl MassesProvider for Topology {
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+        self.get().atoms.iter().map(|at| at.mass)
+    }
+}
+
+// Impls for smart pointers
+impl<T: Deref<Target=Topology>> TopologyProvider for T {
+    fn num_atoms(&self) -> usize {
+        self.get().atoms.len()
+    }
+}
+
+impl<T: Deref<Target=Topology>> AtomsProvider for T {
+    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+        self.get().atoms.iter()
+    }
+}
+
+impl<T: Deref<Target=Topology>> AtomsMutProvider for T {
+    fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
+        self.get_mut().atoms.iter_mut()
+    }
+}
+
+impl<T: Deref<Target=Topology>> MassesProvider for T {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.get().atoms.iter().map(|at| at.mass)
     }
