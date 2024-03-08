@@ -1,10 +1,7 @@
 use super::{
     measure::{MeasureMasses, MeasurePeriodic, MeasurePos},
     modify::{ModifyPos, ModifyRandomAccess},
-    providers::{
-        AtomsProvider, BoxProvider, MassesProvider, PosMutProvider, PosProvider,
-        RandomPosMutProvider,
-    },
+    providers::*,
     Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, Topology,
 };
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
@@ -15,7 +12,7 @@ use std::{collections::HashMap, rc::Rc};
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
 
-/// Trait whic provides select method operating with generic smart pointers
+/// Trait which provides select method operating with generic smart pointers
 pub trait Select {
     fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection>;
 }
@@ -252,7 +249,7 @@ impl Selection {
         }
     }
 
-    unsafe fn nth_unchecked(&self, i: usize) -> (usize, &Atom, &Pos) {
+    pub unsafe fn nth_unchecked(&self, i: usize) -> (usize, &Atom, &Pos) {
         let ind = *self.index.get_unchecked(i);
         (
             ind,
@@ -333,8 +330,44 @@ impl Selection {
         let mut h = FileHandler::create(fname)?;
         h.write(self)
     }
+
+    pub fn first(&self) -> (usize, &Atom, &Pos) {
+        unsafe { self.nth_unchecked(0) }
+    }
+
+    pub fn nth(&self, i: usize) -> Result<(usize, &Atom, &Pos)> {
+        if i>self.len() {
+            bail!("Index {} is beyond the allowed range [0:{}]",i,self.len())
+        }
+        Ok(unsafe {self.nth_unchecked(i)})
+    }
+
+    pub fn iter(&self) -> SelectionIterator {
+        SelectionIterator {
+            sel: self,
+            cur: 0,
+        }
+    }
 }
 
+//---------------------------------------------
+pub struct SelectionIterator<'a> {
+    sel: &'a Selection,
+    cur: usize,
+}
+
+impl<'a> Iterator for SelectionIterator<'a> {
+    type Item = (usize, &'a Atom, &'a Pos);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur < self.sel.len() {
+            let ret = unsafe{ self.sel.nth_unchecked(self.cur) };
+            self.cur += 1;
+            Some(ret)
+        } else {
+            None
+        }
+    }
+}
 //---------------------------------------------
 // Implement traits for IO
 
@@ -498,7 +531,7 @@ mod tests {
     use super::{Selection, SelectionAll};
     use crate::{
         core::{
-            providers::PosProvider, selection::Select, MeasureMasses, MeasurePos, ModifyPos,
+            providers::PosProvider, selection::{AtomsProvider, Select}, MeasureMasses, MeasurePos, ModifyPos,
             ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL,
         },
         io::*,
@@ -606,6 +639,15 @@ mod tests {
 
         sel1.save("tests/sel1_after.pdb")?;
         println!("Final RMSD:{}", Selection::rmsd_mw(&sel1, &sel2)?);
+        Ok(())
+    }
+
+    #[test]
+    fn split_test() -> anyhow::Result<()> {
+        let sel1 = make_sel_prot()?;
+        for res in sel1.split_contig(|_,at,_| at.resid) {
+            println!("Res: {}",res.iter_atoms().next().unwrap().resid)
+        }
         Ok(())
     }
 }

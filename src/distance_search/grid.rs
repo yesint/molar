@@ -1,6 +1,6 @@
 use num_traits::clamp_min;
 
-use crate::core::{providers::PosProvider, IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f};
+use crate::core::{IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f};
 
 //====================================================================
 // Cell location in the grid
@@ -77,11 +77,11 @@ where
         }
         Self::new(sz)
     }
-    
+
     pub fn from_cuoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
         Self::from_cutoff_and_extents(cutoff, &(max - min))
     }
-    
+
     pub fn from_cuoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
         Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
     }
@@ -135,9 +135,9 @@ impl Grid<GridCellData> {
                 }
                 // Wrap relative dimesion into (0:1)
                 let fr = rel[d].fract();
-                rel[d] = if fr>=0.0 {fr} else {1.0-fr};
+                rel[d] = if fr >= 0.0 { fr } else { 1.0 - fr };
                 // Compute bin
-                ind[d] = (rel[d]*dim[d] as f32).floor() as usize;
+                ind[d] = (rel[d] * dim[d] as f32).floor() as usize;
             }
             //println!("{:?}",ind);
             self.data[ind].add(id, &pos);
@@ -165,20 +165,25 @@ impl<T> std::ops::IndexMut<&CellLoc> for Grid<T> {
 }
 
 //============================================================================
+#[cfg(test)]
+mod tests {
+    use crate::core::providers::*;
+    use super::*;
 
-#[test]
-fn test_grid() {
-    use crate::io::*;
-    use std::iter::zip;
-    use crate::core::PBC_FULL;
+    #[test]
+    fn test_grid() {
+        use crate::core::PBC_FULL;
+        use crate::io::*;
+        use std::iter::zip;
 
-    let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
-    let st = r.read_state_raw().unwrap().unwrap();
+        let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
+        let st = r.read_state_raw().unwrap().unwrap();
 
-    let mut gr = Grid::new([10, 10, 10]);
-    gr.populate_periodic(
-        zip(0..st.num_coords(), st.iter_pos()),
-        &st.get_box().unwrap(),
-        &PBC_FULL,
-    );
+        let mut gr = Grid::new([10, 10, 10]);
+        gr.populate_periodic(
+            zip(0..st.num_coords(), st.iter_pos()),
+            &st.get_box().unwrap(),
+            &PBC_FULL,
+        );
+    }
 }
