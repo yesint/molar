@@ -1,5 +1,6 @@
 #include <Eigen/Core>
 #include "power_sasa.h"
+#include "wrapper.hpp"
 
 // Minimal iterator-like class for coordinates
 class SasaCoordIter {
@@ -10,17 +11,17 @@ public:
     using reference = value_type& ;
     using iterator_category = std::forward_iterator_tag;
 
-    SasaCoordIter(float* (*cb)(size_t,void*), void* context): callback(cb), pos(0), context(context) {}
+    SasaCoordIter(float* (*cb)(void*,size_t), void* context): callback(cb), pos(0), context(context) {}
 
     SasaCoordIter operator++(int junk) {auto tmp = *this; ++pos; return tmp;}
     SasaCoordIter& operator++() { ++pos; return *this; }
 
     reference operator*() const {
         // Take a raw pointer from callback and reinterpret as *Vector3f
-        return *reinterpret_cast<pointer>(callback(pos,context));
+        return *reinterpret_cast<pointer>(callback(context,pos));
     }    
 private:
-    float* (*callback)(size_t,void*);
+    float* (*callback)(void*,size_t);
     size_t pos;
     void* context;
 };
@@ -34,17 +35,17 @@ public:
     using reference = value_type& ;
     using iterator_category = std::forward_iterator_tag;
 
-    SasaVDWIter(float (*cb)(size_t,void*), void* context): callback(cb), pos(0), context(context) {}
+    SasaVDWIter(float (*cb)(void*,size_t), void* context): callback(cb), pos(0), context(context) {}
 
     SasaVDWIter operator++(int junk) {auto tmp = *this; ++pos; return tmp;}
     SasaVDWIter& operator++() { ++pos; return *this; }
 
     float operator*() const {
         // Just return a value from callback
-        return callback(pos,context);
+        return callback(context,pos);
     }    
 private:
-    float (*callback)(size_t,void*);
+    float (*callback)(void*,size_t);
     size_t pos;
     void* context;
 };
@@ -54,11 +55,11 @@ private:
 // PowerSasa uses only begin() and size() methods, so no iterator comparison logic is needed
 class SasaCoordContainer {
 public:
-    SasaCoordContainer(float* (*cb)(size_t,void*), size_t sz, void* context): callback(cb), sz(sz), context(context) {}    
+    SasaCoordContainer(float* (*cb)(void*,size_t), size_t sz, void* context): callback(cb), sz(sz), context(context) {}    
     SasaCoordIter begin() const { return SasaCoordIter(callback,context); }
     int size() const {return sz;}
 private:
-    float* (*callback)(size_t,void*);
+    float* (*callback)(void*,size_t);
     size_t sz;
     void* context;
 };
@@ -66,11 +67,11 @@ private:
 // Container for VdW radii
 class SasaVDWContainer {
 public:
-    SasaVDWContainer(float (*cb)(size_t,void*), size_t sz, void* context): callback(cb), sz(sz), context(context) {}    
+    SasaVDWContainer(float (*cb)(void*,size_t), size_t sz, void* context): callback(cb), sz(sz), context(context) {}    
     SasaVDWIter begin() const { return SasaVDWIter(callback,context); }
     int size() const {return sz;}
 private:
-    float (*callback)(size_t,void*);
+    float (*callback)(void*,size_t);
     size_t sz;
     void* context;
 };
@@ -79,15 +80,17 @@ private:
 void powersasa(    
     float* area_per_atom, // Returns areas per atom in this array. Has to point to properly sized array!    
     float* volume_per_atom, // Returns volume per atom in this array. Has to point to properly sized array!
-    float* (*cb)(size_t,void*), // callback for coordinates
-    float (*cb_vdw)(size_t,void*), // callback VdW radii. !!! They must be VdW+probe_r !!!
-    size_t num, // Numebr of atoms
-    void* context
+    float* (*cb_crd)(void*,size_t), // callback for coordinates
+    float (*cb_vdw)(void*,size_t), // callback VdW radii. !!! They must be VdW+probe_r !!!
+    void* context_crd, // Context pointer for coordinates
+    void* context_vdw, // Context pointer for VdW
+    size_t num // Number of atoms
     )
 {        
-    SasaCoordContainer cont_crd(cb,num,context);
-    SasaVDWContainer cont_vdw(cb_vdw,num,context);
+    SasaCoordContainer cont_crd(cb_crd,num,context_crd);
+    SasaVDWContainer cont_vdw(cb_vdw,num,context_vdw);
 
+    
     // Call POWERSASA
     POWERSASA::PowerSasa<float,Eigen::Vector3f> ps(cont_crd, cont_vdw, 1, 0, 1, 0);
     ps.calc_sasa_all();
@@ -105,4 +108,5 @@ void powersasa(
             area_per_atom[i] = ps.getSasa()[i];
         }
     }
+    
 }

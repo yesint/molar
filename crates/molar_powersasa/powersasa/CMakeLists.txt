@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(powersasa CXX)
+project(powersasa_wrapper CXX)
 
 # -fPIC
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -25,12 +25,12 @@ CPMAddPackage(
 )
 
 add_library(powersasa_wrapper STATIC
-${PROJECT_SOURCE_DIR}/wrapper.cpp
-${PROJECT_SOURCE_DIR}/power_diagram.h
-${PROJECT_SOURCE_DIR}/power_sasa.h
+    ${PROJECT_SOURCE_DIR}/wrapper.cpp
+    ${PROJECT_SOURCE_DIR}/power_diagram.h
+    ${PROJECT_SOURCE_DIR}/power_sasa.h
 )
 
-target_link_libraries(powersasa_wrapper PRIVATE Eigen3::Eigen)
+target_link_libraries(powersasa_wrapper PUBLIC Eigen3::Eigen)
 
 install(TARGETS powersasa_wrapper
     LIBRARY DESTINATION .

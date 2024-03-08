@@ -318,43 +318,37 @@ impl Selection {
         self.split(|_, at, _| at.resid)
     }
 
-    // Actual rust closure is passed as arg
-    unsafe extern "C" fn crd_cb(i: usize, arg: *mut ::std::os::raw::c_void) -> *mut f32 {
-        let closure: &mut &mut dyn FnMut(usize) -> *mut f32 = unsafe { std::mem::transmute(arg) };
-        closure(i)        
-    }
-
-    unsafe extern "C" fn vdw_cb(i: usize, context: *mut ::std::os::raw::c_void) -> f32 {
-        42.0
-    }
-
+    
     // Sasa
-    pub fn sasa(&self) -> Result<f32> {
+    pub fn sasa(&self) -> f32 {
         // Arrays for areas and volumes
-        let areas = Vec::<f32>::with_capacity(self.len());
-        let volumes = Vec::<f32>::with_capacity(self.len());       
+        let mut areas = Vec::<f32>::with_capacity(self.len());
+        let mut volumes = Vec::<f32>::with_capacity(self.len());       
 
+        // Creat C callbacks for coordinates and VdW
+        let crd_closure = &mut |i: usize| { unsafe{self.nth_pos_unchecked_mut(i).coords.as_mut_ptr()} };
+        let crd_cb = molar_powersasa::CCallback::new(crd_closure);
+
+        let vdw_closure = &mut |i: usize| { 0.1 };
+        let vdw_cb = molar_powersasa::CCallback::new(vdw_closure);
         
-        //let cb = &mut cb;
-        //unsafe { do_something(Some(do_something_handler), cb as *mut _ as *mut c_void) 
 
         unsafe {
-            let mut cb: &mut dyn FnMut(usize) -> *mut f32 = &mut |i| self.nth_pos_unchecked(i).coords.as_mut_ptr();
-
             powersasa(
                 areas.as_mut_ptr(),
                 volumes.as_mut_ptr(),
-                Some(Self::crd_cb),
-                Some(Self::vdw_cb),
-                self.len(),
-                cb as *mut _ as *mut c_void
+                Some(crd_cb.function),
+                Some(vdw_cb.function),
+                crd_cb.user_data,
+                vdw_cb.user_data,
+                self.len()
             );
             // Resize vectors accordingly
             areas.set_len(self.len());
             volumes.set_len(self.len());
         }
 
-        ()
+        areas.into_iter().sum()
     }
 
     //======================
@@ -694,6 +688,14 @@ mod tests {
         for res in sel1.split_contig(|_, at, _| at.resid) {
             println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
+        Ok(())
+    }
+
+    #[test]
+    fn sasa_test() -> anyhow::Result<()> {
+        let sel1 = make_sel_prot()?;
+        let sasa = sel1.sasa();
+        println!("Sasa: {sasa}");
         Ok(())
     }
 }
