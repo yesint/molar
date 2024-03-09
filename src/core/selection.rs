@@ -10,8 +10,6 @@ use itertools::Itertools;
 use std::{collections::HashMap, os::raw::c_void, rc::Rc};
 
 pub use super::selection_parser::SelectionExpr;
-use molar_powersasa::powersasa_bindings::powersasa;
-
 //-----------------------------------------------------------------
 
 /// Trait which provides select method operating with generic smart pointers
@@ -326,7 +324,9 @@ impl Selection {
         let mut volumes = Vec::<f32>::with_capacity(self.len());       
 
         // Creat C callbacks for coordinates and VdW
-        let crd_closure = &mut |i: usize| { unsafe{self.nth_pos_unchecked_mut(i).coords.as_mut_ptr()} };
+        let crd_closure = &mut |i: usize| { 
+            unsafe{self.nth_pos_unchecked_mut(i).coords}.as_mut_ptr()
+        };
         let crd_cb = molar_powersasa::CCallback::new(crd_closure);
 
         let vdw_closure = &mut |i: usize| { 0.1 };
@@ -334,7 +334,7 @@ impl Selection {
         
 
         unsafe {
-            powersasa(
+            molar_powersasa::powersasa_bindings::run_powersasa(
                 areas.as_mut_ptr(),
                 volumes.as_mut_ptr(),
                 Some(crd_cb.function),
