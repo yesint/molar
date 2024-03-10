@@ -9,9 +9,9 @@ class SasaCoordIter {
 public:
     SasaCoordIter(RustCoordProvider& provider): provider(provider) {}
     SasaCoordIter& operator++() { provider.advance(); return *this; }
-    Eigen::Vector3f& operator*() const {
+    Eigen::Vector3f const& operator*() const {
         // Take a raw pointer from rust provider and reinterpret as *Vector3f
-        return *reinterpret_cast<Eigen::Vector3f*>(provider.get());
+        return *reinterpret_cast<Eigen::Vector3f const*>(provider.get());
     }    
 private:
     RustCoordProvider& provider;
@@ -31,65 +31,35 @@ private:
 };
 
 
-// This is a minimal Container-like class, which takes a Rust callback that provides elements
-// PowerSasa uses only begin() and size() methods, so no iterator comparison logic is needed
+// A minimal Container-like class wrapping a Rust coord provider
 class SasaCoordContainer {
 public:
     SasaCoordContainer(RustCoordProvider& provider, size_t sz): provider(provider), sz(sz) {}    
-    SasaCoordIter begin() const { return SasaCoordIter(provider); }
+    SasaCoordIter begin() const {
+        provider.reset();
+        return SasaCoordIter(provider);
+    }
     int size() const {return sz;}
 private:
     RustCoordProvider& provider;
     size_t sz;
 };
 
-// Container for VdW radii
+// A minimal Container-like class wrapping a Rust coord provider
 class SasaVDWContainer {
 public:
     SasaVDWContainer(RustVdwProvider& provider, size_t sz): provider(provider), sz(sz) {}    
-    SasaVDWIter begin() const { return SasaVDWIter(provider); }
+    SasaVDWIter begin() const {
+        provider.reset();
+        return SasaVDWIter(provider);
+    }
     int size() const {return sz;}
 private:
     RustVdwProvider& provider;
     size_t sz;
 };
 
-/*
-void run_powersasa(    
-    float* area_per_atom, // Returns areas per atom in this array. Has to point to properly sized array!    
-    float* volume_per_atom, // Returns volume per atom in this array. Has to point to properly sized array!
-    float* (*cb_crd)(void*,size_t), // callback for coordinates
-    float (*cb_vdw)(void*,size_t), // callback VdW radii. !!! They must be VdW+probe_r !!!
-    void* context_crd, // Context pointer for coordinates
-    void* context_vdw, // Context pointer for VdW
-    size_t num // Number of atoms
-    )
-{        
-    SasaCoordContainer cont_crd(cb_crd,num,context_crd);
-    SasaVDWContainer cont_vdw(cb_vdw,num,context_vdw);
-
-    // Call POWERSASA
-    POWERSASA::PowerSasa<float,Eigen::Vector3f> ps(cont_crd, cont_vdw, 1, 0, 1, 0);
-    ps.calc_sasa_all();
-
-    float v,surf=0.0;
-
-    if(volume_per_atom){        
-        for(int i = 0; i < num; ++i){
-            volume_per_atom[i] = ps.getVol()[i];
-        }
-    }
-
-    if(area_per_atom){
-        for(int i = 0; i < num; ++i){                    
-            area_per_atom[i] = ps.getSasa()[i];
-        }
-    }
-        
-}
-*/
-//----------------------------------------
-
+// Constructor function
 std::unique_ptr<PowerSasaWrapper> new_power_sasa(
     RustCoordProvider& crd_prov, 
     RustVdwProvider& vdw_prov,
