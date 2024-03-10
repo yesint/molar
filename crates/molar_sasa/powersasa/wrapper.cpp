@@ -2,7 +2,7 @@
 #include "molar_sasa/powersasa/power_sasa.h"
 #include "molar_sasa/powersasa/wrapper.h"
 #include <memory>
-#include "molar_sasa/src/main.rs.h"
+#include "molar_sasa/src/lib.rs.h"
 
 // Minimal iterator-like class for coordinates
 class SasaCoordIter {

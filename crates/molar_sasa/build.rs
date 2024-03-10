@@ -6,7 +6,7 @@ fn main() {
         .std("c++17")
         .compile("cxxbridge");
 
-    println!("cargo:rerun-if-changed=src/main.rs");
+    println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=powersasa/wrapper.cpp");
     println!("cargo:rerun-if-changed=powersasa/wrapper.h");
 }
