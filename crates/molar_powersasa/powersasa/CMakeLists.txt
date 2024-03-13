@@ -28,8 +28,7 @@ add_library(powersasa_wrapper STATIC
     ${PROJECT_SOURCE_DIR}/wrapper.cpp
     ${PROJECT_SOURCE_DIR}/wrapper.h
     ${PROJECT_SOURCE_DIR}/power_diagram.h
-    ${PROJECT_SOURCE_DIR}/power_sasa.h
-    ${PROJECT_SOURCE_DIR}/array.hpp
+    ${PROJECT_SOURCE_DIR}/power_sasa.h    
 )
 
 target_include_directories(powersasa_wrapper PRIVATE ${PROJECT_SOURCE_DIR})

@@ -719,7 +719,7 @@ calc_sasa_single(const unsigned int iatom)
 
 	std::vector<typename POWER_DIAGRAM::PowerDiagram<PDFloat,PDCoord,3>::vertex*> const &nodes = atom.myVertices;
 	typename POWER_DIAGRAM::PowerDiagram<PDFloat,PDCoord,3>::vertex *node1, *node2;
-	s_boost::array<typename POWER_DIAGRAM::PowerDiagram<PDFloat, PDCoord,3>::cellPtr,4> gen1, gen2;
+	std::array<typename POWER_DIAGRAM::PowerDiagram<PDFloat, PDCoord,3>::cellPtr,4> gen1, gen2;
 	typename POWER_DIAGRAM::PowerDiagram<PDFloat,PDCoord,3>::cell *at;
 
 	for (j = 0; j < int(nodes.size()); ++j)

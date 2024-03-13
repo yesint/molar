@@ -4,6 +4,7 @@
 #include <string>
 #include <sstream>
 #include <fstream>
+#include <vector>
 
 template <class PDFloat,class PDCoord>
 void parse (std::string const& filename, std::vector<PDCoord> & coord_output, std::vector<PDFloat>& weight_output)

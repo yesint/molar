@@ -29,4 +29,4 @@ fn main() {
     bindings
         .write_to_file(out_path.join("powersasa_bindings.rs"))
         .expect("Couldn't write bindings!"); 
-}
+} 

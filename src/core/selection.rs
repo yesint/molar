@@ -315,17 +315,16 @@ impl Selection {
     {
         self.split(|_, at, _| at.resid)
     }
-
     
     // Sasa
-    pub fn sasa(&self) -> f32 {
+    pub fn sasa(&self) -> (f32,f32) {
         let (areas, volumes) = molar_powersasa::sasa(
             self.len(),
             0.14, 
-            |i| unsafe{self.nth_pos_unchecked_mut(i).coords}.as_mut_ptr(), 
+            |i| unsafe { self.nth_pos_unchecked_mut(i).coords.as_mut_ptr() }, 
             |i: usize| { self.nth(i).unwrap().1.vdw() }
         );
-        areas.into_iter().sum()
+        (areas.into_iter().sum(), volumes.into_iter().sum())
     }
 
     //======================
@@ -671,8 +670,8 @@ mod tests {
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let sel1 = make_sel()?;
-        let sasa = sel1.sasa();
-        println!("Sasa: {sasa}");
+        let (a,v) = sel1.sasa();
+        println!("Sasa: {a}, Volume: {v}");
         Ok(())
     }
 }

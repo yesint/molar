@@ -25,7 +25,6 @@ If you have no license please contact SASA-support@kit.edu
 #define POWER_DIAGRAM_H_
 
 #define __power_diagram_internal_timing__ 0
-#include "array.hpp"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -379,7 +378,7 @@ namespace POWER_DIAGRAM
 		{
 			// if addmore was used this function can revert to the diagram without the added atoms
 			for (typename std::vector<vertex>::iterator it = vertices.begin() + nRevertVertices; it != vertices.begin() + _nVertices; ++it)
-				for (typename s_boost::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin() + 1; itg != it->generators.end(); ++itg)
+				for (typename std::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin() + 1; itg != it->generators.end(); ++itg)
 					if ((*itg)->isReal(*this))
 						(*itg)->myVertices.pop_back();
 			_nVertices = nRevertVertices;
@@ -396,7 +395,7 @@ namespace POWER_DIAGRAM
 				vertexPtr it = *iti;
 				it->invalid = 0;
 				it->rrv = 0;
-				for (typename s_boost::array<vertexPtr, dimension + 1>::const_iterator it2 = it->endPoints.begin() + it->isCorner(); it2 != it->endPoints.end(); ++it2)
+				for (typename std::array<vertexPtr, dimension + 1>::const_iterator it2 = it->endPoints.begin() + it->isCorner(); it2 != it->endPoints.end(); ++it2)
 					for (int g1 = it->isCorner(); g1 <= dimension; g1++)
 						for (int g2 = (*it2)->isCorner(); g2 <= dimension; g2++)
 						{
@@ -406,7 +405,7 @@ namespace POWER_DIAGRAM
 								(*it2)->endPoints[g2] = &(*it);
 							}
 						}
-				for (typename s_boost::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end(); ++itg)
+				for (typename std::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end(); ++itg)
 					if ((*itg)->isReal(*this))
 					{
 						(*itg)->myVertices.push_back(&(*it));
@@ -570,7 +569,7 @@ namespace POWER_DIAGRAM
 					if (&points[0] != oldstorage)
 					{
 						for (typename std::vector<vertex>::iterator it = vertices.begin(); it != vertices.begin() + _nVertices; ++it)
-							for (typename s_boost::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end(); ++itg)
+							for (typename std::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end(); ++itg)
 								if (*itg >= oldstorage && *itg <= oldstorage + nRevertPoints)
 								{
 									*itg = *itg - oldstorage + &points[0];
@@ -749,7 +748,7 @@ namespace POWER_DIAGRAM
 
 								// reconnect replaced with persisting
 								for (typename std::vector<vertexPtr>::const_iterator it = Replaced.begin(); it != Replaced.end(); ++it)
-									for (typename s_boost::array<vertexPtr, dimension + 1>::const_iterator it2 = (*it)->endPoints.begin() + (*it)->isCorner(); it2 != (*it)->endPoints.end(); ++it2)
+									for (typename std::array<vertexPtr, dimension + 1>::const_iterator it2 = (*it)->endPoints.begin() + (*it)->isCorner(); it2 != (*it)->endPoints.end(); ++it2)
 										if ((*it2)->rrv <= 0)
 										{
 											(*it2)->rrv = 0;
@@ -863,7 +862,7 @@ namespace POWER_DIAGRAM
 			PDFloat newValue;
 			PDFloat smallVal = std::numeric_limits<PDFloat>::max(); // something larger than value
 			// look at the neighbours
-			for (typename s_boost::array<vertexPtr, dimension + 1>::const_iterator it = This->endPoints.begin() + This->isCorner(); it != This->endPoints.end(); ++it)
+			for (typename std::array<vertexPtr, dimension + 1>::const_iterator it = This->endPoints.begin() + This->isCorner(); it != This->endPoints.end(); ++it)
 			{
 				// each powerdiff value defines a plane between insertionPoint and current cell (generator0) approach the direction perpendicular to that plane in direction of insertion point !
 				newValue = (*it)->powerdiff3D((*it)->generators[0], &insertionPoint);
@@ -883,8 +882,8 @@ namespace POWER_DIAGRAM
 			smallVal = std::numeric_limits<PDFloat>::max();
 			// found value is not definitely the best one
 			// try hard to be sure not beeing in a local minimum (second neighbour)
-			for (typename s_boost::array<vertexPtr, dimension + 1>::iterator itg = This->endPoints.begin() + This->isCorner(); itg != This->endPoints.end(); ++itg)
-				for (typename s_boost::array<vertexPtr, dimension + 1>::iterator itg2 = (*itg)->endPoints.begin() + (*itg)->isCorner(); itg2 != (*itg)->endPoints.end(); ++itg2)
+			for (typename std::array<vertexPtr, dimension + 1>::iterator itg = This->endPoints.begin() + This->isCorner(); itg != This->endPoints.end(); ++itg)
+				for (typename std::array<vertexPtr, dimension + 1>::iterator itg2 = (*itg)->endPoints.begin() + (*itg)->isCorner(); itg2 != (*itg)->endPoints.end(); ++itg2)
 					if ((*itg2) != This)
 					{
 						newValue = (*itg2)->powerdiff3D((*itg2)->generators[0], &insertionPoint);
@@ -901,10 +900,10 @@ namespace POWER_DIAGRAM
 				return;
 			smallVal = std::numeric_limits<PDFloat>::max();
 			// second was also close... third neighbour...
-			for (typename s_boost::array<vertexPtr, dimension + 1>::iterator itg = This->endPoints.begin() + This->isCorner(); itg != This->endPoints.end(); ++itg)
-				for (typename s_boost::array<vertexPtr, dimension + 1>::iterator itg2 = (*itg)->endPoints.begin() + (*itg)->isCorner(); itg2 != (*itg)->endPoints.end(); ++itg2)
+			for (typename std::array<vertexPtr, dimension + 1>::iterator itg = This->endPoints.begin() + This->isCorner(); itg != This->endPoints.end(); ++itg)
+				for (typename std::array<vertexPtr, dimension + 1>::iterator itg2 = (*itg)->endPoints.begin() + (*itg)->isCorner(); itg2 != (*itg)->endPoints.end(); ++itg2)
 					if ((*itg2) != This)
-						for (typename s_boost::array<vertexPtr, dimension + 1>::iterator itg3 = (*itg2)->endPoints.begin() + (*itg2)->isCorner(); itg3 != (*itg2)->endPoints.end(); ++itg3)
+						for (typename std::array<vertexPtr, dimension + 1>::iterator itg3 = (*itg2)->endPoints.begin() + (*itg2)->isCorner(); itg3 != (*itg2)->endPoints.end(); ++itg3)
 							if ((*itg3) != (*itg) && (*itg3) != This)
 							{
 								newValue = (*itg3)->powerdiff3D((*itg3)->generators[0], &insertionPoint);
@@ -1207,7 +1206,7 @@ namespace POWER_DIAGRAM
 					if (!(it->invalid))
 					{
 						if (!(hasVirtualGenerators(&*it)))
-							for (typename s_boost::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end(); ++itg)
+							for (typename std::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end(); ++itg)
 							{
 								(*itg)->myVertices.push_back(&(*it));
 								if (fromPoint > 0)
@@ -1218,7 +1217,7 @@ namespace POWER_DIAGRAM
 									}
 							}
 						else if (!it->isCorner())
-							for (typename s_boost::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end() && (!((*itg) - &sideGenerators[0] >= 0 && (*itg) - &sideGenerators[0] < 2 * dimension)); ++itg)
+							for (typename std::array<cellPtr, dimension + 1>::iterator itg = it->generators.begin(); itg != it->generators.end() && (!((*itg) - &sideGenerators[0] >= 0 && (*itg) - &sideGenerators[0] < 2 * dimension)); ++itg)
 							{
 								(*itg)->myVertices.push_back(&(*it));
 								if (fromPoint > 0)
@@ -1300,7 +1299,7 @@ namespace POWER_DIAGRAM
 			for (typename std::vector<vertex>::const_iterator it = vertices.begin() + fromVertex; it != vertices.begin() + this->_nVertices; ++it)
 				if (!(it->invalid))
 					if (it->generators[dimension - 1]->isReal(*this))
-						for (typename s_boost::array<vertexPtr, dimension + 1>::const_iterator it2 = it->endPoints.begin() + (hasVirtualGenerators(&*it)) * 3; it2 != it->endPoints.end(); ++it2)
+						for (typename std::array<vertexPtr, dimension + 1>::const_iterator it2 = it->endPoints.begin() + (hasVirtualGenerators(&*it)) * 3; it2 != it->endPoints.end(); ++it2)
 						{
 							if ((*it2) - &(*it) > 0)
 							{
@@ -1536,7 +1535,7 @@ namespace POWER_DIAGRAM
 					if ((*it) - &vertices[0] >= nRevertVertices)
 						unused.push_back(*it);
 					else
-						for (typename s_boost::array<cellPtr, dimension + 1>::const_iterator itg = (*it)->generators.begin(); itg != (*it)->generators.end(); ++itg)
+						for (typename std::array<cellPtr, dimension + 1>::const_iterator itg = (*it)->generators.begin(); itg != (*it)->generators.end(); ++itg)
 							for (unsigned int i = 0; i < (*itg)->myVertices.size(); i++)
 								if ((*itg)->myVertices[i] == (*it))
 								{
@@ -1611,7 +1610,7 @@ namespace POWER_DIAGRAM
 			PDFloat pos;
 			vertexPtr from;
 			int branch;
-			s_boost::array<cellPtr, dimension> generators;
+			std::array<cellPtr, dimension> generators;
 
 			zeroPoint(const cellPtr &a, const cellPtr &b, const cellPtr &c, const PDFloat &position, const vertexPtr &origin, const int &way) : pos(position), from(origin), branch(way)
 			{
@@ -1632,10 +1631,10 @@ namespace POWER_DIAGRAM
 		{
 			PDFloat rrv; // relative replace value (power difference)
 			bool invalid;
-			s_boost::array<cellPtr, dimension + 1> generators;
+			std::array<cellPtr, dimension + 1> generators;
 			PDCoord position;
 			PDFloat powerValue;
-			s_boost::array<vertexPtr, dimension + 1> endPoints;
+			std::array<vertexPtr, dimension + 1> endPoints;
 
 			friend class PowerDiagram<PDFloat, PDCoord, dimension>;
 			inline bool isCorner() const { return endPoints[0] == NULL; }
@@ -1728,7 +1727,7 @@ namespace POWER_DIAGRAM
 				for (int g = dimension; g >= 0; g--)
 					if (this->generators[g] != NULL && (!this->generators[g]->myVertices.empty()) && this->generators[g]->myVertices.front() == copy)
 						this->generators[g]->myVertices.front() = this;
-				for (typename s_boost::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin(); it != endPoints.end(); ++it)
+				for (typename std::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin(); it != endPoints.end(); ++it)
 				{
 					if ((*it) != NULL)
 						*it = this + (*it - copy);
@@ -1739,14 +1738,14 @@ namespace POWER_DIAGRAM
 			{
 				if (this->endPoints[dimension] != NULL)
 					(this->endPoints[dimension]->fastWhichis(this)) = whereTo;
-				for (typename s_boost::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin(); it != endPoints.begin() + dimension; ++it)
+				for (typename std::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin(); it != endPoints.begin() + dimension; ++it)
 					((*it)->fastWhichis(this)) = whereTo;
 
 				*whereTo = *this;
 			}
 			inline vertexPtr &fastWhichis(const const_vertexPtr &comp)
 			{
-				for (typename s_boost::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin() + dimension; it != endPoints.begin(); --it)
+				for (typename std::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin() + dimension; it != endPoints.begin(); --it)
 					if (*it == comp)
 						return *it;
 				return endPoints[0];
@@ -1767,12 +1766,12 @@ namespace POWER_DIAGRAM
 			void cornerToReplacedAndGo(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
 			{
 				owner.Replaced.push_back(this);
-				for (typename s_boost::array<cellPtr, dimension + 1>::const_iterator it = this->generators.begin(); it != this->generators.end(); ++it)
+				for (typename std::array<cellPtr, dimension + 1>::const_iterator it = this->generators.begin(); it != this->generators.end(); ++it)
 					if ((*it)->visitedAs == 0)
 						owner.AddToInvolved(*(*it));
 				owner.Involved.front()->myVertices.push_back(this); // although replaced it will be part of the new cell!its a corner!
 
-				for (typename s_boost::array<vertexPtr, dimension + 1>::const_iterator it = this->endPoints.begin() + dimension; it != this->endPoints.begin(); --it)
+				for (typename std::array<vertexPtr, dimension + 1>::const_iterator it = this->endPoints.begin() + dimension; it != this->endPoints.begin(); --it)
 					if ((*it)->rrv == 0)
 					{
 						(*it)->replaceCheck(owner);
@@ -1784,11 +1783,11 @@ namespace POWER_DIAGRAM
 			void finiteToReplacedAndGo(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
 			{
 				owner.Replaced.push_back(this);
-				for (typename s_boost::array<cellPtr, dimension + 1>::const_iterator it = this->generators.begin(); it != this->generators.end(); ++it)
+				for (typename std::array<cellPtr, dimension + 1>::const_iterator it = this->generators.begin(); it != this->generators.end(); ++it)
 					if ((*it)->visitedAs == 0)
 						owner.AddToInvolved(*(*it));
 
-				for (typename s_boost::array<vertexPtr, dimension + 1>::const_iterator it = this->endPoints.begin(); it != this->endPoints.end(); ++it)
+				for (typename std::array<vertexPtr, dimension + 1>::const_iterator it = this->endPoints.begin(); it != this->endPoints.end(); ++it)
 					if ((*it)->rrv == 0)
 						(*it)->replaceCheck(owner);
 			}
