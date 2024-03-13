@@ -5,3 +5,4 @@ tests/1.pdb
 *.py
 *.pdb
 .cargo/config.toml
+.vscode
