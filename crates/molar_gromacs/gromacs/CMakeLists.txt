@@ -22,7 +22,7 @@ else()
     set(IN_PLACE TRUE)
     # Set CPM cache location if not provide in the command line
     if(NOT CPM_SOURCE_CACHE)
-        set(CPM_SOURCE_CACHE "~/.local/CPM_CACHE" CACHE STRING "Location of CPM cache" FORCE)
+        set(CPM_SOURCE_CACHE "${PROJECT_BINARY_DIR}/CPM_CACHE" CACHE STRING "Location of CPM cache" FORCE)
     endif()
 
     include(CPM.cmake)
