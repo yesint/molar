@@ -13,8 +13,16 @@ Molar is designed to simplify the analysis of molecular dynamics trajectories an
 Molar is currently in early alpha stage. 
 
 #### Currently implemented features
-* Reading and writing PDB and XTC files.
+* Reading and writing PDB, GRO, XTC files.
 * Reading Gromacs TPR files.
 * Selections using the syntaxis similar to VMD and Pteros.
+* Subselections and splitting selections.
+* SASA calculations with the fastest PowerSasa method.
+* RMSD fitting and alignment
+* Basic algorithm (center of mass, center of geometry, etc.)
+* PBC unwrapping
 * Automatic seamless compiling and linking with VMD molfile and xdrfile libraries and the git version of Gromacs.
 
+### Dependencies
+
+Molar depends on C/C++ compiler and CMake for compiling third-party libraries.
