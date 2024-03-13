@@ -1,5 +1,6 @@
 use ascii::{AsciiChar, AsciiString};
 
+
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 pub struct Atom {
@@ -40,6 +41,16 @@ impl Atom {
             'F' => (9, 19.0),
             'B' => (5, 11.0),
             _ => (0, 1.0), // Unknown atom
+        }
+    }
+
+    pub fn vdw(&self) -> f32 {
+        use super::periodic_table::*;
+
+        if self.atomic_number<=0 {
+            get_vdw_from_atom_name(&self.name)
+        } else {
+            ELEMENT_VDW[self.atomic_number as usize] * 0.1
         }
     }
 }

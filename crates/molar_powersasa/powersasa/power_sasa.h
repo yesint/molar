@@ -64,8 +64,8 @@ public:
 	inline static PDFloat DANG() { return static_cast<PDFloat>(1000.0) * std::numeric_limits<PDFloat>::epsilon() ; }
 	inline static PDFloat pi() { return static_cast<PDFloat> (3.141592653589793238462643383279502884197169399375105820974944592307816406286208998628034825342) ;} //everything const, will be optimized away.
 
-	const std::vector<PDFloat>& getSasa() const {return Sasa;}
-	const std::vector<PDFloat>& getVol() const {return Vol;}
+	//const std::vector<PDFloat>& getSasa() const {return Sasa;}
+	//const std::vector<PDFloat>& getVol() const {return Vol;}
 	const std::vector<PDCoord>& getDVol() const {return DVol;}
 	const std::vector<PDCoord>& getDSasa() const {return DSasa;}
 
@@ -104,19 +104,34 @@ public:
 	}
 
 	template<class Coordcontainer, class Floatcontainer, class Intcontainer>
-	PowerSasa(Coordcontainer const& coords, Floatcontainer const& radii, Intcontainer const& bond_to,
-		const bool with_Sasa, const bool with_dSasa, const bool with_Vol, const bool with_dVol) :
-		withSasa(with_Sasa), withDSasa(with_dSasa), withVol(with_Vol), withDVol(with_dVol), power_diagram(0)
+	PowerSasa(
+		Coordcontainer const& coords, 
+		Floatcontainer const& radii, 
+		Intcontainer const& bond_to,		
+		const bool with_Sasa, 
+		const bool with_dSasa, 
+		const bool with_Vol, 
+		const bool with_dVol
+	): withSasa(with_Sasa), withDSasa(with_dSasa), withVol(with_Vol), withDVol(with_dVol), power_diagram(0)
 	{
 		power_diagram = new POWER_DIAGRAM::PowerDiagram<PDFloat, PDCoord,3>(POWER_DIAGRAM::PowerDiagram<PDFloat, PDCoord,3>::create(coords.size(),coords.begin(),radii.begin(),bond_to.begin())
 			.with_radiiGiven(1).with_calculate(1).with_cells(1).with_zeroPoints(1).with_Warnings(0).withoutCheck(1));
 		Init();
 	}
 	
+
+	// ----------------- Main Constructor ----------------------
 	template<class Coordcontainer, class Floatcontainer>
-	PowerSasa(Coordcontainer const& coords, Floatcontainer const& radii,
-			const bool with_Sasa=1, const bool with_dSasa=0, const bool with_Vol=0, const bool with_dVol=0) :
-			power_diagram(0), withSasa(with_Sasa), withDSasa(with_dSasa), withVol(with_Vol), withDVol(with_dVol)
+	PowerSasa(
+		Coordcontainer const& coords,
+		Floatcontainer const& radii,
+		PDFloat* sasa_ptr,
+		PDFloat* vol_ptr,
+		const bool with_Sasa=1, 
+		const bool with_dSasa=0, 
+		const bool with_Vol=0, 
+		const bool with_dVol=0
+	): Sasa(sasa_ptr), Vol(vol_ptr), power_diagram(0), withSasa(with_Sasa), withDSasa(with_dSasa), withVol(with_Vol), withDVol(with_dVol)
 	{
 		std::vector<int> bond_to;
 		bond_to.reserve(coords.size());
@@ -146,6 +161,7 @@ private:
 		Resize_VX(MAX_VX);
 		Resize_PNT(MAX_PNT);
 	}
+
 	inline void Resize_NB(unsigned int nnb)
 	{
 		np.resize(nnb);
@@ -160,7 +176,7 @@ private:
 		knot.resize(nnb);
 		fknot.resize(nnb);
 #endif
-	      	unsigned int npnt = MAX_PNT;
+		unsigned int npnt = MAX_PNT;
 		if (p.size() > 0) npnt = p[0].size();
 		unsigned int nnb_old = p.size();
 		next.resize(nnb);
@@ -177,7 +193,8 @@ private:
 		        for (unsigned int i = 0; i < DSasa_parts.size(); ++i) DSasa_parts[i].resize(nnb);
 		}
 	}
-        inline void Resize_VX(unsigned int nvx)
+    
+	inline void Resize_VX(unsigned int nvx)
 	{
 		off.resize(nvx);
 		vx.resize(nvx);
@@ -189,6 +206,7 @@ private:
 			br_p[i].resize(2);
 		}
 	}
+	
 	inline void Resize_PNT(unsigned int npnt)
 	{
 		for (unsigned int i = 0; i < p.size(); ++i)
@@ -200,10 +218,11 @@ private:
 	        rang.resize(npnt);
 		pos.resize(npnt);
 	}
+	
 	inline void Resize_NA()
 	{
 		unsigned int n = power_diagram->get_points().size();
-		if (withSasa) Sasa.resize(n,0);
+		//if (withSasa) Sasa.resize(n,0);
 		if(withDSasa)
 		{
 			unsigned int nnb = MAX_NB;
@@ -214,7 +233,8 @@ private:
 		        for (unsigned int i = n_old; i < n; ++i) DSasa_parts[i].resize(nnb);
 			
 		}
-		if (withVol) Vol.resize(n,0);
+		
+		//if (withVol) Vol.resize(n,0);
 		if (withDVol) DVol.resize(n,PDCoord(0,0,0));
 
 		PDFloat maxr2 = 0.0;
@@ -227,20 +247,24 @@ private:
 	}
 
  	inline PDFloat Ang_About(PDCoord const& a, PDCoord const& b, PDCoord const& c);
+	
 	inline void Get_Ang(const int & np, const std::vector<int> & p, const PDCoord & e,
 			const PDFloat & sintheta, const PDFloat & costheta, std::vector<PDFloat> & ang);
-        inline void Get_Next(int n, std::vector<PDFloat> & ang, std::vector<int> & next,
+	
+	inline void Get_Next(int n, std::vector<PDFloat> & ang, std::vector<int> & next,
 			const std::vector<int> & p, const PDCoord & e);
+	
 	POWER_DIAGRAM::PowerDiagram<PDFloat,PDCoord,3> *power_diagram;
 	
+	// --------------------- data ----------------------
 	const bool withSasa;
 	const bool withDSasa;
 	const bool withVol;
 	const bool withDVol;
-	std::vector<PDFloat>                  Sasa;
+	PDFloat*			                  Sasa;
 	std::vector< std::vector<PDCoord> >   DSasa_parts;
-	std::vector<PDCoord>		      DSasa;
-	std::vector<PDFloat>                  Vol;
+	std::vector<PDCoord>		          DSasa;
+	PDFloat*			                  Vol;
 	std::vector<PDCoord>                  DVol;
 	
 	PDFloat                               tol_pow;

@@ -71,22 +71,8 @@ extern "C" void run_powersasa(
 {        
     SasaCoordContainer cont_crd(cb_crd,num,context_crd);
     SasaVDWContainer cont_vdw(cb_vdw,num,context_vdw);
-
+    
     // Call POWERSASA
-    POWERSASA::PowerSasa<float,Eigen::Vector3f> ps(cont_crd, cont_vdw, 1, 0, 1, 0);
+    POWERSASA::PowerSasa<float,Eigen::Vector3f> ps(cont_crd, cont_vdw, area_per_atom, volume_per_atom, 1, 0, 1, 0);
     ps.calc_sasa_all();
-
-    float v,surf=0.0;
-
-    if(volume_per_atom){        
-        for(int i = 0; i < num; ++i){
-            volume_per_atom[i] = ps.getVol()[i];
-        }
-    }
-
-    if(area_per_atom){
-        for(int i = 0; i < num; ++i){                    
-            area_per_atom[i] = ps.getSasa()[i];
-        }
-    }
 }

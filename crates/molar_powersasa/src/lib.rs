@@ -14,7 +14,7 @@ pub mod powersasa_bindings {
 use std::os::raw::c_void;
 use std::marker::PhantomData;
 
-pub struct CCallback<'closure, Arg, Ret> {
+struct CCallback<'closure, Arg, Ret> {
     pub function: unsafe extern "C" fn(*mut c_void, Arg) -> Ret,
     pub user_data: *mut c_void,
 
@@ -40,6 +40,39 @@ impl<'closure, Arg, Ret> CCallback<'closure, Arg, Ret> {
         let cb: &mut F = user_data.cast::<F>().as_mut().unwrap();
         (*cb)(arg)
     }
+}
+
+pub fn sasa(
+    natoms: usize,
+    probe_r: f32,
+    mut pos_callback: impl FnMut(usize)-> *mut f32, 
+    mut vdw_callback: impl FnMut(usize)-> f32,
+) -> (Vec<f32>,Vec<f32>) {
+    // Arrays for areas and volumes
+    let mut areas = Vec::<f32>::with_capacity(natoms);
+    let mut volumes = Vec::<f32>::with_capacity(natoms);       
+    
+    let crd_cb = CCallback::new(&mut pos_callback);
+
+    let vdw_closure = &mut |i: usize| { probe_r + vdw_callback(i) };
+    let vdw_cb = CCallback::new(vdw_closure);
+
+    unsafe {
+        powersasa_bindings::run_powersasa(
+            areas.as_mut_ptr(),
+            volumes.as_mut_ptr(),
+            Some(crd_cb.function),
+            Some(vdw_cb.function),
+            crd_cb.user_data,
+            vdw_cb.user_data,
+            natoms
+        );
+        // Resize vectors accordingly
+        areas.set_len(natoms);
+        volumes.set_len(natoms);
+    }
+
+    (areas,volumes)
 }
 
 /*

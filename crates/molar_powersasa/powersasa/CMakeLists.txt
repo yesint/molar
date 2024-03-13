@@ -40,7 +40,7 @@ install(TARGETS powersasa_wrapper
     ARCHIVE DESTINATION .
 )
 
-add_executable(sasatest sasatest.cpp)
-target_include_directories(sasatest PRIVATE ${PROJECT_SOURCE_DIR})
-target_link_libraries(sasatest PRIVATE Eigen3::Eigen powersasa_wrapper)
-install(TARGETS sasatest DESTINATION .)
+#add_executable(sasatest sasatest.cpp)
+#target_include_directories(sasatest PRIVATE ${PROJECT_SOURCE_DIR})
+#target_link_libraries(sasatest PRIVATE Eigen3::Eigen powersasa_wrapper)
+#install(TARGETS sasatest DESTINATION .)

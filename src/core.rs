@@ -9,6 +9,7 @@ mod selection;
 pub mod providers;
 mod measure;
 mod modify;
+mod periodic_table;
 
 pub use {
     atom::*, 

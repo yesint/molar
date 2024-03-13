@@ -319,35 +319,12 @@ impl Selection {
     
     // Sasa
     pub fn sasa(&self) -> f32 {
-        // Arrays for areas and volumes
-        let mut areas = Vec::<f32>::with_capacity(self.len());
-        let mut volumes = Vec::<f32>::with_capacity(self.len());       
-
-        // Creat C callbacks for coordinates and VdW
-        let crd_closure = &mut |i: usize| { 
-            unsafe{self.nth_pos_unchecked_mut(i).coords}.as_mut_ptr()
-        };
-        let crd_cb = molar_powersasa::CCallback::new(crd_closure);
-
-        let vdw_closure = &mut |i: usize| { 0.1 };
-        let vdw_cb = molar_powersasa::CCallback::new(vdw_closure);
-        
-
-        unsafe {
-            molar_powersasa::powersasa_bindings::run_powersasa(
-                areas.as_mut_ptr(),
-                volumes.as_mut_ptr(),
-                Some(crd_cb.function),
-                Some(vdw_cb.function),
-                crd_cb.user_data,
-                vdw_cb.user_data,
-                self.len()
-            );
-            // Resize vectors accordingly
-            areas.set_len(self.len());
-            volumes.set_len(self.len());
-        }
-
+        let (areas, volumes) = molar_powersasa::sasa(
+            self.len(),
+            0.14, 
+            |i| unsafe{self.nth_pos_unchecked_mut(i).coords}.as_mut_ptr(), 
+            |i: usize| { self.nth(i).unwrap().1.vdw() }
+        );
         areas.into_iter().sum()
     }
 
@@ -693,7 +670,7 @@ mod tests {
 
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
-        let sel1 = make_sel_prot()?;
+        let sel1 = make_sel()?;
         let sasa = sel1.sasa();
         println!("Sasa: {sasa}");
         Ok(())
