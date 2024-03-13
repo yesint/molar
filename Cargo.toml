@@ -1,7 +1,7 @@
 [workspace]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
 license = "Artistic-2.0"
@@ -45,7 +45,7 @@ exclude = [
 molar_molfile = {path = "crates/molar_molfile", version="0.1"}
 molar_xdrfile = {path = "crates/molar_xdrfile", version="0.1"}
 molar_powersasa = {path = "crates/molar_powersasa", version="0.1"}
-molar_gromacs = {path = "crates/molar_gromacs", version="0.1", optional = true}
+molar_gromacs = {path = "crates/molar_gromacs", version="0.2", optional = true}
 # Normal dependencies
 ascii.workspace = true
 anyhow.workspace = true
