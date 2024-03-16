@@ -692,7 +692,7 @@ mod tests {
         let s2 = s1.clone();
 
         let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            let sel1 = "not resname TIP3 POT CLA".select(&t1, &s1)?;
+            let sel1 = "name CB".select(&t1, &s1)?;
             sel1.translate(Vector3f::new(1.0,2.0,3.0));
             Ok(sel1.center_of_mass()?)
         });
@@ -716,7 +716,7 @@ mod tests {
         let s = topst.1.to_rc();
         
         // Creating selection before spawning
-        let sel1 = "not resname TIP3 POT CLA".select(&t, &s)?;
+        let sel1 = "name CB".select(&t, &s)?;
         let sel2 = "name CA".select(&t, &s)?;
 
         let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
