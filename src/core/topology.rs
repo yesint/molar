@@ -28,10 +28,7 @@ impl From<TopologyStorage> for Topology {
 }
 
 impl Topology {
-    pub fn to_rc(self) -> Arc<Self> {
-        Arc::new(self)
-    }
-
+    // Private convenience accessors
     #[inline(always)]
     fn get(&self) -> &TopologyStorage {
         unsafe {&*self.0.get()}
@@ -40,6 +37,12 @@ impl Topology {
     #[inline(always)]
     fn get_mut(&self) -> &mut TopologyStorage {
         unsafe {&mut *self.0.get()}
+    }
+
+    //--------------------------------------------
+
+    pub fn to_rc(self) -> Arc<Self> {
+        Arc::new(self)
     }
 
     #[inline(always)]
@@ -55,6 +58,11 @@ impl Topology {
     #[inline(always)]
     pub fn nth_atom(&self, i: usize) -> Option<&Atom> {
         self.get().atoms.get(i)
+    }
+
+    #[inline(always)]
+    pub fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+        self.get_mut().atoms.get_mut(i)
     }
 
     pub fn assign_resindex(&mut self) {
@@ -95,7 +103,9 @@ impl MassesProvider for Topology {
     }
 }
 
+//--------------------------
 // Impls for smart pointers
+//--------------------------
 impl<T: Deref<Target=Topology>> TopologyProvider for T {
     fn num_atoms(&self) -> usize {
         self.get().atoms.len()

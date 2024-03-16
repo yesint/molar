@@ -26,10 +26,7 @@ impl From<StateStorage> for State {
 }
 
 impl State {
-    pub fn to_rc(self) -> Arc<Self> {
-        Arc::new(self)
-    }
-
+    // Private convenience accessors
     #[inline(always)]
     fn get(&self) -> &StateStorage {
         unsafe {&*self.0.get()}
@@ -38,6 +35,11 @@ impl State {
     #[inline(always)]
     fn get_mut(&self) -> &mut StateStorage {
         unsafe {&mut *self.0.get()}
+    }
+
+    //-----------------------------------------
+    pub fn to_rc(self) -> Arc<Self> {
+        Arc::new(self)
     }
 
     #[inline(always)]
@@ -53,6 +55,11 @@ impl State {
     #[inline(always)]
     pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
         self.get().coords.get(i)
+    }
+
+    #[inline(always)]
+    pub fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+        self.get_mut().coords.get_mut(i)
     }
 
     #[inline(always)]
