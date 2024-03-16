@@ -1,4 +1,6 @@
-use std::{cell::UnsafeCell, ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::Arc};
+use sync_unsafe_cell::SyncUnsafeCell;
+
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
@@ -10,18 +12,17 @@ pub struct StateStorage {
     pub pbox: Option<PeriodicBox>,
 }
 
-#[derive(Debug)]
-pub struct State(UnsafeCell<StateStorage>);
+pub struct State(SyncUnsafeCell<StateStorage>);
 
 impl Clone for State {
     fn clone(&self) -> Self {
-        Self(UnsafeCell::new(self.get().clone()))
+        Self(SyncUnsafeCell::new(self.get().clone()))
     }
 }
 
 impl From<StateStorage> for State {
     fn from(value: StateStorage) -> Self {
-        Self(UnsafeCell::new(value))
+        Self(SyncUnsafeCell::new(value))
     }
 }
 

@@ -142,7 +142,7 @@ enum Keyword {
 // Intermediate index type for applying AST
 type SubsetType = rustc_hash::FxHashSet<usize>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApplyData<'a> {
     topology: &'a Topology,
     state: &'a State,

@@ -1,4 +1,6 @@
-use std::{cell::UnsafeCell, ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::Arc};
+use sync_unsafe_cell::SyncUnsafeCell;
+
 use crate::io::TopologyProvider;
 
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
@@ -12,18 +14,17 @@ pub struct TopologyStorage {
     pub molecules: Vec<[usize; 2]>,
 }
 
-#[derive(Debug)]
-pub struct Topology(UnsafeCell<TopologyStorage>);
+pub struct Topology(SyncUnsafeCell<TopologyStorage>);
 
 impl Clone for Topology {
     fn clone(&self) -> Self {
-        Self(UnsafeCell::new(self.get().clone()))
+        Self(SyncUnsafeCell::new(self.get().clone()))
     }
 }
 
 impl From<TopologyStorage> for Topology {
     fn from(value: TopologyStorage) -> Self {
-        Self(UnsafeCell::new(value))
+        Self(SyncUnsafeCell::new(value))
     }
 }
 

@@ -551,13 +551,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::any;
+
     use super::{Selection, SelectionAll};
     use crate::{
         core::{
-            providers::PosProvider,
-            selection::{AtomsProvider, Select},
-            MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f,
-            PBC_FULL,
+            providers::PosProvider, selection::{AtomsProvider, Select}, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL
         },
         io::*,
     };
@@ -681,6 +680,58 @@ mod tests {
         let sel1 = make_sel()?;
         let (a,v) = sel1.sasa();
         println!("Sasa: {a}, Volume: {v}");
+        Ok(())
+    }
+
+    #[test]
+    fn multi_thread_test1() -> anyhow::Result<()> {
+        let topst = read_test_pdb();
+        let t1 = topst.0.to_rc();
+        let s1 = topst.1.to_rc();
+        let t2 = t1.clone();
+        let s2 = s1.clone();
+
+        let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
+            let sel1 = "not resname TIP3 POT CLA".select(&t1, &s1)?;
+            sel1.translate(Vector3f::new(1.0,2.0,3.0));
+            Ok(sel1.center_of_mass()?)
+        });
+
+        let t2 = std::thread::spawn(move ||->anyhow::Result<Pos> {
+            let sel2 = "name CA".select(&t2, &s2)?;
+            sel2.translate(Vector3f::new(3.0,2.0,1.0));
+            Ok(sel2.center_of_mass()?)
+        });
+
+        let cm1 = t1.join().unwrap()?;
+        let cm2 = t2.join().unwrap()?;
+        println!("cm1 = {cm1}; cm2={cm2}");
+        Ok(())
+    }
+
+    #[test]
+    fn multi_thread_test2() -> anyhow::Result<()> {
+        let topst = read_test_pdb();
+        let t = topst.0.to_rc();
+        let s = topst.1.to_rc();
+        
+        // Creating selection before spawning
+        let sel1 = "not resname TIP3 POT CLA".select(&t, &s)?;
+        let sel2 = "name CA".select(&t, &s)?;
+
+        let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
+            sel1.translate(Vector3f::new(1.0,2.0,3.0));
+            Ok(sel1.center_of_mass()?)
+        });
+
+        let t2 = std::thread::spawn(move ||->anyhow::Result<Pos> {
+            sel2.translate(Vector3f::new(3.0,2.0,1.0));
+            Ok(sel2.center_of_mass()?)
+        });
+
+        let cm1 = t1.join().unwrap()?;
+        let cm2 = t2.join().unwrap()?;
+        println!("cm1 = {cm1}; cm2={cm2}");
         Ok(())
     }
 }
