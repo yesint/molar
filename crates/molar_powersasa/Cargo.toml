@@ -14,7 +14,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-ascii.workspace = true
 anyhow.workspace = true
 
 [build-dependencies]

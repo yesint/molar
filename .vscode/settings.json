@@ -8,5 +8,6 @@
         "valarray": "cpp",
         "core": "cpp",
         "cstddef": "cpp"
-    }
+    },
+    "cmake.configureOnOpen": false
 }

@@ -7,7 +7,7 @@ use super::{
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use std::{collections::HashMap, os::raw::c_void, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
@@ -259,6 +259,15 @@ impl Selection {
             ind,
             self.topology.nth_atom_unchecked(ind),
             self.state.nth_pos_unchecked(ind),
+        )
+    }
+
+    pub unsafe fn nth_unchecked_mut(&self, i: usize) -> (usize, &mut Atom, &mut Pos) {
+        let ind = *self.index.get_unchecked(i);
+        (
+            ind,
+            self.topology.nth_atom_unchecked_mut(ind),
+            self.state.nth_pos_unchecked_mut(ind),
         )
     }
 

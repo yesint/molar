@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use ascii::AsciiString;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 
@@ -25,7 +24,7 @@ pub enum IntKeywordValue {
 
 #[derive(Debug)]
 pub enum StrKeywordValue {
-    Str(AsciiString),
+    Str(String),
     Regex(Regex),
 }
 
@@ -333,7 +332,7 @@ impl KeywordNode {
         &self,
         data: &ApplyData,
         values: &Vec<StrKeywordValue>,
-        f: fn(&Atom) -> &AsciiString,
+        f: fn(&Atom) -> &String,
     ) -> SubsetType {
         let mut res = SubsetType::default();
         for (ind,a) in data.iter_ind_atom() {
@@ -595,7 +594,7 @@ peg::parser! {
 
         rule str_value() -> StrKeywordValue
         = !("and"/"or") s:$((![' '|'\''|'"'] [_])+)
-        { StrKeywordValue::Str(AsciiString::from_ascii(s).unwrap()) }
+        { StrKeywordValue::Str(s.to_owned()) }
 
         /*
         // Distance

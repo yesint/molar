@@ -1,7 +1,6 @@
 use super::{StateProvider, TopologyProvider};
 use crate::core::*;
 use anyhow::{bail, Result};
-use ascii::{AsciiStr, AsciiString};
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString};
@@ -31,10 +30,10 @@ pub struct VmdMolFileHandler<'a> {
 }
 
 // Helper convertion function from C fixed-size string to AsciiString
-fn char_slice_to_ascii_str(buf: &[::std::os::raw::c_char]) -> AsciiString {
-    let cstr = unsafe { CStr::from_ptr(buf.as_ptr()).to_bytes() };
-    let s = unsafe { AsciiString::from_ascii_unchecked(cstr) };
-    s
+fn char_slice_to_str(buf: &[::std::os::raw::c_char]) -> Result<String> {
+    unsafe {
+        Ok(CStr::from_ptr(buf.as_ptr()).to_str()?.to_owned())
+    }
 }
 
 /// Universal handler of different VMD molfile file formats
@@ -167,10 +166,10 @@ impl VmdMolFileHandler<'_> {
 
         for ref vmd_at in vmd_atoms {
             let mut at = Atom {
-                name: char_slice_to_ascii_str(&vmd_at.name),
+                name: char_slice_to_str(&vmd_at.name)?,
                 resid: vmd_at.resid,
-                resname: char_slice_to_ascii_str(&vmd_at.resname),
-                chain: char_slice_to_ascii_str(&vmd_at.chain).first().unwrap(),
+                resname: char_slice_to_str(&vmd_at.resname)?,
+                chain: char_slice_to_str(&vmd_at.chain)?.chars().next().unwrap(),
                 charge: vmd_at.charge,
                 occupancy: vmd_at.occupancy,
                 bfactor: vmd_at.bfactor,
@@ -202,8 +201,8 @@ impl VmdMolFileHandler<'_> {
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
         for at in data.iter_atoms() {
             let mut vmd_at = molfile_atom_t::default();
-            copy_str_to_c_buffer(&at.name, &mut vmd_at.name);
-            copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname);
+            copy_str_to_c_buffer(&at.name, &mut vmd_at.name)?;
+            copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname)?;
             vmd_at.resid = at.resid;
             vmd_at.chain[0] = at.chain as i8;
             vmd_at.chain[1] = '\0' as i8;
@@ -351,13 +350,16 @@ impl Drop for VmdMolFileHandler<'_> {
     }
 }
 
-fn copy_str_to_c_buffer(st: &AsciiStr, cbuf: &mut [i8]) {
+fn copy_str_to_c_buffer(st: &str, cbuf: &mut [i8]) -> Result<()> {
     let n = st.len();
     if n + 1 >= cbuf.len() {
-        panic!("VMD fixed size field is too short!");
+        bail!("VMD fixed size field is too short!");
     }
+    
+    let bytes = st.as_bytes();
     for i in 0..n {
-        cbuf[i] = st[i] as i8;
+        cbuf[i] = bytes[i] as i8;
     }
     cbuf[n + 1] = '\0' as i8;
+    Ok(())
 }

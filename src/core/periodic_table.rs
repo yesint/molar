@@ -1,5 +1,3 @@
-use ascii::{AsciiChar, AsciiStr};
-
 const NUM_ELEMENTS: usize = 112;
 
 /* periodic table of elements for translation of ordinal to atom type */
@@ -75,15 +73,15 @@ pub const ELEMENT_VDW: [f32; NUM_ELEMENTS] = [
 ];
 
 
-pub fn get_vdw_from_atom_name(name: &AsciiStr) -> f32 {
+pub fn get_vdw_from_atom_name(name: &str) -> f32 {
     match name.chars().next().unwrap() {    
-        AsciiChar::H => 0.12,
-        AsciiChar::C => 0.17,
-        AsciiChar::N => 0.155,
-        AsciiChar::O => 0.152,
-        AsciiChar::S => 0.18,
-        AsciiChar::P => 0.18,
-        AsciiChar::F => 0.147,
+        'H' => 0.12,
+        'C' => 0.17,
+        'N' => 0.155,
+        'O' => 0.152,
+        'S' => 0.18,
+        'P' => 0.18,
+        'F' => 0.147,
         _ => 0.15,
     }
 }

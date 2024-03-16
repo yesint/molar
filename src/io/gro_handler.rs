@@ -1,7 +1,6 @@
 use super::{io_splitter::ReadTopAndState, StateProvider, TopologyProvider};
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, StateStorage, Topology, TopologyStorage};
 use anyhow::Result;
-use ascii::{AsciiChar, AsciiString};
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
@@ -99,10 +98,10 @@ impl ReadTopAndState for GroFileHandler {
 
             let at = Atom {
                 resid: line[0..5].parse()?,
-                resname: AsciiString::from_ascii(line[5..10].trim().to_owned())?,
-                name: AsciiString::from_ascii(line[10..15].trim().to_owned())?,
-                chain: AsciiChar::Space,
-                type_name: AsciiString::from_ascii("")?,
+                resname: line[5..10].trim().to_owned(),
+                name: line[10..15].trim().to_owned(),
+                chain: ' ',
+                type_name: "".into(),
                 type_id: 0,
                 occupancy: 0.0,
                 bfactor: 0.0,

@@ -1,5 +1,4 @@
 use crate::core::*;
-use ascii::{AsciiChar, AsciiString};
 
 use anyhow::Result;
 use nalgebra::Matrix3;
@@ -53,15 +52,14 @@ impl ReadTopAndState for TprFileHandler {
 
         unsafe {
             for i in 0..natoms {
-                let name = c_ptr_to_ascii_str(*gmx_atomnames[i]);
+                let name = c_ptr_to_str(*gmx_atomnames[i])?;
                 let resi = gmx_atoms[i].resind as usize;
-                let resname = c_ptr_to_ascii_str(*gmx_resinfo[resi].name);
-                let mut chain = AsciiChar::from_ascii(gmx_resinfo[resi].chainid as u8)
-                    .unwrap_or(AsciiChar::Space);
-                if chain == AsciiChar::Null {
-                    chain = AsciiChar::Space;
+                let resname = c_ptr_to_str(*gmx_resinfo[resi].name)?;
+                let mut chain = gmx_resinfo[resi].chainid as u8 as char;
+                if chain == '\0' {
+                    chain = ' ';
                 }
-                let type_name = c_ptr_to_ascii_str(*gmx_atomtypes[i]);
+                let type_name = c_ptr_to_str(*gmx_atomtypes[i])?;
 
                 let new_atom = Atom {
                     name,
@@ -158,9 +156,8 @@ impl Drop for TprFileHandler {
     }
 }
 
-unsafe fn c_ptr_to_ascii_str(ptr: *const i8) -> AsciiString {
-    let cstr = CStr::from_ptr(ptr).to_bytes();
-    AsciiString::from_ascii_unchecked(cstr)
+unsafe fn c_ptr_to_str(ptr: *const i8) -> Result<String> {
+    Ok(CStr::from_ptr(ptr).to_str()?.to_owned())
 }
 
 fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {

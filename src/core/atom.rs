@@ -1,22 +1,20 @@
-use ascii::{AsciiChar, AsciiString};
-
 
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 pub struct Atom {
     // Mandatory fields
-    pub name: AsciiString,
-    pub resname: AsciiString,
+    pub name: String,
+    pub resname: String,
     pub resid: i32, // Could be negative
     pub resindex: usize,
     // Atom physical properties from topology
     pub atomic_number: u8,
     pub mass: f32,
     pub charge: f32,
-    pub type_name: AsciiString,
+    pub type_name: String,
     pub type_id: u32,
     // Specific PDB fields
-    pub chain: AsciiChar,
+    pub chain: char,
     pub bfactor: f32,
     pub occupancy: f32,
 }
