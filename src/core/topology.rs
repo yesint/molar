@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, ops::Deref, rc::Rc};
+use std::{cell::UnsafeCell, ops::Deref, sync::Arc};
 use crate::io::TopologyProvider;
 
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
@@ -28,8 +28,8 @@ impl From<TopologyStorage> for Topology {
 }
 
 impl Topology {
-    pub fn to_rc(self) -> Rc<Self> {
-        Rc::new(self)
+    pub fn to_rc(self) -> Arc<Self> {
+        Arc::new(self)
     }
 
     #[inline(always)]

@@ -1,6 +1,6 @@
 use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, State, Topology};
 use anyhow::{anyhow, bail, Result};
-use std::{path::Path, rc::Rc};
+use std::{path::Path, sync::Arc};
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -55,7 +55,7 @@ pub struct IoStateIterator<'a> {
 }
 
 impl Iterator for IoStateIterator<'_> {
-    type Item = Rc<State>;
+    type Item = Arc<State>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
     }
@@ -126,7 +126,7 @@ impl FileHandler<'_> {
         Ok((top,st))
     }
 
-    pub fn read(&mut self) -> Result<(Rc<Topology>,Rc<State>)> {
+    pub fn read(&mut self) -> Result<(Arc<Topology>,Arc<State>)> {
         let (top,st) = self.read_raw()?;
         Ok((top.to_rc(),st.to_rc()))
     }
@@ -153,7 +153,7 @@ impl FileHandler<'_> {
         Ok(top)
     }
 
-    pub fn read_topology(&mut self) -> Result<Rc<Topology>> {
+    pub fn read_topology(&mut self) -> Result<Arc<Topology>> {
         Ok(self.read_topology_raw()?.to_rc())
     }
 
@@ -179,7 +179,7 @@ impl FileHandler<'_> {
         Ok(st)
     }
 
-    pub fn read_state(&mut self) -> Result<Option<Rc<State>>> {
+    pub fn read_state(&mut self) -> Result<Option<Arc<State>>> {
         self.read_state_raw()?.map_or(Ok(None), |v| Ok(Some(v.to_rc())))
     }
 
@@ -232,7 +232,7 @@ impl FileHandler<'_> {
 }
 
 impl<'a> IntoIterator for FileHandler<'a> {
-    type Item = Rc<State>;
+    type Item = Arc<State>;
     type IntoIter = IoStateIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {

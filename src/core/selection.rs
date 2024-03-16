@@ -7,14 +7,14 @@ use super::{
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
 
 /// Trait which provides select method operating with generic smart pointers
 pub trait Select {
-    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection>;
+    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection>;
 }
 
 //-----------------------------------------------------------------
@@ -40,7 +40,7 @@ impl SelectionAll {
 }
 
 impl Select for SelectionAll {
-    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
         check_sizes(&topology, &state)?;
         let index: Vec<usize> = (0..state.num_coords()).collect();
         if index.len() > 0 {
@@ -56,7 +56,7 @@ impl Select for SelectionAll {
 }
 
 impl Select for SelectionExpr {
-    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
         check_sizes(&topology, &state)?;
         let index = self.apply_whole(&topology, &state).unwrap();
         if index.len() > 0 {
@@ -72,7 +72,7 @@ impl Select for SelectionExpr {
 }
 
 impl Select for str {
-    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
         check_sizes(&topology, &state)?;
         let index = SelectionExpr::try_from(self)
             .unwrap()
@@ -91,7 +91,7 @@ impl Select for str {
 }
 
 impl Select for std::ops::Range<usize> {
-    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
         check_sizes(&topology, &state)?;
         let n = topology.num_atoms();
         if self.start > n - 1 || self.end > n - 1 {
@@ -116,7 +116,7 @@ impl Select for std::ops::Range<usize> {
 }
 
 impl Select for Vec<usize> {
-    fn select(&self, topology: &Rc<Topology>, state: &Rc<State>) -> Result<Selection> {
+    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
         let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
         if index.len() > 0 {
             Ok(Selection {
@@ -133,7 +133,7 @@ impl Select for Vec<usize> {
 //---------------------------------------
 
 /*
-If Topology and State are wrapped into Rc<> then they
+If Topology and State are wrapped into Arc<> then they
 are guaranteed to be accessed from the single thread only and the only possible
 case of memory unsafety is invalidation of references when adding or removing
 elements from atoms and coords arrays.
@@ -147,7 +147,7 @@ In principle even aliasing access from multiple threads to *individual* atoms is
 in a sence that no UB could happen. The data races may result in incorrect values,
 but no unsafe memory access is possible.
 
-So Rc<UnsafeCell<State>> or Arc<UnsafeCell<State>> should be fine if API
+So Arc<UnsafeCell<State>> or AArc<UnsafeCell<State>> should be fine if API
 makes changing the number of atoms impossible.
 
 - Should pbox be always immutable?
@@ -156,8 +156,8 @@ makes changing the number of atoms impossible.
 */
 
 pub struct Selection {
-    topology: Rc<Topology>,
-    state: Rc<State>,
+    topology: Arc<Topology>,
+    state: Arc<State>,
     index: Vec<usize>,
 }
 
@@ -340,7 +340,7 @@ impl Selection {
     // Combining selections
     //======================
     pub fn union(&mut self, other: &Selection) -> Result<()> {
-        if !Rc::ptr_eq(&self.topology, &other.topology) || !Rc::ptr_eq(&self.state, &other.state) {
+        if !Arc::ptr_eq(&self.topology, &other.topology) || !Arc::ptr_eq(&self.state, &other.state) {
             bail!("Can't combine selection pointing to different topologies or states!")
         };
         self.index.extend(other.index.iter());

@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, ops::Deref, rc::Rc};
+use std::{cell::UnsafeCell, ops::Deref, sync::Arc};
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
@@ -26,8 +26,8 @@ impl From<StateStorage> for State {
 }
 
 impl State {
-    pub fn to_rc(self) -> Rc<Self> {
-        Rc::new(self)
+    pub fn to_rc(self) -> Arc<Self> {
+        Arc::new(self)
     }
 
     #[inline(always)]
