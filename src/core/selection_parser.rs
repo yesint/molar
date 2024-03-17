@@ -146,11 +146,19 @@ type SubsetType = rustc_hash::FxHashSet<usize>;
 pub struct ApplyData<'a> {
     topology: &'a Topology,
     state: &'a State,
-    subset: SubsetType,
+    // This is a subset passed from outside
+    // selection is completely within it
+    // Parser is not changing subset
+    subset: &'a SubsetType,
+    // This is a context-dependent subset
+    // (created for example by AND operation)
+    // Selection can extend out of it
+    // (like with WITHIN of BY)
+    context_subset: Option<&'a SubsetType>,
 }
 
 impl<'a> ApplyData<'a> {
-    fn new(topology: &'a Topology, state: &'a State, subset: SubsetType) -> Result<Self> {
+    fn new(topology: &'a Topology, state: &'a State, subset: &'a SubsetType) -> Result<Self> {
         if topology.num_atoms() != state.num_coords() {
             bail!(
                 "There are {} atoms but {} positions",
@@ -162,7 +170,30 @@ impl<'a> ApplyData<'a> {
         Ok(Self {
             topology,
             state,
-            subset: subset,
+            subset,
+            context_subset: None,
+        })
+    }
+
+    fn new_with_context(
+        topology: &'a Topology,
+        state: &'a State,
+        subset: &'a SubsetType,
+        context_subset: &'a SubsetType,
+    ) -> Result<Self> {
+        if topology.num_atoms() != state.num_coords() {
+            bail!(
+                "There are {} atoms but {} positions",
+                topology.num_atoms(),
+                state.num_coords()
+            );
+        }
+
+        Ok(Self {
+            topology,
+            state,
+            subset,
+            context_subset: Some(context_subset),
         })
     }
 
@@ -170,34 +201,32 @@ impl<'a> ApplyData<'a> {
         self.subset.len()
     }
 
-    fn iter_ind_atom_pos(&self) -> impl Iterator<Item=(usize,&Atom,&Pos)> {
-        self.subset.iter().map(|i| {
-            unsafe{(
+    fn iter_ind_atom_pos(&self) -> impl Iterator<Item = (usize, &Atom, &Pos)> {
+        self.subset.iter().map(|i| unsafe {
+            (
                 *i,
                 self.topology.nth_atom_unchecked(*i),
-                self.state.nth_pos_unchecked(*i)
-            )}
-        })
-    }
-    
-    fn iter_ind_atom(&self) -> impl Iterator<Item=(usize,&Atom)> {
-        self.subset.iter().map(|i| {
-            unsafe{ (*i,self.topology.nth_atom_unchecked(*i)) }
+                self.state.nth_pos_unchecked(*i),
+            )
         })
     }
 
-    fn iter_atom_index(&self,index: impl Iterator<Item=usize>) -> impl Iterator<Item=&Atom> {
-        index.map(|i| {
-            unsafe{ self.topology.nth_atom_unchecked(i) }
-        })
+    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
+        self.subset
+            .iter()
+            .map(|i| unsafe { (*i, self.topology.nth_atom_unchecked(*i)) })
     }
 
-    fn iter_ind_pos_index(&self,index: impl ExactSizeIterator<Item=usize>) -> impl ExactSizeIterator<Item=(usize,&Pos)> {
-        index.map(|i| {
-            unsafe{ (i,self.state.nth_pos_unchecked(i)) }
-        })
+    fn iter_atom_index(&self, index: impl Iterator<Item = usize>) -> impl Iterator<Item = &Atom> {
+        index.map(|i| unsafe { self.topology.nth_atom_unchecked(i) })
     }
-    
+
+    fn iter_ind_pos_index(
+        &self,
+        index: impl ExactSizeIterator<Item = usize>,
+    ) -> impl ExactSizeIterator<Item = (usize, &Pos)> {
+        index.map(|i| unsafe { (i, self.state.nth_pos_unchecked(i)) })
+    }
 }
 
 //###################################
@@ -228,13 +257,13 @@ impl LogicalNode {
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        for at in data.iter_atom_index(inner.iter().cloned()){
+        for at in data.iter_atom_index(inner.iter().cloned()) {
             properties.insert(*prop_fn(at));
         }
 
         // Now loop over current cubset and add all atoms with the same property
         let mut res = SubsetType::default();
-        for (i,at) in data.iter_ind_atom() {
+        for (i, at) in data.iter_ind_atom() {
             for prop in properties.iter() {
                 if prop_fn(at) == prop {
                     res.insert(i);
@@ -255,9 +284,20 @@ impl LogicalNode {
             Self::Or(a, b) => Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect()),
             Self::And(a, b) => {
                 let a_res = a.apply(data)?;
-                let b_data = ApplyData::new(data.topology, data.state, a_res)?;
-                // a_res is moved to b_data.subset but we can still use it without copying
-                Ok(b_data.subset.intersection(&b.apply(&b_data)?).cloned().collect())
+                // Create new instance of data and set a context subset to
+                // the result of a
+                let mut b_data =
+                    ApplyData::new_with_context(
+                        data.topology,
+                        data.state,
+                        data.subset,
+                        &a_res
+                    )?;
+    
+                Ok(a_res
+                    .intersection(&b.apply(&b_data)?)
+                    .cloned()
+                    .collect())
             }
             Self::Keyword(node) => node.apply(data),
             Self::Comparison(node) => node.apply(data),
@@ -279,7 +319,7 @@ impl LogicalNode {
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
-                    
+
                     DistanceSearcherDouble::new(
                         prop.cutoff,
                         data.iter_ind_pos_index(data.subset.iter().cloned()),
@@ -314,7 +354,7 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
-        let crd = unsafe{ state.nth_pos_unchecked_mut(i) };
+        let crd = unsafe { state.nth_pos_unchecked_mut(i) };
         for d in 0..3 {
             if crd[d] < lower[d] {
                 lower[d] = crd[d]
@@ -335,7 +375,7 @@ impl KeywordNode {
         f: fn(&Atom) -> &String,
     ) -> SubsetType {
         let mut res = SubsetType::default();
-        for (ind,a) in data.iter_ind_atom() {
+        for (ind, a) in data.iter_ind_atom() {
             for val in values {
                 match val {
                     StrKeywordValue::Str(s) => {
@@ -363,7 +403,7 @@ impl KeywordNode {
         f: fn(&Atom, usize) -> i32,
     ) -> SubsetType {
         let mut res = SubsetType::default();
-        for (ind,a) in data.iter_ind_atom() {
+        for (ind, a) in data.iter_ind_atom() {
             for val in values {
                 match *val {
                     IntKeywordValue::Int(v) => {
@@ -442,7 +482,7 @@ impl ComparisonNode {
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
-        for (i,atom,pos) in data.iter_ind_atom_pos() {
+        for (i, atom, pos) in data.iter_ind_atom_pos() {
             if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
                 res.insert(i);
             }
@@ -459,7 +499,7 @@ impl ComparisonNode {
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
-        for (i,atom,pos) in data.iter_ind_atom_pos() {
+        for (i, atom, pos) in data.iter_ind_atom_pos() {
             let mid = v2.eval(atom, pos)?;
             if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
                 res.insert(i);
@@ -761,16 +801,19 @@ pub struct SelectionExpr {
 impl TryFrom<&str> for SelectionExpr {
     type Error = anyhow::Error;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
-        Ok(Self{ast: selection_parser::logical_expr(value)?})
+        Ok(Self {
+            ast: selection_parser::logical_expr(value)?,
+        })
     }
 }
 
 impl SelectionExpr {
     pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+        let subset = SubsetType::from_iter(0..topology.num_atoms());
         let data = ApplyData::new(
             topology,
             state,
-            SubsetType::from_iter(0..topology.num_atoms())
+            &subset,
         )?;
         let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         index.sort();
@@ -783,11 +826,8 @@ impl SelectionExpr {
         state: &State,
         subset: impl Iterator<Item = usize>,
     ) -> Result<Vec<usize>> {
-        let data = ApplyData::new(
-            topology,
-            state,
-            SubsetType::from_iter(subset),
-        )?;
+        let subset = SubsetType::from_iter(subset);
+        let data = ApplyData::new(topology, state, &subset)?;
         let mut index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
         index.sort();
         Ok(index)
@@ -802,7 +842,7 @@ impl SelectionExpr {
 mod tests {
     use super::SelectionExpr;
     use crate::{
-        core::{Topology, State},
+        core::{State, Topology},
         io::*,
     };
 
@@ -828,19 +868,15 @@ mod tests {
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let topst = read_test_pdb();
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
-        ast.apply_whole(
-            &topst.0, 
-            &topst.1
-        ).expect("Error applying AST")
+        ast.apply_whole(&topst.0, &topst.1)
+            .expect("Error applying AST")
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         let topst = read_test_pdb2();
-        ast.apply_whole(
-            &topst.0, 
-            &topst.1
-        ).expect("Error applying AST")
+        ast.apply_whole(&topst.0, &topst.1)
+            .expect("Error applying AST")
     }
 
     include!(concat!(
@@ -852,5 +888,4 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/generated_pteros_tests.in"
     ));
-
 }
