@@ -551,8 +551,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::any;
-
     use super::{Selection, SelectionAll};
     use crate::{
         core::{

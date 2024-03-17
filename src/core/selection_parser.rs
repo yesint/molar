@@ -9,6 +9,7 @@ use super::{IndexIterator, PbcDims, PBC_NONE};
 use crate::distance_search::search::DistanceSearcherDouble;
 use crate::io::{StateProvider, TopologyProvider};
 use std::collections::HashSet;
+use std::mem;
 
 use crate::core::{Pos, Vector3f, PBC_FULL};
 
@@ -149,7 +150,7 @@ pub struct ApplyData<'a> {
     // This is a subset passed from outside
     // selection is completely within it
     // Parser is not changing subset
-    subset: &'a SubsetType,
+    global_subset: &'a SubsetType,
     // This is a context-dependent subset
     // (created for example by AND operation)
     // Selection can extend out of it
@@ -157,8 +158,13 @@ pub struct ApplyData<'a> {
     context_subset: Option<&'a SubsetType>,
 }
 
+enum IterKind {
+    Global,
+    Context,
+}
+
 impl<'a> ApplyData<'a> {
-    fn new(topology: &'a Topology, state: &'a State, subset: &'a SubsetType) -> Result<Self> {
+    fn new(topology: &'a Topology, state: &'a State, global_subset: &'a SubsetType) -> Result<Self> {
         if topology.num_atoms() != state.num_coords() {
             bail!(
                 "There are {} atoms but {} positions",
@@ -170,7 +176,7 @@ impl<'a> ApplyData<'a> {
         Ok(Self {
             topology,
             state,
-            subset,
+            global_subset,
             context_subset: None,
         })
     }
@@ -178,7 +184,7 @@ impl<'a> ApplyData<'a> {
     fn new_with_context(
         topology: &'a Topology,
         state: &'a State,
-        subset: &'a SubsetType,
+        global_subset: &'a SubsetType,
         context_subset: &'a SubsetType,
     ) -> Result<Self> {
         if topology.num_atoms() != state.num_coords() {
@@ -192,36 +198,48 @@ impl<'a> ApplyData<'a> {
         Ok(Self {
             topology,
             state,
-            subset,
+            global_subset,
             context_subset: Some(context_subset),
         })
     }
 
     fn len(&self) -> usize {
-        self.subset.len()
+        self.global_subset.len()
     }
 
-    fn iter_ind_atom_pos(&self) -> impl Iterator<Item = (usize, &Atom, &Pos)> {
-        self.subset.iter().map(|i| unsafe {
+    // Returns iterator over needed subset
+    fn subset_iter(&self, kind: IterKind) -> impl Iterator<Item = usize> + '_ {
+        match kind {
+            IterKind::Global => self.global_subset.iter().cloned(),
+            IterKind::Context => {
+                match self.context_subset {
+                    Some(cont) => cont.iter().cloned(),
+                    None => self.global_subset.iter().cloned(),
+                }
+            }
+        }
+    }
+
+    fn iter_ind_atom_pos(&self, kind: IterKind) -> impl Iterator<Item = (usize, &Atom, &Pos)> {
+        self.subset_iter(kind).map(|i| unsafe {
             (
-                *i,
-                self.topology.nth_atom_unchecked(*i),
-                self.state.nth_pos_unchecked(*i),
+                i,
+                self.topology.nth_atom_unchecked(i),
+                self.state.nth_pos_unchecked(i),
             )
         })
     }
 
-    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.subset
-            .iter()
-            .map(|i| unsafe { (*i, self.topology.nth_atom_unchecked(*i)) })
+    fn iter_ind_atom(&self, kind: IterKind) -> impl Iterator<Item = (usize, &Atom)> {
+        self.subset_iter(kind)
+            .map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
     }
 
-    fn iter_atom_index(&self, index: impl Iterator<Item = usize>) -> impl Iterator<Item = &Atom> {
+    fn iter_atom_from_index(&self, index: impl Iterator<Item = usize>) -> impl Iterator<Item = &Atom> {
         index.map(|i| unsafe { self.topology.nth_atom_unchecked(i) })
     }
 
-    fn iter_ind_pos_index(
+    fn iter_ind_pos_from_index(
         &self,
         index: impl ExactSizeIterator<Item = usize>,
     ) -> impl ExactSizeIterator<Item = (usize, &Pos)> {
@@ -234,18 +252,22 @@ impl<'a> ApplyData<'a> {
 //###################################
 
 impl LogicalNode {
-    /*
-    fn is_coord_dependent(&self) -> bool {
+    
+    pub fn is_coord_dependent(&self) -> bool {
         match self {
             Self::Not(node) => node.is_coord_dependent(),
-            Self::Or(a,b) => a.is_coord_dependent() || b.is_coord_dependent(),
-            Self::And(a,b) => a.is_coord_dependent() || b.is_coord_dependent(),
+            Self::Or(a,b) |
+            Self::And(a,b) => {
+                a.is_coord_dependent() || b.is_coord_dependent()
+            },
             Self::Keyword(node) => node.is_coord_dependent(),
-            Self::Comparison(node) =>  node.is_coord_dependent()
+            Self::Comparison(node) =>  node.is_coord_dependent(),
+            Self::All => false,
+            Self::Same(_,node) => node.is_coord_dependent(),
+            Self::Within(_,node) => node.is_coord_dependent(),
         }
     }
-    */
-
+    
     fn map_same_prop<'a, T>(
         &self,
         data: &'a ApplyData,
@@ -257,13 +279,14 @@ impl LogicalNode {
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        for at in data.iter_atom_index(inner.iter().cloned()) {
+        for at in data.iter_atom_from_index(inner.iter().cloned()) {
             properties.insert(*prop_fn(at));
         }
 
         // Now loop over current cubset and add all atoms with the same property
+        // We use global subset here!
         let mut res = SubsetType::default();
-        for (i, at) in data.iter_ind_atom() {
+        for (i, at) in data.iter_ind_atom(IterKind::Global) {
             for prop in properties.iter() {
                 if prop_fn(at) == prop {
                     res.insert(i);
@@ -277,41 +300,58 @@ impl LogicalNode {
     pub fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
             Self::Not(node) => Ok(data
-                .subset
+                // Here we always use global subset!
+                .global_subset 
                 .difference(&node.apply(data)?)
                 .cloned()
                 .collect()),
-            Self::Or(a, b) => Ok(a.apply(data)?.union(&b.apply(data)?).cloned().collect()),
-            Self::And(a, b) => {
+            
+            Self::Or(a, b) => Ok(
+                a.apply(data)?.union(&b.apply(data)?).cloned().collect()
+            ),
+            
+            Self::And(ref a, ref b) => {
+                // Check which operand is coord-dependent and put it first
+                // This could be optimized to precomputed index and will
+                // make re-evaluation of AST faster
+                //if !a.is_coord_dependent() && b.is_coord_dependent() {
+                //    mem::swap(a,  &mut b);
+                //}
+
                 let a_res = a.apply(data)?;
                 // Create new instance of data and set a context subset to
                 // the result of a
-                let mut b_data =
+                let b_data =
                     ApplyData::new_with_context(
                         data.topology,
                         data.state,
-                        data.subset,
+                        data.global_subset,
                         &a_res
                     )?;
     
-                Ok(a_res
-                    .intersection(&b.apply(&b_data)?)
+                Ok(
+                    a_res.intersection(&b.apply(&b_data)?)
                     .cloned()
-                    .collect())
+                    .collect()
+                )
             }
+            
             Self::Keyword(node) => node.apply(data),
+            
             Self::Comparison(node) => node.apply(data),
+            
             Self::Same(prop, node) => {
                 let inner = node.apply(data)?;
                 let res = match prop {
+                    // Here we use the global subset!
                     SameProp::Residue => self.map_same_prop(data, &inner, |at| &at.resindex),
                     SameProp::Chain => self.map_same_prop(data, &inner, |at| &at.chain),
                 };
                 Ok(res)
             }
+            
             Self::Within(prop, node) => {
                 let inner = node.apply(data)?;
-                //println!("{:?}", inner);
                 // Perform distance search
                 let searcher = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
@@ -322,8 +362,9 @@ impl LogicalNode {
 
                     DistanceSearcherDouble::new(
                         prop.cutoff,
-                        data.iter_ind_pos_index(data.subset.iter().cloned()),
-                        data.iter_ind_pos_index(inner.iter().cloned()),
+                        // Global subset is used!
+                        data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
+                        data.iter_ind_pos_from_index(inner.iter().cloned()),
                         &lower,
                         &upper,
                     )
@@ -331,8 +372,9 @@ impl LogicalNode {
                     // Periodic variant
                     DistanceSearcherDouble::new_periodic(
                         prop.cutoff,
-                        data.iter_ind_pos_index(data.subset.iter().cloned()),
-                        data.iter_ind_pos_index(inner.iter().cloned()),
+                        // Global subset is used!
+                        data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
+                        data.iter_ind_pos_from_index(inner.iter().cloned()),
                         data.state.get_box().unwrap(),
                         &prop.pbc,
                     )
@@ -345,7 +387,9 @@ impl LogicalNode {
                 }
                 Ok(res)
             }
-            Self::All => Ok(data.subset.iter().cloned().collect()),
+
+            // All always works for global subset
+            Self::All => Ok(data.global_subset.iter().cloned().collect()),
         }
     }
 }
@@ -368,6 +412,10 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
 }
 
 impl KeywordNode {
+    pub fn is_coord_dependent(&self) -> bool {
+        false
+    }
+
     fn map_str_values(
         &self,
         data: &ApplyData,
@@ -375,7 +423,7 @@ impl KeywordNode {
         f: fn(&Atom) -> &String,
     ) -> SubsetType {
         let mut res = SubsetType::default();
-        for (ind, a) in data.iter_ind_atom() {
+        for (ind, a) in data.iter_ind_atom(IterKind::Context) {
             for val in values {
                 match val {
                     StrKeywordValue::Str(s) => {
@@ -403,7 +451,7 @@ impl KeywordNode {
         f: fn(&Atom, usize) -> i32,
     ) -> SubsetType {
         let mut res = SubsetType::default();
-        for (ind, a) in data.iter_ind_atom() {
+        for (ind, a) in data.iter_ind_atom(IterKind::Context) {
             for val in values {
                 match *val {
                     IntKeywordValue::Int(v) => {
@@ -436,7 +484,7 @@ impl KeywordNode {
             Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
                 let mut res = SubsetType::default();
-                for (i, a) in data.iter_ind_atom() {
+                for (i, a) in data.iter_ind_atom(IterKind::Context) {
                     for c in values {
                         if c == &a.chain {
                             res.insert(i);
@@ -450,6 +498,21 @@ impl KeywordNode {
 }
 
 impl MathNode {
+    pub fn is_coord_dependent(&self) -> bool {
+        match self {
+            Self::Float(_) | Self::Bfactor | Self::Occupancy => false,
+            Self::X | Self::Y | Self::Z => true,
+            Self::Plus(a, b) | 
+            Self::Minus(a, b) |
+            Self::Mul(a, b) |
+            Self::Div(a, b) |
+            Self::Pow(a, b) => {
+                a.is_coord_dependent() || b.is_coord_dependent()
+            },
+            Self::Neg(v) => v.is_coord_dependent(),
+        }
+    }
+
     fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32> {
         match self {
             Self::Float(v) => Ok(*v),
@@ -475,6 +538,31 @@ impl MathNode {
 }
 
 impl ComparisonNode {
+    pub fn is_coord_dependent(&self) -> bool {
+        match self {
+            Self::Eq(v1, v2) |
+            Self::Neq(v1, v2) |
+            Self::Gt(v1, v2) |
+            Self::Geq(v1, v2) |
+            Self::Lt(v1, v2) |
+            Self::Leq(v1, v2) => {
+                v1.is_coord_dependent() || v2.is_coord_dependent()
+            },
+            // Chained left
+            Self::LtLt(v1, v2, v3) |
+            Self::LtLeq(v1, v2, v3) |
+            Self::LeqLt(v1, v2, v3) |
+            Self::LeqLeq(v1, v2, v3) |
+            // Chained right
+            Self::GtGt(v1, v2, v3) |
+            Self::GtGeq(v1, v2, v3) |
+            Self::GeqGt(v1, v2, v3) |
+            Self::GeqGeq(v1, v2, v3) => {
+                v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent()
+            }
+        }
+    }
+
     fn eval_op(
         data: &ApplyData,
         v1: &MathNode,
@@ -482,7 +570,7 @@ impl ComparisonNode {
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
-        for (i, atom, pos) in data.iter_ind_atom_pos() {
+        for (i, atom, pos) in data.iter_ind_atom_pos(IterKind::Context) {
             if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
                 res.insert(i);
             }
@@ -499,7 +587,7 @@ impl ComparisonNode {
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
-        for (i, atom, pos) in data.iter_ind_atom_pos() {
+        for (i, atom, pos) in data.iter_ind_atom_pos(IterKind::Context) {
             let mid = v2.eval(atom, pos)?;
             if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
                 res.insert(i);
