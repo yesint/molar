@@ -9,7 +9,6 @@ use super::{IndexIterator, PbcDims, PBC_NONE};
 use crate::distance_search::search::DistanceSearcherDouble;
 use crate::io::{StateProvider, TopologyProvider};
 use std::collections::HashSet;
-use std::mem;
 
 use crate::core::{Pos, Vector3f, PBC_FULL};
 
@@ -158,11 +157,6 @@ pub struct ApplyData<'a> {
     context_subset: Option<&'a SubsetType>,
 }
 
-enum IterKind {
-    Global,
-    Context,
-}
-
 impl<'a> ApplyData<'a> {
     fn new(topology: &'a Topology, state: &'a State, global_subset: &'a SubsetType) -> Result<Self> {
         if topology.num_atoms() != state.num_coords() {
@@ -181,47 +175,29 @@ impl<'a> ApplyData<'a> {
         })
     }
 
-    fn new_with_context(
-        topology: &'a Topology,
-        state: &'a State,
-        global_subset: &'a SubsetType,
-        context_subset: &'a SubsetType,
-    ) -> Result<Self> {
-        if topology.num_atoms() != state.num_coords() {
-            bail!(
-                "There are {} atoms but {} positions",
-                topology.num_atoms(),
-                state.num_coords()
-            );
-        }
-
-        Ok(Self {
-            topology,
-            state,
-            global_subset,
+    fn clone_with_context(&self, context_subset: &'a SubsetType) -> Self {
+        Self {
             context_subset: Some(context_subset),
-        })
+            ..*self
+        }
     }
 
     fn len(&self) -> usize {
         self.global_subset.len()
     }
 
-    // Returns iterator over needed subset
-    fn subset_iter(&self, kind: IterKind) -> impl Iterator<Item = usize> + '_ {
-        match kind {
-            IterKind::Global => self.global_subset.iter().cloned(),
-            IterKind::Context => {
-                match self.context_subset {
-                    Some(cont) => cont.iter().cloned(),
-                    None => self.global_subset.iter().cloned(),
-                }
-            }
+    // Returns iterator over subset.
+    // If context is set, iterates over context
+    // otherwise iterates over global subset
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        match self.context_subset {
+            Some(cont) => cont.iter().cloned(),
+            None => self.global_subset.iter().cloned(),
         }
     }
 
-    fn iter_ind_atom_pos(&self, kind: IterKind) -> impl Iterator<Item = (usize, &Atom, &Pos)> {
-        self.subset_iter(kind).map(|i| unsafe {
+    fn iter_ind_atom_pos(&self) -> impl Iterator<Item = (usize, &Atom, &Pos)> {
+        self.iter().map(|i| unsafe {
             (
                 i,
                 self.topology.nth_atom_unchecked(i),
@@ -230,9 +206,8 @@ impl<'a> ApplyData<'a> {
         })
     }
 
-    fn iter_ind_atom(&self, kind: IterKind) -> impl Iterator<Item = (usize, &Atom)> {
-        self.subset_iter(kind)
-            .map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
+    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
+        self.iter().map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
     }
 
     fn iter_atom_from_index(&self, index: impl Iterator<Item = usize>) -> impl Iterator<Item = &Atom> {
@@ -244,6 +219,13 @@ impl<'a> ApplyData<'a> {
         index: impl ExactSizeIterator<Item = usize>,
     ) -> impl ExactSizeIterator<Item = (usize, &Pos)> {
         index.map(|i| unsafe { (i, self.state.nth_pos_unchecked(i)) })
+    }
+
+    fn iter_ind_atom_from_index(
+        &self,
+        index: impl ExactSizeIterator<Item = usize>,
+    ) -> impl ExactSizeIterator<Item = (usize, &Atom)> {
+        index.map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
     }
 }
 
@@ -283,10 +265,11 @@ impl LogicalNode {
             properties.insert(*prop_fn(at));
         }
 
-        // Now loop over current cubset and add all atoms with the same property
-        // We use global subset here!
         let mut res = SubsetType::default();
-        for (i, at) in data.iter_ind_atom(IterKind::Global) {
+        // Now loop over *global* subset and add all atoms with the same property
+        for (i, at) in data
+            .iter_ind_atom_from_index(data.global_subset.iter().cloned()) 
+        {
             for prop in properties.iter() {
                 if prop_fn(at) == prop {
                     res.insert(i);
@@ -299,12 +282,13 @@ impl LogicalNode {
 
     pub fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
         match self {
-            Self::Not(node) => Ok(data
+            Self::Not(node) => Ok(
                 // Here we always use global subset!
-                .global_subset 
+                data.global_subset 
                 .difference(&node.apply(data)?)
                 .cloned()
-                .collect()),
+                .collect()
+            ),
             
             Self::Or(a, b) => Ok(
                 a.apply(data)?.union(&b.apply(data)?).cloned().collect()
@@ -321,14 +305,8 @@ impl LogicalNode {
                 let a_res = a.apply(data)?;
                 // Create new instance of data and set a context subset to
                 // the result of a
-                let b_data =
-                    ApplyData::new_with_context(
-                        data.topology,
-                        data.state,
-                        data.global_subset,
-                        &a_res
-                    )?;
-    
+                let b_data = data.clone_with_context(&a_res);
+
                 Ok(
                     a_res.intersection(&b.apply(&b_data)?)
                     .cloned()
@@ -423,7 +401,7 @@ impl KeywordNode {
         f: fn(&Atom) -> &String,
     ) -> SubsetType {
         let mut res = SubsetType::default();
-        for (ind, a) in data.iter_ind_atom(IterKind::Context) {
+        for (ind, a) in data.iter_ind_atom() {
             for val in values {
                 match val {
                     StrKeywordValue::Str(s) => {
@@ -451,7 +429,7 @@ impl KeywordNode {
         f: fn(&Atom, usize) -> i32,
     ) -> SubsetType {
         let mut res = SubsetType::default();
-        for (ind, a) in data.iter_ind_atom(IterKind::Context) {
+        for (ind, a) in data.iter_ind_atom() {
             for val in values {
                 match *val {
                     IntKeywordValue::Int(v) => {
@@ -484,7 +462,7 @@ impl KeywordNode {
             Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
                 let mut res = SubsetType::default();
-                for (i, a) in data.iter_ind_atom(IterKind::Context) {
+                for (i, a) in data.iter_ind_atom() {
                     for c in values {
                         if c == &a.chain {
                             res.insert(i);
@@ -570,7 +548,7 @@ impl ComparisonNode {
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
-        for (i, atom, pos) in data.iter_ind_atom_pos(IterKind::Context) {
+        for (i, atom, pos) in data.iter_ind_atom_pos() {
             if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
                 res.insert(i);
             }
@@ -587,7 +565,7 @@ impl ComparisonNode {
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
-        for (i, atom, pos) in data.iter_ind_atom_pos(IterKind::Context) {
+        for (i, atom, pos) in data.iter_ind_atom_pos() {
             let mid = v2.eval(atom, pos)?;
             if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
                 res.insert(i);
@@ -791,27 +769,42 @@ peg::parser! {
             }
 
         // Chained comparison
-        rule comparison_expr_chained() -> ComparisonNode =
-            a:math_expr() _
+        rule comparison_expr_chained() -> ComparisonNode
+        = comparison_expr_chained_l() / comparison_expr_chained_r()
+
+        rule comparison_expr_chained_l() -> ComparisonNode
+        =   a:math_expr() _
             op1:(comparison_op_leq()/comparison_op_lt()) _
             b:math_expr() _
             op2:(comparison_op_leq()/comparison_op_lt()) _
-            c:math_expr() {
-                use ComparisonOp as C;
-                match (op1,op2) {
-                    // Left
-                    (C::Lt,C::Lt) => { ComparisonNode::LtLt(a,b,c) },
-                    (C::Lt,C::Leq) => { ComparisonNode::LtLeq(a,b,c) },
-                    (C::Leq,C::Lt) => { ComparisonNode::LeqLt(a,b,c) },
-                    (C::Leq,C::Leq) => { ComparisonNode::LeqLeq(a,b,c) },
-                    // Right
-                    (C::Gt,C::Gt) => { ComparisonNode::GtGt(a,b,c) },
-                    (C::Gt,C::Geq) => { ComparisonNode::GtGeq(a,b,c) },
-                    (C::Geq,C::Gt) => { ComparisonNode::GeqGt(a,b,c) },
-                    (C::Geq,C::Geq) => { ComparisonNode::GeqGeq(a,b,c) },
-                    _ => unreachable!(),
-                }
+            c:math_expr() 
+        {
+            use ComparisonOp as C;
+            match (op1,op2) {
+                (C::Lt,C::Lt) => { ComparisonNode::LtLt(a,b,c) },
+                (C::Lt,C::Leq) => { ComparisonNode::LtLeq(a,b,c) },
+                (C::Leq,C::Lt) => { ComparisonNode::LeqLt(a,b,c) },
+                (C::Leq,C::Leq) => { ComparisonNode::LeqLeq(a,b,c) },
+                _ => unreachable!(),
             }
+        }
+        
+        rule comparison_expr_chained_r() -> ComparisonNode
+        =   a:math_expr() _
+            op1:(comparison_op_geq()/comparison_op_gt()) _
+            b:math_expr() _
+            op2:(comparison_op_geq()/comparison_op_gt()) _
+            c:math_expr() 
+        {
+            use ComparisonOp as C;
+            match (op1,op2) {
+                (C::Gt,C::Gt) => { ComparisonNode::GtGt(a,b,c) },
+                (C::Gt,C::Geq) => { ComparisonNode::GtGeq(a,b,c) },
+                (C::Geq,C::Gt) => { ComparisonNode::GeqGt(a,b,c) },
+                (C::Geq,C::Geq) => { ComparisonNode::GeqGeq(a,b,c) },
+                _ => unreachable!(),
+            }
+        }
 
         // By expressions
         rule same_expr() -> SameProp
