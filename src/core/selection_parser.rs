@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use nalgebra::ComplexField;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 
@@ -31,6 +32,7 @@ pub enum StrKeywordValue {
 #[derive(Debug, PartialEq)]
 pub enum MathNode {
     Float(f32),
+    Function(MathFunctionName,Box<Self>),
     X,
     Y,
     Z,
@@ -133,6 +135,15 @@ enum Keyword {
     Bfactor,
     Chain,
     Residue,
+}
+
+
+#[derive(Debug,PartialEq)]
+pub enum MathFunctionName {
+    Abs,
+    Sqrt,
+    Sin,
+    Cos
 }
 
 //##############################
@@ -488,6 +499,7 @@ impl MathNode {
                 a.is_coord_dependent() || b.is_coord_dependent()
             },
             Self::Neg(v) => v.is_coord_dependent(),
+            Self::Function(_,v) => v.is_coord_dependent(),
         }
     }
 
@@ -511,6 +523,18 @@ impl MathNode {
             }
             Self::Pow(a, b) => Ok(a.eval(atom, pos)?.powf(b.eval(atom, pos)?)),
             Self::Neg(v) => Ok(-v.eval(atom, pos)?),
+            Self::Function(func, v) => {
+                let val = v.eval(atom, pos)?;
+                match func {
+                    MathFunctionName::Abs => Ok(val.abs()),
+                    MathFunctionName::Sqrt => {
+                        if val<0.0 {bail!("Negative number in sqrt")}
+                        Ok(val.sqrt())
+                    },
+                    MathFunctionName::Sin => Ok(val.sin()),
+                    MathFunctionName::Cos => Ok(val.cos()),
+                }
+            }
         }
     }
 }
@@ -718,6 +742,14 @@ peg::parser! {
         }
         */
 
+        rule abs_function() -> MathFunctionName = "abs" {MathFunctionName::Abs}
+        rule sqrt_function() -> MathFunctionName = "sqrt" {MathFunctionName::Sqrt}
+        rule sin_function() -> MathFunctionName = "sin" {MathFunctionName::Sin}
+        rule cos_function() -> MathFunctionName = "cos" {MathFunctionName::Cos}
+
+        rule math_function_name() -> MathFunctionName
+        = abs_function() / sqrt_function() / sin_function() / cos_function()
+
         // Math
         rule math_expr() -> MathNode
         = precedence!{
@@ -731,6 +763,7 @@ peg::parser! {
             x:@ _ "^" _ y:(@) { MathNode::Pow(Box::new(x),Box::new(y)) }
             --
             v:float() {v}
+            f:math_function_name() "(" _ e:math_expr() _ ")" { MathNode::Function(f,Box::new(e)) }
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
@@ -806,7 +839,7 @@ peg::parser! {
             }
         }
 
-        // By expressions
+        // "Same" expressions
         rule same_expr() -> SameProp
         = "same" __ t:(keyword_residue() / keyword_chain()) __ "as" {
             match t {
