@@ -1,16 +1,14 @@
 use anyhow::{anyhow, bail, Result};
-use nalgebra::{ComplexField, Normed, Unit};
+use nalgebra::Unit;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 
 use super::atom::Atom;
-use super::providers::BoxProvider;
 use super::state::State;
 use super::topology::Topology;
 use super::{IndexIterator, PbcDims, PeriodicBox, PBC_NONE};
 use crate::distance_search::search::DistanceSearcherDouble;
 use crate::io::{StateProvider, TopologyProvider};
-use std::borrow::Cow;
 use std::collections::HashSet;
 
 use crate::core::{Pos, Vector3f, PBC_FULL};
@@ -93,8 +91,17 @@ impl MathNode {
     }
 }
 
+// Computes a vector value in various ways
+#[derive(Debug)]
+pub enum VectorNode {
+    Const(Vector3f),
+    NthOf(LogicalNode),
+    Com(LogicalNode),
+    Cog(LogicalNode),
+}
+
 #[derive(Debug, PartialEq)]
-enum DistanceNode {
+pub enum DistanceNode {
     Point(Pos, PbcDims),
     Line(Pos, Pos, PbcDims),
     LineDir(Pos, Unit<Vector3f>, PbcDims),
@@ -143,13 +150,13 @@ pub enum KeywordNode {
     Index(Vec<IntKeywordValue>),
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum SameProp {
     Residue,
     Chain,
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub struct WithinProp {
     cutoff: f32,
     pbc: PbcDims,
@@ -531,6 +538,7 @@ impl KeywordNode {
 }
 
 impl MathNode {
+    /*
     pub fn is_coord_dependent(&self) -> bool {
         match self {
             Self::Float(_) | Self::Bfactor | Self::Occupancy => false,
@@ -547,6 +555,7 @@ impl MathNode {
             Self::Dist(_) => true,
         }
     }
+    */
 
     fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32> {
         match self {
@@ -824,9 +833,12 @@ peg::parser! {
         = x:float_val() __ y:float_val() __ z:float_val() {Pos::new(x, y, z)}
         
         rule vec3_comas() -> Pos
-        = "[" _ x:float_val() "," y:float_val() "," z:float_val() _ "]" {
+        = "[" _ x:float_val() _ "," _ y:float_val() _ "," _ z:float_val() _ "]" {
             Pos::new(x, y, z)
         }
+
+        //rule nth_of() -> Pos
+        //= logical_expr()
 
         // Distance
         rule distance() -> DistanceNode
@@ -834,28 +846,28 @@ peg::parser! {
         / distance_plane_3points() / distance_plane_point_normal()
 
         rule distance_point() -> DistanceNode
-        = "dist" b:pbc_expr() "point" __ p:vec3() {
-            DistanceNode::Point(p,b)
+        = "dist" __ b:pbc_expr()? "point" __ p:vec3() {
+            DistanceNode::Point(p,b.unwrap_or(PBC_NONE))
         }
 
         rule distance_line_2points() -> DistanceNode
-        = "dist" b:pbc_expr() "line" __ p1:vec3() __ p2:vec3() {
-            DistanceNode::Line(p1,p2,b)
+        = "dist" __ b:pbc_expr()? "line" __ p1:vec3() __ p2:vec3() {
+            DistanceNode::Line(p1,p2,b.unwrap_or(PBC_NONE))
         }
 
         rule distance_line_point_dir() -> DistanceNode
-        = "dist" b:pbc_expr() "line" __ p:vec3() __ "dir" __ dir:vec3() {
-            DistanceNode::LineDir(p,Unit::new_normalize(dir.coords),b)
+        = "dist" __ b:pbc_expr()? "line" __ p:vec3() __ "dir" __ dir:vec3() {
+            DistanceNode::LineDir(p,Unit::new_normalize(dir.coords),b.unwrap_or(PBC_NONE))
         }
 
         rule distance_plane_3points() -> DistanceNode
-        = "dist" b:pbc_expr() "plane" __ p1:vec3() __ p2:vec3() __ p3:vec3() {
-            DistanceNode::Plane(p1,p2,p3,b)
+        = "dist" __ b:pbc_expr()? "plane" __ p1:vec3() __ p2:vec3() __ p3:vec3() {
+            DistanceNode::Plane(p1,p2,p3,b.unwrap_or(PBC_NONE))
         }
 
         rule distance_plane_point_normal() -> DistanceNode
-        = "dist" b:pbc_expr() "plane" __ p:vec3() __ "normal" __ n:vec3() {
-            DistanceNode::PlaneNormal(p,Unit::new_normalize(n.coords),b)
+        = "dist" __ b:pbc_expr()? "plane" __ p:vec3() __ "normal" __ n:vec3() {
+            DistanceNode::PlaneNormal(p,Unit::new_normalize(n.coords),b.unwrap_or(PBC_NONE))
         }
         
 
@@ -883,10 +895,12 @@ peg::parser! {
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
+            d:distance() {MathNode::Dist(d)}
             keyword_occupancy() { MathNode::Occupancy }
             keyword_bfactor() { MathNode::Bfactor }
-            //v:distance_expr() {v}
-            f:math_function_name() _ "(" _ e:math_expr() _ ")" { MathNode::Function(f,Box::new(e)) }
+            f:math_function_name() _ "(" _ e:math_expr() _ ")" {
+                MathNode::Function(f,Box::new(e)) 
+            }
             "(" _ e:math_expr() _ ")" { e }
         }
 
@@ -1120,6 +1134,11 @@ mod tests {
         let vec2 = ast.apply_whole(&topst.0, &topst.1).expect("Error applying AST");
 
         assert_eq!(vec1.len(),vec2.len());
+    }
+
+    #[test]
+    fn test_dist_syntax() {
+        let _ast: SelectionExpr = "dist point 1.9 2.9 3.8 > 0.4".try_into().expect("Error generating AST");
     }
 
     include!(concat!(

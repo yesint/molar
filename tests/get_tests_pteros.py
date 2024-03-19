@@ -1,13 +1,15 @@
 from pteros import *
 sys = System('no_ATP.pdb')
 
-# Format: "vmd selection"  "molar selection"
+# Format: "pteros selection"  "molar selection"
 selections = [
     "name CA",   "name CA",
     "resid 555",  "resid 555",
     "by residue (name CA and resid 555)",    "same residue as (name CA and resid 555)",
     "within 0.5 of resid 555",  "within 0.5 of resid 555",
     "within 0.5 pbc of resid 555",  "within 0.5 pbc yyy of resid 555",
+    "x<4", "x<4",
+    "dist from 4.1 3.9 5.1 < 0.4", "dist point 4.1 3.9 5.1<0.4", 
 ]
 
 rust_code = ""
