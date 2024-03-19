@@ -1,14 +1,16 @@
-use anyhow::{bail, Result};
-use nalgebra::ComplexField;
+use anyhow::{anyhow, bail, Result};
+use nalgebra::{ComplexField, Normed, Unit};
 use num_traits::Bounded;
 use regex::bytes::Regex;
 
 use super::atom::Atom;
+use super::providers::BoxProvider;
 use super::state::State;
 use super::topology::Topology;
-use super::{IndexIterator, PbcDims, PBC_NONE};
+use super::{IndexIterator, PbcDims, PeriodicBox, PBC_NONE};
 use crate::distance_search::search::DistanceSearcherDouble;
 use crate::io::{StateProvider, TopologyProvider};
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use crate::core::{Pos, Vector3f, PBC_FULL};
@@ -44,19 +46,60 @@ pub enum MathNode {
     Div(Box<Self>, Box<Self>),
     Pow(Box<Self>, Box<Self>),
     Neg(Box<Self>),
+    Dist(DistanceNode),
 }
 
-enum DistMode {
-    Point,
-    Line,
-    Plane,
+impl MathNode {
+    fn needs_pbc(&self) -> bool {
+        match self {
+            Self::Dist(d) => {
+                match d {
+                    DistanceNode::Point(_, b) |
+                    DistanceNode::Line(_,_, b) |
+                    DistanceNode::LineDir(_,_, b) |
+                    DistanceNode::Plane(_,_,_, b) |
+                    DistanceNode::PlaneNormal(_,_, b) => {
+                        b[0] || b[1] || b[2]
+                    }
+                }
+            },
+            _ => false,
+        }
+    }
+
+    fn closest_image(&self, point: &Pos, pbox: Option<&PeriodicBox>) -> Result<Option<Pos>> {
+        match self {
+            Self::Dist(d) => {
+                match d {
+                    DistanceNode::Point(target, dims) |
+                    DistanceNode::Line(target,_, dims) |
+                    DistanceNode::LineDir(target,_, dims) |
+                    DistanceNode::Plane(target,_,_, dims) |
+                    DistanceNode::PlaneNormal(target,_, dims) => {
+                        if dims[0] || dims[1] || dims[2] {
+                            Ok(Some(
+                                pbox
+                                .ok_or_else(|| anyhow!("PBC operation with no periodic box"))?
+                                .closest_image_dims(point,target,dims)
+                            ))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                }
+            },
+            _ => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
 enum DistanceNode {
-    Point(Pos),
-    Line(Pos, Pos),
-    Plane(Pos, Pos, Pos),
+    Point(Pos, PbcDims),
+    Line(Pos, Pos, PbcDims),
+    LineDir(Pos, Unit<Vector3f>, PbcDims),
+    Plane(Pos, Pos, Pos, PbcDims),
+    PlaneNormal(Pos, Unit<Vector3f>, PbcDims),
 }
 
 enum ComparisonOp {
@@ -245,7 +288,7 @@ impl<'a> ApplyData<'a> {
 //###################################
 
 impl LogicalNode {
-    
+    /*
     pub fn is_coord_dependent(&self) -> bool {
         match self {
             Self::Not(node) => node.is_coord_dependent(),
@@ -260,6 +303,7 @@ impl LogicalNode {
             Self::Within(_,node) => node.is_coord_dependent(),
         }
     }
+    */
     
     fn map_same_prop<'a, T>(
         &self,
@@ -500,6 +544,7 @@ impl MathNode {
             },
             Self::Neg(v) => v.is_coord_dependent(),
             Self::Function(_,v) => v.is_coord_dependent(),
+            Self::Dist(_) => true,
         }
     }
 
@@ -535,11 +580,41 @@ impl MathNode {
                     MathFunctionName::Cos => Ok(val.cos()),
                 }
             }
+            Self::Dist(d) => {
+                // Points are considered correctly unwrapped!
+                match d {
+                    DistanceNode::Point(p, _) => {
+                        Ok((pos-p).norm())
+                    },
+                    DistanceNode::Line(p1, p2, _) => {
+                        let v = p2-p1;
+                        let w = pos-p1;
+                        Ok( (w-v*(w.dot(&v)/v.norm_squared())).norm() )
+                    },
+                    DistanceNode::LineDir(p, dir, _) => {
+                        let w = pos-p;
+                        // dir is already normalized
+                        Ok( (w-dir.into_inner()*w.dot(dir)).norm() )
+                    },
+                    DistanceNode::Plane(p1,p2, p3, _) => {
+                        // Plane normal
+                        let n = (p2-p1).cross(&(p3-p1));
+                        let w = pos-p1;
+                        Ok( (n*(w.dot(&n)/n.norm_squared())).norm() )
+                    },
+                    DistanceNode::PlaneNormal(p,n, _) => {
+                        // Plane normal is already normalized
+                        let w = pos-p;
+                        Ok( (n.into_inner()*w.dot(&n)).norm() )
+                    }
+                }
+            }
         }
     }
 }
 
 impl ComparisonNode {
+    /* 
     pub fn is_coord_dependent(&self) -> bool {
         match self {
             Self::Eq(v1, v2) |
@@ -564,6 +639,7 @@ impl ComparisonNode {
             }
         }
     }
+    */
 
     fn eval_op(
         data: &ApplyData,
@@ -572,8 +648,13 @@ impl ComparisonNode {
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
+        let b = data.state.get_box();
+
         for (i, atom, pos) in data.iter_ind_atom_pos() {
-            if op(v1.eval(atom, pos)?, v2.eval(atom, pos)?) {
+            let p1 = &v1.closest_image(pos, b)?.unwrap_or(*pos);
+            let p2 = &v2.closest_image(pos, b)?.unwrap_or(*pos);
+
+            if op(v1.eval(atom, p1)?, v2.eval(atom, p2)?) {
                 res.insert(i);
             }
         }
@@ -589,9 +670,15 @@ impl ComparisonNode {
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType> {
         let mut res = SubsetType::default();
+        let b = data.state.get_box();
+
         for (i, atom, pos) in data.iter_ind_atom_pos() {
-            let mid = v2.eval(atom, pos)?;
-            if op1(v1.eval(atom, pos)?, mid) && op2(mid, v3.eval(atom, pos)?) {
+            let p1 = &v1.closest_image(pos, b)?.unwrap_or(*pos);
+            let p2 = &v2.closest_image(pos, b)?.unwrap_or(*pos);
+            let p3 = &v3.closest_image(pos, b)?.unwrap_or(*pos);
+
+            let mid = v2.eval(atom, p2)?;
+            if op1(v1.eval(atom, p1)?, mid) && op2(mid, v3.eval(atom, p3)?) {
                 res.insert(i);
             }
         }
@@ -658,9 +745,12 @@ peg::parser! {
             = n:$(("-"/"+")? uint())
             { n.parse().unwrap() }
 
-        rule float() -> MathNode
+        rule float_val() -> f32
             = n:$((int() ("." uint())? / ("-"/"+") "." uint()) (("e"/"E") int())?)
-            { MathNode::Float(n.parse().unwrap()) }
+            { n.parse().unwrap() }
+
+        rule float() -> MathNode
+            = v:float_val() { MathNode::Float(v) }
 
         // Keywords
         rule keyword_name() -> Keyword = "name" {Keyword::Name}
@@ -726,21 +816,48 @@ peg::parser! {
         = !("and"/"or") s:$((![' '|'\''|'"'] [_])+)
         { StrKeywordValue::Str(s.to_owned()) }
 
-        /*
-        // Distance
-        rule dist_point() -> DistanceNode
-        = "point" __ p:xyz() {DistanceNode::Point(p)}
+        
+        // 3-vector value
+        rule vec3() -> Pos = vec3_spaces() / vec3_comas()
 
-        rule dist_line() -> DistanceNode
-        = "line" __ p1:xyz() __ p2:xyz() {DistanceNode::Line(p1,p2)}
-
-        rule distance_expr() -> DistanceNode
-        = "dist" __ "from" __ m:(dist_mode_point()/dist_mode_line()/dist_mode_plane()) (__ p:pbc_expr())? {
-            match m {
-                DistMode::Point => DistanceNode::Point(())
-            }
+        rule vec3_spaces() -> Pos
+        = x:float_val() __ y:float_val() __ z:float_val() {Pos::new(x, y, z)}
+        
+        rule vec3_comas() -> Pos
+        = "[" _ x:float_val() "," y:float_val() "," z:float_val() _ "]" {
+            Pos::new(x, y, z)
         }
-        */
+
+        // Distance
+        rule distance() -> DistanceNode
+        = distance_point() / distance_line_2points() / distance_line_point_dir()
+        / distance_plane_3points() / distance_plane_point_normal()
+
+        rule distance_point() -> DistanceNode
+        = "dist" b:pbc_expr() "point" __ p:vec3() {
+            DistanceNode::Point(p,b)
+        }
+
+        rule distance_line_2points() -> DistanceNode
+        = "dist" b:pbc_expr() "line" __ p1:vec3() __ p2:vec3() {
+            DistanceNode::Line(p1,p2,b)
+        }
+
+        rule distance_line_point_dir() -> DistanceNode
+        = "dist" b:pbc_expr() "line" __ p:vec3() __ "dir" __ dir:vec3() {
+            DistanceNode::LineDir(p,Unit::new_normalize(dir.coords),b)
+        }
+
+        rule distance_plane_3points() -> DistanceNode
+        = "dist" b:pbc_expr() "plane" __ p1:vec3() __ p2:vec3() __ p3:vec3() {
+            DistanceNode::Plane(p1,p2,p3,b)
+        }
+
+        rule distance_plane_point_normal() -> DistanceNode
+        = "dist" b:pbc_expr() "plane" __ p:vec3() __ "normal" __ n:vec3() {
+            DistanceNode::PlaneNormal(p,Unit::new_normalize(n.coords),b)
+        }
+        
 
         rule abs_function() -> MathFunctionName = "abs" {MathFunctionName::Abs}
         rule sqrt_function() -> MathFunctionName = "sqrt" {MathFunctionName::Sqrt}
@@ -763,16 +880,15 @@ peg::parser! {
             x:@ _ "^" _ y:(@) { MathNode::Pow(Box::new(x),Box::new(y)) }
             --
             v:float() {v}
-            f:math_function_name() "(" _ e:math_expr() _ ")" { MathNode::Function(f,Box::new(e)) }
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
             keyword_occupancy() { MathNode::Occupancy }
             keyword_bfactor() { MathNode::Bfactor }
             //v:distance_expr() {v}
+            f:math_function_name() _ "(" _ e:math_expr() _ ")" { MathNode::Function(f,Box::new(e)) }
             "(" _ e:math_expr() _ ")" { e }
-          }
-
+        }
 
         // Comparisons
         rule comparison_op_eq() -> ComparisonOp = "==" {ComparisonOp::Eq}
@@ -991,6 +1107,19 @@ mod tests {
         let topst = read_test_pdb2();
         ast.apply_whole(&topst.0, &topst.1)
             .expect("Error applying AST")
+    }
+
+    #[test]
+    fn test_sqrt() {
+        let topst = read_test_pdb2();
+        
+        let ast: SelectionExpr = "sqrt (x^2)<5^2".try_into().expect("Error generating AST");
+        let vec1 = ast.apply_whole(&topst.0, &topst.1).expect("Error applying AST");
+
+        let ast: SelectionExpr = "x<25".try_into().expect("Error generating AST");
+        let vec2 = ast.apply_whole(&topst.0, &topst.1).expect("Error applying AST");
+
+        assert_eq!(vec1.len(),vec2.len());
     }
 
     include!(concat!(
