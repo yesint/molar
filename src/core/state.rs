@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::StateProvider;
@@ -39,8 +39,8 @@ impl State {
     }
 
     //-----------------------------------------
-    pub fn to_rc(self) -> Arc<Self> {
-        Arc::new(self)
+    pub fn to_rc(self) -> triomphe::UniqueArc<Self> {
+        triomphe::UniqueArc::new(self)
     }
 
     #[inline(always)]

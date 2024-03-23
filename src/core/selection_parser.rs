@@ -47,50 +47,6 @@ pub enum MathNode {
     Dist(DistanceNode),
 }
 
-impl MathNode {
-    fn needs_pbc(&self) -> bool {
-        match self {
-            Self::Dist(d) => {
-                match d {
-                    DistanceNode::Point(_, b) |
-                    DistanceNode::Line(_,_, b) |
-                    DistanceNode::LineDir(_,_, b) |
-                    DistanceNode::Plane(_,_,_, b) |
-                    DistanceNode::PlaneNormal(_,_, b) => {
-                        b[0] || b[1] || b[2]
-                    }
-                }
-            },
-            _ => false,
-        }
-    }
-
-    fn closest_image(&self, point: &Pos, pbox: Option<&PeriodicBox>) -> Result<Option<Pos>> {
-        match self {
-            Self::Dist(d) => {
-                match d {
-                    DistanceNode::Point(target, dims) |
-                    DistanceNode::Line(target,_, dims) |
-                    DistanceNode::LineDir(target,_, dims) |
-                    DistanceNode::Plane(target,_,_, dims) |
-                    DistanceNode::PlaneNormal(target,_, dims) => {
-                        if dims[0] || dims[1] || dims[2] {
-                            Ok(Some(
-                                pbox
-                                .ok_or_else(|| anyhow!("PBC operation with no periodic box"))?
-                                .closest_image_dims(point,target,dims)
-                            ))
-                        } else {
-                            Ok(None)
-                        }
-                    }
-                }
-            },
-            _ => Ok(None),
-        }
-    }
-}
-
 // Computes a vector value in various ways
 #[derive(Debug)]
 pub enum VectorNode {
@@ -556,6 +512,31 @@ impl MathNode {
         }
     }
     */
+    
+    fn closest_image(&self, point: &Pos, pbox: Option<&PeriodicBox>) -> Result<Option<Pos>> {
+        match self {
+            Self::Dist(d) => {
+                match d {
+                    DistanceNode::Point(target, dims) |
+                    DistanceNode::Line(target,_, dims) |
+                    DistanceNode::LineDir(target,_, dims) |
+                    DistanceNode::Plane(target,_,_, dims) |
+                    DistanceNode::PlaneNormal(target,_, dims) => {
+                        if dims[0] || dims[1] || dims[2] {
+                            Ok(Some(
+                                pbox
+                                .ok_or_else(|| anyhow!("PBC operation with no periodic box"))?
+                                .closest_image_dims(point,target,dims)
+                            ))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                }
+            },
+            _ => Ok(None),
+        }
+    }
 
     fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32> {
         match self {

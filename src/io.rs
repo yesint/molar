@@ -1,6 +1,6 @@
 use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, State, Topology};
 use anyhow::{anyhow, bail, Result};
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -55,7 +55,7 @@ pub struct IoStateIterator<'a> {
 }
 
 impl Iterator for IoStateIterator<'_> {
-    type Item = Arc<State>;
+    type Item = triomphe::UniqueArc<State>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
     }
@@ -126,7 +126,7 @@ impl FileHandler<'_> {
         Ok((top,st))
     }
 
-    pub fn read(&mut self) -> Result<(Arc<Topology>,Arc<State>)> {
+    pub fn read(&mut self) -> Result<(triomphe::UniqueArc<Topology>,triomphe::UniqueArc<State>)> {
         let (top,st) = self.read_raw()?;
         Ok((top.to_rc(),st.to_rc()))
     }
@@ -153,7 +153,7 @@ impl FileHandler<'_> {
         Ok(top)
     }
 
-    pub fn read_topology(&mut self) -> Result<Arc<Topology>> {
+    pub fn read_topology(&mut self) -> Result<triomphe::UniqueArc<Topology>> {
         Ok(self.read_topology_raw()?.to_rc())
     }
 
@@ -179,7 +179,7 @@ impl FileHandler<'_> {
         Ok(st)
     }
 
-    pub fn read_state(&mut self) -> Result<Option<Arc<State>>> {
+    pub fn read_state(&mut self) -> Result<Option<triomphe::UniqueArc<State>>> {
         self.read_state_raw()?.map_or(Ok(None), |v| Ok(Some(v.to_rc())))
     }
 
@@ -232,7 +232,7 @@ impl FileHandler<'_> {
 }
 
 impl<'a> IntoIterator for FileHandler<'a> {
-    type Item = Arc<State>;
+    type Item = triomphe::UniqueArc<State>;
     type IntoIter = IoStateIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -243,7 +243,7 @@ impl<'a> IntoIterator for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::FileHandler;
-    use crate::{core::{ModifyPos, Select, SelectionAll, Vector3f}, io::TopologyProvider};
+    use crate::{core::{ModifyPos, SelBuilder, Vector3f}, io::TopologyProvider};
     use anyhow::Result;
 
     #[test]
@@ -288,18 +288,19 @@ mod tests {
         let mut r = FileHandler::open("tests/no_ATP.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = (*st1).clone().to_rc();
+        let st2 = st1.clone().to_rc();
         println!("#1: {}",(*top1).num_atoms());
 
-        let sel = SelectionAll::new().select(&top1,&st2)?;
+        let b = SelBuilder::new(top1,st2)?;
+        let sel = b.select_all();
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
-        
+
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
         let mut w = FileHandler::create(outname)?;
-        w.write_topology(&*top1)?;
+        w.write_topology(&b)?;
         w.write_state(&st1)?;
-        w.write_state(&st2)?;
+        w.write_state(&b)?;
 
         //let top2 = r.read_topology()?;
         //let st2 = r.read_next_state()?.unwrap();

@@ -7,14 +7,254 @@ use super::{
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, ops::Range};
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
+pub struct Parallel {}
+pub struct Serial (*const ());
 
-/// Trait which provides select method operating with generic smart pointers
-pub trait Select {
-    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection>;
+pub struct SelBuilder {
+    topology: triomphe::Arc<Topology>,
+    state: triomphe::Arc<State>,
+}
+
+pub struct SelBuilderPar {
+    topology: triomphe::Arc<Topology>,
+    state: triomphe::Arc<State>,
+    used: rustc_hash::FxHashSet<usize>,
+    _marker: PhantomData<Serial>,
+}
+
+impl SelBuilder {
+    pub fn new(topology: triomphe::UniqueArc<Topology>, state: triomphe::UniqueArc<State>) -> Result<Self> {
+        check_sizes(&topology, &state)?;
+        Ok(Self {
+            topology: topology.shareable(),
+            state: state.shareable(),
+        })
+    }
+
+    pub fn release(self) -> anyhow::Result<(triomphe::UniqueArc<Topology>,triomphe::UniqueArc<State>)> {
+        Ok((
+            triomphe::Arc::try_unique(self.topology).or_else(|_| bail!("Multiple references are active!"))?,
+            triomphe::Arc::try_unique(self.state).or_else(|_| bail!("Multiple references are active!"))?
+        ))
+    }
+
+    pub fn to_par_builder(self) -> anyhow::Result<SelBuilderPar> {
+        let (top,st) = self.release()?;
+        Ok(SelBuilderPar::new(top,st)?)
+    }
+
+    pub fn select_from_iter(&self, iter: impl Iterator<Item = usize>) -> anyhow::Result<Sel<Serial>> {
+        let vec = select_iter(iter, self.topology.num_atoms())?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_all(&self) -> Sel<Serial> {
+        let vec = select_all(self.topology.num_atoms());
+        Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        }
+    }
+
+    pub fn select_str(&self, selstr: &str) -> anyhow::Result<Sel<Serial>> {
+        let vec = select_str(selstr,&self.topology, &self.state)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_expr(&self, expr: &SelectionExpr) -> anyhow::Result<Sel<Serial>> {
+        let vec = select_expr(expr, &self.topology, &self.state)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_range(&self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<Serial>> {
+        let vec = select_range(range, self.topology.num_atoms())?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+}
+
+impl SelBuilderPar {
+    pub fn new(topology: triomphe::UniqueArc<Topology>, state: triomphe::UniqueArc<State>) -> Result<Self> {
+        check_sizes(&topology, &state)?;
+        Ok(Self {
+            topology: topology.shareable(),
+            state: state.shareable(),
+            used: Default::default(),
+            _marker: PhantomData::default(),
+        })
+    }
+
+    pub fn release(self) -> anyhow::Result<(triomphe::UniqueArc<Topology>,triomphe::UniqueArc<State>)> {
+        Ok((
+            triomphe::Arc::try_unique(self.topology).or_else(|_| bail!("Multiple references are active!"))?,
+            triomphe::Arc::try_unique(self.state).or_else(|_| bail!("Multiple references are active!"))?
+        ))
+    }
+
+    pub fn to_builder(self) -> anyhow::Result<SelBuilder> {
+        let (top,st) = self.release()?;
+        Ok(SelBuilder::new(top,st)?)
+    }
+
+    fn check_overlap(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
+        for i in index.iter() {
+            if !self.used.insert(*i) {
+                bail!("Index {i} is already used!");
+            }
+        }
+        Ok(())
+    }
+
+    pub fn select_from_iter(&mut self, iter: impl Iterator<Item = usize>) -> anyhow::Result<Sel<Parallel>> {
+        let vec = select_iter(iter, self.topology.num_atoms())?;
+        self.check_overlap(&vec)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_all(&mut self) -> anyhow::Result<Sel<Parallel>> {
+        let vec = select_all(self.topology.num_atoms());
+        self.check_overlap(&vec)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<Parallel>> {
+        let vec = select_str(selstr,&self.topology, &self.state)?;
+        self.check_overlap(&vec)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<Sel<Parallel>> {
+        let vec = select_expr(expr, &self.topology, &self.state)?;
+        self.check_overlap(&vec)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+
+    pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<Parallel>> {
+        let vec = select_range(range, self.topology.num_atoms())?;
+        self.check_overlap(&vec)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default()
+        })
+    }
+}
+
+
+// IO traits
+impl TopologyProvider for SelBuilder {
+    fn num_atoms(&self) -> usize {
+        self.topology.num_atoms()
+    }
+}
+
+impl AtomsProvider for SelBuilder {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.topology.iter_atoms()
+    }
+}
+
+impl StateProvider for SelBuilder {
+    fn get_time(&self) -> f32 {
+        self.state.get_time()
+    }
+
+    fn num_coords(&self) -> usize {
+        self.state.num_coords()
+    }
+}
+
+impl BoxProvider for SelBuilder {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state.get_box()
+    }
+}
+
+impl PosProvider for SelBuilder {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.state.iter_pos()
+    }
+}
+
+// For Parallel
+impl TopologyProvider for SelBuilderPar {
+    fn num_atoms(&self) -> usize {
+        self.topology.num_atoms()
+    }
+}
+
+impl AtomsProvider for SelBuilderPar {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.topology.iter_atoms()
+    }
+}
+
+impl StateProvider for SelBuilderPar {
+    fn get_time(&self) -> f32 {
+        self.state.get_time()
+    }
+
+    fn num_coords(&self) -> usize {
+        self.state.num_coords()
+    }
+}
+
+impl BoxProvider for SelBuilderPar {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state.get_box()
+    }
+}
+
+impl PosProvider for SelBuilderPar {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.state.iter_pos()
+    }
 }
 
 //-----------------------------------------------------------------
@@ -31,103 +271,61 @@ fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
     }
 }
 
-pub struct SelectionAll {}
+fn select_all(n: usize) -> Vec<usize> {
+    (0..n).collect()
+}
 
-impl SelectionAll {
-    pub fn new() -> Self {
-        Self {}
+
+fn select_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+    let index = expr.apply_whole(&topology, &state)?;
+    if index.len() > 0 {
+        Ok(index)
+    } else {
+        bail!("Selection is empty")
     }
 }
 
-impl Select for SelectionAll {
-    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
-        check_sizes(&topology, &state)?;
-        let index: Vec<usize> = (0..state.num_coords()).collect();
-        if index.len() > 0 {
-            Ok(Selection {
-                topology: topology.clone(),
-                state: state.clone(),
-                index,
-            })
-        } else {
-            bail!("Selection is empty")
-        }
+fn select_str(selstr: &str, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+    let index = SelectionExpr::try_from(selstr)?.apply_whole(&topology, &state)?;
+    if index.len() > 0 {
+        Ok(index)
+    } else {
+        bail!("Selection is empty")
     }
 }
 
-impl Select for SelectionExpr {
-    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
-        check_sizes(&topology, &state)?;
-        let index = self.apply_whole(&topology, &state).unwrap();
-        if index.len() > 0 {
-            Ok(Selection {
-                topology: topology.clone(),
-                state: state.clone(),
-                index,
-            })
-        } else {
-            bail!("Selection is empty")
-        }
+fn select_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
+    if range.start > n - 1 || range.end > n - 1 {
+        bail!(
+            "Index range {}:{} is invalid, 0:{} is allowed.",
+            range.start,
+            range.end,
+            n
+        );
+    }
+    let index: Vec<usize> = range.clone().collect();
+    if index.len() > 0 {
+        Ok(index)
+    } else {
+        bail!("Selection is empty")
     }
 }
 
-impl Select for str {
-    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
-        check_sizes(&topology, &state)?;
-        let index = SelectionExpr::try_from(self)
-            .unwrap()
-            .apply_whole(&topology, &state)
-            .unwrap();
-        if index.len() > 0 {
-            Ok(Selection {
-                topology: topology.clone(),
-                state: state.clone(),
-                index,
-            })
-        } else {
-            bail!("Selection is empty")
-        }
-    }
-}
 
-impl Select for std::ops::Range<usize> {
-    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
-        check_sizes(&topology, &state)?;
-        let n = topology.num_atoms();
-        if self.start > n - 1 || self.end > n - 1 {
-            bail!(
-                "Index range {}:{} is invalid, 0:{} is allowed.",
-                self.start,
-                self.end,
-                topology.num_atoms()
-            );
-        }
-        let index: Vec<usize> = self.clone().collect();
-        if index.len() > 0 {
-            Ok(Selection {
-                topology: topology.clone(),
-                state: state.clone(),
-                index,
-            })
-        } else {
-            bail!("Selection is empty")
-        }
+fn select_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usize>> {
+    let index: Vec<usize> = it.sorted().dedup().collect();
+    if index.is_empty() {
+        bail!("Selection is empty")
     }
-}
-
-impl Select for Vec<usize> {
-    fn select(&self, topology: &Arc<Topology>, state: &Arc<State>) -> Result<Selection> {
-        let index: Vec<usize> = self.iter().cloned().sorted().dedup().collect();
-        if index.len() > 0 {
-            Ok(Selection {
-                topology: topology.clone(),
-                state: state.clone(),
-                index,
-            })
-        } else {
-            bail!("Selection is empty")
-        }
+    if index[0] > n - 1 || index[index.len()-1] > n - 1 {
+        bail!(
+            "Index range {}:{} is invalid, 0:{} is allowed.",
+            index[0],
+            index[index.len()-1],
+            n
+        );
     }
+    Ok(index)
 }
 
 //---------------------------------------
@@ -155,13 +353,15 @@ makes changing the number of atoms impossible.
 - What about bonds? Do we ever need them mutable?
 */
 
-pub struct Selection {
-    topology: Arc<Topology>,
-    state: Arc<State>,
+pub struct Sel<T> {
+    topology: triomphe::Arc<Topology>,
+    state: triomphe::Arc<State>,
     index: Vec<usize>,
+    _marker: PhantomData<T>,
 }
 
-impl Selection {
+
+impl<T> Sel<T> {
     pub fn len(&self) -> usize {
         self.num_atoms()
     }
@@ -169,15 +369,17 @@ impl Selection {
     //===================
     // Subselections
     //===================
+    // Sunselections are always serial!
 
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Selection> {
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<Serial>> {
         let index = expr.apply_subset(&self.topology, &self.state, self.index.iter().cloned())?;
         if index.len() > 0 {
-            Ok(Selection {
+            Ok(Sel {
                 topology: self.topology.clone(),
                 state: self.state.clone(),
                 index,
+                _marker: Default::default(),
             })
         } else {
             bail!("Selection is empty")
@@ -185,13 +387,13 @@ impl Selection {
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Selection> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<Serial>> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
 
     /// Subselection from the range of local selection indexes
-    pub fn subsel_from_local_range(&self, range: std::ops::Range<usize>) -> Result<Selection> {
+    pub fn subsel_from_local_range(&self, range: std::ops::Range<usize>) -> Result<Sel<Serial>> {
         if range.end >= self.index.len() {
             bail!(
                 "Invalid local sub-range: {}:{}, valid range: 0:{}",
@@ -210,10 +412,11 @@ impl Selection {
             .take(range.len())
             .collect();
 
-        Ok(Selection {
+        Ok(Sel {
             topology: self.topology.clone(),
             state: self.state.clone(),
             index,
+            _marker: Default::default(),
         })
     }
 
@@ -221,7 +424,7 @@ impl Selection {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Selection> {
+    ) -> Result<Sel<Serial>> {
         // Remove duplicates if any
         let index = iter
             .sorted()
@@ -241,12 +444,13 @@ impl Selection {
     }
 
     // This method doesn't check if the vector has duplicates and thus unsafe
-    unsafe fn subsel_from_vec_unchecked(&self, index: Vec<usize>) -> Result<Selection> {
+    unsafe fn subsel_from_vec_unchecked(&self, index: Vec<usize>) -> Result<Sel<Serial>> {
         if index.len() > 0 {
-            Ok(Selection {
+            Ok(Sel {
                 topology: self.topology.clone(),
                 state: self.state.clone(),
                 index,
+                _marker: Default::default(),
             })
         } else {
             bail!("Selection is empty")
@@ -274,10 +478,10 @@ impl Selection {
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computer lazily when iterating.
-    pub fn split_contig<T, F>(&self, func: F) -> SelectionSplitIterator<'_, T, F>
+    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F,T>
     where
-        T: Default + std::cmp::PartialEq,
-        F: Fn(usize, &Atom, &Pos) -> T,
+        RT: Default + std::cmp::PartialEq,
+        F: Fn(usize, &Atom, &Pos) -> RT,
     {
         SelectionSplitIterator::new(self, func)
     }
@@ -286,13 +490,13 @@ impl Selection {
     /// according to the value of function.
     /// The number of selection correspond to the distinct values returned by `func`.
     /// Selections are stored in a provided container.
-    pub fn split<T, F, C>(&self, func: F) -> C
+    pub fn split<RT, F, C>(&self, func: F) -> C
     where
-        T: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(usize, &Atom, &Pos) -> T,
-        C: FromIterator<Selection> + Default,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+        F: Fn(usize, &Atom, &Pos) -> RT,
+        C: FromIterator<Sel<Serial>> + Default,
     {
-        let mut ids = HashMap::<T, Vec<usize>>::default();
+        let mut ids = HashMap::<RT, Vec<usize>>::default();
 
         for i in 0..self.index.len() {
             let (ind, at, pos) = unsafe { self.nth_unchecked(i) };
@@ -314,13 +518,13 @@ impl Selection {
     // Pre-defined splitters
     pub fn split_contig_resid(
         &self,
-    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32> {
+    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, T> {
         self.split_contig(|_, at, _| at.resid)
     }
 
     pub fn split_resid<C>(&self) -> C
     where
-        C: FromIterator<Selection> + Default,
+        C: FromIterator<Sel<Serial>> + Default,
     {
         self.split(|_, at, _| at.resid)
     }
@@ -334,18 +538,6 @@ impl Selection {
             |i: usize| { self.nth(i).unwrap().1.vdw() }
         );
         (areas.into_iter().sum(), volumes.into_iter().sum())
-    }
-
-    //======================
-    // Combining selections
-    //======================
-    pub fn union(&mut self, other: &Selection) -> Result<()> {
-        if !Arc::ptr_eq(&self.topology, &other.topology) || !Arc::ptr_eq(&self.state, &other.state) {
-            bail!("Can't combine selection pointing to different topologies or states!")
-        };
-        self.index.extend(other.index.iter());
-        self.index = self.index.iter().cloned().sorted().dedup().collect();
-        Ok(())
     }
 
     pub fn get_index_vec(&self) -> Vec<usize> {
@@ -368,18 +560,31 @@ impl Selection {
         Ok(unsafe { self.nth_unchecked(i) })
     }
 
-    pub fn iter(&self) -> SelectionIterator {
+    pub fn iter(&self) -> SelectionIterator<T> {
         SelectionIterator { sel: self, cur: 0 }
     }
 }
 
+impl Sel<Serial> {
+    //======================
+    // Combining selections
+    //======================
+    pub fn union(&mut self, other: &Sel<Serial>) -> Result<()> {
+        if !triomphe::Arc::ptr_eq(&self.topology, &other.topology) || !triomphe::Arc::ptr_eq(&self.state, &other.state) {
+            bail!("Can't combine selection pointing to different topologies or states!")
+        };
+        self.index.extend(other.index.iter());
+        self.index = self.index.iter().cloned().sorted().dedup().collect();
+        Ok(())
+    }
+}
 //---------------------------------------------
-pub struct SelectionIterator<'a> {
-    sel: &'a Selection,
+pub struct SelectionIterator<'a,T> {
+    sel: &'a Sel<T>,
     cur: usize,
 }
 
-impl<'a> Iterator for SelectionIterator<'a> {
+impl<'a,T> Iterator for SelectionIterator<'a,T> {
     type Item = (usize, &'a Atom, &'a Pos);
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
@@ -394,19 +599,19 @@ impl<'a> Iterator for SelectionIterator<'a> {
 //---------------------------------------------
 // Implement traits for IO
 
-impl IndexProvider for Selection {
+impl<T> IndexProvider for Sel<T> {
     fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
 
-impl TopologyProvider for Selection {
+impl<T> TopologyProvider for Sel<T> {
     fn num_atoms(&self) -> usize {
         self.index.len()
     }
 }
 
-impl StateProvider for Selection {
+impl<T> StateProvider for Sel<T> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
@@ -419,23 +624,23 @@ impl StateProvider for Selection {
 //==================================================================
 // Implement analysis traits
 
-impl BoxProvider for Selection {
+impl<T> BoxProvider for Sel<T> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
     }
 }
 
-impl MeasurePeriodic for Selection {}
+impl<T> MeasurePeriodic for Sel<T> {}
 
-impl PosProvider for Selection {
+impl<T> PosProvider for Sel<T> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe { self.index.iter().map(|i| self.state.nth_pos_unchecked(*i)) }
     }
 }
 
-impl MeasurePos for Selection {}
+impl<T> MeasurePos for Sel<T> {}
 
-impl AtomsProvider for Selection {
+impl<T> AtomsProvider for Sel<T> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.index
@@ -445,7 +650,7 @@ impl AtomsProvider for Selection {
     }
 }
 
-impl MassesProvider for Selection {
+impl<T> MassesProvider for Sel<T> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
             self.index
@@ -455,11 +660,11 @@ impl MassesProvider for Selection {
     }
 }
 
-impl MeasureMasses for Selection {}
+impl<T> MeasureMasses for Sel<T> {}
 
 //-------------------------------------------------------
 
-impl PosMutProvider for Selection {
+impl<T> PosMutProvider for Sel<T> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.index
@@ -469,7 +674,7 @@ impl PosMutProvider for Selection {
     }
 }
 
-impl RandomPosMutProvider for Selection {
+impl<T> RandomPosMutProvider for Sel<T> {
     #[inline(always)]
     unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
         let ind = *self.index.get_unchecked(i);
@@ -477,41 +682,42 @@ impl RandomPosMutProvider for Selection {
     }
 }
 
-impl ModifyPos for Selection {}
-impl ModifyRandomAccess for Selection {}
+impl<T> ModifyPos for Sel<T> {}
+impl<T> ModifyRandomAccess for Sel<T> {}
 
 //-------------------------------------------------------
 // Splitting iterator
 //-------------------------------------------------------
 
-pub struct SelectionSplitIterator<'a, T, F> {
-    sel: &'a Selection,
+pub struct SelectionSplitIterator<'a, RT, F, T> {
+    sel: &'a Sel<T>,
     func: F,
     counter: usize,
-    id: T,
+    id: RT,
 }
 
-impl SelectionSplitIterator<'_, (), ()> {
-    pub fn new<T, F>(sel: &Selection, func: F) -> SelectionSplitIterator<'_, T, F>
+impl<T> SelectionSplitIterator<'_, (), (), T> {
+    pub fn new<RT, F>(sel: &Sel<T>, func: F) -> SelectionSplitIterator<'_, RT, F, T>
     where
-        T: Default + std::cmp::PartialEq,
-        F: Fn(usize, &Atom, &Pos) -> T,
+        RT: Default + std::cmp::PartialEq,
+        F: Fn(usize, &Atom, &Pos) -> RT,
     {
         SelectionSplitIterator {
             sel,
             func,
             counter: 0,
-            id: T::default(),
+            id: RT::default(),
         }
     }
 }
 
-impl<T, F> Iterator for SelectionSplitIterator<'_, T, F>
+impl<RT, F, T> Iterator for SelectionSplitIterator<'_, RT, F, T>
 where
-    T: Default + std::cmp::PartialEq,
-    F: Fn(usize, &Atom, &Pos) -> T,
+    RT: Default + std::cmp::PartialEq,
+    F: Fn(usize, &Atom, &Pos) -> RT,
 {
-    type Item = Selection;
+    type Item = Sel<Serial>; // Returned selections are always serial!
+
     fn next(&mut self) -> Option<Self::Item> {
         let mut index = vec![];
         while self.counter < self.sel.len() {
@@ -545,53 +751,129 @@ where
     }
 }
 
+
 //############################################################
 //#  Tests
 //############################################################
 
 #[cfg(test)]
 mod tests {
-    use super::{Selection, SelectionAll};
+    use super::{Sel, SelBuilder, SelBuilderPar, Serial};
     use crate::{
         core::{
-            providers::PosProvider, selection::{AtomsProvider, Select}, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL
+            providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL
         },
         io::*,
     };
 
-    fn read_test_pdb() -> (Topology, State) {
+    fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
         let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
-        //let top = h.read_topology().unwrap();
-        //let state = h.read_state().unwrap().unwrap();
-        //(top, state)
         let (top, st) = h.read_raw().unwrap();
-        (top, st)
-    }
-
-    fn make_sel() -> anyhow::Result<Selection> {
-        let topst = read_test_pdb();
-        let t = topst.0.clone().to_rc();
-        let s = topst.1.clone().to_rc();
-        let sel = SelectionAll {}.select(&t, &s)?;
-        Ok(sel)
-    }
-
-    fn make_sel_prot() -> anyhow::Result<Selection> {
-        let topst = read_test_pdb();
-        let t = topst.0.clone().to_rc();
-        let s = topst.1.clone().to_rc();
-        let sel = "not resname TIP3 POT CLA".select(&t, &s)?;
-        Ok(sel)
+        (triomphe::UniqueArc::new(top), triomphe::UniqueArc::new(st))
     }
 
     #[test]
-    fn test_make_sel() -> anyhow::Result<()> {
-        make_sel().map(|_| ())
+    fn builder_overlap() -> anyhow::Result<()> {
+        let (top,st) = read_test_pdb();
+        let b = SelBuilder::new(top, st)?;
+        // Create two overlapping selections
+        let _sel1 = b.select_from_iter(0..10)?;
+        let _sel2 = b.select_from_iter(5..15)?;
+        Ok(())
+    }
+
+    #[test]
+    fn builder_par_no_overlap() {
+        let (top,st) = read_test_pdb();
+        let mut b = SelBuilderPar::new(top, st).unwrap();
+        // Create two non-overlapping selections.
+        let _sel1 = b.select_from_iter(0..10).unwrap();
+        let _sel2 = b.select_from_iter(11..15).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn builder_par_overlap() {
+        let (top,st) = read_test_pdb();
+        let mut b = SelBuilderPar::new(top, st).unwrap();
+        // Create two overlapping selections. This must fail!
+        let _sel1 = b.select_from_iter(0..10).unwrap();
+        let _sel2 = b.select_from_iter(5..15).unwrap();
+    }
+
+    #[test]
+    fn builder_par_threads() -> anyhow::Result<()> {
+        let (top,st) = read_test_pdb();
+        let mut b = SelBuilderPar::new(top, st)?;
+        // Create two valid non-overlapping selections.
+        let sel1 = b.select_from_iter(0..10).unwrap();
+        let sel2 = b.select_from_iter(11..15).unwrap();
+        // Pass them to threads
+        let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
+            sel1.translate(Vector3f::new(1.0,2.0,3.0));
+            Ok(sel1.center_of_mass()?)
+        });
+
+        let t2 = std::thread::spawn(move ||->anyhow::Result<Pos> {
+            sel2.translate(Vector3f::new(3.0,2.0,1.0));
+            Ok(sel2.center_of_mass()?)
+        });
+
+        let cm1 = t1.join().unwrap()?;
+        let cm2 = t2.join().unwrap()?;
+        println!("cm1 = {cm1}; cm2={cm2}");
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn convert_builders_fail() {
+        let (top,st) = read_test_pdb();
+        // Create parallel builder
+        let mut b = SelBuilderPar::new(top, st).unwrap();
+        // Create two valid non-overlapping selections.
+        let _sel1 = b.select_from_iter(0..10).unwrap();
+        let _sel2 = b.select_from_iter(11..15).unwrap();
+        
+        // Create serial builder. This will fail since selections are still alive
+        let _b = b.to_builder().unwrap();
+    }
+
+    #[test]
+    fn convert_builders() {
+        let (top,st) = read_test_pdb();
+        // Create parallel builder
+        let mut b = SelBuilderPar::new(top, st).unwrap();
+        // Create two valid non-overlapping selections.
+        {
+            let _sel1 = b.select_from_iter(0..10).unwrap();
+            let _sel2 = b.select_from_iter(11..15).unwrap();
+        }
+        // Selections are now dropped
+
+        // Create serial builder.
+        let b = b.to_builder().unwrap();
+        let _sel1 = b.select_from_iter(0..10).unwrap();
+        let _sel2 = b.select_from_iter(11..15).unwrap();
+    }
+
+    fn make_sel_all() -> anyhow::Result<Sel<Serial>> {
+        let (top,st) = read_test_pdb();
+        let b = SelBuilder::new(top,st)?;
+        let sel = b.select_all();
+        Ok(sel)
+    }
+
+    fn make_sel_prot() -> anyhow::Result<Sel<Serial>> {
+        let (top,st) = read_test_pdb();
+        let b = SelBuilder::new(top,st)?;
+        let sel = b.select_str("not resname TIP3 POT CLA")?;
+        Ok(sel)
     }
 
     #[test]
     fn test_measure() -> anyhow::Result<()> {
-        let sel = make_sel()?;
+        let sel = make_sel_all()?;
         println!("before {}", sel.iter_pos().next().unwrap());
 
         let (minv, maxv) = sel.min_max();
@@ -605,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_measure_pbc() -> anyhow::Result<()> {
-        let sel = make_sel()?;
+        let sel = make_sel_all()?;
 
         let cm = sel.center_of_mass()?;
         println!("{cm}");
@@ -614,7 +896,7 @@ mod tests {
 
     #[test]
     fn test_translate() -> anyhow::Result<()> {
-        let sel = make_sel()?;
+        let sel = make_sel_all()?;
 
         println!("before {}", sel.iter_pos().next().unwrap());
         sel.translate(Vector3f::new(10.0, 10.0, 10.0));
@@ -624,7 +906,7 @@ mod tests {
 
     #[test]
     fn test_write_to_file() -> anyhow::Result<()> {
-        let sel = make_sel()?;
+        let sel = make_sel_all()?;
 
         let mut h = FileHandler::create("f.pdb")?;
         h.write_topology(&sel)?;
@@ -652,15 +934,15 @@ mod tests {
 
         sel2.save("tests/sel2.pdb")?;
         sel1.save("tests/sel1_before.pdb")?;
-        println!("Initial RMSD:{}", Selection::rmsd_mw(&sel1, &sel2)?);
+        println!("Initial RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
 
-        let m = Selection::fit_transform(&sel1, &sel2)?;
+        let m = Sel::fit_transform(&sel1, &sel2)?;
         println!("{m}");
 
         sel1.apply_transform(&m);
 
         sel1.save("tests/sel1_after.pdb")?;
-        println!("Final RMSD:{}", Selection::rmsd_mw(&sel1, &sel2)?);
+        println!("Final RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
         Ok(())
     }
 
@@ -675,61 +957,10 @@ mod tests {
 
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
-        let sel1 = make_sel()?;
+        let sel1 = make_sel_all()?;
         let (a,v) = sel1.sasa();
         println!("Sasa: {a}, Volume: {v}");
         Ok(())
     }
 
-    #[test]
-    fn multi_thread_test1() -> anyhow::Result<()> {
-        let topst = read_test_pdb();
-        let t1 = topst.0.to_rc();
-        let s1 = topst.1.to_rc();
-        let t2 = t1.clone();
-        let s2 = s1.clone();
-
-        let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            let sel1 = "name CB".select(&t1, &s1)?;
-            sel1.translate(Vector3f::new(1.0,2.0,3.0));
-            Ok(sel1.center_of_mass()?)
-        });
-
-        let t2 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            let sel2 = "name CA".select(&t2, &s2)?;
-            sel2.translate(Vector3f::new(3.0,2.0,1.0));
-            Ok(sel2.center_of_mass()?)
-        });
-
-        let cm1 = t1.join().unwrap()?;
-        let cm2 = t2.join().unwrap()?;
-        println!("cm1 = {cm1}; cm2={cm2}");
-        Ok(())
-    }
-
-    #[test]
-    fn multi_thread_test2() -> anyhow::Result<()> {
-        let topst = read_test_pdb();
-        let t = topst.0.to_rc();
-        let s = topst.1.to_rc();
-        
-        // Creating selection before spawning
-        let sel1 = "name CB".select(&t, &s)?;
-        let sel2 = "name CA".select(&t, &s)?;
-
-        let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            sel1.translate(Vector3f::new(1.0,2.0,3.0));
-            Ok(sel1.center_of_mass()?)
-        });
-
-        let t2 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            sel2.translate(Vector3f::new(3.0,2.0,1.0));
-            Ok(sel2.center_of_mass()?)
-        });
-
-        let cm1 = t1.join().unwrap()?;
-        let cm2 = t2.join().unwrap()?;
-        println!("cm1 = {cm1}; cm2={cm2}");
-        Ok(())
-    }
 }

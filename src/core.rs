@@ -11,6 +11,9 @@ mod measure;
 mod modify;
 mod periodic_table;
 
+//#[allow(dead_code)]
+//mod selection_builder;
+
 pub use {
     atom::*, 
     topology::*,

@@ -1,20 +1,19 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use molar::{core::{MeasureMasses, ModifyPos, Select, Selection, State, Topology, Vector3f}, io::FileHandler};
+use molar::{core::{MeasureMasses, ModifyPos, Sel, SelBuilder, Serial, State, Topology, Vector3f}, io::FileHandler};
 use nalgebra::Unit;
 
-fn read_test_pdb() -> (Topology, State) {
+fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
     let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
-    let top = h.read_topology_raw().unwrap();
-    let state = h.read_state_raw().unwrap().unwrap();
+    let top = h.read_topology_raw().unwrap().to_rc();
+    let state = h.read_state_raw().unwrap().unwrap().to_rc();
     (top, state)
 }
 
 
-fn make_sel_prot() -> anyhow::Result<Selection> {
-    let topst = read_test_pdb();
-    let t = topst.0.clone().to_rc();
-    let s = topst.1.clone().to_rc();
-    let sel = "not resname TIP3 POT CLA".select(&t, &s)?;
+fn make_sel_prot() -> anyhow::Result<Sel<Serial>> {
+    let (top,st) = read_test_pdb();
+    let b = SelBuilder::new(top, st)?;
+    let sel = b.select_str("not resname TIP3 POT CLA")?;
     Ok(sel)
 }
 
@@ -32,11 +31,11 @@ fn test_fit(c: &mut Criterion) {
     //);
 
     c.bench_function("fit kabsch ref", |b| b.iter(
-        || Selection::fit_transform(black_box(&sel1), &sel2).unwrap())
+        || Sel::fit_transform(black_box(&sel1), &sel2).unwrap())
     );
 
     c.bench_function("fit kabsch at origin", |b| b.iter(
-        || Selection::fit_transform_at_origin(black_box(&sel1), &sel2).unwrap())
+        || Sel::fit_transform_at_origin(black_box(&sel1), &sel2).unwrap())
     );
 }
 
