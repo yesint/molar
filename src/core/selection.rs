@@ -17,6 +17,7 @@ pub struct Serial (*const ());
 pub struct SelBuilder {
     topology: triomphe::Arc<Topology>,
     state: triomphe::Arc<State>,
+    _marker: PhantomData<Serial>,
 }
 
 pub struct SelBuilderPar {
@@ -32,6 +33,7 @@ impl SelBuilder {
         Ok(Self {
             topology: topology.shareable(),
             state: state.shareable(),
+            _marker: Default::default(),
         })
     }
 
@@ -105,7 +107,7 @@ impl SelBuilderPar {
             topology: topology.shareable(),
             state: state.shareable(),
             used: Default::default(),
-            _marker: PhantomData::default(),
+            _marker: Default::default(),
         })
     }
 
