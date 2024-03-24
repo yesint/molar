@@ -291,8 +291,8 @@ mod tests {
         let st2 = st1.clone().to_rc();
         println!("#1: {}",(*top1).num_atoms());
 
-        let b = SelBuilder::new(top1,st2)?;
-        let sel = b.select_all();
+        let mut b = SelBuilder::new_rw(top1,st2)?;
+        let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");

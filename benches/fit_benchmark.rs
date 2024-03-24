@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use molar::{core::{MeasureMasses, ModifyPos, Sel, SelBuilder, Serial, State, Topology, Vector3f}, io::FileHandler};
+use molar::{core::{MeasureMasses, ModifyPos, Sel, SelBuilder, Rw, State, Topology, Vector3f}, io::FileHandler};
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
@@ -10,9 +10,9 @@ fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>
 }
 
 
-fn make_sel_prot() -> anyhow::Result<Sel<Serial>> {
+fn make_sel_prot() -> anyhow::Result<Sel<Rw>> {
     let (top,st) = read_test_pdb();
-    let b = SelBuilder::new(top, st)?;
+    let mut b = SelBuilder::new_rw(top, st)?;
     let sel = b.select_str("not resname TIP3 POT CLA")?;
     Ok(sel)
 }
