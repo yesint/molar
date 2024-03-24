@@ -11,27 +11,33 @@ use std::{collections::HashMap, marker::PhantomData, ops::Range};
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
-pub trait CheckOverlap {
-    fn need_check_overlap() -> bool;
+pub trait SelectionKind {
+    type SubselType;
+    const NEED_CHECK_OVERLAP: bool;
 }
+pub trait MayOverlap: SelectionKind {}
 
 // Read-write unique marker (multithreaded)
 pub struct Rwu {}
-impl CheckOverlap for Rwu {
-    fn need_check_overlap() -> bool { true }
+impl SelectionKind for Rwu {
+    type SubselType = Rw;
+    const NEED_CHECK_OVERLAP: bool = true;
 }
 // Read-write marker (single-threaded)
 pub struct Rw (*const ());
-impl CheckOverlap for Rw {
-    fn need_check_overlap() -> bool { false }
+impl SelectionKind for Rw {
+    type SubselType = Rw;
+    const NEED_CHECK_OVERLAP: bool = false;
 }
+impl MayOverlap for Rw {}
 
 // Read-only marker (multithreaded )
 pub struct Ro {}
-impl CheckOverlap for Ro {
-    fn need_check_overlap() -> bool { false }
+impl SelectionKind for Ro {
+    type SubselType = Ro;
+    const NEED_CHECK_OVERLAP: bool = false;
 }
-
+impl MayOverlap for Ro {}
 
 pub struct SelBuilder<T> {
     topology: triomphe::Arc<Topology>,
@@ -134,9 +140,9 @@ impl SelBuilder<Ro> {
 // Creating selections
 //---------------------------------
 
-impl<T: CheckOverlap> SelBuilder<T> {
-    fn check_overlap(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
-        if T::need_check_overlap() {
+impl<T: SelectionKind> SelBuilder<T> {
+    fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
+        if T::NEED_CHECK_OVERLAP {
             for i in index.iter() {
                 if !self.used.insert(*i) {
                     bail!("Index {i} is already used!");
@@ -147,8 +153,8 @@ impl<T: CheckOverlap> SelBuilder<T> {
     }
 
     pub fn select_from_iter(&mut self, iter: impl Iterator<Item = usize>) -> anyhow::Result<Sel<T>> {
-        let vec = select_iter(iter, self.topology.num_atoms())?;
-        self.check_overlap(&vec)?;
+        let vec = index_from_iter(iter, self.topology.num_atoms())?;
+        self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -158,8 +164,8 @@ impl<T: CheckOverlap> SelBuilder<T> {
     }
 
     pub fn select_all(&mut self) -> anyhow::Result<Sel<T>> {
-        let vec = select_all(self.topology.num_atoms());
-        self.check_overlap(&vec)?;
+        let vec = index_from_all(self.topology.num_atoms());
+        self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -169,8 +175,8 @@ impl<T: CheckOverlap> SelBuilder<T> {
     }
 
     pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<T>> {
-        let vec = select_str(selstr,&self.topology, &self.state)?;
-        self.check_overlap(&vec)?;
+        let vec = index_from_str(selstr,&self.topology, &self.state)?;
+        self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -180,8 +186,8 @@ impl<T: CheckOverlap> SelBuilder<T> {
     }
 
     pub fn select_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<Sel<T>> {
-        let vec = select_expr(expr, &self.topology, &self.state)?;
-        self.check_overlap(&vec)?;
+        let vec = index_from_expr(expr, &self.topology, &self.state)?;
+        self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -191,8 +197,8 @@ impl<T: CheckOverlap> SelBuilder<T> {
     }
 
     pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<T>> {
-        let vec = select_range(range, self.topology.num_atoms())?;
-        self.check_overlap(&vec)?;
+        let vec = index_from_range(range, self.topology.num_atoms())?;
+        self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -253,12 +259,12 @@ fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
     }
 }
 
-fn select_all(n: usize) -> Vec<usize> {
+fn index_from_all(n: usize) -> Vec<usize> {
     (0..n).collect()
 }
 
 
-fn select_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Result<Vec<usize>> {
     let index = expr.apply_whole(&topology, &state)?;
     if index.len() > 0 {
         Ok(index)
@@ -267,7 +273,7 @@ fn select_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Resu
     }
 }
 
-fn select_str(selstr: &str, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+fn index_from_str(selstr: &str, topology: &Topology, state: &State) -> Result<Vec<usize>> {
     let index = SelectionExpr::try_from(selstr)?.apply_whole(&topology, &state)?;
     if index.len() > 0 {
         Ok(index)
@@ -276,7 +282,7 @@ fn select_str(selstr: &str, topology: &Topology, state: &State) -> Result<Vec<us
     }
 }
 
-fn select_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
+fn index_from_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
     if range.start > n - 1 || range.end > n - 1 {
         bail!(
             "Index range {}:{} is invalid, 0:{} is allowed.",
@@ -294,7 +300,7 @@ fn select_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
 }
 
 
-fn select_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usize>> {
+fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usize>> {
     let index: Vec<usize> = it.sorted().dedup().collect();
     if index.is_empty() {
         bail!("Selection is empty")
@@ -343,7 +349,10 @@ pub struct Sel<T> {
 }
 
 
-impl<T> Sel<T> {
+
+
+impl<T: SelectionKind> Sel<T> {
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.num_atoms()
     }
@@ -351,10 +360,9 @@ impl<T> Sel<T> {
     //===================
     // Subselections
     //===================
-    // Sunselections are always serial!
 
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<T>> {
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<T::SubselType>> {
         let index = expr.apply_subset(&self.topology, &self.state, self.index.iter().cloned())?;
         if index.len() > 0 {
             Ok(Sel {
@@ -369,13 +377,13 @@ impl<T> Sel<T> {
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<T>> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<T::SubselType>> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
 
     /// Subselection from the range of local selection indexes
-    pub fn subsel_from_local_range(&self, range: std::ops::Range<usize>) -> Result<Sel<T>> {
+    pub fn subsel_from_local_range(&self, range: std::ops::Range<usize>) -> Result<Sel<T::SubselType>> {
         if range.end >= self.index.len() {
             bail!(
                 "Invalid local sub-range: {}:{}, valid range: 0:{}",
@@ -406,7 +414,8 @@ impl<T> Sel<T> {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<T>> {
+    ) -> Result<Sel<T::SubselType>> 
+    {
         // Remove duplicates if any
         let index = iter
             .sorted()
@@ -457,15 +466,12 @@ impl<T> Sel<T> {
         )
     }
 
-    /// Splits selection into pieces that could be disjoint
-    /// according to the value of function.
-    /// The number of selection correspond to the distinct values returned by `func`.
-    /// Selections are stored in a provided container.
-    fn split<RT, F, C>(&self, func: F) -> C
+    // Helper splitting function generic over returned selections kind
+    fn split_gen<RT, F, C, Kind>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(usize, &Atom, &Pos) -> RT,
-        C: FromIterator<Sel<T>> + Default,
+        C: FromIterator<Sel<Kind>> + Default,
     {
         let mut ids = HashMap::<RT, Vec<usize>>::default();
 
@@ -486,11 +492,44 @@ impl<T> Sel<T> {
         )
     }
 
+    /// Splits selection to pieces that could be disjoint
+    /// according to the value of function. Parent selection is kept intact.
+    /// The number of selections correspond to the distinct values returned by `func`.
+    /// Selections are stored in a container C and has the same kind as subselections.
+    pub fn split<RT, F, C>(&self, func: F) -> C
+    where
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+        F: Fn(usize, &Atom, &Pos) -> RT,
+        C: FromIterator<Sel<T::SubselType>> + Default,
+    {
+        self.split_gen(func)
+    }
+
+    /// Splits selection to pieces that could be disjoint
+    /// according to the value of function. Parent selection is consumed.
+    /// The number of selections correspond to the distinct values returned by `func`.
+    /// Selections are stored in a container C and has the same kind as parent selection.
+    pub fn split_into<RT, F, C>(self, func: F) -> C
+    where
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+        F: Fn(usize, &Atom, &Pos) -> RT,
+        C: FromIterator<Sel<T>> + Default,
+    {
+        self.split_gen(func)
+    }
+
     pub fn split_resid<C>(&self) -> C
+    where
+        C: FromIterator<Sel<T::SubselType>> + Default,
+    {
+        self.split_gen(|_, at, _| at.resid)
+    }
+
+    pub fn split_resid_into<C>(self) -> C
     where
         C: FromIterator<Sel<T>> + Default,
     {
-        self.split(|_, at, _| at.resid)
+        self.split_gen(|_, at, _| at.resid)
     }
     
     // Sasa
@@ -529,11 +568,13 @@ impl<T> Sel<T> {
     }
 }
 
-impl Sel<Rw> {
+impl<T: MayOverlap> Sel<T> 
+{
     //======================
     // Combining selections
     //======================
-    pub fn union(&mut self, other: &Sel<Rw>) -> Result<()> {
+    /*
+    pub fn union(&mut self, other: &Sel<T>) -> Result<()> {
         if !triomphe::Arc::ptr_eq(&self.topology, &other.topology) || !triomphe::Arc::ptr_eq(&self.state, &other.state) {
             bail!("Can't combine selection pointing to different topologies or states!")
         };
@@ -541,11 +582,12 @@ impl Sel<Rw> {
         self.index = self.index.iter().cloned().sorted().dedup().collect();
         Ok(())
     }
+    */
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Whenever `func` returns a value different from the previous one, new selection is created.
-    /// Selections are computer lazily when iterating.
-    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, Rw>
+    /// Selections are computed lazily when iterating.
+    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, T>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(usize, &Atom, &Pos) -> RT,
@@ -556,7 +598,7 @@ impl Sel<Rw> {
     // Pre-defined splitters
     pub fn split_contig_resid(
         &self,
-    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, Rw> {
+    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, T> {
         self.split_contig(|_, at, _| at.resid)
     }
 }
@@ -567,7 +609,7 @@ pub struct SelectionIterator<'a,T> {
     cur: usize,
 }
 
-impl<'a,T> Iterator for SelectionIterator<'a,T> {
+impl<'a,T: SelectionKind> Iterator for SelectionIterator<'a,T> {
     type Item = (usize, &'a Atom, &'a Pos);
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
@@ -699,8 +741,9 @@ impl<RT, F, S> Iterator for SelectionSplitIterator<'_, RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(usize, &Atom, &Pos) -> RT,
+    S: SelectionKind,
 {
-    type Item = Sel<S>; // Returned selections are always serial!
+    type Item = Sel<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut index = vec![];
