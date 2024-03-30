@@ -846,10 +846,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use nalgebra::UnitVector3;
+
     use super::{Sel, SelBuilder, OverlappingMut};
     use crate::{
         core::{
-            providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL
+            providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic, MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL
         },
         io::*,
     };
@@ -1048,6 +1050,49 @@ mod tests {
         let sel1 = make_sel_all()?;
         let (a,v) = sel1.sasa();
         println!("Sasa: {a}, Volume: {v}");
+        Ok(())
+    }
+
+    #[test]
+    fn tets_gyration() -> anyhow::Result<()> {
+        let sel1 = make_sel_prot()?;
+        let g = sel1.gyration_pbc()?;
+        println!("Gyration radius: {g}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_inertia() -> anyhow::Result<()> {
+        let sel1 = make_sel_all()?;
+        //sel1.rotate(
+        //    &UnitVector3::new_normalize(Vector3f::new(1.0,2.0,3.0)),
+        //    0.45
+        //);
+        let (moments,axes) = sel1.inertia_pbc()?;
+        println!("Inertia moments: {moments}");
+        println!("Inertia axes: {axes:?}");
+        Ok(())
+        // {0.7308828830718994 0.3332606256008148 -0.5956068634986877} 
+        // {0.6804488301277161 -0.28815552592277527 0.6737624406814575} 
+        // {-0.05291106179356575 0.8977214694023132 0.4373747706413269}
+    }
+
+    #[test]
+    fn test_principal_transform() -> anyhow::Result<()> {
+        let sel1 = make_sel_prot()?;
+        let tr = sel1.principal_transform()?;
+        println!("Transform: {tr}");
+
+        let (_,axes) = sel1.inertia()?;
+        println!("Axes before: {axes}");
+
+        sel1.apply_transform(&tr);
+
+        let (_,axes) = sel1.inertia()?;
+        println!("Axes after: {axes}");
+
+        sel1.save("oriented.pdb")?;
+
         Ok(())
     }
 

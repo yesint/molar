@@ -5,7 +5,8 @@ use super::Pos;
 use super::Vector3f;
 use anyhow::{bail,Result,anyhow};
 use itertools::izip;
-use nalgebra::Rotation3;
+use nalgebra::SymmetricEigen;
+use nalgebra::{IsometryMatrix3,Rotation3,Translation3};
 use num_traits::Bounded;
 //==============================================================
 // Traits for measuring (immutable access)
@@ -93,7 +94,7 @@ pub trait MeasureMasses: PosProvider + MassesProvider {
             sel1.iter_masses(),
         );
 
-        Ok(nalgebra::Translation3::from(cm2) * rot * nalgebra::Translation3::from(-cm1))
+        Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
     }
 
     fn fit_transform_at_origin(sel1: &Self, sel2: &Self) -> Result<nalgebra::IsometryMatrix3<f32>> {
@@ -130,6 +131,31 @@ pub trait MeasureMasses: PosProvider + MassesProvider {
             Ok((res / m_tot).sqrt())
         }
     }
+
+    fn gyration(&self) -> Result<f32> {
+        let c = self.center_of_mass()?;
+        do_gyration(
+            self.iter_pos().map(|pos| pos-c), 
+            self.iter_masses()
+        )
+    }
+
+    fn inertia(&self) -> Result<(Vector3f,Matrix3f)> {
+        let c = self.center_of_mass()?;
+        do_inertia(
+            self.iter_pos().map(|pos| pos-c), 
+            self.iter_masses()
+        )
+    }
+
+    fn principal_transform(&self) -> Result<IsometryMatrix3<f32>> {
+        let c = self.center_of_mass()?;
+        let (_,axes) = do_inertia(
+            self.iter_pos().map(|pos| pos-c), 
+            self.iter_masses()
+        )?;
+        Ok( do_principal_transform(axes, c.coords) )
+    }
 }
 
 /// Trait for analysis requiring positions, masses and pbc
@@ -155,6 +181,81 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider {
             Ok(Pos::from(cm / mass))
         }
     }
+
+    fn gyration_pbc(&self) -> Result<f32> {
+        let b = self.get_box().ok_or_else(|| anyhow!("No periodicity!"))?;
+        let c = self.center_of_mass_pbc()?;
+        do_gyration(
+            self.iter_pos().map(|pos| b.shortest_vector(&(pos-c))),
+            self.iter_masses()
+        )
+    }
+
+    fn inertia_pbc(&self) -> Result<(Vector3f,Matrix3f)> {
+        let b = self.get_box().ok_or_else(|| anyhow!("No periodicity!"))?;
+        let c = self.center_of_mass_pbc()?;
+        do_inertia(
+            self.iter_pos().map(|pos| b.shortest_vector(&(pos-c))), 
+            self.iter_masses()
+        )
+    }
+
+    fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<f32>> {
+        let b = self.get_box().ok_or_else(|| anyhow!("No periodicity!"))?;
+        let c = self.center_of_mass_pbc()?;
+        let (_,axes) = do_inertia(
+            self.iter_pos().map(|pos| b.shortest_vector(&(pos-c))), 
+            self.iter_masses()
+        )?;
+        Ok( do_principal_transform(axes, c.coords) )
+    }
+}
+
+fn do_gyration(dists: impl Iterator<Item = Vector3f>, masses: impl Iterator<Item = f32>) -> Result<f32> {
+    let mut sd = 0.0;
+    let mut sm = 0.0;
+    for (d,m) in zip(dists,masses) {
+        sd += d.norm_squared() * m;
+        sm += m;
+    }
+    // Don't need to test for zero mass since this is already done in center_of_mass()
+    Ok( (sd/sm).sqrt() )
+}
+
+fn do_inertia(dists: impl Iterator<Item = Vector3f>, masses: impl Iterator<Item = f32>) -> Result<(Vector3f,Matrix3f)> {
+    let mut tens = Matrix3f::zeros();
+    
+    for (d,m) in zip(dists,masses) {
+        tens[(0,0)] += m*( d.y*d.y + d.z*d.z );
+        tens[(1,1)] += m*( d.x*d.x + d.z*d.z );
+        tens[(2,2)] += m*( d.x*d.x + d.y*d.y );
+        tens[(0,1)] -= m*d.x*d.y;
+        tens[(0,2)] -= m*d.x*d.z;
+        tens[(1,2)] -= m*d.y*d.z;
+    }
+    tens[(1,0)] = tens[(0,1)];
+    tens[(2,0)] = tens[(0,2)];
+    tens[(2,1)] = tens[(1,2)];
+    
+    // Compute axes and moments
+    let eig = SymmetricEigen::new(tens);
+    // Eigenvectors are NOT sorted, so sort them manually
+    let mut s = eig.eigenvalues.into_iter().enumerate().collect::<Vec<(_,_)>>();
+    s.sort_unstable_by(|a,b| a.1.partial_cmp(b.1).unwrap());
+    // Create reordered moments and axes
+    let moments = Vector3f::new(
+        *s[0].1, *s[1].1, *s[2].1
+    );
+
+    let col0 = eig.eigenvectors.column(s[0].0).normalize();
+    let col1 = eig.eigenvectors.column(s[1].0).normalize();
+    let col2 = col0.cross(&col1); // Ensure right-handed system
+    
+    let axes = Matrix3f::from_columns(
+        &[col0,col1,col2]
+    );
+
+    Ok((moments,axes))
 }
 
 // Straighforward implementation of Kabsch algorithm
@@ -188,4 +289,13 @@ pub fn rot_transform(
 
     // Compute the optimal rotation matrix
     Rotation3::from_matrix_unchecked(u * d_matrix * v_t)
+}
+
+// Principal transform algorithms
+fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f32> {
+    axes.try_inverse_mut();
+    
+    Translation3::from(cm) 
+    * Rotation3::from_matrix_unchecked(axes) 
+    * Translation3::from(-cm)
 }
