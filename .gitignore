@@ -6,3 +6,4 @@ tests/1.pdb
 *.pdb
 .cargo/config.toml
 .vscode
+tests/*.dat

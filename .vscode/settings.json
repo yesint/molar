@@ -9,5 +9,8 @@
         "core": "cpp",
         "cstddef": "cpp"
     },
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "rust-analyzer.linkedProjects": [
+        "./Cargo.toml"
+    ]
 }

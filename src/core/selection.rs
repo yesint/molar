@@ -846,7 +846,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use nalgebra::UnitVector3;
 
     use super::{Sel, SelBuilder, OverlappingMut};
     use crate::{
