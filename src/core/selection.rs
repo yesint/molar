@@ -295,10 +295,9 @@ fn index_from_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
             range.end,
             n
         );
-    }
-    let index: Vec<usize> = range.clone().collect();
-    if index.len() > 0 {
-        Ok(index)
+    }    
+    if range.len() > 0 {
+        Ok(range.clone().collect())
     } else {
         bail!("Selection is empty")
     }
@@ -322,29 +321,8 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 }
 
 //---------------------------------------
-
-/*
-If Topology and State are wrapped into Arc<> then they
-are guaranteed to be accessed from the single thread only and the only possible
-case of memory unsafety is invalidation of references when adding or removing
-elements from atoms and coords arrays.
-
-If number of atoms is never modified (creation requires a dedicated builder
-and modification consumes the State or Topology and returns a new one), then
-it is impossible to get an undefined bahavior even with alising references
-to *individual* atoms.
-
-In principle even aliasing access from multiple threads to *individual* atoms is safe
-in a sence that no UB could happen. The data races may result in incorrect values,
-but no unsafe memory access is possible.
-
-So Arc<UnsafeCell<State>> or AArc<UnsafeCell<State>> should be fine if API
-makes changing the number of atoms impossible.
-
-- Should pbox be always immutable?
-- Should we wrap into UnsafeCell<> only atoms and coords fields?
-- What about bonds? Do we ever need them mutable?
-*/
+// Selection
+//---------------------------------------
 
 pub struct Sel<T> {
     topology: triomphe::Arc<Topology>,
@@ -368,8 +346,8 @@ impl<T: SelectionKind> Sel<T> {
         let index = expr.apply_subset(&self.topology, &self.state, self.index.iter().cloned())?;
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone(),
-                state: self.state.clone(),
+                topology: triomphe::Arc::clone(&self.topology),
+                state: triomphe::Arc::clone(&self.state),
                 index,
                 _marker: Default::default(),
             })
@@ -405,8 +383,8 @@ impl<T: SelectionKind> Sel<T> {
             .collect();
 
         Ok(Sel {
-            topology: self.topology.clone(),
-            state: self.state.clone(),
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
             index,
             _marker: Default::default(),
         })
@@ -440,8 +418,8 @@ impl<T: SelectionKind> Sel<T> {
     unsafe fn subsel_from_vec_unchecked<S>(&self, index: Vec<usize>) -> Result<Sel<S>> {
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone(),
-                state: self.state.clone(),
+                topology: triomphe::Arc::clone(&self.topology),
+                state: triomphe::Arc::clone(&self.state),
                 index,
                 _marker: Default::default(),
             })
