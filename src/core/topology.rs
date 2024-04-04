@@ -77,6 +77,12 @@ impl Topology {
             at.resindex = resindex;
         }
     }
+
+    pub fn interchangeable(&self, other: &Topology) -> bool {
+            self.get().atoms.len() == other.get().atoms.len()
+        &&  self.get().bonds.len() == other.get().bonds.len()
+        &&  self.get().molecules.len() == other.get().molecules.len()
+    }
 }
 
 // Impls for Topology itself

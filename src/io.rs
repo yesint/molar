@@ -243,7 +243,7 @@ impl<'a> IntoIterator for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::FileHandler;
-    use crate::{core::{ModifyPos, SelBuilder, Vector3f}, io::TopologyProvider};
+    use crate::{core::{ModifyPos, Source, Vector3f}, io::TopologyProvider};
     use anyhow::Result;
 
     #[test]
@@ -291,7 +291,7 @@ mod tests {
         let st2 = st1.clone().to_rc();
         println!("#1: {}",(*top1).num_atoms());
 
-        let mut b = SelBuilder::new_overlapping_mut(top1,st2)?;
+        let mut b = Source::new_overlapping_mut(top1,st2)?;
         let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 

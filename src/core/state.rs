@@ -73,6 +73,9 @@ impl State {
         self.get_mut().pbox.as_mut()
     }
 
+    pub fn interchangeable(&self, other: &State) -> bool {
+        self.get().coords.len() == other.get().coords.len()
+    }
     
 }
 

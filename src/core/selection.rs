@@ -2,7 +2,8 @@ use super::{
     measure::{MeasureMasses, MeasurePeriodic, MeasurePos},
     modify::{ModifyPos, ModifyRandomAccess},
     providers::*,
-    Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, Topology,
+    Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateArc, StateUArc,
+    Topology, TopologyArc, TopologyUArc,
 };
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{anyhow, bail, Result};
@@ -28,7 +29,7 @@ impl SelectionKind for NonOverlappingMut {
 impl MutableSel for NonOverlappingMut {}
 
 // Read-write marker (single-threaded)
-pub struct OverlappingMut (*const ());
+pub struct OverlappingMut(*const ());
 impl SelectionKind for OverlappingMut {
     type SubselType = OverlappingMut;
     const NEED_CHECK_OVERLAP: bool = false;
@@ -44,21 +45,22 @@ impl SelectionKind for Overlapping {
 }
 impl MayOverlap for Overlapping {}
 
-pub struct SelBuilder<T> {
-    topology: triomphe::Arc<Topology>,
-    state: triomphe::Arc<State>,
+//=====================================================
+
+pub struct Source<T> {
+    topology: TopologyArc,
+    state: StateArc,
     used: rustc_hash::FxHashSet<usize>,
     _marker: PhantomData<T>,
 }
 
-impl SelBuilder<()> {
+impl Source<()> {
     pub fn new_non_overlapping_mut(
-        topology: triomphe::UniqueArc<Topology>, 
-        state: triomphe::UniqueArc<State>
-    ) -> Result<SelBuilder<NonOverlappingMut>> 
-    {
+        topology: TopologyUArc,
+        state: StateUArc,
+    ) -> Result<Source<NonOverlappingMut>> {
         check_sizes(&topology, &state)?;
-        Ok(SelBuilder {
+        Ok(Source {
             topology: topology.shareable(),
             state: state.shareable(),
             used: Default::default(),
@@ -67,12 +69,11 @@ impl SelBuilder<()> {
     }
 
     pub fn new_overlapping_mut(
-        topology: triomphe::UniqueArc<Topology>, 
-        state: triomphe::UniqueArc<State>
-    ) -> Result<SelBuilder<OverlappingMut>> 
-    {
+        topology: TopologyUArc,
+        state: StateUArc,
+    ) -> Result<Source<OverlappingMut>> {
         check_sizes(&topology, &state)?;
-        Ok(SelBuilder {
+        Ok(Source {
             topology: topology.shareable(),
             state: state.shareable(),
             used: Default::default(),
@@ -81,12 +82,11 @@ impl SelBuilder<()> {
     }
 
     pub fn new_overlapping(
-        topology: triomphe::UniqueArc<Topology>, 
-        state: triomphe::UniqueArc<State>
-    ) -> Result<SelBuilder<Overlapping>> 
-    {
+        topology: TopologyUArc,
+        state: StateUArc,
+    ) -> Result<Source<Overlapping>> {
         check_sizes(&topology, &state)?;
-        Ok(SelBuilder {
+        Ok(Source {
             topology: topology.shareable(),
             state: state.shareable(),
             used: Default::default(),
@@ -95,49 +95,51 @@ impl SelBuilder<()> {
     }
 }
 
-impl<T> SelBuilder<T> {
-    pub fn release(self) -> anyhow::Result<(triomphe::UniqueArc<Topology>,triomphe::UniqueArc<State>)> {
+impl<T> Source<T> {
+    pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
         Ok((
-            triomphe::Arc::try_unique(self.topology).or_else(|_| bail!("Multiple references are active!"))?,
-            triomphe::Arc::try_unique(self.state).or_else(|_| bail!("Multiple references are active!"))?
+            triomphe::Arc::try_unique(self.topology)
+                .or_else(|_| bail!("Multiple references are active!"))?,
+            triomphe::Arc::try_unique(self.state)
+                .or_else(|_| bail!("Multiple references are active!"))?,
         ))
     }
 }
 
 // Conversions to other builder types
-impl SelBuilder<NonOverlappingMut> {
-    pub fn to_overlapping_mut(self) -> anyhow::Result<SelBuilder<OverlappingMut>> {
-        let (top,st) = self.release()?;
-        Ok(SelBuilder::new_overlapping_mut(top,st)?)
+impl Source<NonOverlappingMut> {
+    pub fn to_overlapping_mut(self) -> anyhow::Result<Source<OverlappingMut>> {
+        let (top, st) = self.release()?;
+        Ok(Source::new_overlapping_mut(top, st)?)
     }
 
-    pub fn to_overlapping(self) -> anyhow::Result<SelBuilder<Overlapping>> {
-        let (top,st) = self.release()?;
-        Ok(SelBuilder::new_overlapping(top,st)?)
-    }
-}
-
-impl SelBuilder<OverlappingMut> {
-    pub fn to_non_overlapping_mut(self) -> anyhow::Result<SelBuilder<NonOverlappingMut>> {
-        let (top,st) = self.release()?;
-        Ok(SelBuilder::new_non_overlapping_mut(top,st)?)
-    }
-
-    pub fn to_overlapping(self) -> anyhow::Result<SelBuilder<Overlapping>> {
-        let (top,st) = self.release()?;
-        Ok(SelBuilder::new_overlapping(top,st)?)
+    pub fn to_overlapping(self) -> anyhow::Result<Source<Overlapping>> {
+        let (top, st) = self.release()?;
+        Ok(Source::new_overlapping(top, st)?)
     }
 }
 
-impl SelBuilder<Overlapping> {
-    pub fn to_non_overlapping_mut(self) -> anyhow::Result<SelBuilder<NonOverlappingMut>> {
-        let (top,st) = self.release()?;
-        Ok(SelBuilder::new_non_overlapping_mut(top,st)?)
+impl Source<OverlappingMut> {
+    pub fn to_non_overlapping_mut(self) -> anyhow::Result<Source<NonOverlappingMut>> {
+        let (top, st) = self.release()?;
+        Ok(Source::new_non_overlapping_mut(top, st)?)
     }
 
-    pub fn to_overlapping(self) -> anyhow::Result<SelBuilder<OverlappingMut>> {
-        let (top,st) = self.release()?;
-        Ok(SelBuilder::new_overlapping_mut(top,st)?)
+    pub fn to_overlapping(self) -> anyhow::Result<Source<Overlapping>> {
+        let (top, st) = self.release()?;
+        Ok(Source::new_overlapping(top, st)?)
+    }
+}
+
+impl Source<Overlapping> {
+    pub fn to_non_overlapping_mut(self) -> anyhow::Result<Source<NonOverlappingMut>> {
+        let (top, st) = self.release()?;
+        Ok(Source::new_non_overlapping_mut(top, st)?)
+    }
+
+    pub fn to_overlapping(self) -> anyhow::Result<Source<OverlappingMut>> {
+        let (top, st) = self.release()?;
+        Ok(Source::new_overlapping_mut(top, st)?)
     }
 }
 
@@ -145,7 +147,15 @@ impl SelBuilder<Overlapping> {
 // Creating selections
 //---------------------------------
 
-impl<T: SelectionKind> SelBuilder<T> {
+impl<T: SelectionKind> Source<T> {
+    pub fn get_topology(&self) -> TopologyArc {
+        triomphe::Arc::clone(&self.topology)
+    }
+
+    pub fn get_state(&self) -> StateArc {
+        triomphe::Arc::clone(&self.state)
+    }
+
     fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
         if T::NEED_CHECK_OVERLAP {
             for i in index.iter() {
@@ -157,14 +167,49 @@ impl<T: SelectionKind> SelBuilder<T> {
         Ok(())
     }
 
-    pub fn select_from_iter(&mut self, iter: impl Iterator<Item = usize>) -> anyhow::Result<Sel<T>> {
+    pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
+        // Check if the states are compatible
+        if !self.state.interchangeable(&state) {
+            bail!("States are incompatible!")
+        }
+
+        let ret = state.shareable();
+        unsafe {
+            std::ptr::swap(
+                self.state.as_ptr() as *mut State,
+                ret.as_ptr() as *mut State,
+            )
+        }
+        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+    }
+
+    pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
+        // Check if the states are compatible
+        if !self.topology.interchangeable(&topology) {
+            bail!("Topologies are incompatible!")
+        }
+
+        let ret = topology.shareable();
+        unsafe {
+            std::ptr::swap(
+                self.topology.as_ptr() as *mut State,
+                ret.as_ptr() as *mut State,
+            )
+        }
+        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+    }
+
+    pub fn select_from_iter(
+        &mut self,
+        iter: impl Iterator<Item = usize>,
+    ) -> anyhow::Result<Sel<T>> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
         self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
             index: vec,
-            _marker: PhantomData::default()
+            _marker: PhantomData::default(),
         })
     }
 
@@ -175,18 +220,18 @@ impl<T: SelectionKind> SelBuilder<T> {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
             index: vec,
-            _marker: PhantomData::default()
+            _marker: PhantomData::default(),
         })
     }
 
     pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<T>> {
-        let vec = index_from_str(selstr,&self.topology, &self.state)?;
+        let vec = index_from_str(selstr, &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)?;
         Ok(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
             index: vec,
-            _marker: PhantomData::default()
+            _marker: PhantomData::default(),
         })
     }
 
@@ -197,7 +242,7 @@ impl<T: SelectionKind> SelBuilder<T> {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
             index: vec,
-            _marker: PhantomData::default()
+            _marker: PhantomData::default(),
         })
     }
 
@@ -208,26 +253,25 @@ impl<T: SelectionKind> SelBuilder<T> {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
             index: vec,
-            _marker: PhantomData::default()
+            _marker: PhantomData::default(),
         })
     }
 }
 
-
 // IO traits
-impl<T> TopologyProvider for SelBuilder<T> {
+impl<T> TopologyProvider for Source<T> {
     fn num_atoms(&self) -> usize {
         self.topology.num_atoms()
     }
 }
 
-impl<T> AtomsProvider for SelBuilder<T> {
+impl<T> AtomsProvider for Source<T> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.topology.iter_atoms()
     }
 }
 
-impl<T> StateProvider for SelBuilder<T> {
+impl<T> StateProvider for Source<T> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
@@ -237,18 +281,17 @@ impl<T> StateProvider for SelBuilder<T> {
     }
 }
 
-impl<T> BoxProvider for SelBuilder<T> {
+impl<T> BoxProvider for Source<T> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
     }
 }
 
-impl<T> PosProvider for SelBuilder<T> {
+impl<T> PosProvider for Source<T> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.state.iter_pos()
     }
 }
-
 
 //-----------------------------------------------------------------
 fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
@@ -267,7 +310,6 @@ fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
 fn index_from_all(n: usize) -> Vec<usize> {
     (0..n).collect()
 }
-
 
 fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Result<Vec<usize>> {
     let index = expr.apply_whole(&topology, &state)?;
@@ -295,7 +337,7 @@ fn index_from_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
             range.end,
             n
         );
-    }    
+    }
     if range.len() > 0 {
         Ok(range.clone().collect())
     } else {
@@ -303,17 +345,16 @@ fn index_from_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
     }
 }
 
-
 fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usize>> {
     let index: Vec<usize> = it.sorted().dedup().collect();
     if index.is_empty() {
         bail!("Selection is empty")
     }
-    if index[0] > n - 1 || index[index.len()-1] > n - 1 {
+    if index[0] > n - 1 || index[index.len() - 1] > n - 1 {
         bail!(
             "Index range {}:{} is invalid, 0:{} is allowed.",
             index[0],
-            index[index.len()-1],
+            index[index.len() - 1],
             n
         );
     }
@@ -325,8 +366,8 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 //---------------------------------------
 
 pub struct Sel<T> {
-    topology: triomphe::Arc<Topology>,
-    state: triomphe::Arc<State>,
+    topology: TopologyArc,
+    state: StateArc,
     index: Vec<usize>,
     _marker: PhantomData<T>,
 }
@@ -363,7 +404,10 @@ impl<T: SelectionKind> Sel<T> {
     }
 
     /// Subselection from the range of local selection indexes
-    pub fn subsel_from_local_range(&self, range: std::ops::Range<usize>) -> Result<Sel<T::SubselType>> {
+    pub fn subsel_from_local_range(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> Result<Sel<T::SubselType>> {
         if range.end >= self.index.len() {
             bail!(
                 "Invalid local sub-range: {}:{}, valid range: 0:{}",
@@ -394,8 +438,7 @@ impl<T: SelectionKind> Sel<T> {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<T::SubselType>> 
-    {
+    ) -> Result<Sel<T::SubselType>> {
         // Remove duplicates if any
         let index = iter
             .sorted()
@@ -511,17 +554,17 @@ impl<T: SelectionKind> Sel<T> {
     {
         self.split_gen(|_, at, _| at.resid)
     }
-    
+
     // Sasa
-    pub fn sasa(&self) -> (f32,f32) {
+    pub fn sasa(&self) -> (f32, f32) {
         let (areas, volumes) = molar_powersasa::sasa(
             self.len(),
-            0.14, 
-            |i| unsafe { 
+            0.14,
+            |i| unsafe {
                 let ind = *self.index.get_unchecked(i);
                 self.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
-            }, 
-            |i: usize| { self.nth(i).unwrap().1.vdw() }
+            },
+            |i: usize| self.nth(i).unwrap().1.vdw(),
         );
         (areas.into_iter().sum(), volumes.into_iter().sum())
     }
@@ -591,12 +634,12 @@ impl<T: SelectionKind> Sel<T> {
 }
 
 //---------------------------------------------
-pub struct SelectionIterator<'a,T> {
+pub struct SelectionIterator<'a, T> {
     sel: &'a Sel<T>,
     cur: usize,
 }
 
-impl<'a,T: SelectionKind> Iterator for SelectionIterator<'a,T> {
+impl<'a, T: SelectionKind> Iterator for SelectionIterator<'a, T> {
     type Item = (usize, &'a Atom, &'a Pos);
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
@@ -710,7 +753,7 @@ pub struct SplitData<RT, F> {
 
 pub struct SelectionSplitIterator<'a, RT, F, S> {
     sel: &'a Sel<S>,
-    data: SplitData<RT,F>,
+    data: SplitData<RT, F>,
 }
 
 impl<S> SelectionSplitIterator<'_, (), (), S> {
@@ -721,11 +764,11 @@ impl<S> SelectionSplitIterator<'_, (), (), S> {
     {
         SelectionSplitIterator {
             sel,
-            data: SplitData{
+            data: SplitData {
                 func,
                 counter: 0,
                 id: RT::default(),
-            }
+            },
         }
     }
 }
@@ -747,7 +790,7 @@ where
 //--------------------------------------------
 pub struct IntoSelectionSplitIterator<RT, F, S> {
     sel: Sel<S>,
-    data: SplitData<RT,F>,
+    data: SplitData<RT, F>,
 }
 
 impl<S> IntoSelectionSplitIterator<(), (), S> {
@@ -758,11 +801,11 @@ impl<S> IntoSelectionSplitIterator<(), (), S> {
     {
         IntoSelectionSplitIterator {
             sel,
-            data: SplitData{
+            data: SplitData {
                 func,
                 counter: 0,
                 id: RT::default(),
-            }
+            },
         }
     }
 }
@@ -774,7 +817,7 @@ where
     S: SelectionKind,
 {
     // Consuming splitter always return the same selection kind as parent
-    type Item = Sel<S>; 
+    type Item = Sel<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
         next_split(&mut self.data, &self.sel)
@@ -782,7 +825,7 @@ where
 }
 
 // Actual function that does the splitting
-fn next_split<RT,F,S,SR>(data: &mut SplitData<RT,F>, sel: &Sel<S>) -> Option<Sel<SR>> 
+fn next_split<RT, F, S, SR>(data: &mut SplitData<RT, F>, sel: &Sel<S>) -> Option<Sel<SR>>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(usize, &Atom, &Pos) -> RT,
@@ -825,10 +868,11 @@ where
 #[cfg(test)]
 mod tests {
 
-    use super::{Sel, SelBuilder, OverlappingMut};
+    use super::{OverlappingMut, Sel, Source};
     use crate::{
         core::{
-            providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic, MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL
+            providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic,
+            MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL,
         },
         io::*,
     };
@@ -841,8 +885,8 @@ mod tests {
 
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
-        let (top,st) = read_test_pdb();
-        let mut b = SelBuilder::new_overlapping_mut(top, st)?;
+        let (top, st) = read_test_pdb();
+        let mut b = Source::new_overlapping_mut(top, st)?;
         // Create two overlapping selections
         let _sel1 = b.select_from_iter(0..10)?;
         let _sel2 = b.select_from_iter(5..15)?;
@@ -851,8 +895,8 @@ mod tests {
 
     #[test]
     fn builder_par_no_overlap() {
-        let (top,st) = read_test_pdb();
-        let mut b = SelBuilder::new_non_overlapping_mut(top, st).unwrap();
+        let (top, st) = read_test_pdb();
+        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
         // Create two non-overlapping selections.
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(11..15).unwrap();
@@ -861,8 +905,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn builder_par_overlap() {
-        let (top,st) = read_test_pdb();
-        let mut b = SelBuilder::new_non_overlapping_mut(top, st).unwrap();
+        let (top, st) = read_test_pdb();
+        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
         // Create two overlapping selections. This must fail!
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(5..15).unwrap();
@@ -870,19 +914,19 @@ mod tests {
 
     #[test]
     fn builder_par_threads() -> anyhow::Result<()> {
-        let (top,st) = read_test_pdb();
-        let mut b = SelBuilder::new_non_overlapping_mut(top, st)?;
+        let (top, st) = read_test_pdb();
+        let mut b = Source::new_non_overlapping_mut(top, st)?;
         // Create two valid non-overlapping selections.
         let sel1 = b.select_from_iter(0..10).unwrap();
         let sel2 = b.select_from_iter(11..15).unwrap();
         // Pass them to threads
-        let t1 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            sel1.translate(Vector3f::new(1.0,2.0,3.0));
+        let t1 = std::thread::spawn(move || -> anyhow::Result<Pos> {
+            sel1.translate(Vector3f::new(1.0, 2.0, 3.0));
             Ok(sel1.center_of_mass()?)
         });
 
-        let t2 = std::thread::spawn(move ||->anyhow::Result<Pos> {
-            sel2.translate(Vector3f::new(3.0,2.0,1.0));
+        let t2 = std::thread::spawn(move || -> anyhow::Result<Pos> {
+            sel2.translate(Vector3f::new(3.0, 2.0, 1.0));
             Ok(sel2.center_of_mass()?)
         });
 
@@ -895,22 +939,22 @@ mod tests {
     #[test]
     #[should_panic]
     fn convert_builders_fail() {
-        let (top,st) = read_test_pdb();
+        let (top, st) = read_test_pdb();
         // Create parallel builder
-        let mut b = SelBuilder::new_non_overlapping_mut(top, st).unwrap();
+        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
         // Create two valid non-overlapping selections.
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(11..15).unwrap();
-        
+
         // Create serial builder. This will fail since selections are still alive
         let _b = b.to_overlapping().unwrap();
     }
 
     #[test]
     fn convert_builders() {
-        let (top,st) = read_test_pdb();
+        let (top, st) = read_test_pdb();
         // Create parallel builder
-        let mut b = SelBuilder::new_non_overlapping_mut(top, st).unwrap();
+        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
         // Create two valid non-overlapping selections.
         {
             let _sel1 = b.select_from_iter(0..10).unwrap();
@@ -925,15 +969,15 @@ mod tests {
     }
 
     fn make_sel_all() -> anyhow::Result<Sel<OverlappingMut>> {
-        let (top,st) = read_test_pdb();
-        let mut b = SelBuilder::new_overlapping_mut(top,st)?;
+        let (top, st) = read_test_pdb();
+        let mut b = Source::new_overlapping_mut(top, st)?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<Sel<OverlappingMut>> {
-        let (top,st) = read_test_pdb();
-        let mut b = SelBuilder::new_overlapping_mut(top,st)?;
+        let (top, st) = read_test_pdb();
+        let mut b = Source::new_overlapping_mut(top, st)?;
         let sel = b.select_str("not resname TIP3 POT CLA")?;
         Ok(sel)
     }
@@ -1025,7 +1069,7 @@ mod tests {
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let sel1 = make_sel_all()?;
-        let (a,v) = sel1.sasa();
+        let (a, v) = sel1.sasa();
         println!("Sasa: {a}, Volume: {v}");
         Ok(())
     }
@@ -1045,12 +1089,12 @@ mod tests {
         //    &UnitVector3::new_normalize(Vector3f::new(1.0,2.0,3.0)),
         //    0.45
         //);
-        let (moments,axes) = sel1.inertia_pbc()?;
+        let (moments, axes) = sel1.inertia_pbc()?;
         println!("Inertia moments: {moments}");
         println!("Inertia axes: {axes:?}");
         Ok(())
-        // {0.7308828830718994 0.3332606256008148 -0.5956068634986877} 
-        // {0.6804488301277161 -0.28815552592277527 0.6737624406814575} 
+        // {0.7308828830718994 0.3332606256008148 -0.5956068634986877}
+        // {0.6804488301277161 -0.28815552592277527 0.6737624406814575}
         // {-0.05291106179356575 0.8977214694023132 0.4373747706413269}
     }
 
@@ -1060,12 +1104,12 @@ mod tests {
         let tr = sel1.principal_transform()?;
         println!("Transform: {tr}");
 
-        let (_,axes) = sel1.inertia()?;
+        let (_, axes) = sel1.inertia()?;
         println!("Axes before: {axes}");
 
         sel1.apply_transform(&tr);
 
-        let (_,axes) = sel1.inertia()?;
+        let (_, axes) = sel1.inertia()?;
         println!("Axes after: {axes}");
 
         sel1.save("oriented.pdb")?;
@@ -1073,4 +1117,39 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_swap_state() -> anyhow::Result<()> {
+        let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
+        let mut traj = FileHandler::open("tests/no_ATP.xtc")?;
+        let st1 = traj.read_state()?.unwrap();
+        let st2 = traj.read_state()?.unwrap();        
+
+        let mut source = Source::new_overlapping(top, st1)?;
+        let sel = source.select_all()?;
+        println!("Before swap: {}", source.get_state().num_coords());
+        println!("First point: {:?}", sel.iter_pos().next().unwrap());
+
+        source.set_state(st2)?;
+
+        println!("After swap: {}", source.get_state().num_coords());
+        println!("First point: {:?}", sel.iter_pos().next().unwrap());
+        Ok(())
+    }
+
+    #[test]
+    fn test_swap_traj() -> anyhow::Result<()> {
+        let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
+        let mut traj = FileHandler::open("tests/no_ATP.xtc")?.into_iter();
+        
+        let mut source = Source::new_overlapping(top, traj.next().unwrap())?;
+        let sel = source.select_all()?;
+        println!("First time {}: {:?}", sel.get_time(),sel.center_of_mass()?);
+
+        for st in traj.take(10) {
+            source.set_state(st)?;
+            println!("Time {}: {:?}", sel.get_time(),sel.center_of_mass()?);
+        }
+        
+        Ok(())
+    }
 }
