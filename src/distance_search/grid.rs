@@ -121,7 +121,7 @@ impl Grid<GridCellData> {
         box_: &PeriodicBox,
         pbc_dims: &PbcDims,
     ) {
-        let dim = self.dim();
+        let dim = &self.dim();
 
         'outer: for (id, pos) in id_pos {
             // Relative coordinates
@@ -133,11 +133,7 @@ impl Grid<GridCellData> {
                 if !pbc_dims[d] && (rel[d] > 1.0 || rel[d] < 0.0) {
                     continue 'outer;
                 }
-                // Wrap relative dimesion into (0:1)
-                let fr = rel[d].fract();
-                rel[d] = if fr >= 0.0 { fr } else { 1.0 - fr };
-                // Compute bin
-                ind[d] = (rel[d] * dim[d] as f32).floor() as usize;
+                ind[d] = (rel[d] * dim[d] as f32).floor().rem_euclid(dim[d] as f32) as usize;
             }
             //println!("{:?}",ind);
             self.data[ind].add(id, &pos);

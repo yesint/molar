@@ -868,6 +868,8 @@ where
 #[cfg(test)]
 mod tests {
 
+    use rayon::iter::{ParallelBridge, ParallelIterator};
+
     use super::{OverlappingMut, Sel, Source};
     use crate::{
         core::{
@@ -1122,7 +1124,7 @@ mod tests {
         let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
         let mut traj = FileHandler::open("tests/no_ATP.xtc")?;
         let st1 = traj.read_state()?.unwrap();
-        let st2 = traj.read_state()?.unwrap();        
+        let st2 = traj.read_state()?.unwrap();
 
         let mut source = Source::new_overlapping(top, st1)?;
         let sel = source.select_all()?;
@@ -1140,16 +1142,40 @@ mod tests {
     fn test_swap_traj() -> anyhow::Result<()> {
         let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
         let mut traj = FileHandler::open("tests/no_ATP.xtc")?.into_iter();
-        
+
         let mut source = Source::new_overlapping(top, traj.next().unwrap())?;
         let sel = source.select_all()?;
-        println!("First time {}: {:?}", sel.get_time(),sel.center_of_mass()?);
+        println!("First time {}: {:?}", sel.get_time(), sel.center_of_mass()?);
 
-        for st in traj.take(10) {
+        for st in traj {
             source.set_state(st)?;
-            println!("Time {}: {:?}", sel.get_time(),sel.center_of_mass()?);
+            println!("Time {}: {:?}", sel.get_time(), sel.center_of_mass()?);
         }
-        
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sel_par_proc() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/colored.pdb")?.read()?;
+
+        let mut source = Source::new_non_overlapping_mut(top, st)?;
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        source.select_all()?
+        .into_split_contig_resid()
+        .enumerate()
+        .par_bridge()
+        .try_for_each_with(sender,|s,(i,sel)| -> anyhow::Result<()> {
+            println!("Doing {i}");
+            //sel.unwrap_connectivity(0.2)?;
+            s.send(sel.center_of_mass()?)?;
+            Ok(())
+        })?;
+
+        let res: Vec<_> = receiver.iter().collect();
+        println!("cms: {:?}",res);
         Ok(())
     }
 }
