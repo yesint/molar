@@ -1,10 +1,14 @@
+use std::sync::mpsc::channel;
+
 use super::grid::*;
 use crate::{
-    core::{PbcDims, PeriodicBox, Pos, Vector3f, IdPosIterator, PBC_NONE},
+    core::{IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f, PBC_NONE},
     distance_search::cell_pair_iterator::CellPairIter,
 };
-//use rayon::prelude::*;
-use std::collections::HashMap;
+use rayon::prelude::*;
+//use std::collections::HashMap;
+
+pub static NUM_ATOMS_PARALLEL: usize = 1000;
 
 pub struct FoundPair {
     pub i: usize,
@@ -12,8 +16,8 @@ pub struct FoundPair {
     pub d: f32,
 }
 
-#[derive(Debug,Default)]
-pub struct SearchConnectivity (HashMap<usize,Vec<usize>>);
+#[derive(Debug, Default)]
+pub struct SearchConnectivity(rustc_hash::FxHashMap<usize, Vec<usize>>);
 
 impl SearchConnectivity {
     pub fn len(&self) -> usize {
@@ -25,40 +29,62 @@ impl SearchConnectivity {
     }
 }
 
-impl FromIterator<(usize,usize)> for SearchConnectivity {
-    fn from_iter<T: IntoIterator<Item = (usize,usize)>>(iter: T) -> Self {
+impl FromIterator<(usize, usize)> for SearchConnectivity {
+    fn from_iter<T: IntoIterator<Item = (usize, usize)>>(iter: T) -> Self {
         let mut res = Self::default();
-        for (i,j) in iter {
+        for (i, j) in iter {
             if res.0.contains_key(&i) {
                 res.0.get_mut(&i).unwrap().push(j);
             } else {
-                res.0.insert(i,vec![j]);
+                res.0.insert(i, vec![j]);
             }
-            
+
             if res.0.contains_key(&j) {
                 res.0.get_mut(&j).unwrap().push(i);
             } else {
-                res.0.insert(j,vec![i]);
+                res.0.insert(j, vec![i]);
             }
         }
         res
     }
 }
 
-pub struct SearchConnectivityIter<'a>(
-    std::collections::hash_map::Iter<'a,usize,Vec<usize>>
-);
+impl FromParallelIterator<(usize, usize)> for SearchConnectivity {
+    fn from_par_iter<I>(par_iter: I) -> Self
+    where
+        I: IntoParallelIterator<Item = (usize, usize)>,
+    {
+        let v = par_iter.into_par_iter().collect::<Vec<_>>();
+        let mut res = Self::default();
+        for (i, j) in v.iter().cloned() {
+            if res.0.contains_key(&i) {
+                res.0.get_mut(&i).unwrap().push(j);
+            } else {
+                res.0.insert(i, vec![j]);
+            }
+
+            if res.0.contains_key(&j) {
+                res.0.get_mut(&j).unwrap().push(i);
+            } else {
+                res.0.insert(j, vec![i]);
+            }
+        }
+        res
+    }
+}
+
+pub struct SearchConnectivityIter<'a>(std::collections::hash_map::Iter<'a, usize, Vec<usize>>);
 
 impl<'a> Iterator for SearchConnectivityIter<'a> {
-    type Item = (&'a usize,&'a Vec<usize>);
+    type Item = (&'a usize, &'a Vec<usize>);
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
 
 impl IntoIterator for SearchConnectivity {
-    type Item = (usize,Vec<usize>);
-    type IntoIter = std::collections::hash_map::IntoIter<usize,Vec<usize>>;
+    type Item = (usize, Vec<usize>);
+    type IntoIter = std::collections::hash_map::IntoIter<usize, Vec<usize>>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
@@ -75,6 +101,7 @@ impl std::ops::Index<usize> for SearchConnectivity {
 pub struct DistanceSearcherSingle {
     grid: Grid<GridCellData>,
     cutoff: f32,
+    serial_limit: usize,
 }
 
 impl DistanceSearcherSingle {
@@ -85,10 +112,10 @@ impl DistanceSearcherSingle {
         upper: &Vector3f,
     ) -> Self {
         // Create grid
-        let mut grid = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff,lower,upper);
+        let mut grid = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff, lower, upper);
         grid.populate(data, lower, upper);
         // Create an instance
-        Self { grid, cutoff }
+        Self { grid, cutoff, serial_limit: NUM_ATOMS_PARALLEL }
     }
 
     pub fn new_periodic<'a>(
@@ -98,14 +125,10 @@ impl DistanceSearcherSingle {
         periodic_dims: &PbcDims,
     ) -> Self {
         // Create grid
-        let mut grid = Grid::<GridCellData>::from_cuoff_and_box(cutoff,box_);
-        grid.populate_periodic(
-            data,
-            box_,
-            &periodic_dims,
-        );
+        let mut grid = Grid::<GridCellData>::from_cuoff_and_box(cutoff, box_);
+        grid.populate_periodic(data, box_, &periodic_dims);
         // Create an instance
-        Self { grid, cutoff }
+        Self { grid, cutoff, serial_limit: NUM_ATOMS_PARALLEL }
     }
 
     fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
@@ -117,8 +140,16 @@ impl DistanceSearcherSingle {
         (p1 - p2).norm_squared()
     }
 
+    pub fn set_serial_limit(&mut self, limit: usize) {
+        self.serial_limit = limit;
+    }
+
     // Main search function
-    pub fn search<T: SearchOutputType, C: FromIterator<T>>(&self) -> C {
+    pub fn search<T, C>(&self) -> C 
+    where
+        T: SearchOutputType + Send + Sync,
+        C: FromParallelIterator<T> + FromIterator<T> + Send
+    {
         //pub fn search(&self) -> Vec<ValidPair> {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid.pbc.as_ref() {
@@ -132,12 +163,34 @@ impl DistanceSearcherSingle {
             None => Self::dist_non_periodic,
         };
 
-        // Get iterator over cell pairs
-        let iter = CellPairIter::new(&self.grid.dim(), &periodic_dims);
+        if self.grid.n_items > self.serial_limit {
+            // Parallel
+            
+            let nt = rayon::current_num_threads();
+            let chunk_size = self.grid.dim()[0] / nt;
 
-        iter.map(|pair| self.search_cell_pair(pair, dist_func))
+            let cp_list = (0..nt).map(|ch| {
+                CellPairIter::new_chunk(
+                    &self.grid.dim(),
+                    &periodic_dims,
+                    ch*chunk_size,
+                    if ch<nt-1 {(ch+1)*chunk_size} else {self.grid.dim()[0]}
+                )
+            }).collect::<Vec<_>>();
+
+            cp_list.into_par_iter().map(|cp|{
+                cp
+                .map(|pair| self.search_cell_pair(pair, dist_func))
+                .flatten().collect::<Vec<T>>()
+            }).flatten().collect::<C>()
+
+        } else {
+            // Serial
+            CellPairIter::new(&self.grid.dim(), &periodic_dims)
+            .map(|pair| self.search_cell_pair(pair, dist_func))
             .flatten()
             .collect::<C>()
+        }
     }
 
     fn search_cell_pair<T: SearchOutputType>(
@@ -236,8 +289,8 @@ impl DistanceSearcherDouble {
         let mut grid1 = Grid::<GridCellData>::from_cuoff_and_box(cutoff, box_);
         let mut grid2 = Grid::<GridCellData>::new(grid1.dim());
 
-        grid1.populate_periodic(data1,box_,&periodic_dims);
-        grid2.populate_periodic(data2,box_,&periodic_dims);
+        grid1.populate_periodic(data1, box_, &periodic_dims);
+        grid2.populate_periodic(data2, box_, &periodic_dims);
         // Create an instance
         Self {
             grid1,
@@ -352,7 +405,7 @@ impl SearchOutputType for (usize, usize, f32) {
 
 //==================================================================
 // Tests
-/* 
+/*
 
 #[test]
 fn test_single_periodic() {

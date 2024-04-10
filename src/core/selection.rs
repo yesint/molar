@@ -652,6 +652,13 @@ impl<'a, T: SelectionKind> Iterator for SelectionIterator<'a, T> {
     }
 }
 
+impl<'a, T: SelectionKind> ExactSizeIterator for SelectionIterator<'a, T> {
+    fn len(&self) -> usize {
+        self.sel.len()
+    }
+}
+
+
 //---------------------------------------------
 // Implement traits for IO
 
@@ -870,13 +877,12 @@ mod tests {
 
     use rayon::iter::{ParallelBridge, ParallelIterator};
 
-    use super::{OverlappingMut, Sel, Source};
+    use super::{BoxProvider, OverlappingMut, Sel, Source};
     use crate::{
         core::{
             providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic,
             MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL,
-        },
-        io::*,
+        }, distance_search::{DistanceSearcherSingle, FoundPair, NUM_ATOMS_PARALLEL}, io::*
     };
 
     fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
@@ -1028,6 +1034,28 @@ mod tests {
     }
 
     #[test]
+    fn test_searcher_single() {
+        let sel = make_sel_prot().unwrap();
+        let mut searcher = DistanceSearcherSingle::new_periodic(
+            0.3, 
+            sel.iter().map(|(i,_,p)| (i,p)), 
+            sel.get_box().unwrap(), 
+            &PBC_FULL
+        );
+
+        // Enforce parallel
+        searcher.set_serial_limit(0);
+        let v1: Vec<usize> = searcher.search();
+
+        // Enforce serial
+        searcher.set_serial_limit(1e10 as usize);
+        let v2: Vec<usize> = searcher.search();
+
+        assert_eq!(v1.len(),v2.len());
+    }
+
+
+    #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let sel = make_sel_prot()?;
         sel.unwrap_connectivity_dim(0.2, &PBC_FULL)?;
@@ -1163,8 +1191,11 @@ mod tests {
 
         let (sender, receiver) = std::sync::mpsc::channel();
 
-        source.select_all()?
-        .into_split_contig_resid()
+        let all = source.select_str("resname POPC")?;
+        
+        all.unwrap_connectivity(0.2)?;
+        
+        all.into_split_contig_resid()
         .enumerate()
         .par_bridge()
         .try_for_each_with(sender,|s,(i,sel)| -> anyhow::Result<()> {

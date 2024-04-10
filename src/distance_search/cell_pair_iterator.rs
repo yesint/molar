@@ -35,6 +35,8 @@ pub struct CellPairIter {
     // Iterator over buffer of pairs for current central cell
     //buf_iter: <Vec<CellPair> as IntoIterator>::IntoIter,
     buf_iter: std::vec::IntoIter<CellPair>,
+    // Iterate up to this index (non inclusive) on the X dimension
+    last_x_ind: usize,
 }
 
 impl CellPairIter {
@@ -44,6 +46,19 @@ impl CellPairIter {
             periodic_dims: *periodic_dims,
             buf_iter: Vec::new().into_iter(),
             grid_loc: CellLoc::zeros(),
+            last_x_ind: grid_size[0],
+        };
+        ret.gen_buf_iter();
+        ret
+    }
+
+    pub fn new_chunk(grid_size: &[usize; 3], periodic_dims: &PbcDims, begin: usize, end: usize) -> Self {
+        let mut ret = Self {
+            grid_size: *grid_size,
+            periodic_dims: *periodic_dims,
+            buf_iter: Vec::new().into_iter(),
+            grid_loc: CellLoc::new(begin,0,0),
+            last_x_ind: end,
         };
         ret.gen_buf_iter();
         ret
@@ -126,7 +141,7 @@ impl CellPairIter {
             if loc[1] == self.grid_size[1] {
                 loc[1] = 0;
                 loc[0] += 1;
-                if loc[0] == self.grid_size[0] {
+                if loc[0] == self.last_x_ind {
                     return None;
                 }
             }

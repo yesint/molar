@@ -1,9 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use molar::{core::{MeasureMasses, ModifyPos, Sel, Source, OverlappingMut, State, Topology, Vector3f}, io::FileHandler};
+use molar::{core::{providers::BoxProvider, MeasureMasses, ModifyPos, OverlappingMut, Sel, Source, State, Topology, Vector3f, PBC_FULL}, distance_search::DistanceSearcherSingle, io::FileHandler};
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
-    let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
+    let mut h = FileHandler::open("tests/colored.pdb").unwrap();
     let top = h.read_topology_raw().unwrap().to_rc();
     let state = h.read_state_raw().unwrap().unwrap().to_rc();
     (top, state)
@@ -13,7 +13,8 @@ fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>
 fn make_sel_prot() -> anyhow::Result<Sel<OverlappingMut>> {
     let (top,st) = read_test_pdb();
     let mut b = Source::new_overlapping_mut(top, st)?;
-    let sel = b.select_str("not resname TIP3 POT CLA")?;
+    //let sel = b.select_str("not resname TIP3 POT CLA")?;
+    let sel = b.select_all()?;
     Ok(sel)
 }
 
@@ -39,5 +40,30 @@ fn test_fit(c: &mut Criterion) {
     );
 }
 
-criterion_group!(benches, test_fit);
-criterion_main!(benches);
+fn search_par(c: &mut Criterion) {
+    let sel = make_sel_prot().unwrap();
+
+    let mut searcher = DistanceSearcherSingle::new_periodic(
+        0.3, 
+        sel.iter().map(|(i,_,p)| (i,p)), 
+        sel.get_box().unwrap(), 
+        &PBC_FULL
+    );
+
+    c.bench_function("serial search_single", |b| b.iter(
+        || {
+            searcher.set_serial_limit(1e10 as usize);
+            let _: Vec<usize> = black_box(searcher.search());
+        })
+    );
+
+    c.bench_function("parallel search_single", |b| b.iter(
+        || {
+            searcher.set_serial_limit(0);
+            let _: Vec<usize> = black_box(searcher.search());
+        })
+    );
+}
+
+criterion_group!(benches_par, search_par);
+criterion_main!(benches_par);

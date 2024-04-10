@@ -56,6 +56,7 @@ pub struct GridPbc {
 pub struct Grid<T> {
     pub data: ndarray::Array3<T>,
     pub pbc: Option<GridPbc>,
+    pub n_items: usize, // Number of items in the grid
 }
 
 impl<T> Grid<T>
@@ -66,6 +67,7 @@ where
         Self {
             data: ndarray::Array3::<T>::from_shape_simple_fn(sz, || T::default()),
             pbc: None,
+            n_items: 0,
         }
     }
 
@@ -112,6 +114,7 @@ impl Grid<GridCellData> {
                 }
             }
             self.data[ind].add(id, &pos);
+            self.n_items += 1;
         }
     }
 
@@ -125,18 +128,19 @@ impl Grid<GridCellData> {
 
         'outer: for (id, pos) in id_pos {
             // Relative coordinates
-            let mut rel = box_.to_box_coords(&pos.coords);
+            let rel = box_.to_box_coords(&pos.coords);
             let mut ind = [0usize, 0, 0];
             for d in 0..3 {
                 // If dimension in not periodic and
                 // out of bounds - skip the point
-                if !pbc_dims[d] && (rel[d] > 1.0 || rel[d] < 0.0) {
+                if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
                     continue 'outer;
                 }
                 ind[d] = (rel[d] * dim[d] as f32).floor().rem_euclid(dim[d] as f32) as usize;
             }
             //println!("{:?}",ind);
             self.data[ind].add(id, &pos);
+            self.n_items += 1;
         }
         self.pbc = Some(GridPbc {
             box_: box_.clone(),
