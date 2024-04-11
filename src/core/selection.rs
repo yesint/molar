@@ -36,6 +36,8 @@ impl SelectionKind for NonOverlappingMut {
 impl MutableSel for NonOverlappingMut {}
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
+/// 
+/// It contains a dummy raw pointer to unit type to ensure that it is not `Send` and can't be shared between threads.
 pub struct OverlappingMut(*const ());
 impl SelectionKind for OverlappingMut {
     type SubselType = OverlappingMut;
