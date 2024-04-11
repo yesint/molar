@@ -1,5 +1,3 @@
-use std::sync::mpsc::channel;
-
 use super::grid::*;
 use crate::{
     core::{IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f, PBC_NONE},

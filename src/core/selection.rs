@@ -882,7 +882,7 @@ mod tests {
         core::{
             providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic,
             MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL,
-        }, distance_search::{DistanceSearcherSingle, FoundPair, SERIAL_LIMIT}, io::*
+        }, distance_search::DistanceSearcherSingle, io::*
     };
 
     fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
