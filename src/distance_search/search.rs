@@ -8,7 +8,8 @@ use crate::{
 use rayon::prelude::*;
 //use std::collections::HashMap;
 
-pub static NUM_ATOMS_PARALLEL: usize = 1000;
+pub static SERIAL_LIMIT: usize = 2;
+const INIT_BUF_SIZE: usize = 1000;
 
 pub struct FoundPair {
     pub i: usize,
@@ -115,7 +116,7 @@ impl DistanceSearcherSingle {
         let mut grid = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff, lower, upper);
         grid.populate(data, lower, upper);
         // Create an instance
-        Self { grid, cutoff, serial_limit: NUM_ATOMS_PARALLEL }
+        Self { grid, cutoff, serial_limit: SERIAL_LIMIT }
     }
 
     pub fn new_periodic<'a>(
@@ -128,7 +129,7 @@ impl DistanceSearcherSingle {
         let mut grid = Grid::<GridCellData>::from_cuoff_and_box(cutoff, box_);
         grid.populate_periodic(data, box_, &periodic_dims);
         // Create an instance
-        Self { grid, cutoff, serial_limit: NUM_ATOMS_PARALLEL }
+        Self { grid, cutoff, serial_limit: SERIAL_LIMIT }
     }
 
     fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
@@ -147,7 +148,7 @@ impl DistanceSearcherSingle {
     // Main search function
     pub fn search<T, C>(&self) -> C 
     where
-        T: SearchOutputType + Send + Sync,
+        T: SearchOutputType + Send + Sync + Clone,
         C: FromParallelIterator<T> + FromIterator<T> + Send
     {
         //pub fn search(&self) -> Vec<ValidPair> {
@@ -163,33 +164,35 @@ impl DistanceSearcherSingle {
             None => Self::dist_non_periodic,
         };
 
-        if self.grid.n_items > self.serial_limit {
-            // Parallel
-            
-            let nt = rayon::current_num_threads();
+        let nt = rayon::current_num_threads();
+        if self.grid.dim()[0] >= nt && self.grid.dim()[0] >= self.serial_limit{
+            // Parallel            
             let chunk_size = self.grid.dim()[0] / nt;
 
-            let cp_list = (0..nt).map(|ch| {
-                CellPairIter::new_chunk(
+            // List of result buffers
+            let mut buffers = vec![Vec::<T>::with_capacity(INIT_BUF_SIZE); nt];
+
+            buffers.par_iter_mut().enumerate().for_each(|(ch,buf)| {
+                // Create a cell pair iterator
+                for pair in CellPairIter::new_chunk(
                     &self.grid.dim(),
                     &periodic_dims,
                     ch*chunk_size,
                     if ch<nt-1 {(ch+1)*chunk_size} else {self.grid.dim()[0]}
-                )
-            }).collect::<Vec<_>>();
-
-            cp_list.into_par_iter().map(|cp|{
-                cp
-                .map(|pair| self.search_cell_pair(pair, dist_func))
-                .flatten().collect::<Vec<T>>()
-            }).flatten().collect::<C>()
+                ) {
+                    self.search_cell_pair(pair, dist_func, buf);
+                }
+            });
+            
+            buffers.into_iter().flatten().collect::<C>()
 
         } else {
             // Serial
-            CellPairIter::new(&self.grid.dim(), &periodic_dims)
-            .map(|pair| self.search_cell_pair(pair, dist_func))
-            .flatten()
-            .collect::<C>()
+            let mut buf = Vec::<T>::with_capacity(INIT_BUF_SIZE);
+            for pair in CellPairIter::new(&self.grid.dim(), &periodic_dims) {
+                self.search_cell_pair(pair, dist_func, &mut buf);
+            }
+            buf.into_iter().collect::<C>()            
         }
     }
 
@@ -197,15 +200,14 @@ impl DistanceSearcherSingle {
         &self,
         pair: CellPair,
         dist_func: fn(&Self, &Pos, &Pos) -> f32,
-    ) -> Vec<T> {
+        found: &mut Vec<T>,
+    ) {
         let n1 = self.grid[&pair.c1].len();
         let n2 = self.grid[&pair.c2].len();
-
-        let mut found = Vec::<T>::new();
-
+        
         // Nothing to do if cell is empty
         if n1 * n2 == 0 {
-            return found;
+            return;
         }
 
         let cutoff2 = self.cutoff.powi(2);
@@ -244,8 +246,6 @@ impl DistanceSearcherSingle {
                 }
             }
         }
-
-        found
     }
 }
 
@@ -254,6 +254,7 @@ pub struct DistanceSearcherDouble {
     grid1: Grid<GridCellData>,
     grid2: Grid<GridCellData>,
     cutoff: f32,
+    serial_limit: usize,
 }
 
 impl DistanceSearcherDouble {
@@ -275,6 +276,7 @@ impl DistanceSearcherDouble {
             grid1,
             grid2,
             cutoff,
+            serial_limit: SERIAL_LIMIT
         }
     }
 
@@ -296,6 +298,7 @@ impl DistanceSearcherDouble {
             grid1,
             grid2,
             cutoff,
+            serial_limit: SERIAL_LIMIT
         }
     }
 
@@ -309,7 +312,11 @@ impl DistanceSearcherDouble {
     }
 
     // Main search function
-    pub fn search<T: SearchOutputType, C: FromIterator<T>>(&self) -> C {
+    pub fn search<T,C>(&self) -> C 
+    where
+        T: SearchOutputType + Send + Clone,
+        C: FromIterator<T>,
+    {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid1.pbc.as_ref() {
             Some(pbc) => pbc.dims,
@@ -322,36 +329,56 @@ impl DistanceSearcherDouble {
             None => Self::dist_non_periodic,
         };
 
-        // Get iterator over cell pairs
-        let iter = CellPairIter::new(&self.grid1.dim(), &periodic_dims);
+        let nt = rayon::current_num_threads();
+        if self.grid1.dim()[0] >= nt && self.grid1.dim()[0] >= self.serial_limit{
+            // Parallel            
+            let chunk_size = self.grid1.dim()[0] / nt;
 
-        // We first search for pair c1->grid1; c2->grid2
-        // then for the swapped pair c2->grid1; c1->grid2
-        // grid1 always goes first
-        iter.map(|pair| {
-            let swapped_pair = pair.swaped();
-            let mut v1 = self.search_cell_pair(pair, dist_func);
-            let v2 = self.search_cell_pair(swapped_pair, dist_func);
-            v1.extend(v2);
-            v1
-        })
-        .flatten()
-        .collect::<C>()
+            // List of result buffers
+            let mut buffers = vec![Vec::<T>::with_capacity(INIT_BUF_SIZE); nt];
+
+            buffers.par_iter_mut().enumerate().for_each(|(ch,buf)| {
+                // Create a cell pair iterator
+                for pair in CellPairIter::new_chunk(
+                    &self.grid1.dim(),
+                    &periodic_dims,
+                    ch*chunk_size,
+                    if ch<nt-1 {(ch+1)*chunk_size} else {self.grid1.dim()[0]}
+                ) {
+                    // We first search for pair c1->grid1; c2->grid2
+                    // then for the swapped pair c2->grid1; c1->grid2
+                    // grid1 always goes first
+                    let swapped_pair = pair.swaped();
+                    self.search_cell_pair(pair, dist_func, buf);
+                    self.search_cell_pair(swapped_pair, dist_func, buf);
+                }                
+            });
+            
+            buffers.into_iter().flatten().collect::<C>()
+        } else {
+            // Serial
+            let mut buf = Vec::<T>::with_capacity(INIT_BUF_SIZE);
+            for pair in CellPairIter::new(&self.grid1.dim(), &periodic_dims) {
+                let swapped_pair = pair.swaped();
+                self.search_cell_pair(pair, dist_func, &mut buf);
+                self.search_cell_pair(swapped_pair, dist_func, &mut buf);
+            }
+            buf.into_iter().collect::<C>()   
+        }        
     }
 
     fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
         dist_func: fn(&Self, &Pos, &Pos) -> f32,
-    ) -> Vec<T> {
+        found: &mut Vec<T>,
+    ) {
         let n1 = self.grid1[&pair.c1].len();
         let n2 = self.grid2[&pair.c2].len();
 
-        let mut found = Vec::<T>::new();
-
         // Nothing to do if cell is empty
         if n1 * n2 == 0 {
-            return found;
+            return;
         }
 
         let cutoff2 = self.cutoff.powi(2);
@@ -370,8 +397,6 @@ impl DistanceSearcherDouble {
                 }
             }
         }
-
-        found
     }
 }
 
