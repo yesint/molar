@@ -12,15 +12,22 @@ use std::{collections::HashMap, marker::PhantomData, ops::Range};
 
 pub use super::selection_parser::SelectionExpr;
 //-----------------------------------------------------------------
+
+/// Trait for kinds of selections
 pub trait SelectionKind {
     type SubselType;
     const NEED_CHECK_OVERLAP: bool;
 }
+
+/// Trait marking selections that can overlap
 pub trait MayOverlap: SelectionKind {}
+
+/// Trait marking non-overlapping selections
 pub trait MutableSel: SelectionKind {}
 
-// Read-write unique marker (multithreaded)
+/// Marker type for non-overlapping mutable selection (multithreaded)
 pub struct NonOverlappingMut {}
+
 impl SelectionKind for NonOverlappingMut {
     // Subseletions may overlap but won't be Send
     type SubselType = OverlappingMut;
@@ -28,7 +35,7 @@ impl SelectionKind for NonOverlappingMut {
 }
 impl MutableSel for NonOverlappingMut {}
 
-// Read-write marker (single-threaded)
+/// Marker type for possibly overlapping mutable selection (single-threaded)
 pub struct OverlappingMut(*const ());
 impl SelectionKind for OverlappingMut {
     type SubselType = OverlappingMut;
@@ -37,7 +44,7 @@ impl SelectionKind for OverlappingMut {
 impl MayOverlap for OverlappingMut {}
 impl MutableSel for OverlappingMut {}
 
-// Read-only marker (multithreaded )
+/// Marker type for possibly overlapping immutable selection (multi-threaded)
 pub struct Overlapping {}
 impl SelectionKind for Overlapping {
     type SubselType = Overlapping;
@@ -47,6 +54,13 @@ impl MayOverlap for Overlapping {}
 
 //=====================================================
 
+/// Source of selections. The kind of `Source` dictates the kind of selections created from it. 
+/// 
+/// The only way to create selection is to create the `Source` first and them use one of its `select_*` methods.
+/// The kind of `Source` dictates the kind of selections created from it.
+/// 
+/// `Source` takes ownership of `Topology` and `State` so that after creating a `Source` they are no longer accessible outside it.
+/// This guarantees correct access without data integrity issues.
 pub struct Source<T> {
     topology: TopologyArc,
     state: StateArc,
@@ -55,6 +69,7 @@ pub struct Source<T> {
 }
 
 impl Source<()> {
+    /// Create the `Source` producing non-overlapping mutable selections accessible from multiple threads
     pub fn new_non_overlapping_mut(
         topology: TopologyUArc,
         state: StateUArc,
@@ -68,6 +83,7 @@ impl Source<()> {
         })
     }
 
+    /// Create the `Source` producing overlapping mutable selections accessible from a single thread
     pub fn new_overlapping_mut(
         topology: TopologyUArc,
         state: StateUArc,
@@ -81,6 +97,7 @@ impl Source<()> {
         })
     }
 
+    /// Create the `Source` producing overlapping immutable selections accessible from multiple threads
     pub fn new_overlapping(
         topology: TopologyUArc,
         state: StateUArc,
@@ -96,6 +113,7 @@ impl Source<()> {
 }
 
 impl<T> Source<T> {
+    /// Release and return `Topology` and `State`. Fails if any selections created from this Source are still alive.
     pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
         Ok((
             triomphe::Arc::try_unique(self.topology)
@@ -108,11 +126,15 @@ impl<T> Source<T> {
 
 // Conversions to other builder types
 impl Source<NonOverlappingMut> {
+    /// Converts this `Source` to one producing overlapping mutable selections accessible from a single thread.
+    /// Fails if any selections created from this `Source` are still alive.
     pub fn to_overlapping_mut(self) -> anyhow::Result<Source<OverlappingMut>> {
         let (top, st) = self.release()?;
         Ok(Source::new_overlapping_mut(top, st)?)
     }
 
+    /// Converts this `Source` to one producing overlapping immutable selections accessible from multiple threads.
+    /// Fails if any selections created from this `Source` are still alive.
     pub fn to_overlapping(self) -> anyhow::Result<Source<Overlapping>> {
         let (top, st) = self.release()?;
         Ok(Source::new_overlapping(top, st)?)
@@ -120,11 +142,15 @@ impl Source<NonOverlappingMut> {
 }
 
 impl Source<OverlappingMut> {
+    /// Converts this `Source` to one producing non-overlapping mutable selections accessible from a single thread.
+    /// Fails if any selections created from this `Source` are still alive.
     pub fn to_non_overlapping_mut(self) -> anyhow::Result<Source<NonOverlappingMut>> {
         let (top, st) = self.release()?;
         Ok(Source::new_non_overlapping_mut(top, st)?)
     }
 
+    /// Converts this `Source` to one producing overlapping immutable selections accessible from multiple threads.
+    /// Fails if any selections created from this `Source` are still alive.
     pub fn to_overlapping(self) -> anyhow::Result<Source<Overlapping>> {
         let (top, st) = self.release()?;
         Ok(Source::new_overlapping(top, st)?)
@@ -132,12 +158,16 @@ impl Source<OverlappingMut> {
 }
 
 impl Source<Overlapping> {
+    /// Converts this `Source` to one producing non-overlapping mutable selections accessible from a single thread.
+    /// Fails if any selections created from this `Source` are still alive.
     pub fn to_non_overlapping_mut(self) -> anyhow::Result<Source<NonOverlappingMut>> {
         let (top, st) = self.release()?;
         Ok(Source::new_non_overlapping_mut(top, st)?)
     }
 
-    pub fn to_overlapping(self) -> anyhow::Result<Source<OverlappingMut>> {
+    /// Converts this `Source` to one producing overlapping mutable selections accessible from a single thread.
+    /// Fails if any selections created from this `Source` are still alive.
+    pub fn to_overlapping_mut(self) -> anyhow::Result<Source<OverlappingMut>> {
         let (top, st) = self.release()?;
         Ok(Source::new_overlapping_mut(top, st)?)
     }
@@ -148,10 +178,12 @@ impl Source<Overlapping> {
 //---------------------------------
 
 impl<T: SelectionKind> Source<T> {
+    /// Get a shared pointer to contained Topology
     pub fn get_topology(&self) -> TopologyArc {
         triomphe::Arc::clone(&self.topology)
     }
-
+    
+    /// Get a shared pointer to contained State
     pub fn get_state(&self) -> StateArc {
         triomphe::Arc::clone(&self.state)
     }
@@ -167,6 +199,16 @@ impl<T: SelectionKind> Source<T> {
         Ok(())
     }
 
+    /// Sets new state in this `Source`. All selections created from this Source will automatically view
+    /// the new state. 
+    /// 
+    /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
+    /// 
+    /// Returns unique pointer to the old state, so it could be reused if needed.
+    /// 
+    /// # Safety
+    /// If such change happens when selections from different threads are accessing the data
+    /// inconsistent results may be produced, however this should never lead to issues with memory safety.
     pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
@@ -183,6 +225,16 @@ impl<T: SelectionKind> Source<T> {
         triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
     }
 
+    /// Sets new topology in this `Source`. All selections created from this Source will automatically view
+    /// the new topology. 
+    /// 
+    /// New topology should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
+    /// 
+    /// Returns unique pointer to the old topology, so it could be reused if needed.
+    /// 
+    /// # Safety
+    /// If such change happens when selections from different threads are accessing the data
+    /// inconsistent results may be produced, however this should never lead to issues with memory safety.
     pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
@@ -199,6 +251,8 @@ impl<T: SelectionKind> Source<T> {
         triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
     }
 
+    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
+    /// If any index is out of bounds the error is returned.
     pub fn select_from_iter(
         &mut self,
         iter: impl Iterator<Item = usize>,
@@ -213,6 +267,7 @@ impl<T: SelectionKind> Source<T> {
         })
     }
 
+    /// Selects all
     pub fn select_all(&mut self) -> anyhow::Result<Sel<T>> {
         let vec = index_from_all(self.topology.num_atoms());
         self.check_overlap_if_needed(&vec)?;
@@ -224,6 +279,8 @@ impl<T: SelectionKind> Source<T> {
         })
     }
 
+    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
+    /// can't be reused. Consider using `select_expr` if you already have selection expression.
     pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<T>> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)?;
@@ -235,6 +292,7 @@ impl<T: SelectionKind> Source<T> {
         })
     }
 
+    /// Creates new selection from an existing selection expression.
     pub fn select_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<Sel<T>> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)?;
@@ -246,6 +304,8 @@ impl<T: SelectionKind> Source<T> {
         })
     }
 
+    /// Creates new selection from a range of indexes.
+    /// If rangeis out of bounds the error is returned.
     pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<T>> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         self.check_overlap_if_needed(&vec)?;
