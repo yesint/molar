@@ -30,8 +30,6 @@ pub trait MutableSel: SelectionKind {}
 pub trait ParallelSel: SelectionKind + Send + Sync {}
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
-/// 
-/// It contains a dummy raw pointer to unit type to ensure that it is not `Send` and can't be shared between threads.
 pub struct MutableSerial(*const ());
 impl SelectionKind for MutableSerial {
     type SubselKind = MutableSerial;
@@ -75,7 +73,7 @@ pub struct Source {
 }
 
 impl Source {
-    /// Create the `Source` producing overlapping mutable selections accessible from a single thread
+    /// Create the `Source` producing mutable selections that may overlap accessible from a single thread
     pub fn new(
         topology: TopologyUArc,
         state: StateUArc,
@@ -183,7 +181,6 @@ impl Source {
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
-    /// 
     pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
@@ -206,10 +203,6 @@ impl Source {
     /// New topology should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
     /// 
     /// Returns unique pointer to the old topology, so it could be reused if needed.
-    /// 
-    /// # Safety
-    /// If such change happens when selections from different threads are accessing the data
-    /// inconsistent results may be produced, however this should never lead to issues with memory safety.
     pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
@@ -299,10 +292,10 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 // Source of parallel selections
 //----------------------------------------
 
-/// Source of selections, which are processed in parallel.
+/// Source for selections, which are processed in parallel.
 /// 
 /// Selections are stored inside the source and the user can't access them directly.
-/// Instead user calls `map` method to run an arbitrary closure on each stored
+/// Instead user calls `map_par` method to run an arbitrary closure on each stored
 /// selection in parallel.
 pub struct SourceParallel<K> {
     topology: TopologyArc,
@@ -313,7 +306,7 @@ pub struct SourceParallel<K> {
 }
 
 impl SourceParallel<()> {
-    /// Creates a source of mutable parallel selection that can't overlap.
+    /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_mut (
         topology: TopologyUArc,
         state: StateUArc,
@@ -328,7 +321,7 @@ impl SourceParallel<()> {
         })
     }
 
-    /// Creates a source of immutable parallel selection that may overlap.
+    /// Creates a source of immutable parallel selections that _may_ overlap.
     pub fn new (
         topology: TopologyUArc,
         state: StateUArc,
@@ -349,7 +342,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Executes provided closure on each stored selection in parallel and
     /// collect the closures' outputs into a container.
     /// 
-    /// Closure return Result<RT>, where RT is anything 
+    /// Closure return `Result<RT>`, where RT is anything 
     /// sharable between the threads. 
     pub fn map_par<RT,C,F>(&self, func: F) -> Result<C> 
     where
@@ -369,6 +362,12 @@ impl<K: ParallelSel> SourceParallel<K> {
             }
         }
         Ok(())
+    }
+
+    /// Adds an existing serial selection. Passed selection is consumed
+    /// and its index is re-evaluated against the new `Source`.`
+    pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> anyhow::Result<usize> {
+        self.add_from_iter(sel.index.into_iter())
     }
 
     /// Adds new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
@@ -444,7 +443,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Converts Self into a serial Source. All stored parallel selections 
     /// are converted into serial mutable selections and returned as a vector. 
-    pub fn into_serial(self) -> (Source,Vec<Sel<MutableSerial>>) {
+    pub fn into_serial_with_sels(self) -> (Source,Vec<Sel<MutableSerial>>) {
         let src = Source {
             topology: self.topology,
             state: self.state,
@@ -459,6 +458,16 @@ impl<K: ParallelSel> SourceParallel<K> {
             }
         ).collect();
         (src,sels)
+    }
+
+    /// Converts Self into a serial Source. All stored parallel selections 
+    /// are dropped. 
+    pub fn into_serial(self) -> Source {
+        Source {
+            topology: self.topology,
+            state: self.state,
+            _marker: Default::default(),
+        }
     }
 
     /// Sets new state in this `Source`. All selections created from this Source will automatically view
@@ -517,6 +526,45 @@ impl<K: ParallelSel> SourceParallel<K> {
 // Selection
 //---------------------------------------
 
+/// Selection type that acts as a view into given set of indexes from `Topology` and `State`.
+/// Selections allow to query various properties of the groups of atoms and to
+/// change them in different ways.
+/// 
+/// # Kinds of selections
+/// There are three kinds of selections set by the generic marker parameter:
+/// ### Serial mutable (`Sel<MutableSerial>`)
+/// * May overlap
+/// * Mutable
+/// * Could only be accessed from the same thread where 
+/// they were created (they are neither `Send` nor `Sync`). 
+/// * Manipulated directly by the user.
+/// ### Parallel immutable (`Sel<ImmutableParallel>`)
+/// * May overlap
+/// * Immutable
+/// * Could be processed in parallel
+/// * Not accessible directly. Manipulated by the `SourceParallel` object that created them.`
+/// ### Parallel mutable (`Sel<MutableParallel>`)
+/// * _Can't_ overlap
+/// * Mutable
+/// * Could be processed in parallel.
+/// * Not accessible directly. Manipulated by the `SourceParallel` object that created them.
+/// 
+/// Immutable selections implement the traits that allow to query properties, while 
+/// mutable once also implement traits that allow to modify atoms and coordinates.
+/// 
+/// # Subselections
+/// It is possible to select within existing selection using `select_from_*` methods. 
+/// * For `ImmutableParallel` and `MutableSerial` selections subselectons have the same kind.
+/// * For `MutableParalel` selections subselectons have `MutableSerial` type because otherwise
+/// it is impossible to maintain the invariant of non-overlapping mutable access to the underlying data.
+/// 
+/// # Splitting selections
+/// Selections could be split using the custom closire as a criterion. There are two flavours
+/// of splitting functions: 
+/// * `split_*` produce a number of subselections but leaves the parent selection alive.
+/// The parts follow the rules of subselections.
+/// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_ 
+/// kind as a parent selection.
 pub struct Sel<T> {
     topology: TopologyArc,
     state: StateArc,
@@ -623,6 +671,9 @@ impl<T: SelectionKind> Sel<T> {
         }
     }
 
+    /// Get an (index,atom,position) triplet for i-th selection index.
+    /// # Safety
+    /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_unchecked(&self, i: usize) -> (usize, &Atom, &Pos) {
         let ind = *self.index.get_unchecked(i);
         (
@@ -632,6 +683,10 @@ impl<T: SelectionKind> Sel<T> {
         )
     }
 
+    /// Get an (index,atom,position) triplet for i-th selection index with
+    /// mutable atom and position.
+    /// # Safety
+    /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_unchecked_mut(&self, i: usize) -> (usize, &mut Atom, &mut Pos) {
         let ind = *self.index.get_unchecked(i);
         (
@@ -693,6 +748,8 @@ impl<T: SelectionKind> Sel<T> {
         self.split_gen(func)
     }
 
+    /// Helper method that splits selection into the parts with distinct resids.
+    /// Parent selection is left alive.
     pub fn split_resid<C>(&self) -> C
     where
         C: FromIterator<Sel<T::SubselKind>> + Default,
@@ -700,6 +757,8 @@ impl<T: SelectionKind> Sel<T> {
         self.split_gen(|_, at, _| at.resid)
     }
 
+    /// Helper method that splits selection into the parts with distinct resids.
+    /// /// Parent selection is consumed.
     pub fn split_resid_into<C>(self) -> C
     where
         C: FromIterator<Sel<T>> + Default,
@@ -707,7 +766,7 @@ impl<T: SelectionKind> Sel<T> {
         self.split_gen(|_, at, _| at.resid)
     }
 
-    // Sasa
+    /// Computes the Solvet Accessible Surface Area (SASA).
     pub fn sasa(&self) -> (f32, f32) {
         let (areas, volumes) = molar_powersasa::sasa(
             self.len(),
@@ -721,19 +780,24 @@ impl<T: SelectionKind> Sel<T> {
         (areas.into_iter().sum(), volumes.into_iter().sum())
     }
 
+    /// Returns a copy of the selection index vector.
     pub fn get_index_vec(&self) -> Vec<usize> {
         self.index.clone()
     }
 
+    /// Saves selection to file. File type is deduced from extension.
     pub fn save(&self, fname: &str) -> Result<()> {
         let mut h = FileHandler::create(fname)?;
         h.write(self)
     }
 
+    /// Get an (index,atom,position) triplet for the first selection index.
     pub fn first(&self) -> (usize, &Atom, &Pos) {
         unsafe { self.nth_unchecked(0) }
     }
 
+    /// Get an (index,atom,position) triplet for the first selection index.
+    /// Index is bound-checked, an error is returned if it is out of bounds.
     pub fn nth(&self, i: usize) -> Result<(usize, &Atom, &Pos)> {
         if i > self.len() {
             bail!("Index {} is beyond the allowed range [0:{}]", i, self.len())
@@ -748,8 +812,7 @@ impl<T: SelectionKind> Sel<T> {
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    /// This consumer a selection and returns
-    /// selections of the same kind.
+    /// This consumes a selection and returns selections of the same kind.
     pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, T>
     where
         RT: Default + std::cmp::PartialEq,
@@ -758,7 +821,8 @@ impl<T: SelectionKind> Sel<T> {
         IntoSelectionSplitIterator::new(self, func)
     }
 
-    // Pre-defined splitters
+    /// Return iterator over contigous pieces of selection with distinct contigous resids.
+    /// Parent selection is consumed.
     pub fn into_split_contig_resid(
         self,
     ) -> IntoSelectionSplitIterator<i32, fn(usize, &Atom, &Pos) -> i32, T> {
@@ -777,7 +841,8 @@ impl<T: SelectionKind> Sel<T> {
         SelectionSplitIterator::new(self, func)
     }
 
-    // Pre-defined splitters
+    /// Return iterator over contigous pieces of selection with distinct contigous resids.
+    /// Parent selection is left alive.
     pub fn split_contig_resid(
         &self,
     ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, T> {
@@ -1027,13 +1092,12 @@ where
 #[cfg(test)]
 mod tests {
 
-    use rayon::iter::{ParallelBridge, ParallelIterator};
 
     use super::{BoxProvider, MutableSerial, Sel, Source, SourceParallel};
     use crate::{
         core::{
             providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic,
-            MeasurePos, ModifyPos, ModifyRandomAccess, Pos, State, Topology, Vector3f, PBC_FULL,
+            MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL,
         }, distance_search::DistanceSearcherSingle, io::*
     };
 
@@ -1096,19 +1160,20 @@ mod tests {
         let (top, st) = read_test_pdb();
         let mut b = SourceParallel::new_mut(top, st)?;
         // Create two valid non-overlapping selections.
-        b.add_from_iter(0..10).unwrap();
-        b.add_from_iter(11..15).unwrap();
-        b.add_from_iter(15..25).unwrap();
+        for i in 0..30 {
+            b.add_from_iter(10*i..10*(i+1)).unwrap();
+        }
         // Process them
         let v = Vector3f::new(1.0, 2.0, 3.0);
         let mut res: Vec<_> = b.map_par(|sel| {
             sel.translate(&v);
+            println!("thread: {}", rayon::current_thread_index().unwrap());
             Ok(sel.center_of_mass()?)
         })?;
         
         println!("cm before = {:?}",res);
         
-        let (_,sels) = b.into_serial();
+        let (_,sels) = b.into_serial_with_sels();
         sels[0].translate(&v);
         res[0] = sels[0].center_of_mass()?;
         
