@@ -15,7 +15,7 @@ use nalgebra::Unit;
 
 /// Trait for modification requiring only positions
 pub trait ModifyPos: PosMutProvider + PosProvider {
-    fn translate(&self, shift: Vector3f) {
+    fn translate(&self, shift: &Vector3f) {
         for el in self.iter_pos_mut() {
             *el += shift;
         }

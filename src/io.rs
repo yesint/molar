@@ -291,16 +291,16 @@ mod tests {
         let st2 = st1.clone().to_rc();
         println!("#1: {}",(*top1).num_atoms());
 
-        let mut b = Source::new_overlapping_mut(top1,st2)?;
+        let mut b = Source::new(top1,st2)?;
         let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
-        let mut w = FileHandler::create(outname)?;
-        w.write_topology(&b)?;
-        w.write_state(&st1)?;
-        w.write_state(&b)?;
+        //let mut w = FileHandler::create(outname)?;
+        //w.write_topology(&b)?;
+        //w.write_state(&st1)?;
+        //w.write_state(&b)?;
 
         //let top2 = r.read_topology()?;
         //let st2 = r.read_next_state()?.unwrap();

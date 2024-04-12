@@ -8,6 +8,7 @@ use super::{
 use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{collections::HashMap, marker::PhantomData, ops::Range};
 
 pub use super::selection_parser::SelectionExpr;
@@ -15,7 +16,7 @@ pub use super::selection_parser::SelectionExpr;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
-    type SubselType;
+    type SubselKind;
     const NEED_CHECK_OVERLAP: bool;
 }
 
@@ -25,96 +26,70 @@ pub trait MayOverlap: SelectionKind {}
 /// Trait marking non-overlapping selections
 pub trait MutableSel: SelectionKind {}
 
-/// Marker type for non-overlapping mutable selection (multithreaded)
-pub struct NonOverlappingMut {}
-
-impl SelectionKind for NonOverlappingMut {
-    // Subseletions may overlap but won't be Send
-    type SubselType = OverlappingMut;
-    const NEED_CHECK_OVERLAP: bool = true;
-}
-impl MutableSel for NonOverlappingMut {}
+/// Trait marking parallel selections
+pub trait ParallelSel: SelectionKind + Send + Sync {}
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
 /// 
 /// It contains a dummy raw pointer to unit type to ensure that it is not `Send` and can't be shared between threads.
-pub struct OverlappingMut(*const ());
-impl SelectionKind for OverlappingMut {
-    type SubselType = OverlappingMut;
+pub struct MutableSerial(*const ());
+impl SelectionKind for MutableSerial {
+    type SubselKind = MutableSerial;
     const NEED_CHECK_OVERLAP: bool = false;
 }
-impl MayOverlap for OverlappingMut {}
-impl MutableSel for OverlappingMut {}
+impl MayOverlap for MutableSerial {}
+impl MutableSel for MutableSerial {}
+
+/// Marker type for non-overlapping mutable selection (multi-threaded)
+pub struct MutableParallel {}
+
+impl SelectionKind for MutableParallel {
+    // Subseletions may overlap but won't be Send
+    type SubselKind = MutableSerial;
+    const NEED_CHECK_OVERLAP: bool = true;
+}
+impl MutableSel for MutableParallel {}
+impl ParallelSel for MutableParallel {}
 
 /// Marker type for possibly overlapping immutable selection (multi-threaded)
-pub struct Overlapping {}
-impl SelectionKind for Overlapping {
-    type SubselType = Overlapping;
+pub struct ImmutableParallel {}
+impl SelectionKind for ImmutableParallel {
+    type SubselKind = ImmutableParallel;
     const NEED_CHECK_OVERLAP: bool = false;
 }
-impl MayOverlap for Overlapping {}
-
+impl MayOverlap for ImmutableParallel {}
+impl ParallelSel for ImmutableParallel {}
 //=====================================================
 
-/// Source of selections. The kind of `Source` dictates the kind of selections created from it. 
+/// Source of serial selections.
 /// 
-/// The only way to create selection is to create the `Source` first and them use one of its `select_*` methods.
-/// The kind of `Source` dictates the kind of selections created from it.
+/// Source` produces mutable selections, which may overlap and are can only be
+/// used from the same thread where they are created.
 /// 
 /// `Source` takes ownership of `Topology` and `State` so that after creating a `Source` they are no longer accessible outside it.
 /// This guarantees correct access without data integrity issues.
-pub struct Source<T> {
+pub struct Source {
     topology: TopologyArc,
     state: StateArc,
-    used: rustc_hash::FxHashSet<usize>,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<*const ()>,
 }
 
-impl Source<()> {
-    /// Create the `Source` producing non-overlapping mutable selections accessible from multiple threads
-    pub fn new_non_overlapping_mut(
-        topology: TopologyUArc,
-        state: StateUArc,
-    ) -> Result<Source<NonOverlappingMut>> {
-        check_sizes(&topology, &state)?;
-        Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
-            used: Default::default(),
-            _marker: Default::default(),
-        })
-    }
-
+impl Source {
     /// Create the `Source` producing overlapping mutable selections accessible from a single thread
-    pub fn new_overlapping_mut(
+    pub fn new(
         topology: TopologyUArc,
         state: StateUArc,
-    ) -> Result<Source<OverlappingMut>> {
+    ) -> Result<Self> {
         check_sizes(&topology, &state)?;
         Ok(Source {
             topology: topology.shareable(),
             state: state.shareable(),
-            used: Default::default(),
-            _marker: Default::default(),
-        })
-    }
-
-    /// Create the `Source` producing overlapping immutable selections accessible from multiple threads
-    pub fn new_overlapping(
-        topology: TopologyUArc,
-        state: StateUArc,
-    ) -> Result<Source<Overlapping>> {
-        check_sizes(&topology, &state)?;
-        Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
-            used: Default::default(),
             _marker: Default::default(),
         })
     }
 }
 
-impl<T> Source<T> {
+impl Source {
     /// Release and return `Topology` and `State`. Fails if any selections created from this Source are still alive.
     pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
         Ok((
@@ -126,60 +101,11 @@ impl<T> Source<T> {
     }
 }
 
-// Conversions to other builder types
-impl Source<NonOverlappingMut> {
-    /// Converts this `Source` to one producing overlapping mutable selections accessible from a single thread.
-    /// Fails if any selections created from this `Source` are still alive.
-    pub fn to_overlapping_mut(self) -> anyhow::Result<Source<OverlappingMut>> {
-        let (top, st) = self.release()?;
-        Ok(Source::new_overlapping_mut(top, st)?)
-    }
-
-    /// Converts this `Source` to one producing overlapping immutable selections accessible from multiple threads.
-    /// Fails if any selections created from this `Source` are still alive.
-    pub fn to_overlapping(self) -> anyhow::Result<Source<Overlapping>> {
-        let (top, st) = self.release()?;
-        Ok(Source::new_overlapping(top, st)?)
-    }
-}
-
-impl Source<OverlappingMut> {
-    /// Converts this `Source` to one producing non-overlapping mutable selections accessible from a single thread.
-    /// Fails if any selections created from this `Source` are still alive.
-    pub fn to_non_overlapping_mut(self) -> anyhow::Result<Source<NonOverlappingMut>> {
-        let (top, st) = self.release()?;
-        Ok(Source::new_non_overlapping_mut(top, st)?)
-    }
-
-    /// Converts this `Source` to one producing overlapping immutable selections accessible from multiple threads.
-    /// Fails if any selections created from this `Source` are still alive.
-    pub fn to_overlapping(self) -> anyhow::Result<Source<Overlapping>> {
-        let (top, st) = self.release()?;
-        Ok(Source::new_overlapping(top, st)?)
-    }
-}
-
-impl Source<Overlapping> {
-    /// Converts this `Source` to one producing non-overlapping mutable selections accessible from a single thread.
-    /// Fails if any selections created from this `Source` are still alive.
-    pub fn to_non_overlapping_mut(self) -> anyhow::Result<Source<NonOverlappingMut>> {
-        let (top, st) = self.release()?;
-        Ok(Source::new_non_overlapping_mut(top, st)?)
-    }
-
-    /// Converts this `Source` to one producing overlapping mutable selections accessible from a single thread.
-    /// Fails if any selections created from this `Source` are still alive.
-    pub fn to_overlapping_mut(self) -> anyhow::Result<Source<OverlappingMut>> {
-        let (top, st) = self.release()?;
-        Ok(Source::new_overlapping_mut(top, st)?)
-    }
-}
-
 //---------------------------------
 // Creating selections
 //---------------------------------
 
-impl<T: SelectionKind> Source<T> {
+impl Source {
     /// Get a shared pointer to contained Topology
     pub fn get_topology(&self) -> TopologyArc {
         triomphe::Arc::clone(&self.topology)
@@ -190,15 +116,65 @@ impl<T: SelectionKind> Source<T> {
         triomphe::Arc::clone(&self.state)
     }
 
-    fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
-        if T::NEED_CHECK_OVERLAP {
-            for i in index.iter() {
-                if !self.used.insert(*i) {
-                    bail!("Index {i} is already used!");
-                }
-            }
-        }
-        Ok(())
+    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
+    /// If any index is out of bounds the error is returned.
+    pub fn select_from_iter(
+        &mut self,
+        iter: impl Iterator<Item = usize>,
+    ) -> anyhow::Result<Sel<MutableSerial>> {
+        let vec = index_from_iter(iter, self.topology.num_atoms())?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        })
+    }
+
+    /// Selects all
+    pub fn select_all(&mut self) -> anyhow::Result<Sel<MutableSerial>> {
+        let vec = index_from_all(self.topology.num_atoms());
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        })
+    }
+
+    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
+    /// can't be reused. Consider using `select_expr` if you already have selection expression.
+    pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<MutableSerial>> {
+        let vec = index_from_str(selstr, &self.topology, &self.state)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        })
+    }
+
+    /// Creates new selection from an existing selection expression.
+    pub fn select_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<Sel<MutableSerial>> {
+        let vec = index_from_expr(expr, &self.topology, &self.state)?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        })
+    }
+
+    /// Creates new selection from a range of indexes.
+    /// If rangeis out of bounds the error is returned.
+    pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<MutableSerial>> {
+        let vec = index_from_range(range, self.topology.num_atoms())?;
+        Ok(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        })
     }
 
     /// Sets new state in this `Source`. All selections created from this Source will automatically view
@@ -208,9 +184,6 @@ impl<T: SelectionKind> Source<T> {
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
     /// 
-    /// # Safety
-    /// If such change happens when selections from different threads are accessing the data
-    /// inconsistent results may be produced, however this should never lead to issues with memory safety.
     pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
@@ -251,107 +224,6 @@ impl<T: SelectionKind> Source<T> {
             )
         }
         triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
-    }
-
-    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
-    /// If any index is out of bounds the error is returned.
-    pub fn select_from_iter(
-        &mut self,
-        iter: impl Iterator<Item = usize>,
-    ) -> anyhow::Result<Sel<T>> {
-        let vec = index_from_iter(iter, self.topology.num_atoms())?;
-        self.check_overlap_if_needed(&vec)?;
-        Ok(Sel {
-            topology: triomphe::Arc::clone(&self.topology),
-            state: triomphe::Arc::clone(&self.state),
-            index: vec,
-            _marker: PhantomData::default(),
-        })
-    }
-
-    /// Selects all
-    pub fn select_all(&mut self) -> anyhow::Result<Sel<T>> {
-        let vec = index_from_all(self.topology.num_atoms());
-        self.check_overlap_if_needed(&vec)?;
-        Ok(Sel {
-            topology: triomphe::Arc::clone(&self.topology),
-            state: triomphe::Arc::clone(&self.state),
-            index: vec,
-            _marker: PhantomData::default(),
-        })
-    }
-
-    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
-    /// can't be reused. Consider using `select_expr` if you already have selection expression.
-    pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<T>> {
-        let vec = index_from_str(selstr, &self.topology, &self.state)?;
-        self.check_overlap_if_needed(&vec)?;
-        Ok(Sel {
-            topology: triomphe::Arc::clone(&self.topology),
-            state: triomphe::Arc::clone(&self.state),
-            index: vec,
-            _marker: PhantomData::default(),
-        })
-    }
-
-    /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<Sel<T>> {
-        let vec = index_from_expr(expr, &self.topology, &self.state)?;
-        self.check_overlap_if_needed(&vec)?;
-        Ok(Sel {
-            topology: triomphe::Arc::clone(&self.topology),
-            state: triomphe::Arc::clone(&self.state),
-            index: vec,
-            _marker: PhantomData::default(),
-        })
-    }
-
-    /// Creates new selection from a range of indexes.
-    /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<T>> {
-        let vec = index_from_range(range, self.topology.num_atoms())?;
-        self.check_overlap_if_needed(&vec)?;
-        Ok(Sel {
-            topology: triomphe::Arc::clone(&self.topology),
-            state: triomphe::Arc::clone(&self.state),
-            index: vec,
-            _marker: PhantomData::default(),
-        })
-    }
-}
-
-// IO traits
-impl<T> TopologyProvider for Source<T> {
-    fn num_atoms(&self) -> usize {
-        self.topology.num_atoms()
-    }
-}
-
-impl<T> AtomsProvider for Source<T> {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.topology.iter_atoms()
-    }
-}
-
-impl<T> StateProvider for Source<T> {
-    fn get_time(&self) -> f32 {
-        self.state.get_time()
-    }
-
-    fn num_coords(&self) -> usize {
-        self.state.num_coords()
-    }
-}
-
-impl<T> BoxProvider for Source<T> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
-    }
-}
-
-impl<T> PosProvider for Source<T> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.state.iter_pos()
     }
 }
 
@@ -423,6 +295,224 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
     Ok(index)
 }
 
+//----------------------------------------
+// Source of parallel selections
+//----------------------------------------
+
+/// Source of selections, which are processed in parallel.
+/// 
+/// Selections are stored inside the source and the user can't access them directly.
+/// Instead user calls `map` method to run an arbitrary closure on each stored
+/// selection in parallel.
+pub struct SourceParallel<K> {
+    topology: TopologyArc,
+    state: StateArc,
+    selections: Vec<Sel<K>>,
+    used: rustc_hash::FxHashSet<usize>,
+    _marker: PhantomData<*const ()>,
+}
+
+impl SourceParallel<()> {
+    /// Creates a source of mutable parallel selection that can't overlap.
+    pub fn new_mut (
+        topology: TopologyUArc,
+        state: StateUArc,
+    ) -> Result<SourceParallel<MutableParallel>> {
+        check_sizes(&topology, &state)?;
+        Ok(SourceParallel {
+            topology: topology.shareable(),
+            state: state.shareable(),
+            selections: Default::default(),
+            used: Default::default(),
+            _marker: Default::default(),
+        })
+    }
+
+    /// Creates a source of immutable parallel selection that may overlap.
+    pub fn new (
+        topology: TopologyUArc,
+        state: StateUArc,
+    ) -> Result<SourceParallel<ImmutableParallel>> {
+        check_sizes(&topology, &state)?;
+        Ok(SourceParallel {
+            topology: topology.shareable(),
+            state: state.shareable(),
+            selections: Default::default(),
+            used: Default::default(),
+            _marker: Default::default(),
+        })
+    }
+}
+
+impl<K: ParallelSel> SourceParallel<K> {
+
+    /// Executes provided closure on each stored selection in parallel and
+    /// collect the closures' outputs into a container.
+    /// 
+    /// Closure return Result<RT>, where RT is anything 
+    /// sharable between the threads. 
+    pub fn map_par<RT,C,F>(&self, func: F) -> Result<C> 
+    where
+        RT: Send + Sync,
+        F: Fn(&Sel<K>)->Result<RT> + Send + Sync,
+        C: rayon::iter::FromParallelIterator<RT>,
+    {
+        self.selections.par_iter().map(func).collect()
+    }
+
+    fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
+        if K::NEED_CHECK_OVERLAP {
+            for i in index.iter() {
+                if !self.used.insert(*i) {
+                    bail!("Index {i} is already used!");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Adds new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
+    /// If any index is out of bounds the error is returned.
+    pub fn add_from_iter(
+        &mut self,
+        iter: impl Iterator<Item = usize>,
+    ) -> anyhow::Result<usize> {
+        let vec = index_from_iter(iter, self.topology.num_atoms())?;
+        self.check_overlap_if_needed(&vec)?;
+        self.selections.push(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        });
+        Ok(self.selections.len()-1)
+    }
+
+    /// Adds selection of all
+    pub fn select_all(&mut self) -> anyhow::Result<usize> {
+        let vec = index_from_all(self.topology.num_atoms());
+        self.check_overlap_if_needed(&vec)?;
+        self.selections.push(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        });
+        Ok(self.selections.len()-1)
+    }
+
+    /// Adds new selection from a selection expression string. Selection expression is constructed internally but
+    /// can't be reused. Consider using `select_expr` if you already have selection expression.
+    pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<usize> {
+        let vec = index_from_str(selstr, &self.topology, &self.state)?;
+        self.check_overlap_if_needed(&vec)?;
+        self.selections.push(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        });
+        Ok(self.selections.len()-1)
+    }
+
+    /// Adds new selection from an existing selection expression.
+    pub fn add_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<usize> {
+        let vec = index_from_expr(expr, &self.topology, &self.state)?;
+        self.check_overlap_if_needed(&vec)?;
+        self.selections.push(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        });
+        Ok(self.selections.len()-1)
+    }
+
+    /// Adds new selection from a range of indexes.
+    /// If rangeis out of bounds the error is returned.
+    pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<usize> {
+        let vec = index_from_range(range, self.topology.num_atoms())?;
+        self.check_overlap_if_needed(&vec)?;
+        self.selections.push(Sel {
+            topology: triomphe::Arc::clone(&self.topology),
+            state: triomphe::Arc::clone(&self.state),
+            index: vec,
+            _marker: PhantomData::default(),
+        });
+        Ok(self.selections.len()-1)
+    }
+
+    /// Converts Self into a serial Source. All stored parallel selections 
+    /// are converted into serial mutable selections and returned as a vector. 
+    pub fn into_serial(self) -> (Source,Vec<Sel<MutableSerial>>) {
+        let src = Source {
+            topology: self.topology,
+            state: self.state,
+            _marker: Default::default(),
+        };
+        let sels: Vec<_> = self.selections.into_iter().map(|sel| 
+            Sel::<MutableSerial> {
+                topology: sel.topology,
+                state: sel.state,
+                index: sel.index,
+                _marker: Default::default(),
+            }
+        ).collect();
+        (src,sels)
+    }
+
+    /// Sets new state in this `Source`. All selections created from this Source will automatically view
+    /// the new state. 
+    /// 
+    /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
+    /// 
+    /// Returns unique pointer to the old state, so it could be reused if needed.
+    /// 
+    pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
+        // Check if the states are compatible
+        if !self.state.interchangeable(&state) {
+            bail!("States are incompatible!")
+        }
+
+        let ret = state.shareable();
+        unsafe {
+            std::ptr::swap(
+                self.state.as_ptr() as *mut State,
+                ret.as_ptr() as *mut State,
+            )
+        }
+        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+    }
+
+    /// Sets new topology in this `Source`. All selections created from this Source will automatically view
+    /// the new topology. 
+    /// 
+    /// New topology should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
+    /// 
+    /// Returns unique pointer to the old topology, so it could be reused if needed.
+    /// 
+    /// # Safety
+    /// If such change happens when selections from different threads are accessing the data
+    /// inconsistent results may be produced, however this should never lead to issues with memory safety.
+    pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
+        // Check if the states are compatible
+        if !self.topology.interchangeable(&topology) {
+            bail!("Topologies are incompatible!")
+        }
+
+        let ret = topology.shareable();
+        unsafe {
+            std::ptr::swap(
+                self.topology.as_ptr() as *mut State,
+                ret.as_ptr() as *mut State,
+            )
+        }
+        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+    }
+    
+}
+
+
 //---------------------------------------
 // Selection
 //---------------------------------------
@@ -445,7 +535,7 @@ impl<T: SelectionKind> Sel<T> {
     //===================
 
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<T::SubselType>> {
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<T::SubselKind>> {
         let index = expr.apply_subset(&self.topology, &self.state, self.index.iter().cloned())?;
         if index.len() > 0 {
             Ok(Sel {
@@ -460,7 +550,7 @@ impl<T: SelectionKind> Sel<T> {
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<T::SubselType>> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<T::SubselKind>> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
@@ -469,7 +559,7 @@ impl<T: SelectionKind> Sel<T> {
     pub fn subsel_from_local_range(
         &self,
         range: std::ops::Range<usize>,
-    ) -> Result<Sel<T::SubselType>> {
+    ) -> Result<Sel<T::SubselKind>> {
         if range.end >= self.index.len() {
             bail!(
                 "Invalid local sub-range: {}:{}, valid range: 0:{}",
@@ -500,7 +590,7 @@ impl<T: SelectionKind> Sel<T> {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<T::SubselType>> {
+    ) -> Result<Sel<T::SubselKind>> {
         // Remove duplicates if any
         let index = iter
             .sorted()
@@ -585,7 +675,7 @@ impl<T: SelectionKind> Sel<T> {
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(usize, &Atom, &Pos) -> RT,
-        C: FromIterator<Sel<T::SubselType>> + Default,
+        C: FromIterator<Sel<T::SubselKind>> + Default,
     {
         self.split_gen(func)
     }
@@ -605,7 +695,7 @@ impl<T: SelectionKind> Sel<T> {
 
     pub fn split_resid<C>(&self) -> C
     where
-        C: FromIterator<Sel<T::SubselType>> + Default,
+        C: FromIterator<Sel<T::SubselKind>> + Default,
     {
         self.split_gen(|_, at, _| at.resid)
     }
@@ -849,7 +939,7 @@ where
     S: SelectionKind,
 {
     // Non-consuming splitter returns subselections
-    type Item = Sel<S::SubselType>;
+    type Item = Sel<S::SubselKind>;
 
     fn next(&mut self) -> Option<Self::Item> {
         next_split(&mut self.data, self.sel)
@@ -939,7 +1029,7 @@ mod tests {
 
     use rayon::iter::{ParallelBridge, ParallelIterator};
 
-    use super::{BoxProvider, OverlappingMut, Sel, Source};
+    use super::{BoxProvider, MutableSerial, Sel, Source, SourceParallel};
     use crate::{
         core::{
             providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic,
@@ -956,7 +1046,7 @@ mod tests {
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_overlapping_mut(top, st)?;
+        let mut b = Source::new(top, st)?;
         // Create two overlapping selections
         let _sel1 = b.select_from_iter(0..10)?;
         let _sel2 = b.select_from_iter(5..15)?;
@@ -966,7 +1056,7 @@ mod tests {
     #[test]
     fn builder_par_no_overlap() {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
+        let mut b = Source::new(top, st).unwrap();
         // Create two non-overlapping selections.
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(11..15).unwrap();
@@ -976,55 +1066,78 @@ mod tests {
     #[should_panic]
     fn builder_par_overlap() {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
+        let mut b = SourceParallel::new_mut(top, st).unwrap();
         // Create two overlapping selections. This must fail!
-        let _sel1 = b.select_from_iter(0..10).unwrap();
-        let _sel2 = b.select_from_iter(5..15).unwrap();
+        let _sel1 = b.add_from_iter(0..10).unwrap();
+        let _sel2 = b.add_from_iter(5..15).unwrap();
     }
 
     #[test]
-    fn builder_par_threads() -> anyhow::Result<()> {
+    fn builder_par_test() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_non_overlapping_mut(top, st)?;
+        let mut b = SourceParallel::new_mut(top, st)?;
         // Create two valid non-overlapping selections.
-        let sel1 = b.select_from_iter(0..10).unwrap();
-        let sel2 = b.select_from_iter(11..15).unwrap();
-        // Pass them to threads
-        let t1 = std::thread::spawn(move || -> anyhow::Result<Pos> {
-            sel1.translate(Vector3f::new(1.0, 2.0, 3.0));
-            Ok(sel1.center_of_mass()?)
-        });
-
-        let t2 = std::thread::spawn(move || -> anyhow::Result<Pos> {
-            sel2.translate(Vector3f::new(3.0, 2.0, 1.0));
-            Ok(sel2.center_of_mass()?)
-        });
-
-        let cm1 = t1.join().unwrap()?;
-        let cm2 = t2.join().unwrap()?;
-        println!("cm1 = {cm1}; cm2={cm2}");
+        b.add_from_iter(0..10).unwrap();
+        b.add_from_iter(11..15).unwrap();
+        b.add_from_iter(15..25).unwrap();
+        // Process them
+        let v = Vector3f::new(1.0, 2.0, 3.0);
+        let res: Vec<_> = b.map_par(|sel| {
+            sel.translate(&v);
+            Ok(sel.center_of_mass()?)
+        })?;
+        
+        println!("cm1 = {:?}",res);
         Ok(())
     }
 
+    #[test]
+    fn builder_par_to_serial() -> anyhow::Result<()> {
+        let (top, st) = read_test_pdb();
+        let mut b = SourceParallel::new_mut(top, st)?;
+        // Create two valid non-overlapping selections.
+        b.add_from_iter(0..10).unwrap();
+        b.add_from_iter(11..15).unwrap();
+        b.add_from_iter(15..25).unwrap();
+        // Process them
+        let v = Vector3f::new(1.0, 2.0, 3.0);
+        let mut res: Vec<_> = b.map_par(|sel| {
+            sel.translate(&v);
+            Ok(sel.center_of_mass()?)
+        })?;
+        
+        println!("cm before = {:?}",res);
+        
+        let (_,sels) = b.into_serial();
+        sels[0].translate(&v);
+        res[0] = sels[0].center_of_mass()?;
+        
+        println!("cm after = {:?}",res);
+
+        Ok(())
+    }
+
+    /*
     #[test]
     #[should_panic]
     fn convert_builders_fail() {
         let (top, st) = read_test_pdb();
         // Create parallel builder
-        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
+        let mut b = Source::new_mut_par(top, st).unwrap();
         // Create two valid non-overlapping selections.
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(11..15).unwrap();
 
         // Create serial builder. This will fail since selections are still alive
-        let _b = b.to_overlapping().unwrap();
+        let _b = b.to_immut().unwrap();
     }
+    
 
     #[test]
     fn convert_builders() {
         let (top, st) = read_test_pdb();
         // Create parallel builder
-        let mut b = Source::new_non_overlapping_mut(top, st).unwrap();
+        let mut b = Source::new_mut_par(top, st).unwrap();
         // Create two valid non-overlapping selections.
         {
             let _sel1 = b.select_from_iter(0..10).unwrap();
@@ -1033,21 +1146,22 @@ mod tests {
         // Selections are now dropped
 
         // Create serial builder.
-        let mut b = b.to_overlapping().unwrap();
+        let mut b = b.to_immut().unwrap();
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(11..15).unwrap();
     }
+    */
 
-    fn make_sel_all() -> anyhow::Result<Sel<OverlappingMut>> {
+    fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_overlapping_mut(top, st)?;
+        let mut b = Source::new(top, st)?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
-    fn make_sel_prot() -> anyhow::Result<Sel<OverlappingMut>> {
+    fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_overlapping_mut(top, st)?;
+        let mut b = Source::new(top, st)?;
         let sel = b.select_str("not resname TIP3 POT CLA")?;
         Ok(sel)
     }
@@ -1080,7 +1194,7 @@ mod tests {
         let sel = make_sel_all()?;
 
         println!("before {}", sel.iter_pos().next().unwrap());
-        sel.translate(Vector3f::new(10.0, 10.0, 10.0));
+        sel.translate(&Vector3f::new(10.0, 10.0, 10.0));
         println!("after {}", sel.iter_pos().next().unwrap());
         Ok(())
     }
@@ -1209,6 +1323,7 @@ mod tests {
         Ok(())
     }
 
+    /*
     #[test]
     fn test_swap_state() -> anyhow::Result<()> {
         let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
@@ -1216,7 +1331,7 @@ mod tests {
         let st1 = traj.read_state()?.unwrap();
         let st2 = traj.read_state()?.unwrap();
 
-        let mut source = Source::new_overlapping(top, st1)?;
+        let mut source = Source::new_mut(top, st1)?;
         let sel = source.select_all()?;
         println!("Before swap: {}", source.get_state().num_coords());
         println!("First point: {:?}", sel.iter_pos().next().unwrap());
@@ -1233,7 +1348,7 @@ mod tests {
         let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
         let mut traj = FileHandler::open("tests/no_ATP.xtc")?.into_iter();
 
-        let mut source = Source::new_overlapping(top, traj.next().unwrap())?;
+        let mut source = Source::new_mut(top, traj.next().unwrap())?;
         let sel = source.select_all()?;
         println!("First time {}: {:?}", sel.get_time(), sel.center_of_mass()?);
 
@@ -1249,7 +1364,7 @@ mod tests {
     fn test_sel_par_proc() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/colored.pdb")?.read()?;
 
-        let mut source = Source::new_non_overlapping_mut(top, st)?;
+        let mut source = Source::new_mut_par(top, st)?;
 
         let (sender, receiver) = std::sync::mpsc::channel();
 
@@ -1271,4 +1386,38 @@ mod tests {
         println!("cms: {:?}",res);
         Ok(())
     }
+
+    
+    #[test]
+    fn test_sel_par_proc_swap_problem() -> anyhow::Result<()> {
+        let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
+        let mut traj = FileHandler::open("tests/no_ATP.xtc")?;
+        let st1 = traj.read_state()?.unwrap();
+        let mut st2 = traj.read_state()?.unwrap();
+
+        let mut source = Source::new_mut_par(top, st1)?;
+        let sel1 = source.select_all()?;
+        //let sel2 = source.select_str("resid 11-20")?;
+        
+        // Spawn a thread
+        let jh = std::thread::spawn(move ||{
+            for i in 0..1_000 {
+                for pos in sel1.iter_pos_mut() {
+                    pos.coords.add_scalar_mut(i as f32);
+                }
+                println!("thread: {i}")
+            }
+        });
+
+        // While thread is iterating change state
+        for i in 0..1_000 {
+            st2 = source.set_state(st2)?;
+            println!("swap: {i}")
+        }
+
+        jh.join().unwrap();
+
+        Ok(())
+    }
+    */
 }
