@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_read() -> Result<()> {
-        let r = FileHandler::open("tests/no_ATP.xtc")?;
+        let r = FileHandler::open("tests/protein.xtc")?;
         let mut w = FileHandler::create(concat!(env!("OUT_DIR"), "/1.xtc"))?;
 
         //let st = r.read_topology()?;
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_traj() -> Result<()> {
-        let mut r = FileHandler::open("tests/no_ATP.xtc")?;
+        let mut r = FileHandler::open("tests/protein.xtc")?;
         let (max_fr, max_t) = r.tell_last()?;
         println!("max: {max_fr}:{max_t}");
 
@@ -285,7 +285,7 @@ mod tests {
     
     #[test]
     fn test_pdb() -> Result<()> {
-        let mut r = FileHandler::open("tests/no_ATP.pdb")?;
+        let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
         let st2 = st1.clone().to_rc();

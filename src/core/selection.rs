@@ -297,6 +297,39 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// Selections are stored inside the source and the user can't access them directly.
 /// Instead user calls `map_par` method to run an arbitrary closure on each stored
 /// selection in parallel.
+/// # Example 1: mutable non-overlapping selections
+/// ```
+/// # use {molar::core::*, molar::io::*};
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// let mut src = SourceParallel::new_mut(top, st)?;
+/// // Add a bunch of non-overlapping selections
+/// src.add_from_iter(0..10)?;
+/// src.add_from_iter(11..15)?;
+/// src.add_from_iter(16..25)?;
+/// // Process them
+/// let v = Vector3f::new(1.0, 2.0, 3.0);
+/// let res: Vec<_> = src.map_par(|sel| {
+///    sel.translate(&v);
+///    Ok(sel.center_of_mass()?)
+/// })?;
+/// println!("{:?}",res);
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+/// # Example 2: immutable overlapping selections
+/// ```
+/// # use {molar::core::*, molar::io::*};
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// let mut src = SourceParallel::new(top, st)?;
+/// // Overlapping selections
+/// src.add_from_iter(0..10)?;
+/// src.add_from_iter(5..15)?;
+/// // Process them
+/// let res: Vec<_> = src.map_par(|sel| {
+///    Ok(sel.center_of_mass()?)
+/// })?;
+/// println!("{:?}",res);
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
 pub struct SourceParallel<K> {
     topology: TopologyArc,
     state: StateArc,
@@ -1101,10 +1134,8 @@ mod tests {
         }, distance_search::DistanceSearcherSingle, io::*
     };
 
-    fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
-        let mut h = FileHandler::open("tests/no_ATP.pdb").unwrap();
-        let (top, st) = h.read_raw().unwrap();
-        (triomphe::UniqueArc::new(top), triomphe::UniqueArc::new(st))
+    pub fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
+        FileHandler::open("tests/protein.pdb").unwrap().read().unwrap()
     }
 
     #[test]
@@ -1391,8 +1422,8 @@ mod tests {
     /*
     #[test]
     fn test_swap_state() -> anyhow::Result<()> {
-        let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
-        let mut traj = FileHandler::open("tests/no_ATP.xtc")?;
+        let top = FileHandler::open("tests/protein.pdb")?.read_topology()?;
+        let mut traj = FileHandler::open("tests/protein.xtc")?;
         let st1 = traj.read_state()?.unwrap();
         let st2 = traj.read_state()?.unwrap();
 
@@ -1410,8 +1441,8 @@ mod tests {
 
     #[test]
     fn test_swap_traj() -> anyhow::Result<()> {
-        let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
-        let mut traj = FileHandler::open("tests/no_ATP.xtc")?.into_iter();
+        let top = FileHandler::open("tests/protein.pdb")?.read_topology()?;
+        let mut traj = FileHandler::open("tests/protein.xtc")?.into_iter();
 
         let mut source = Source::new_mut(top, traj.next().unwrap())?;
         let sel = source.select_all()?;
@@ -1455,8 +1486,8 @@ mod tests {
     
     #[test]
     fn test_sel_par_proc_swap_problem() -> anyhow::Result<()> {
-        let top = FileHandler::open("tests/no_ATP.pdb")?.read_topology()?;
-        let mut traj = FileHandler::open("tests/no_ATP.xtc")?;
+        let top = FileHandler::open("tests/protein.pdb")?.read_topology()?;
+        let mut traj = FileHandler::open("tests/protein.xtc")?;
         let st1 = traj.read_state()?.unwrap();
         let mut st2 = traj.read_state()?.unwrap();
 

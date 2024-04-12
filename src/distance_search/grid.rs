@@ -176,7 +176,7 @@ mod tests {
         use crate::io::*;
         use std::iter::zip;
 
-        let mut r = FileHandler::open("tests/no_ATP.pdb").unwrap();
+        let mut r = FileHandler::open("tests/protein.pdb").unwrap();
         let st = r.read_state_raw().unwrap().unwrap();
 
         let mut gr = Grid::new([10, 10, 10]);
