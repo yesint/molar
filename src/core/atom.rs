@@ -1,21 +1,31 @@
-
+/// Information about the atom except its coordinates.
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
 pub struct Atom {
-    // Mandatory fields
+    /// Atom name.
     pub name: String,
+    /// Residue name.
     pub resname: String,
-    pub resid: i32, // Could be negative
+    /// Residue id (aka residue number). This could be negative!
+    pub resid: i32, // Could be negative.
+    /// Residue index. Assigned when reading the [topology](super::Topology).
+    /// Unique for each contigous span of resid. Starts from zero.
     pub resindex: usize,
-    // Atom physical properties from topology
+    /// Atomic number in the periodic table.
     pub atomic_number: u8,
+    /// Mass in atomic units
     pub mass: f32,
+    /// Charge in electroc charges.
     pub charge: f32,
+    /// Name of the atom type.
     pub type_name: String,
+    /// Unique id of the atom type.
     pub type_id: u32,
-    // Specific PDB fields
+    // PDB chain identifier.
     pub chain: char,
+    // PDB B-factor.
     pub bfactor: f32,
+    /// PDB occupancy.
     pub occupancy: f32,
 }
 
@@ -24,6 +34,7 @@ impl Atom {
         Default::default()
     }
 
+    /// Naive guessing of the mass and element from the atom name. 
     pub fn guess_element_and_mass_from_name(&mut self) {
         (self.atomic_number, self.mass) = match
             self.name.as_str()
@@ -42,6 +53,8 @@ impl Atom {
         }
     }
 
+    /// Returns atom's Van der Waals radius based on its atomic number.
+    /// If the element is not recognized returns a default value of 0.15 nm.
     pub fn vdw(&self) -> f32 {
         use super::periodic_table::*;
 

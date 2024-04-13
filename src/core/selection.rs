@@ -61,10 +61,10 @@ impl ParallelSel for ImmutableParallel {}
 
 /// Source of serial selections.
 /// 
-/// Source` produces mutable selections, which may overlap and are can only be
+/// [Source] produces mutable selections, which may overlap and are can only be
 /// used from the same thread where they are created.
 /// 
-/// `Source` takes ownership of `Topology` and `State` so that after creating a `Source` they are no longer accessible outside it.
+/// [Source] takes ownership of [Topology] and [State] so that after creating a [Source] they are no longer accessible outside it.
 /// This guarantees correct access without data integrity issues.
 pub struct Source {
     topology: TopologyArc,
@@ -73,7 +73,7 @@ pub struct Source {
 }
 
 impl Source {
-    /// Create the `Source` producing mutable selections that may overlap accessible from a single thread
+    /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
     pub fn new(
         topology: TopologyUArc,
         state: StateUArc,
@@ -88,7 +88,7 @@ impl Source {
 }
 
 impl Source {
-    /// Release and return `Topology` and `State`. Fails if any selections created from this Source are still alive.
+    /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
     pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
         Ok((
             triomphe::Arc::try_unique(self.topology)
@@ -104,12 +104,12 @@ impl Source {
 //---------------------------------
 
 impl Source {
-    /// Get a shared pointer to contained Topology
+    /// Get a shared pointer to contained [Topology]
     pub fn get_topology(&self) -> TopologyArc {
         triomphe::Arc::clone(&self.topology)
     }
     
-    /// Get a shared pointer to contained State
+    /// Get a shared pointer to contained [State]
     pub fn get_state(&self) -> StateArc {
         triomphe::Arc::clone(&self.state)
     }
@@ -141,7 +141,7 @@ impl Source {
     }
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
-    /// can't be reused. Consider using `select_expr` if you already have selection expression.
+    /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
     pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<MutableSerial>> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
         Ok(Sel {
@@ -175,7 +175,7 @@ impl Source {
         })
     }
 
-    /// Sets new state in this `Source`. All selections created from this Source will automatically view
+    /// Sets new [State] in this [Source]. All selections created from this [Source] will automatically view
     /// the new state. 
     /// 
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
@@ -197,10 +197,10 @@ impl Source {
         triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
     }
 
-    /// Sets new topology in this `Source`. All selections created from this Source will automatically view
-    /// the new topology. 
+    /// Sets new topology in this [Source]. All selections created from this [Source] will automatically view
+    /// the new [Topology]. 
     /// 
-    /// New topology should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
+    /// New [Topology] should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
     /// 
     /// Returns unique pointer to the old topology, so it could be reused if needed.
     pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
@@ -375,7 +375,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Executes provided closure on each stored selection in parallel and
     /// collect the closures' outputs into a container.
     /// 
-    /// Closure return `Result<RT>`, where RT is anything 
+    /// Closure return [Result<RT>], where `RT` is anything 
     /// sharable between the threads. 
     pub fn map_par<RT,C,F>(&self, func: F) -> Result<C> 
     where
@@ -398,7 +398,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     }
 
     /// Adds an existing serial selection. Passed selection is consumed
-    /// and its index is re-evaluated against the new `Source`.`
+    /// and its index is re-evaluated against the new [SourceParallel].
     pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> anyhow::Result<usize> {
         self.add_from_iter(sel.index.into_iter())
     }
@@ -434,7 +434,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     }
 
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
-    /// can't be reused. Consider using `select_expr` if you already have selection expression.
+    /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<usize> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)?;
@@ -474,7 +474,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         Ok(self.selections.len()-1)
     }
 
-    /// Converts Self into a serial Source. All stored parallel selections 
+    /// Converts `Self` into a serial [Source]. All stored parallel selections 
     /// are converted into serial mutable selections and returned as a vector. 
     pub fn into_serial_with_sels(self) -> (Source,Vec<Sel<MutableSerial>>) {
         let src = Source {
@@ -493,7 +493,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         (src,sels)
     }
 
-    /// Converts Self into a serial Source. All stored parallel selections 
+    /// Converts `Self` into a serial [Source]. All stored parallel selections 
     /// are dropped. 
     pub fn into_serial(self) -> Source {
         Source {
@@ -503,7 +503,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         }
     }
 
-    /// Sets new state in this `Source`. All selections created from this Source will automatically view
+    /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state. 
     /// 
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
@@ -526,7 +526,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
     }
 
-    /// Sets new topology in this `Source`. All selections created from this Source will automatically view
+    /// Sets new [Topology] in this source. All selections created from this Source will automatically view
     /// the new topology. 
     /// 
     /// New topology should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
@@ -559,36 +559,36 @@ impl<K: ParallelSel> SourceParallel<K> {
 // Selection
 //---------------------------------------
 
-/// Selection type that acts as a view into given set of indexes from `Topology` and `State`.
+/// Selection type that acts as a view into given set of indexes from [Topology] and [State].
 /// Selections allow to query various properties of the groups of atoms and to
 /// change them in different ways.
 /// 
 /// # Kinds of selections
 /// There are three kinds of selections set by the generic marker parameter:
-/// ### Serial mutable (`Sel<MutableSerial>`)
+/// ### Serial mutable ([Sel<MutableSerial>])
 /// * May overlap
 /// * Mutable
 /// * Could only be accessed from the same thread where 
-/// they were created (they are neither `Send` nor `Sync`). 
+/// they were created (they are neither [Send] nor [Sync]). 
 /// * Manipulated directly by the user.
-/// ### Parallel immutable (`Sel<ImmutableParallel>`)
+/// ### Parallel immutable ([Sel<ImmutableParallel>])
 /// * May overlap
 /// * Immutable
 /// * Could be processed in parallel
-/// * Not accessible directly. Manipulated by the `SourceParallel` object that created them.`
-/// ### Parallel mutable (`Sel<MutableParallel>`)
+/// * Not accessible directly. Manipulated by the [SourceParallel] object that created them.
+/// ### Parallel mutable ([Sel<MutableParallel>])
 /// * _Can't_ overlap
 /// * Mutable
 /// * Could be processed in parallel.
-/// * Not accessible directly. Manipulated by the `SourceParallel` object that created them.
+/// * Not accessible directly. Manipulated by the [SourceParallel] object that created them.
 /// 
 /// Immutable selections implement the traits that allow to query properties, while 
 /// mutable once also implement traits that allow to modify atoms and coordinates.
 /// 
 /// # Subselections
 /// It is possible to select within existing selection using `select_from_*` methods. 
-/// * For `ImmutableParallel` and `MutableSerial` selections subselectons have the same kind.
-/// * For `MutableParalel` selections subselectons have `MutableSerial` type because otherwise
+/// * For [ImmutableParallel] and [MutableSerial] selections subselectons have the same kind.
+/// * For [MutableParallel] selections subselectons have [MutableSerial] type instead because otherwise
 /// it is impossible to maintain the invariant of non-overlapping mutable access to the underlying data.
 /// 
 /// # Splitting selections
@@ -758,7 +758,7 @@ impl<T: SelectionKind> Sel<T> {
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is kept intact.
     /// The number of selections correspond to the distinct values returned by `func`.
-    /// Selections are stored in a container C and has the same kind as subselections.
+    /// Selections are stored in a container `C` and has the same kind as subselections.
     pub fn split<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -771,7 +771,7 @@ impl<T: SelectionKind> Sel<T> {
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is consumed.
     /// The number of selections correspond to the distinct values returned by `func`.
-    /// Selections are stored in a container C and has the same kind as parent selection.
+    /// Selections are stored in a container `C` and has the same kind as parent selection.
     pub fn split_into<RT, F, C>(self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -791,7 +791,7 @@ impl<T: SelectionKind> Sel<T> {
     }
 
     /// Helper method that splits selection into the parts with distinct resids.
-    /// /// Parent selection is consumed.
+    /// Parent selection is consumed.
     pub fn split_resid_into<C>(self) -> C
     where
         C: FromIterator<Sel<T>> + Default,
@@ -884,6 +884,7 @@ impl<T: SelectionKind> Sel<T> {
 }
 
 //---------------------------------------------
+/// Iterator over the (index,atom,position) triplets from selection.
 pub struct SelectionIterator<'a, T> {
     sel: &'a Sel<T>,
     cur: usize,
@@ -1002,12 +1003,17 @@ impl<T: MutableSel> ModifyRandomAccess for Sel<T> {}
 //-------------------------------------------------------
 // Splitting iterator
 //-------------------------------------------------------
-pub struct SplitData<RT, F> {
+
+struct SplitData<RT, F> {
     func: F,
     counter: usize,
     id: RT,
 }
 
+/// Iterator over contiguous pieces of selection returned by [Sel::split_contig] 
+/// and `various Sel::split_contig_*` convenience methods.
+/// This iterator keeps the parent selection alive and yelds selections of the same kind 
+/// as sub-selections of the parent [Sel].
 pub struct SelectionSplitIterator<'a, RT, F, S> {
     sel: &'a Sel<S>,
     data: SplitData<RT, F>,
@@ -1045,6 +1051,10 @@ where
 }
 
 //--------------------------------------------
+/// Iterator over contiguous pieces of selection returned by [Sel::into_split_contig] 
+/// and `various Sel::into_split_contig_*` convenience methods.
+/// This iterator consumes the parent selection and yelds selections of the same kind 
+/// as the parent [Sel].
 pub struct IntoSelectionSplitIterator<RT, F, S> {
     sel: Sel<S>,
     data: SplitData<RT, F>,
