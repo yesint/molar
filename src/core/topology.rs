@@ -6,7 +6,7 @@ use crate::io::TopologyProvider;
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
 //use super::handle::{SharedHandle, Handle};
 
-#[allow(dead_code)]
+#[doc(hidden)]
 #[derive(Debug, Default, Clone)]
 pub struct TopologyStorage {
     pub atoms: Vec<Atom>,
@@ -14,6 +14,12 @@ pub struct TopologyStorage {
     pub molecules: Vec<[usize; 2]>,
 }
 
+/// Topology of the molecular system: atoms, bonds, molecules, etc.
+/// 
+/// [Topology] is typically read from structure of trajectory file and is not intended
+/// to be manipulated directly by the user. Insead [State](super::State) and [Topology] 
+/// are used to create atom selections, which give an access to the properties of
+/// individual atoms and allow to query various properties.
 pub struct Topology(SyncUnsafeCell<TopologyStorage>);
 
 impl Clone for Topology {

@@ -375,7 +375,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Executes provided closure on each stored selection in parallel and
     /// collect the closures' outputs into a container.
     /// 
-    /// Closure return [Result<RT>], where `RT` is anything 
+    /// Closure return `Result<RT>`, where `RT` is anything 
     /// sharable between the threads. 
     pub fn map_par<RT,C,F>(&self, func: F) -> Result<C> 
     where
@@ -565,18 +565,18 @@ impl<K: ParallelSel> SourceParallel<K> {
 /// 
 /// # Kinds of selections
 /// There are three kinds of selections set by the generic marker parameter:
-/// ### Serial mutable ([Sel<MutableSerial>])
+/// ### Serial mutable (`Sel<MutableSerial>`)
 /// * May overlap
 /// * Mutable
 /// * Could only be accessed from the same thread where 
 /// they were created (they are neither [Send] nor [Sync]). 
 /// * Manipulated directly by the user.
-/// ### Parallel immutable ([Sel<ImmutableParallel>])
+/// ### Parallel immutable (`Sel<ImmutableParallel>`)
 /// * May overlap
 /// * Immutable
 /// * Could be processed in parallel
 /// * Not accessible directly. Manipulated by the [SourceParallel] object that created them.
-/// ### Parallel mutable ([Sel<MutableParallel>])
+/// ### Parallel mutable (`Sel<MutableParallel>`)
 /// * _Can't_ overlap
 /// * Mutable
 /// * Could be processed in parallel.
@@ -757,6 +757,7 @@ impl<T: SelectionKind> Sel<T> {
 
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is kept intact.
+    /// 
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
     pub fn split<RT, F, C>(&self, func: F) -> C
@@ -770,6 +771,7 @@ impl<T: SelectionKind> Sel<T> {
 
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is consumed.
+    /// 
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.
     pub fn split_into<RT, F, C>(self, func: F) -> C
@@ -843,9 +845,10 @@ impl<T: SelectionKind> Sel<T> {
     }
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
+    /// Consumes a selection and returns selections of the same kind.
+    /// 
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    /// This consumes a selection and returns selections of the same kind.
     pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, T>
     where
         RT: Default + std::cmp::PartialEq,
@@ -863,9 +866,10 @@ impl<T: SelectionKind> Sel<T> {
     }
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
+    /// Selection is not consumed. Returned selections are of subselection kind.
+    /// 
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    /// Selection is not consumed. Returned selections are of subselection kind.
     pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, T>
     where
         RT: Default + std::cmp::PartialEq,
@@ -1012,6 +1016,7 @@ struct SplitData<RT, F> {
 
 /// Iterator over contiguous pieces of selection returned by [Sel::split_contig] 
 /// and `various Sel::split_contig_*` convenience methods.
+/// 
 /// This iterator keeps the parent selection alive and yelds selections of the same kind 
 /// as sub-selections of the parent [Sel].
 pub struct SelectionSplitIterator<'a, RT, F, S> {
@@ -1053,6 +1058,7 @@ where
 //--------------------------------------------
 /// Iterator over contiguous pieces of selection returned by [Sel::into_split_contig] 
 /// and `various Sel::into_split_contig_*` convenience methods.
+/// 
 /// This iterator consumes the parent selection and yelds selections of the same kind 
 /// as the parent [Sel].
 pub struct IntoSelectionSplitIterator<RT, F, S> {

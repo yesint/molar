@@ -16,6 +16,7 @@ pub struct StateStorage {
 
 /// State of molecular system including its coordinates, time stamp 
 /// and [periodic box](super::PeriodicBox).
+/// 
 /// [State] is typically read from structure of trajectory file and is not intended
 /// to be manipulated directly by the user. Insead [State] and [Topology](super::Topology)
 /// are used to create atom selections, which give an access to the properties of
