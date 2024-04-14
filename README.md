@@ -8,7 +8,6 @@
 - [Current status](#current-status)
 - [Change log](CHANGELOG.md)
 - [Design decisions](#design-decisions)
-- [Crate documentation](#modules)
 
 # What is molar?
 Molar is a rust library for molecular analysis and modeling. It is started as a successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies. Eventually molar may become a "Pteros 3.0".
