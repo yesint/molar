@@ -8,7 +8,7 @@ use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
-pub struct TopologyStorage {
+pub(crate) struct TopologyStorage {
     pub atoms: Vec<Atom>,
     pub bonds: Vec<[usize; 2]>,
     pub molecules: Vec<[usize; 2]>,

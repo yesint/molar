@@ -1,6 +1,6 @@
 use super::{StateProvider, TopologyProvider};
 use crate::core::*;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString};
@@ -29,7 +29,7 @@ pub struct VmdMolFileHandler<'a> {
     natoms: usize,
 }
 
-// Helper convertion function from C fixed-size string to AsciiString
+// Helper convertion function from C fixed-size string to String
 fn char_slice_to_str(buf: &[::std::os::raw::c_char]) -> Result<String> {
     unsafe {
         Ok(CStr::from_ptr(buf.as_ptr()).to_str()?.to_owned())
@@ -63,14 +63,16 @@ impl VmdMolFileHandler<'_> {
 
     fn open_read(&mut self) -> Result<()> {
         // Prepare c-strings for file opening
-        let f_type = CString::new("")?; // Not used
         let f_name = CString::new(self.file_name.clone())?;
 
         // Open file and get file pointer
         let mut n: i32 = 0;
         self.file_handle = unsafe {
-            self.plugin.open_file_read.unwrap() // get function ptr
-            (f_name.as_ptr(), f_type.as_ptr(), &mut n) // Call function
+            self.plugin.open_file_read.unwrap()( 
+                f_name.as_ptr(), 
+                c"".as_ptr(), // Pass empty file type
+                &mut n
+            ) // Call function
         };
         self.natoms = n as usize;
 
@@ -84,7 +86,6 @@ impl VmdMolFileHandler<'_> {
 
     fn open_write(&mut self, natoms: usize) -> Result<()> {
         // Prepare c-strings for file opening
-        let f_type = CString::new("")?; // Not used
         let f_name = CString::new(self.file_name.clone())?;
 
         // Set number of atoms
@@ -94,7 +95,7 @@ impl VmdMolFileHandler<'_> {
         self.file_handle = unsafe {
             self.plugin.open_file_write.unwrap()(
                 f_name.as_ptr(),
-                f_type.as_ptr(),
+                c"".as_ptr(), // Pass empty file type
                 self.natoms as i32,
             ) // Call function
         };
@@ -196,13 +197,13 @@ impl VmdMolFileHandler<'_> {
     pub fn write_topology(&mut self, data: &impl TopologyProvider) -> Result<()> {
         let n = data.num_atoms();
         // Open file if not yet opened
-        self.try_open_write(n)?;
+        self.try_open_write(n).context("When writing topology")?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
         for at in data.iter_atoms() {
             let mut vmd_at = molfile_atom_t::default();
-            copy_str_to_c_buffer(&at.name, &mut vmd_at.name)?;
-            copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname)?;
+            copy_str_to_c_buffer(&at.name, &mut vmd_at.name).context("name convertion")?;
+            copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname).context("resname convertion")?;
             vmd_at.resid = at.resid;
             vmd_at.chain[0] = at.chain as i8;
             vmd_at.chain[1] = '\0' as i8;
@@ -286,19 +287,9 @@ impl VmdMolFileHandler<'_> {
         let n = data.num_coords();
 
         // Open file if not yet opened
-        self.try_open_write(n)?;
+        self.try_open_write(n).context("When writing state")?;
 
         // Buffer for coordinates allocated on heap
-        /*
-        let mut buf = Vec::<f32>::with_capacity(3 * n);
-        // Fill the buffer and convert to angstroms
-        for pos in data.iter_coords() {
-            for dim in 0..3 {
-                buf.push(pos[dim] * 10.0);
-            }
-        }
-        */
-
         let mut buf = Vec::from_iter(
             data.iter_pos()
                 .map(|p| p.coords.iter().cloned())
@@ -326,7 +317,7 @@ impl VmdMolFileHandler<'_> {
 
         let ret = unsafe {
             self.plugin.write_timestep.unwrap() // get function ptr
-            (self.file_handle, &ts)
+            (self.file_handle, &ts) // Call function
         };
 
         match ret {
@@ -353,7 +344,7 @@ impl Drop for VmdMolFileHandler<'_> {
 fn copy_str_to_c_buffer(st: &str, cbuf: &mut [i8]) -> Result<()> {
     let n = st.len();
     if n + 1 >= cbuf.len() {
-        bail!("VMD fixed size field is too short!");
+        bail!("VMD fixed size field is too short: {} while needed {}",cbuf.len(),n+1);
     }
     
     let bytes = st.as_bytes();

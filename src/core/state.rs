@@ -8,7 +8,7 @@ use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 
 #[doc(hidden)]
 #[derive(Debug, Default,Clone)]
-pub struct StateStorage {
+pub(crate) struct StateStorage {
     pub coords: Vec<Pos>,
     pub time: f32,
     pub pbox: Option<PeriodicBox>,

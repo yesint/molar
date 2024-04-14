@@ -1,6 +1,6 @@
 const NUM_ELEMENTS: usize = 112;
 
-/* periodic table of elements for translation of ordinal to atom type */
+/// Periodic table of elements for translation from atomic number to element name
 #[allow(dead_code)]
 pub const ELEMENT_NAME: [&'static str; NUM_ELEMENTS] = [ 
     "X",  "H",  "He", "Li", "Be", "B",  "C",  "N",  "O",  "F",  "Ne",
@@ -16,7 +16,7 @@ pub const ELEMENT_NAME: [&'static str; NUM_ELEMENTS] = [
     "Ds", "Rg"
 ];
 
-/* corresponding table of masses. */
+/// Translation from atomic number to element mass
 #[allow(dead_code)]
 pub const ELEMENT_MASS: [f32; NUM_ELEMENTS] = [ 
     /* X  */ 0.00000, 1.00794, 4.00260, 6.941, 9.012182, 10.811,  
@@ -40,16 +40,14 @@ pub const ELEMENT_MASS: [f32; NUM_ELEMENTS] = [
     /* Mt */ 268.0, 271.0, 272.0
 ];
 
-/*
- * corresponding table of VDW radii.
- * van der Waals radii are taken from A. Bondi, 
- * J. Phys. Chem., 68, 441 - 452, 1964, 
- * except the value for H, which is taken from R.S. Rowland & R. Taylor, 
- * J.Phys.Chem., 100, 7384 - 7391, 1996. Radii that are not available in 
- * either of these publications have RvdW = 2.00 �.
- * The radii for Ions (Na, K, Cl, Ca, Mg, and Cs are based on the CHARMM27 
- * Rmin/2 parameters for (SOD, POT, CLA, CAL, MG, CES) by default.
- */
+/// Table of VDW radii (index is atomic number).
+/// Van der Waals radii are taken from A. Bondi, 
+/// J. Phys. Chem., 68, 441 - 452, 1964, 
+/// except the value for H, which is taken from R.S. Rowland & R. Taylor, 
+/// J.Phys.Chem., 100, 7384 - 7391, 1996. Radii that are not available in 
+/// either of these publications have RvdW = 2.00.
+/// The radii for Ions (Na, K, Cl, Ca, Mg, and Cs are based on the CHARMM27 
+/// Rmin/2 parameters for (SOD, POT, CLA, CAL, MG, CES) by default.
 pub const ELEMENT_VDW: [f32; NUM_ELEMENTS] = [ 
     /* X  */ 1.5, 1.2, 1.4, 1.82, 2.0, 2.0,  
     /* C  */ 1.7, 1.55, 1.52, 1.47, 1.54, 
@@ -72,7 +70,7 @@ pub const ELEMENT_VDW: [f32; NUM_ELEMENTS] = [
     /* Mt */ 2.0, 2.0, 2.0
 ];
 
-
+/// Gets a VdW for given atom name
 pub fn get_vdw_from_atom_name(name: &str) -> f32 {
     match name.chars().next().unwrap() {    
         'H' => 0.12,

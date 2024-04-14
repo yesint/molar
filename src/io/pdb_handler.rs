@@ -1,21 +1,20 @@
-use super::{IoReader, IoTopologyReader};
-use crate::core::{Topology, Atom, Pos, Vector3f, State};
+use crate::core::{Atom, Pos, State, StateStorage, Topology, TopologyStorage, Vector3f};
 use anyhow::Result;
 use std::{
     fs::File,
     io::{BufRead, BufReader, Lines},
 };
-use ascii::{AsciiString, AsciiChar};
 
 pub struct PdbFileHandler {
     lines: Lines<BufReader<File>>,
     file_name: String,
     natoms: usize,
+    atoms_buf: Vec<Atom>,
     coord_buf: Vec<Pos>,
 }
 
-impl IoReader for PdbFileHandler {
-    fn new_reader(fname: &str) -> Result<Self>
+impl PdbFileHandler {
+    fn open(fname: &str) -> Result<Self>
     where
         Self: Sized,
     {
@@ -23,6 +22,7 @@ impl IoReader for PdbFileHandler {
             lines: BufReader::new(File::open(fname)?).lines(),
             file_name: fname.to_owned(),
             natoms: 0,
+            atoms_buf: vec![],
             coord_buf: vec![],
         })
     }
@@ -58,7 +58,8 @@ fn get_pdb_record(line: &str) -> PdbRecord {
 
 impl PdbFileHandler {
     fn read(&mut self) -> Result<(Topology,State)> {
-        // Clear coordinate buffer
+        // Clear buffers
+        self.atoms_buf.clear();
         self.coord_buf.clear();
         // Go line by line
         for line in self.lines {
@@ -71,15 +72,16 @@ impl PdbFileHandler {
                     }
 
                     let at = Atom {
-                        name: AsciiString::from_ascii(&line[12..=15])?,
-                        resname: AsciiString::from_ascii(&line[17..=19])?,
-                        chain: AsciiChar::from_ascii(line.as_bytes()[21])?,
+                        name: line[12..=15].into(),
+                        resname: line[17..=19].into(),
+                        chain: line.as_bytes()[21].into(),
                         resid: line[22..=25].parse()?,
                         occupancy: line[54..=59].parse()?,
                         bfactor: line[60..=65].parse()?,
                         atomic_number: 0, //line.as_bytes()[77],
                         ..Default::default()
                     };
+                    self.atoms_buf.push(at);
 
                     // Save coordinates for later
                     let v = Pos::new(
@@ -93,6 +95,17 @@ impl PdbFileHandler {
                 _ => {}
             }
         }
-        ()
+        let top = TopologyStorage {
+            atoms: self.atoms_buf,
+            bonds: Default::default(),
+            molecules: Default::default(),
+        };
+
+        let state = StateStorage {
+            coords: self.coord_buf,
+            pbox: None,
+            time: 0.0,            
+        };
+        Ok((top.into(),state.into()))
     }
 }

@@ -18,19 +18,19 @@ use crate::core::{Pos, Vector3f, PBC_FULL};
 //##############################
 
 #[derive(Debug, PartialEq)]
-pub enum IntKeywordValue {
+pub(crate) enum IntKeywordValue {
     Int(i32),
     IntRange(i32, i32),
 }
 
 #[derive(Debug)]
-pub enum StrKeywordValue {
+pub(crate) enum StrKeywordValue {
     Str(String),
     Regex(Regex),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MathNode {
+pub(crate) enum MathNode {
     Float(f32),
     Function(MathFunctionName,Box<Self>),
     X,
@@ -49,7 +49,7 @@ pub enum MathNode {
 
 // Computes a vector value in various ways
 #[derive(Debug)]
-pub enum VectorNode {
+pub(crate) enum VectorNode {
     Const(Vector3f),
     NthOf(LogicalNode),
     Com(LogicalNode),
@@ -57,7 +57,7 @@ pub enum VectorNode {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum DistanceNode {
+pub(crate) enum DistanceNode {
     Point(Pos, PbcDims),
     Line(Pos, Pos, PbcDims),
     LineDir(Pos, Unit<Vector3f>, PbcDims),
@@ -75,7 +75,7 @@ enum ComparisonOp {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ComparisonNode {
+pub(crate) enum ComparisonNode {
     // Simple
     Eq(MathNode, MathNode),
     Neq(MathNode, MathNode),
@@ -96,7 +96,7 @@ pub enum ComparisonNode {
 }
 
 #[derive(Debug)]
-pub enum KeywordNode {
+pub(crate) enum KeywordNode {
     Name(Vec<StrKeywordValue>),
     Resname(Vec<StrKeywordValue>),
     Chain(Vec<char>),
@@ -107,7 +107,7 @@ pub enum KeywordNode {
 }
 
 #[derive(Debug,PartialEq)]
-pub enum SameProp {
+pub(crate) enum SameProp {
     Residue,
     Chain,
 }
@@ -120,7 +120,7 @@ pub struct WithinProp {
 }
 
 #[derive(Debug)]
-pub enum LogicalNode {
+pub(crate) enum LogicalNode {
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
     And(Box<Self>, Box<Self>),
@@ -145,7 +145,7 @@ enum Keyword {
 
 
 #[derive(Debug,PartialEq)]
-pub enum MathFunctionName {
+pub(crate) enum MathFunctionName {
     Abs,
     Sqrt,
     Sin,
@@ -160,7 +160,7 @@ pub enum MathFunctionName {
 type SubsetType = rustc_hash::FxHashSet<usize>;
 
 #[derive(Clone)]
-pub struct ApplyData<'a> {
+pub(crate) struct ApplyData<'a> {
     topology: &'a Topology,
     state: &'a State,
     // This is a subset passed from outside

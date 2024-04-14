@@ -30,7 +30,7 @@ pub trait MutableSel: SelectionKind {}
 pub trait ParallelSel: SelectionKind + Send + Sync {}
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
-pub struct MutableSerial(*const ());
+pub struct MutableSerial(PhantomData<*const ()>);
 impl SelectionKind for MutableSerial {
     type SubselKind = MutableSerial;
     const NEED_CHECK_OVERLAP: bool = false;

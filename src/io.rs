@@ -9,6 +9,8 @@ mod gro_handler;
 mod tpr_handler;
 mod file_content;
 mod io_splitter;
+//mod pdb_handler;
+
 
 // Reexports
 #[cfg(feature = "gromacs")]
