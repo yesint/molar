@@ -1,7 +1,7 @@
 [workspace]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
 license = "Artistic-2.0"
