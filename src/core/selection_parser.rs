@@ -1067,7 +1067,7 @@ impl SelectionExpr {
 mod tests {
     use super::SelectionExpr;
     use crate::{
-        core::{State, StateUArc, Topology, TopologyUArc},
+        core::{StateUArc, TopologyUArc},
         io::*,
     };
 

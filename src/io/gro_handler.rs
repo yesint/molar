@@ -1,5 +1,5 @@
 use super::{io_splitter::ReadTopAndState, StateProvider, TopologyProvider};
-use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, State, StateStorage, StateUArc, Topology, TopologyStorage, TopologyUArc};
+use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, StateStorage, StateUArc, TopologyStorage, TopologyUArc};
 use anyhow::Result;
 use std::{
     fs::File,
