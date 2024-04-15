@@ -1430,7 +1430,7 @@ mod tests {
         let (_, axes) = sel1.inertia()?;
         println!("Axes after: {axes}");
 
-        sel1.save("oriented.pdb")?;
+        sel1.save(concat!(env!("OUT_DIR"),"/oriented.pdb"))?;
 
         Ok(())
     }
