@@ -1314,8 +1314,8 @@ mod tests {
     #[test]
     fn test_write_to_file() -> anyhow::Result<()> {
         let sel = make_sel_all()?;
-
-        let mut h = FileHandler::create("f.pdb")?;
+        
+        let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         h.write_topology(&sel)?;
         h.write_state(&sel)?;
         Ok(())
@@ -1348,7 +1348,7 @@ mod tests {
         let sel = make_sel_prot()?;
         sel.unwrap_connectivity_dim(0.2, &PBC_FULL)?;
 
-        let mut h = FileHandler::create("unwrapped.pdb")?;
+        let mut h = FileHandler::create(concat!(env!("OUT_DIR"),"/unwrapped.pdb"))?;
         h.write_topology(&sel)?;
         h.write_state(&sel)?;
         Ok(())
@@ -1361,8 +1361,8 @@ mod tests {
 
         sel2.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
 
-        sel2.save("tests/sel2.pdb")?;
-        sel1.save("tests/sel1_before.pdb")?;
+        sel2.save(concat!(env!("OUT_DIR"), "/sel2.pdb"))?;
+        sel1.save(concat!(env!("OUT_DIR"), "/sel1_before.pdb"))?;
         println!("Initial RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
 
         let m = Sel::fit_transform(&sel1, &sel2)?;
@@ -1370,7 +1370,7 @@ mod tests {
 
         sel1.apply_transform(&m);
 
-        sel1.save("tests/sel1_after.pdb")?;
+        sel1.save(concat!(env!("OUT_DIR"),"/sel1_after.pdb"))?;
         println!("Final RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
         Ok(())
     }

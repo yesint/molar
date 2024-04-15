@@ -2,7 +2,7 @@ use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::StateProvider;
-use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
+use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos, StateUArc};
 //use super::handle::{SharedHandle, Handle};
 
 
@@ -29,9 +29,9 @@ impl Clone for State {
     }
 }
 
-impl From<StateStorage> for State {
+impl From<StateStorage> for StateUArc {
     fn from(value: StateStorage) -> Self {
-        Self(SyncUnsafeCell::new(value))
+        Self::new(State(SyncUnsafeCell::new(value)))
     }
 }
 
@@ -46,12 +46,7 @@ impl State {
     fn get_mut(&self) -> &mut StateStorage {
         unsafe {&mut *self.0.get()}
     }
-
-    //-----------------------------------------
-    pub fn to_rc(self) -> triomphe::UniqueArc<Self> {
-        triomphe::UniqueArc::new(self)
-    }
-
+    
     #[inline(always)]
     pub unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         self.get().coords.get_unchecked(i)

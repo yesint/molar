@@ -177,7 +177,7 @@ mod tests {
         use std::iter::zip;
 
         let mut r = FileHandler::open("tests/protein.pdb").unwrap();
-        let st = r.read_state_raw().unwrap().unwrap();
+        let st = r.read_state().unwrap().unwrap();
 
         let mut gr = Grid::new([10, 10, 10]);
         gr.populate_periodic(

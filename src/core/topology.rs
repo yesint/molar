@@ -3,7 +3,7 @@ use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::TopologyProvider;
 
-use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
+use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, TopologyUArc};
 //use super::handle::{SharedHandle, Handle};
 
 #[doc(hidden)]
@@ -28,9 +28,9 @@ impl Clone for Topology {
     }
 }
 
-impl From<TopologyStorage> for Topology {
+impl From<TopologyStorage> for TopologyUArc {
     fn from(value: TopologyStorage) -> Self {
-        Self(SyncUnsafeCell::new(value))
+        Self::new(Topology(SyncUnsafeCell::new(value)))
     }
 }
 
@@ -44,12 +44,6 @@ impl Topology {
     #[inline(always)]
     fn get_mut(&self) -> &mut TopologyStorage {
         unsafe {&mut *self.0.get()}
-    }
-
-    //--------------------------------------------
-
-    pub fn to_rc(self) -> triomphe::UniqueArc<Self> {
-        triomphe::UniqueArc::new(self)
     }
 
     #[inline(always)]

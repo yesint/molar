@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use crate::core::{State, Topology};
+use crate::core::{StateUArc, TopologyUArc};
 
 pub trait ReadTopAndState {    
-    fn read_top_and_state(&mut self) -> Result<(Topology, State)>;
+    fn read_top_and_state(&mut self) -> Result<(TopologyUArc, StateUArc)>;
     
     //fn write_top_and_state(&mut self, data: &(impl IoIndexProvider + IoTopologyProvider + IoStateProvider)) -> Result<()> {
     //    unimplemented!()
@@ -12,8 +12,8 @@ pub trait ReadTopAndState {
 pub struct IoSplitter<T: ReadTopAndState> {
     pub handler: T,
     // For reading
-    top: Option<Topology>,
-    state: Option<State>,
+    top: Option<TopologyUArc>,
+    state: Option<StateUArc>,
     // For writing
     //top_ref: Option<&'a Topology>,
     //state_ref: Option<&'a State>,
@@ -35,17 +35,17 @@ impl<T: ReadTopAndState> IoSplitter<T> {
         }
     }
 
-    pub fn read(&mut self) -> Result<(Topology,State)> {
+    pub fn read(&mut self) -> Result<(TopologyUArc,StateUArc)> {
         self.io_done = true;
         self.handler.read_top_and_state()
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology> {
+    pub fn read_topology(&mut self) -> Result<TopologyUArc> {
         self.try_read()?;
         self.top.take().ok_or_else(|| anyhow!("Topology already read!"))
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>> {
+    pub fn read_state(&mut self) -> Result<Option<StateUArc>> {
         self.try_read()?;
         Ok(self.state.take())
     }

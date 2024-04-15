@@ -1067,7 +1067,7 @@ impl SelectionExpr {
 mod tests {
     use super::SelectionExpr;
     use crate::{
-        core::{State, Topology},
+        core::{State, StateUArc, Topology, TopologyUArc},
         io::*,
     };
 
@@ -1076,17 +1076,17 @@ mod tests {
         let _ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
     }
 
-    fn read_test_pdb() -> (Topology, State) {
+    fn read_test_pdb() -> (TopologyUArc, StateUArc) {
         let mut h = FileHandler::open("tests/triclinic.pdb").unwrap();
-        let structure = h.read_topology_raw().unwrap();
-        let state = h.read_state_raw().unwrap().unwrap();
+        let structure = h.read_topology().unwrap();
+        let state = h.read_state().unwrap().unwrap();
         (structure, state)
     }
 
-    fn read_test_pdb2() -> (Topology, State) {
+    fn read_test_pdb2() -> (TopologyUArc, StateUArc) {
         let mut h = FileHandler::open("tests/protein.pdb").unwrap();
-        let structure = h.read_topology_raw().unwrap();
-        let state = h.read_state_raw().unwrap().unwrap();
+        let structure = h.read_topology().unwrap();
+        let state = h.read_state().unwrap().unwrap();
         (structure, state)
     }
 

@@ -1,4 +1,4 @@
-use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, State, Topology};
+use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, State, StateUArc, TopologyUArc};
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
@@ -113,7 +113,7 @@ impl FileHandler<'_> {
         }
     }
 
-    pub fn read_raw(&mut self) -> Result<(Topology,State)> {
+    pub fn read(&mut self) -> Result<(TopologyUArc,StateUArc)> {
         let (top,st) = match self {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read()?,
@@ -126,11 +126,6 @@ impl FileHandler<'_> {
             _ => bail!("Not a once-read format"),
         };
         Ok((top,st))
-    }
-
-    pub fn read(&mut self) -> Result<(triomphe::UniqueArc<Topology>,triomphe::UniqueArc<State>)> {
-        let (top,st) = self.read_raw()?;
-        Ok((top.to_rc(),st.to_rc()))
     }
 
     pub fn write<'a,T>(&mut self, data: &'a T) -> Result<()> 
@@ -147,16 +142,12 @@ impl FileHandler<'_> {
         }
     }
 
-    pub fn read_topology_raw(&mut self) -> Result<Topology> {
+    pub fn read_topology(&mut self) -> Result<TopologyUArc> {
         let top = match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology()?,
             _ => bail!("Unable to read topology"),
         };
         Ok(top)
-    }
-
-    pub fn read_topology(&mut self) -> Result<triomphe::UniqueArc<Topology>> {
-        Ok(self.read_topology_raw()?.to_rc())
     }
 
     pub fn write_topology<'a,T>(&mut self, data: &'a T) -> Result<()> 
@@ -168,7 +159,7 @@ impl FileHandler<'_> {
         }
     }
 
-    pub fn read_state_raw(&mut self) -> Result<Option<State>> {
+    pub fn read_state(&mut self) -> Result<Option<StateUArc>> {
         let st = match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.read_state()?
@@ -179,10 +170,6 @@ impl FileHandler<'_> {
             _ => bail!("Not a trajectory reader format!"),
         };
         Ok(st)
-    }
-
-    pub fn read_state(&mut self) -> Result<Option<triomphe::UniqueArc<State>>> {
-        self.read_state_raw()?.map_or(Ok(None), |v| Ok(Some(v.to_rc())))
     }
 
     pub fn write_state<'a,T>(&mut self, data: &'a T) -> Result<()> 
@@ -234,7 +221,7 @@ impl FileHandler<'_> {
 }
 
 impl<'a> IntoIterator for FileHandler<'a> {
-    type Item = triomphe::UniqueArc<State>;
+    type Item = StateUArc;
     type IntoIter = IoStateIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -290,7 +277,7 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = st1.clone().to_rc();
+        let st2 = triomphe::UniqueArc::new(st1.clone());
         println!("#1: {}",(*top1).num_atoms());
 
         let mut b = Source::new(top1,st2)?;
