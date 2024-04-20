@@ -16,7 +16,7 @@ pub use super::selection_parser::SelectionExpr;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
-    type SubselKind;
+    type SubselKind: SelectionKind;
     const NEED_CHECK_OVERLAP: bool;
 }
 
@@ -619,14 +619,14 @@ impl<K: ParallelSel> SourceParallel<K> {
 /// The parts follow the rules of subselections.
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_ 
 /// kind as a parent selection.
-pub struct Sel<T> {
+pub struct Sel<K = MutableSerial> {
     topology: TopologyArc,
     state: StateArc,
     index: Vec<usize>,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<K>,
 }
 
-impl<T: SelectionKind> Sel<T> {
+impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.num_atoms()
@@ -637,7 +637,7 @@ impl<T: SelectionKind> Sel<T> {
     //===================
 
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<T::SubselKind>> {
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K::SubselKind>> {
         let index = expr.apply_subset(&self.topology, &self.state, self.index.iter().cloned())?;
         if index.len() > 0 {
             Ok(Sel {
@@ -652,7 +652,7 @@ impl<T: SelectionKind> Sel<T> {
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<T::SubselKind>> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<K::SubselKind>> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
@@ -661,7 +661,7 @@ impl<T: SelectionKind> Sel<T> {
     pub fn subsel_from_local_range(
         &self,
         range: std::ops::Range<usize>,
-    ) -> Result<Sel<T::SubselKind>> {
+    ) -> Result<Sel<K::SubselKind>> {
         if range.end >= self.index.len() {
             bail!(
                 "Invalid local sub-range: {}:{}, valid range: 0:{}",
@@ -692,7 +692,7 @@ impl<T: SelectionKind> Sel<T> {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<T::SubselKind>> {
+    ) -> Result<Sel<K::SubselKind>> {
         // Remove duplicates if any
         let index = iter
             .sorted()
@@ -785,7 +785,7 @@ impl<T: SelectionKind> Sel<T> {
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(usize, &Atom, &Pos) -> RT,
-        C: FromIterator<Sel<T::SubselKind>> + Default,
+        C: FromIterator<Sel<K::SubselKind>> + Default,
     {
         self.split_gen(func)
     }
@@ -799,7 +799,7 @@ impl<T: SelectionKind> Sel<T> {
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(usize, &Atom, &Pos) -> RT,
-        C: FromIterator<Sel<T>> + Default,
+        C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(func)
     }
@@ -808,7 +808,7 @@ impl<T: SelectionKind> Sel<T> {
     /// Parent selection is left alive.
     pub fn split_resid<C>(&self) -> C
     where
-        C: FromIterator<Sel<T::SubselKind>> + Default,
+        C: FromIterator<Sel<K::SubselKind>> + Default,
     {
         self.split_gen(|_, at, _| at.resid)
     }
@@ -817,7 +817,7 @@ impl<T: SelectionKind> Sel<T> {
     /// Parent selection is consumed.
     pub fn split_resid_into<C>(self) -> C
     where
-        C: FromIterator<Sel<T>> + Default,
+        C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(|_, at, _| at.resid)
     }
@@ -861,7 +861,7 @@ impl<T: SelectionKind> Sel<T> {
         Ok(unsafe { self.nth_unchecked(i) })
     }
 
-    pub fn iter(&self) -> SelectionIterator<T> {
+    pub fn iter(&self) -> SelectionIterator<K> {
         SelectionIterator { sel: self, cur: 0 }
     }
 
@@ -870,7 +870,7 @@ impl<T: SelectionKind> Sel<T> {
     /// 
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, T>
+    pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(usize, &Atom, &Pos) -> RT,
@@ -882,7 +882,7 @@ impl<T: SelectionKind> Sel<T> {
     /// Parent selection is consumed.
     pub fn into_split_contig_resid(
         self,
-    ) -> IntoSelectionSplitIterator<i32, fn(usize, &Atom, &Pos) -> i32, T> {
+    ) -> IntoSelectionSplitIterator<i32, fn(usize, &Atom, &Pos) -> i32, K> {
         self.into_split_contig(|_, at, _| at.resid)
     }
 
@@ -891,7 +891,7 @@ impl<T: SelectionKind> Sel<T> {
     /// 
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, T>
+    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(usize, &Atom, &Pos) -> RT,
@@ -903,19 +903,19 @@ impl<T: SelectionKind> Sel<T> {
     /// Parent selection is left alive.
     pub fn split_contig_resid(
         &self,
-    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, T> {
+    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, K> {
         self.split_contig(|_, at, _| at.resid)
     }
 }
 
 //---------------------------------------------
 /// Iterator over the (index,atom,position) triplets from selection.
-pub struct SelectionIterator<'a, T> {
-    sel: &'a Sel<T>,
+pub struct SelectionIterator<'a, K> {
+    sel: &'a Sel<K>,
     cur: usize,
 }
 
-impl<'a, T: SelectionKind> Iterator for SelectionIterator<'a, T> {
+impl<'a, K: SelectionKind> Iterator for SelectionIterator<'a, K> {
     type Item = (usize, &'a Atom, &'a Pos);
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
@@ -928,7 +928,7 @@ impl<'a, T: SelectionKind> Iterator for SelectionIterator<'a, T> {
     }
 }
 
-impl<'a, T: SelectionKind> ExactSizeIterator for SelectionIterator<'a, T> {
+impl<'a, K: SelectionKind> ExactSizeIterator for SelectionIterator<'a, K> {
     fn len(&self) -> usize {
         self.sel.len()
     }
@@ -938,19 +938,19 @@ impl<'a, T: SelectionKind> ExactSizeIterator for SelectionIterator<'a, T> {
 //---------------------------------------------
 // Implement traits for IO
 
-impl<T> IndexProvider for Sel<T> {
+impl<K> IndexProvider for Sel<K> {
     fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
 
-impl<T> TopologyProvider for Sel<T> {
+impl<K> TopologyProvider for Sel<K> {
     fn num_atoms(&self) -> usize {
         self.index.len()
     }
 }
 
-impl<T> StateProvider for Sel<T> {
+impl<K> StateProvider for Sel<K> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
@@ -963,7 +963,7 @@ impl<T> StateProvider for Sel<T> {
 //==================================================================
 // Implement analysis traits
 
-impl<T> BoxProvider for Sel<T> {
+impl<K> BoxProvider for Sel<K> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
     }
@@ -971,15 +971,15 @@ impl<T> BoxProvider for Sel<T> {
 
 impl<T> MeasurePeriodic for Sel<T> {}
 
-impl<T> PosProvider for Sel<T> {
+impl<K> PosProvider for Sel<K> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe { self.index.iter().map(|i| self.state.nth_pos_unchecked(*i)) }
     }
 }
 
-impl<T> MeasurePos for Sel<T> {}
+impl<K> MeasurePos for Sel<K> {}
 
-impl<T> AtomsProvider for Sel<T> {
+impl<K> AtomsProvider for Sel<K> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.index
@@ -989,7 +989,7 @@ impl<T> AtomsProvider for Sel<T> {
     }
 }
 
-impl<T> MassesProvider for Sel<T> {
+impl<K> MassesProvider for Sel<K> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
             self.index
@@ -999,12 +999,12 @@ impl<T> MassesProvider for Sel<T> {
     }
 }
 
-impl<T> MeasureMasses for Sel<T> {}
+impl<K> MeasureMasses for Sel<K> {}
 
 //-------------------------------------------------------
 // Mutable analysis traits only for mutable selections
 
-impl<T: MutableSel> PosMutProvider for Sel<T> {
+impl<K: MutableSel> PosMutProvider for Sel<K> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.index
@@ -1014,7 +1014,7 @@ impl<T: MutableSel> PosMutProvider for Sel<T> {
     }
 }
 
-impl<T: MutableSel> RandomPosMutProvider for Sel<T> {
+impl<K: MutableSel> RandomPosMutProvider for Sel<K> {
     #[inline(always)]
     unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
         let ind = *self.index.get_unchecked(i);
@@ -1022,8 +1022,8 @@ impl<T: MutableSel> RandomPosMutProvider for Sel<T> {
     }
 }
 
-impl<T: MutableSel> ModifyPos for Sel<T> {}
-impl<T: MutableSel> ModifyRandomAccess for Sel<T> {}
+impl<K: MutableSel> ModifyPos for Sel<K> {}
+impl<K: MutableSel> ModifyRandomAccess for Sel<K> {}
 
 //-------------------------------------------------------
 // Splitting iterator
