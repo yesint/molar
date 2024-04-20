@@ -132,7 +132,7 @@ impl DistanceSearcherSingle {
 
     fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         let pbc = self.grid.pbc.as_ref().unwrap();
-        pbc.box_.distance_squared(p1, p2, &pbc.dims)
+        pbc.pbox.distance_squared(p1, p2, &pbc.dims)
     }
 
     fn dist_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
@@ -302,7 +302,7 @@ impl DistanceSearcherDouble {
 
     fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         let pbc = self.grid1.pbc.as_ref().unwrap(); // First grid as reference
-        pbc.box_.distance_squared(p1, p2, &pbc.dims)
+        pbc.pbox.distance_squared(p1, p2, &pbc.dims)
     }
 
     fn dist_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {

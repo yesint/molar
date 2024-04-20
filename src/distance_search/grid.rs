@@ -45,7 +45,7 @@ impl CellPair {
 // Periodicity stuff for searching
 #[derive(Debug, Clone)]
 pub struct GridPbc {
-    pub box_: PeriodicBox,
+    pub pbox: PeriodicBox,
     pub dims: PbcDims,
 }
 
@@ -143,7 +143,7 @@ impl Grid<GridCellData> {
             self.n_items += 1;
         }
         self.pbc = Some(GridPbc {
-            box_: box_.clone(),
+            pbox: box_.clone(),
             dims: pbc_dims.clone(),
         });
     }
