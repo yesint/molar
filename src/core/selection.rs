@@ -386,6 +386,27 @@ impl<K: ParallelSel> SourceParallel<K> {
         self.selections.par_iter().map(func).collect()
     }
 
+    /// Executes provide closure on each stored selection serially
+    /// and collect the closures' outputs into a container.
+    pub fn map<RT,C,F>(&self, func: F) -> Result<C> 
+    where
+        RT: Send + Sync,
+        F: Fn(&Sel<K>)->Result<RT> + Send + Sync,
+        C: FromIterator<RT>,
+    {
+        self.selections.iter().map(func).collect()
+    }
+
+    /// Returns serial iterator over stored selections 
+    pub fn iter(&self) -> impl Iterator<Item = &Sel<K>> {
+        self.selections.iter()
+    }
+
+    /// Returns parallel iterator over stored selections 
+    pub fn par_iter(&self) -> impl ParallelIterator<Item = &Sel<K>> {
+        self.selections.par_iter()
+    }
+
     fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
         if K::NEED_CHECK_OVERLAP {
             for i in index.iter() {
