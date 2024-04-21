@@ -397,6 +397,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         self.selections.iter().map(func).collect()
     }
 
+    /* 
     /// Returns serial iterator over stored selections 
     pub fn iter(&self) -> impl Iterator<Item = &Sel<K>> {
         self.selections.iter()
@@ -406,6 +407,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn par_iter(&self) -> impl ParallelIterator<Item = &Sel<K>> {
         self.selections.par_iter()
     }
+    */
 
     fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
         if K::NEED_CHECK_OVERLAP {
