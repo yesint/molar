@@ -444,7 +444,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     }
 
     /// Adds selection of all
-    pub fn select_all(&mut self) -> anyhow::Result<usize> {
+    pub fn select_all(&mut self) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_all(self.topology.num_atoms());
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel {
@@ -453,12 +453,12 @@ impl<K: ParallelSel> SourceParallel<K> {
             index: vec,
             _marker: PhantomData::default(),
         });
-        Ok(self.selections.len()-1)
+        Ok(&self.selections.last().unwrap())
     }
 
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
-    pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<usize> {
+    pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel {
@@ -467,11 +467,15 @@ impl<K: ParallelSel> SourceParallel<K> {
             index: vec,
             _marker: PhantomData::default(),
         });
-        Ok(self.selections.len()-1)
+        Ok(&self.selections.last().unwrap())
+    }
+
+    pub fn get_sel(&self, i: usize) -> anyhow::Result<&Sel<K>> {
+        self.selections.get(i).ok_or_else(|| anyhow!("Invalid selection index"))
     }
 
     /// Adds new selection from an existing selection expression.
-    pub fn add_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<usize> {
+    pub fn add_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel {
@@ -480,12 +484,12 @@ impl<K: ParallelSel> SourceParallel<K> {
             index: vec,
             _marker: PhantomData::default(),
         });
-        Ok(self.selections.len()-1)
+        Ok(&self.selections.last().unwrap())
     }
 
     /// Adds new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<usize> {
+    pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel {
@@ -494,7 +498,7 @@ impl<K: ParallelSel> SourceParallel<K> {
             index: vec,
             _marker: PhantomData::default(),
         });
-        Ok(self.selections.len()-1)
+        Ok(&self.selections.last().unwrap())
     }
 
     /// Converts `Self` into a serial [Source]. All stored parallel selections 
@@ -1163,8 +1167,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
-
     use super::{BoxProvider, MutableSerial, Sel, Source, SourceParallel};
     use crate::{
         core::{
@@ -1251,41 +1253,6 @@ mod tests {
 
         Ok(())
     }
-
-    /*
-    #[test]
-    #[should_panic]
-    fn convert_builders_fail() {
-        let (top, st) = read_test_pdb();
-        // Create parallel builder
-        let mut b = Source::new_mut_par(top, st).unwrap();
-        // Create two valid non-overlapping selections.
-        let _sel1 = b.select_from_iter(0..10).unwrap();
-        let _sel2 = b.select_from_iter(11..15).unwrap();
-
-        // Create serial builder. This will fail since selections are still alive
-        let _b = b.to_immut().unwrap();
-    }
-    
-
-    #[test]
-    fn convert_builders() {
-        let (top, st) = read_test_pdb();
-        // Create parallel builder
-        let mut b = Source::new_mut_par(top, st).unwrap();
-        // Create two valid non-overlapping selections.
-        {
-            let _sel1 = b.select_from_iter(0..10).unwrap();
-            let _sel2 = b.select_from_iter(11..15).unwrap();
-        }
-        // Selections are now dropped
-
-        // Create serial builder.
-        let mut b = b.to_immut().unwrap();
-        let _sel1 = b.select_from_iter(0..10).unwrap();
-        let _sel2 = b.select_from_iter(11..15).unwrap();
-    }
-    */
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
@@ -1458,101 +1425,20 @@ mod tests {
         Ok(())
     }
 
+    // An attampt to move a selection to other thread explicitly fails to compile
+    // as it should be
     /*
     #[test]
-    fn test_swap_state() -> anyhow::Result<()> {
-        let top = FileHandler::open("tests/protein.pdb")?.read_topology()?;
-        let mut traj = FileHandler::open("tests/protein.xtc")?;
-        let st1 = traj.read_state()?.unwrap();
-        let st2 = traj.read_state()?.unwrap();
-
-        let mut source = Source::new_mut(top, st1)?;
-        let sel = source.select_all()?;
-        println!("Before swap: {}", source.get_state().num_coords());
-        println!("First point: {:?}", sel.iter_pos().next().unwrap());
-
-        source.set_state(st2)?;
-
-        println!("After swap: {}", source.get_state().num_coords());
-        println!("First point: {:?}", sel.iter_pos().next().unwrap());
-        Ok(())
-    }
-
-    #[test]
-    fn test_swap_traj() -> anyhow::Result<()> {
-        let top = FileHandler::open("tests/protein.pdb")?.read_topology()?;
-        let mut traj = FileHandler::open("tests/protein.xtc")?.into_iter();
-
-        let mut source = Source::new_mut(top, traj.next().unwrap())?;
-        let sel = source.select_all()?;
-        println!("First time {}: {:?}", sel.get_time(), sel.center_of_mass()?);
-
-        for st in traj {
-            source.set_state(st)?;
-            println!("Time {}: {:?}", sel.get_time(), sel.center_of_mass()?);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_sel_par_proc() -> anyhow::Result<()> {
-        let (top, st) = FileHandler::open("tests/colored.pdb")?.read()?;
-
-        let mut source = Source::new_mut_par(top, st)?;
-
-        let (sender, receiver) = std::sync::mpsc::channel();
-
-        let all = source.select_str("resname POPC")?;
-        
-        all.unwrap_connectivity(0.2)?;
-        
-        all.into_split_contig_resid()
-        .enumerate()
-        .par_bridge()
-        .try_for_each_with(sender,|s,(i,sel)| -> anyhow::Result<()> {
-            println!("Doing {i}");
-            //sel.unwrap_connectivity(0.2)?;
-            s.send(sel.center_of_mass()?)?;
-            Ok(())
-        })?;
-
-        let res: Vec<_> = receiver.iter().collect();
-        println!("cms: {:?}",res);
-        Ok(())
-    }
-
-    
-    #[test]
-    fn test_sel_par_proc_swap_problem() -> anyhow::Result<()> {
-        let top = FileHandler::open("tests/protein.pdb")?.read_topology()?;
-        let mut traj = FileHandler::open("tests/protein.xtc")?;
-        let st1 = traj.read_state()?.unwrap();
-        let mut st2 = traj.read_state()?.unwrap();
-
-        let mut source = Source::new_mut_par(top, st1)?;
-        let sel1 = source.select_all()?;
-        //let sel2 = source.select_str("resid 11-20")?;
-        
-        // Spawn a thread
-        let jh = std::thread::spawn(move ||{
-            for i in 0..1_000 {
-                for pos in sel1.iter_pos_mut() {
-                    pos.coords.add_scalar_mut(i as f32);
-                }
-                println!("thread: {i}")
-            }
-        });
-
-        // While thread is iterating change state
-        for i in 0..1_000 {
-            st2 = source.set_state(st2)?;
-            println!("swap: {i}")
-        }
-
-        jh.join().unwrap();
-
+    fn aliasing() -> anyhow::Result<()>{
+        let (top, st) = read_test_pdb();
+        let mut b = SourceParallel::new_mut(top, st)?;
+        let sel1 = std::sync::Arc::new(b.add_str("not resname TIP3 POT CLA")?);
+        let sel2 = std::sync::Arc::clone(&sel1);
+        let jh = thread::spawn( move || sel1.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+        //jh.join();
+        //thread::spawn(move || sel2.translate(&Vector3f::new(10.0, 10.0, 10.0)));
         Ok(())
     }
     */
+
 }
