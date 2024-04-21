@@ -274,8 +274,8 @@ private:
 	std::vector<int> np;            // number of points (registered vertices) of i-th atom
 	std::vector<int> nt;            // counts situations that exclude "single cirle"
 	std::vector<PDCoord> e;         // direction to neighbour
-        std::vector<PDFloat> sintheta;
-        std::vector<PDFloat> costheta;
+	std::vector<PDFloat> sintheta;
+	std::vector<PDFloat> costheta;
 	std::vector<PDFloat> nb_RAD2;
 	std::vector<PDFloat> nb_dist;
 

@@ -25,7 +25,7 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings");
 
-    // Write the bindings to the $OUT_DIR/bindings.rs file.
+    // Write the bindings to the $OUT_DIR/
     bindings
         .write_to_file(out_path.join("powersasa_bindings.rs"))
         .expect("Couldn't write bindings!"); 
