@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use molar::{core::{providers::BoxProvider, MeasureMasses, ModifyPos, MutableSerial, Sel, Source, State, Topology, Vector3f, PBC_FULL}, distance_search::DistanceSearcherSingle, io::FileHandler};
+use molar::prelude::*;
 use nalgebra::Unit;
 
 fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
@@ -18,6 +18,7 @@ fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
     Ok(sel)
 }
 
+#[allow(dead_code)]
 fn test_fit(c: &mut Criterion) {
     let sel1 = make_sel_prot().unwrap();
     let sel2 = make_sel_prot().unwrap();   
