@@ -4,19 +4,19 @@ project(gromacs_wrapper LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD  20)
 set(CMAKE_C_STANDARD    99)
 
-message("!!!ENV: ${GROMACS_SOURCE_DIR}")
-message("!!!ENV: ${GROMACS_BINARY_DIR}")
-message("!!!ENV: ${GROMACS_LIB_DIR}")
+message(DEBUG "ENV: ${GROMACS_SOURCE_DIR}")
+message(DEBUG "ENV: ${GROMACS_BINARY_DIR}")
+message(DEBUG "ENV: ${GROMACS_LIB_DIR}")
 
 # Check if external gromacs location is provided
 # User need to provide source dir, binary dir and the exact library dir
 if(GROMACS_SOURCE_DIR AND GROMACS_BINARY_DIR AND GROMACS_LIB_DIR)
     # Set locations of existing lib files
     set(GROMACS_LIB_FILES
-    ${GROMACS_LIB_DIR}/${CMAKE_DYNAMIC_LIBRARY_PREFIX}gromacs${CMAKE_DYNAMIC_LIBRARY_SUFFIX}
-    ${GROMACS_LIB_DIR}/${CMAKE_DUNAMIC_LIBRARY_PREFIX}muparser${CMAKE_DYNAMIC_LIBRARY_SUFFIX}
+        ${GROMACS_LIB_DIR}/${CMAKE_DYNAMIC_LIBRARY_PREFIX}gromacs${CMAKE_DYNAMIC_LIBRARY_SUFFIX}
+        ${GROMACS_LIB_DIR}/${CMAKE_DUNAMIC_LIBRARY_PREFIX}muparser${CMAKE_DYNAMIC_LIBRARY_SUFFIX}
     )
-    # Nothing else to be done
+    # Nothing else to do
 else()
     # Compiling Gromacs in place
     set(IN_PLACE TRUE)
@@ -87,7 +87,9 @@ set(GROMACS_LIBRARIES ${GROMACS_LIB_FILES})
 
 # Ugly workaround to pass gromacs source and bin location
 # to cargo by writing them to a text file
-configure_file(cmake_to_cargo.txt.in ${CMAKE_BINARY_DIR}/../cmake_to_cargo.txt)
+if(IN_PLACE)
+    configure_file(cmake_to_cargo.txt.in ${CMAKE_BINARY_DIR}/../cmake_to_cargo.txt)
+endif()
 
 #--------------------------------------------------------------------------------
 # Create a wrapper library

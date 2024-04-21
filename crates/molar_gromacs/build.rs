@@ -21,11 +21,11 @@ fn main() {
         gmx_binary_dir = bin_env.unwrap().to_owned();
         let gmx_lib_dir = lib_env.unwrap().to_owned();
         
-        cfg.configure_arg(format!("-DGROMACS_SOURCE_DIR={}",gmx_source_dir));
-        cfg.configure_arg(format!("-DGROMACS_BINARY_DIR={}",gmx_binary_dir));
-        cfg.configure_arg(format!("-DGROMACS_LIB_DIR={}",gmx_lib_dir));
+        cfg.configure_arg(format!("-DGROMACS_SOURCE_DIR={gmx_source_dir}"));
+        cfg.configure_arg(format!("-DGROMACS_BINARY_DIR={gmx_binary_dir}"));
+        cfg.configure_arg(format!("-DGROMACS_LIB_DIR={gmx_lib_dir}"));
         
-        println!("cargo:rustc-link-search=native={}", gmx_lib_dir);
+        println!("cargo:rustc-link-search=native={gmx_lib_dir}");
     }
 
     // Do CMAKE build (could be very slow if Gromacs is built in place)
