@@ -2,28 +2,26 @@ mod atom;
 mod topology;
 mod state;
 mod periodic_box;
-#[allow(dead_code)]
-mod selection_parser;
 mod selection;
-//mod particle;
-pub mod providers;
+mod providers;
 mod measure;
 mod modify;
 mod periodic_table;
-
-//#[allow(dead_code)]
-//mod selection_builder;
 
 pub use {
     atom::*, 
     topology::*,
     state::*,
-    periodic_box::*,    
+    periodic_box::*,
     selection::*,
-//    particle::*,
+    providers::*,
     measure::*,
-    modify::*,    
+    modify::*,
+    periodic_table::*,
 }; 
+
+#[allow(dead_code)]
+mod selection_parser;
 
 // Aliases for vector and points
 pub type Vector3f = nalgebra::Vector3<f32>;

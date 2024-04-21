@@ -1,4 +1,4 @@
-use crate::core::{providers::{AtomsProvider, BoxProvider, PosProvider}, State, StateUArc, TopologyUArc};
+use crate::prelude::*;
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
 
@@ -232,7 +232,7 @@ impl<'a> IntoIterator for FileHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::FileHandler;
-    use crate::{core::{ModifyPos, Source, Vector3f}, io::TopologyProvider};
+    use crate::prelude::*;
     use anyhow::Result;
 
     #[test]

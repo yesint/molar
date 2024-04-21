@@ -167,7 +167,7 @@ impl<T> std::ops::IndexMut<&CellLoc> for Grid<T> {
 //============================================================================
 #[cfg(test)]
 mod tests {
-    use crate::core::providers::*;
+    use crate::prelude::*;
     use super::*;
 
     #[test]

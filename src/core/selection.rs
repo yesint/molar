@@ -1,11 +1,4 @@
-use super::{
-    measure::{MeasureMasses, MeasurePeriodic, MeasurePos},
-    modify::{ModifyPos, ModifyRandomAccess},
-    providers::*,
-    Atom, AtomIterator, PeriodicBox, Pos, PosIterator, PosMutIterator, State, StateArc, StateUArc,
-    Topology, TopologyArc, TopologyUArc,
-};
-use crate::io::{FileHandler, IndexProvider, StateProvider, TopologyProvider};
+use crate::prelude::*;
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -299,7 +292,7 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// selection in parallel.
 /// # Example 1: mutable non-overlapping selections
 /// ```
-/// # use {molar::core::*, molar::io::*};
+/// # use molar::prelude::*;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
 /// let mut src = SourceParallel::new_mut(top, st)?;
 /// // Add a bunch of non-overlapping selections
@@ -317,7 +310,7 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// ```
 /// # Example 2: immutable overlapping selections
 /// ```
-/// # use {molar::core::*, molar::io::*};
+/// # use molar::prelude::*;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
 /// let mut src = SourceParallel::new(top, st)?;
 /// // Overlapping selections
@@ -1167,13 +1160,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{BoxProvider, MutableSerial, Sel, Source, SourceParallel};
-    use crate::{
-        core::{
-            providers::PosProvider, selection::AtomsProvider, MeasureMasses, MeasurePeriodic,
-            MeasurePos, ModifyPos, ModifyRandomAccess, State, Topology, Vector3f, PBC_FULL,
-        }, distance_search::DistanceSearcherSingle, io::*
-    };
+    use crate::prelude::*;
 
     pub fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
         FileHandler::open("tests/protein.pdb").unwrap().read().unwrap()
