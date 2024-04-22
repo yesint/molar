@@ -1,7 +1,7 @@
 [workspace]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 rust-version = "1.77" 
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
@@ -72,5 +72,6 @@ name = "fit_benchmark"
 harness = false
 
 [package.metadata.docs.rs]
-# Prevents CI builds with Gromacs
+# Prevents CI builds from building C/C++ dependences
 no-default-features = true
+rustdoc-args = ["--no-deps"]
