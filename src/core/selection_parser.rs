@@ -1021,6 +1021,13 @@ peg::parser! {
 // Alias for top-level rule
 pub struct SelectionExpr {
     ast: LogicalNode,
+    sel_str: String,
+}
+
+impl SelectionExpr {
+    pub fn get_str(&self) -> &str {
+        &self.sel_str
+    }
 }
 
 impl TryFrom<&str> for SelectionExpr {
@@ -1028,6 +1035,7 @@ impl TryFrom<&str> for SelectionExpr {
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
         Ok(Self {
             ast: selection_parser::logical_expr(value)?,
+            sel_str: value.to_owned(),
         })
     }
 }

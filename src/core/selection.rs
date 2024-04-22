@@ -85,9 +85,9 @@ impl Source {
     pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
         Ok((
             triomphe::Arc::try_unique(self.topology)
-                .or_else(|_| bail!("Multiple references are active!"))?,
+                .or_else(|_| bail!("Can't release topology: multiple references are active!"))?,
             triomphe::Arc::try_unique(self.state)
-                .or_else(|_| bail!("Multiple references are active!"))?,
+                .or_else(|_| bail!("Can't release state: multiple references are active!"))?,
         ))
     }
 }
@@ -177,7 +177,7 @@ impl Source {
     pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
-            bail!("States are incompatible!")
+            bail!("Can't set state: states are incompatible!")
         }
 
         let ret = state.shareable();
@@ -187,7 +187,7 @@ impl Source {
                 ret.as_ptr() as *mut State,
             )
         }
-        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Can't set state: multiple references are active!"))
     }
 
     /// Sets new topology in this [Source]. All selections created from this [Source] will automatically view
@@ -199,7 +199,7 @@ impl Source {
     pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
-            bail!("Topologies are incompatible!")
+            bail!("Can't set topology: topologies are incompatible!")
         }
 
         let ret = topology.shareable();
@@ -209,7 +209,7 @@ impl Source {
                 ret.as_ptr() as *mut State,
             )
         }
-        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Can't set topology: multiple references are active!"))
     }
 }
 
@@ -219,11 +219,7 @@ fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
     let n2 = state.num_coords();
     match n1 == n2 {
         true => Ok(()),
-        false => bail!(
-            "Structure and State are incompatible (sizes {} and {})",
-            n1,
-            n2
-        ),
+        false => bail!("Structure and State are incompatible (sizes {n1} and {n2})"),
     }
 }
 
@@ -236,7 +232,7 @@ fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> 
     if index.len() > 0 {
         Ok(index)
     } else {
-        bail!("Selection is empty")
+        bail!(format!("Selection constructed from expr '{}' is empty",expr.get_str()))
     }
 }
 
@@ -245,14 +241,14 @@ fn index_from_str(selstr: &str, topology: &Topology, state: &State) -> Result<Ve
     if index.len() > 0 {
         Ok(index)
     } else {
-        bail!("Selection is empty")
+        bail!(format!("Selection constructed from string '{selstr}' is empty"))
     }
 }
 
 fn index_from_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
     if range.start > n - 1 || range.end > n - 1 {
         bail!(
-            "Index range {}:{} is invalid, 0:{} is allowed.",
+            "Range {}:{} is invalid, 0:{} is allowed for constructing selection",
             range.start,
             range.end,
             n
@@ -261,18 +257,18 @@ fn index_from_range(range: &Range<usize>, n: usize) -> Result<Vec<usize>> {
     if range.len() > 0 {
         Ok(range.clone().collect())
     } else {
-        bail!("Selection is empty")
+        bail!(format!("Selection constructed from range {}:{} is empty",range.start,range.end))
     }
 }
 
 fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usize>> {
     let index: Vec<usize> = it.sorted().dedup().collect();
     if index.is_empty() {
-        bail!("Selection is empty")
+        bail!("Iterator is empty, which results in empty selection")
     }
     if index[0] > n - 1 || index[index.len() - 1] > n - 1 {
         bail!(
-            "Index range {}:{} is invalid, 0:{} is allowed.",
+            "Selection iterator range {}:{} is invalid, 0:{} is allowed",
             index[0],
             index[index.len() - 1],
             n
@@ -348,9 +344,9 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
 /// // This won't compile
 /// let mut src = SourceParallel::new_mut(top, st)?;
-/// src.add_str("resname TIP3")?;
-/// src.add_str("resname POT")?;
-/// src.add_str("resname CLA")?;
+/// src.add_str("resid 545")?;
+/// src.add_str("resid 546")?;
+/// src.add_str("resid 547")?;
 /// let sel = src.iter().next().unwrap();
 /// thread::spawn( move || sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
 /// #  Ok::<(), anyhow::Error>(())
@@ -359,7 +355,6 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 ///```
 /// # use molar::prelude::*;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-/// // This won't compile
 /// let mut src = SourceParallel::new_mut(top, st)?;
 /// src.add_str("resid 545")?;
 /// src.add_str("resid 546")?;
@@ -497,7 +492,8 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
-        self.check_overlap_if_needed(&vec).context(format!("When adding str selection {selstr}"))?;
+        self.check_overlap_if_needed(&vec)
+            .with_context(|| format!("Adding str selection '{selstr}'"))?;
         self.selections.push(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -1457,13 +1453,10 @@ mod tests {
     }    
 
     #[test]
-    fn s() -> anyhow::Result<()> {        
-        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-        let mut src = SourceParallel::new_mut(top, st)?;
-        src.add_str("resid 545")?;
-        src.add_str("resid 546")?;
-        src.add_str("resid 547")?;
-        src.par_iter().for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
-        Ok::<(), anyhow::Error>(())
+    #[should_panic]
+    fn fail_on_empty_selection() {
+        let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
+        let mut src = SourceParallel::new_mut(top, st).unwrap();
+        src.add_str("resid 5").unwrap();        
     }
 }

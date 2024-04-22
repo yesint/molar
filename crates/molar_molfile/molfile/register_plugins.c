@@ -25,8 +25,7 @@ molfile_plugin_t* name##_get_plugin_ptr(){\
     if(!name##_plugin_ptr){\
         name##plugin_init();\
         name##plugin_register(NULL, &name##_register_cb);\
-    }\
-    printf("C: %p\n",name##_plugin_ptr);\
+    }\    
     return name##_plugin_ptr;\
 }
 
