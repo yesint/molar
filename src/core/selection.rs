@@ -1,7 +1,7 @@
 use crate::prelude::*;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Result, Context};
 use itertools::Itertools;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{collections::HashMap, marker::PhantomData, ops::Range};
 
 pub use super::selection_parser::SelectionExpr;
@@ -287,9 +287,14 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 
 /// Source for selections, which are processed in parallel.
 /// 
-/// Selections are stored inside the source and the user can't access them directly.
-/// Instead user calls `map_par` method to run an arbitrary closure on each stored
-/// selection in parallel.
+/// Selections are stored inside the source and the user can only access them directly by reference form
+/// the same thread where [SourceParallel] was created (an attempt to send them to other thread won't compile).
+/// In order to process selections in parallel user calls `map_par` method to run an arbitrary closure on each stored
+/// selection in separate threads.
+/// 
+/// It is safe to change the [State] contained inside [SourceParallel] by calling [set_state](SourceParallel::set_state)
+/// because it is guaranteed that no other threads are accessing stored selections at the same time.
+/// 
 /// # Example 1: mutable non-overlapping selections
 /// ```
 /// # use molar::prelude::*;
@@ -323,6 +328,47 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// println!("{:?}",res);
 /// #  Ok::<(), anyhow::Error>(())
 /// ```
+/// # Safety guarantees
+/// An attampt to move a selection to other thread fails to compile:
+///```compile_fail
+/// # use molar::prelude::*;
+/// # use std::thread;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// // This won't compile
+/// let mut src = SourceParallel::new_mut(top, st)?;
+/// let sel = src.add_str("not resname TIP3 POT CLA")?;
+/// thread::spawn( move || sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+/// 
+/// It is also impossible to leak the [Sel] from an iterator:
+///```compile_fail
+/// # use molar::prelude::*;
+/// # use std::thread;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// // This won't compile
+/// let mut src = SourceParallel::new_mut(top, st)?;
+/// src.add_str("resname TIP3")?;
+/// src.add_str("resname POT")?;
+/// src.add_str("resname CLA")?;
+/// let sel = src.iter().next().unwrap();
+/// thread::spawn( move || sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+/// However, it's possible to use parallel iterator in usual way:
+///```
+/// # use molar::prelude::*;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// // This won't compile
+/// let mut src = SourceParallel::new_mut(top, st)?;
+/// src.add_str("resid 545")?;
+/// src.add_str("resid 546")?;
+/// src.add_str("resid 547")?;
+/// src.par_iter().for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+ 
+    
 pub struct SourceParallel<K> {
     topology: TopologyArc,
     state: StateArc,
@@ -331,7 +377,7 @@ pub struct SourceParallel<K> {
     _marker: PhantomData<*const ()>,
 }
 
-impl SourceParallel<()> {
+impl SourceParallel<()> {    
     /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_mut (
         topology: TopologyUArc,
@@ -389,8 +435,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     {
         self.selections.iter().map(func).collect()
     }
-
-    /* 
+    
     /// Returns serial iterator over stored selections 
     pub fn iter(&self) -> impl Iterator<Item = &Sel<K>> {
         self.selections.iter()
@@ -400,8 +445,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn par_iter(&self) -> impl ParallelIterator<Item = &Sel<K>> {
         self.selections.par_iter()
     }
-    */
-
+    
     fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
         if K::NEED_CHECK_OVERLAP {
             for i in index.iter() {
@@ -453,7 +497,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
-        self.check_overlap_if_needed(&vec)?;
+        self.check_overlap_if_needed(&vec).context(format!("When adding str selection {selstr}"))?;
         self.selections.push(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -1410,22 +1454,16 @@ mod tests {
         sel1.save(concat!(env!("OUT_DIR"),"/oriented.pdb"))?;
 
         Ok(())
-    }
+    }    
 
-    // An attampt to move a selection to other thread explicitly fails to compile
-    // as it should be
-    /*
     #[test]
-    fn aliasing() -> anyhow::Result<()>{
-        let (top, st) = read_test_pdb();
-        let mut b = SourceParallel::new_mut(top, st)?;
-        let sel1 = std::sync::Arc::new(b.add_str("not resname TIP3 POT CLA")?);
-        let sel2 = std::sync::Arc::clone(&sel1);
-        let jh = thread::spawn( move || sel1.translate(&Vector3f::new(10.0, 10.0, 10.0)));
-        //jh.join();
-        //thread::spawn(move || sel2.translate(&Vector3f::new(10.0, 10.0, 10.0)));
-        Ok(())
+    fn s() -> anyhow::Result<()> {        
+        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+        let mut src = SourceParallel::new_mut(top, st)?;
+        src.add_str("resid 545")?;
+        src.add_str("resid 546")?;
+        src.add_str("resid 547")?;
+        src.par_iter().for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+        Ok::<(), anyhow::Error>(())
     }
-    */
-
 }
