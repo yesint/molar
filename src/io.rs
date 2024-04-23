@@ -97,6 +97,8 @@ impl FileHandler<'_> {
             "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::open(fname)?))),
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::Tpr(IoSplitter::new(TprFileHandler::open(fname)?))),
+            #[cfg(not(feature = "gromacs"))]
+            "tpr" => bail!("Enable 'gromacs' feature in Cargo.toml to get TPR files support."),
             _ => bail!("Unrecognized extension for reading {ext}"),
         }
     }

@@ -1458,5 +1458,5 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
         let mut src = SourceParallel::new_mut(top, st).unwrap();
         src.add_str("resid 5").unwrap();        
-    }
+    }    
 }

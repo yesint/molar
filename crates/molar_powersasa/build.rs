@@ -3,14 +3,16 @@ use std::{env, path::PathBuf};
 use cmake::Config;
 
 fn main() {
-    //println!("cargo:rerun-if-changed=build.rs");
-    //println!("cargo:rerun-if-changed=powersasa/wrapper.cpp");
-    //println!("cargo:rerun-if-changed=powersasa/wrapper.hpp");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=powersasa/wrapper.cpp");
+    println!("cargo:rerun-if-changed=powersasa/wrapper.hpp");
 
     let dst = Config::new("powersasa").profile("Release").build();
     println!("cargo:rustc-link-search=native={}", dst.display());
     println!("cargo:rustc-link-lib=static=powersasa_wrapper");
     
+    // No need to regenerate bindings since they are simple and do not change
+    /*
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     
     // We are generating C bindings, so no C++ options needed
@@ -29,4 +31,5 @@ fn main() {
     bindings
         .write_to_file(out_path.join("powersasa_bindings.rs"))
         .expect("Couldn't write bindings!"); 
+    */
 } 
