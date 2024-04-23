@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use anyhow::{anyhow, bail, Result};
 use std::path::Path;
+use self::io_splitter::IoSplitter;
 
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -11,16 +12,13 @@ mod file_content;
 mod io_splitter;
 //mod pdb_handler;
 
-
 // Reexports
 #[cfg(feature = "gromacs")]
 pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 pub use gro_handler::GroFileHandler;
-
 pub use file_content::FileContent;
-use self::io_splitter::IoSplitter;
 
 //===============================
 // Traits for file opening

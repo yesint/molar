@@ -1,6 +1,6 @@
 use super::{Atom, Pos};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Particle<'a> {
     pub id: usize,
     pub atom: &'a Atom,

@@ -2,16 +2,9 @@ use anyhow::{anyhow, bail, Result};
 use nalgebra::Unit;
 use num_traits::Bounded;
 use regex::bytes::Regex;
-
-use super::atom::Atom;
-use super::state::State;
-use super::topology::Topology;
-use super::{IndexIterator, PbcDims, PeriodicBox, PBC_NONE};
-use crate::distance_search::search::DistanceSearcherDouble;
-use crate::io::{StateProvider, TopologyProvider};
 use std::collections::HashSet;
 
-use crate::core::{Pos, Vector3f, PBC_FULL};
+use crate::prelude::*;
 
 //##############################
 //#  AST node types

@@ -7,6 +7,7 @@ mod providers;
 mod measure;
 mod modify;
 mod periodic_table;
+mod particle;
 
 pub use {
     atom::*, 
@@ -18,6 +19,7 @@ pub use {
     measure::*,
     modify::*,
     periodic_table::*,
+    particle::*,
 }; 
 
 #[allow(dead_code)]

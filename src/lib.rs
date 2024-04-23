@@ -1,12 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-mod core;
-mod io;
-mod distance_search;
-
-pub mod voro2d {
-    pub mod voronoi_cell;
-}
+pub mod core;
+pub mod io;
+pub mod distance_search;
+pub mod voronoi_cell;
 
 pub mod prelude {
     pub use crate::core::*;

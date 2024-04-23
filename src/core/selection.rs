@@ -294,6 +294,7 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// # Example 1: mutable non-overlapping selections
 /// ```
 /// # use molar::prelude::*;
+/// # use anyhow::Result;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
 /// let mut src = SourceParallel::new_mut(top, st)?;
 /// // Add a bunch of non-overlapping selections
@@ -309,21 +310,44 @@ fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<Vec<usiz
 /// println!("{:?}",res);
 /// #  Ok::<(), anyhow::Error>(())
 /// ```
-/// # Example 2: immutable overlapping selections
+/// # Example 2: immutable overlapping selections, using par_iter()
 /// ```
 /// # use molar::prelude::*;
+/// # use anyhow::Result;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
 /// let mut src = SourceParallel::new(top, st)?;
 /// // Overlapping selections
 /// src.add_from_iter(0..10)?;
 /// src.add_from_iter(5..15)?;
-/// // Process them
-/// let res: Vec<_> = src.map_par(|sel| {
+/// // Process them using par_iter explicitly
+/// let res = src.par_iter().map(|sel| {
 ///    Ok(sel.center_of_mass()?)
-/// })?;
+/// }).collect::<Result<Vec<_>>>()?;
 /// println!("{:?}",res);
 /// #  Ok::<(), anyhow::Error>(())
 /// ```
+/// # Example 3: using subselections during parallel processing
+/// ```
+/// # use molar::prelude::*;
+/// # use anyhow::Result;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// let mut src = SourceParallel::new_mut(top, st)?;
+/// // Add a bunch of non-overlapping selections for residues
+/// for r in 545..550 {
+///     src.add_str(format!("resid {r}"))?;
+/// }
+/// // Process them in parallel. For each residue
+/// // get CA and N atoms and compute a distance between them
+/// let dist: Vec<_> = src.map_par(|res| {
+///    res.unwrap_simple()?;
+///    let ca = res.subsel_from_str("name CA")?;
+///    let n = res.subsel_from_str("name N")?;
+///    Ok(ca.first().pos-n.first().pos)
+/// })?;
+/// println!("{:?}",dist);
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+
 /// # Safety guarantees
 /// An attampt to move a selection to other thread fails to compile:
 ///```compile_fail
@@ -404,8 +428,7 @@ impl SourceParallel<()> {
     }
 }
 
-impl<K: ParallelSel> SourceParallel<K> {
-
+impl<K: ParallelSel> SourceParallel<K> {    
     /// Executes provided closure on each stored selection in parallel and
     /// collect the closures' outputs into a container.
     /// 
@@ -430,7 +453,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     {
         self.selections.iter().map(func).collect()
     }
-    
+
     /// Returns serial iterator over stored selections 
     pub fn iter(&self) -> impl Iterator<Item = &Sel<K>> {
         self.selections.iter()
@@ -490,10 +513,10 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
-    pub fn add_str(&mut self, selstr: &str) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_str(selstr, &self.topology, &self.state)?;
+    pub fn add_str(&mut self, selstr: impl AsRef<str>) -> anyhow::Result<&Sel<K>> {
+        let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
         self.check_overlap_if_needed(&vec)
-            .with_context(|| format!("Adding str selection '{selstr}'"))?;
+            .with_context(|| format!("Adding str selection '{}'",selstr.as_ref()))?;
         self.selections.push(Sel {
             topology: triomphe::Arc::clone(&self.topology),
             state: triomphe::Arc::clone(&self.state),
@@ -767,13 +790,13 @@ impl<K: SelectionKind> Sel<K> {
     /// Get an (index,atom,position) triplet for i-th selection index.
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
-    pub unsafe fn nth_unchecked(&self, i: usize) -> (usize, &Atom, &Pos) {
+    pub unsafe fn nth_unchecked(&self, i: usize) -> Particle<'_> {
         let ind = *self.index.get_unchecked(i);
-        (
-            ind,
-            self.topology.nth_atom_unchecked(ind),
-            self.state.nth_pos_unchecked(ind),
-        )
+        Particle {
+            id: ind,
+            atom: self.topology.nth_atom_unchecked(ind),
+            pos: self.state.nth_pos_unchecked(ind),
+        }
     }
 
     /// Get an (index,atom,position) triplet for i-th selection index with
@@ -793,18 +816,19 @@ impl<K: SelectionKind> Sel<K> {
     fn split_gen<RT, F, C, Kind>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
         C: FromIterator<Sel<Kind>> + Default,
     {
         let mut ids = HashMap::<RT, Vec<usize>>::default();
 
         for i in 0..self.index.len() {
-            let (ind, at, pos) = unsafe { self.nth_unchecked(i) };
-            let id = func(ind, at, pos);
+            let p = unsafe { self.nth_unchecked(i) };
+            let i = p.id;
+            let id = func(p);
             if let Some(el) = ids.get_mut(&id) {
-                el.push(ind);
+                el.push(i);
             } else {
-                ids.insert(id, vec![ind]);
+                ids.insert(id, vec![i]);
             }
         }
 
@@ -823,7 +847,7 @@ impl<K: SelectionKind> Sel<K> {
     pub fn split<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
         C: FromIterator<Sel<K::SubselKind>> + Default,
     {
         self.split_gen(func)
@@ -837,7 +861,7 @@ impl<K: SelectionKind> Sel<K> {
     pub fn split_into<RT, F, C>(self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
         C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(func)
@@ -849,7 +873,7 @@ impl<K: SelectionKind> Sel<K> {
     where
         C: FromIterator<Sel<K::SubselKind>> + Default,
     {
-        self.split_gen(|_, at, _| at.resid)
+        self.split_gen(|p| p.atom.resid)
     }
 
     /// Helper method that splits selection into the parts with distinct resids.
@@ -858,7 +882,7 @@ impl<K: SelectionKind> Sel<K> {
     where
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_gen(|_, at, _| at.resid)
+        self.split_gen(|p| p.atom.resid)
     }
 
     /// Computes the Solvet Accessible Surface Area (SASA).
@@ -870,7 +894,7 @@ impl<K: SelectionKind> Sel<K> {
                 let ind = *self.index.get_unchecked(i);
                 self.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
             },
-            |i: usize| self.nth(i).unwrap().1.vdw(),
+            |i: usize| self.nth(i).unwrap().atom.vdw(),
         );
         (areas.into_iter().sum(), volumes.into_iter().sum())
     }
@@ -887,13 +911,13 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     /// Get an (index,atom,position) triplet for the first selection index.
-    pub fn first(&self) -> (usize, &Atom, &Pos) {
+    pub fn first(&self) -> Particle {
         unsafe { self.nth_unchecked(0) }
     }
 
     /// Get an (index,atom,position) triplet for the first selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth(&self, i: usize) -> Result<(usize, &Atom, &Pos)> {
+    pub fn nth(&self, i: usize) -> Result<Particle> {
         if i > self.len() {
             bail!("Index {} is beyond the allowed range [0:{}]", i, self.len())
         }
@@ -933,7 +957,7 @@ impl<K: SelectionKind> Sel<K> {
     pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
     {
         SelectionSplitIterator::new(self, func)
     }
@@ -942,8 +966,8 @@ impl<K: SelectionKind> Sel<K> {
     /// Parent selection is left alive.
     pub fn split_contig_resid(
         &self,
-    ) -> SelectionSplitIterator<'_, i32, fn(usize, &Atom, &Pos) -> i32, K> {
-        self.split_contig(|_, at, _| at.resid)
+    ) -> SelectionSplitIterator<'_, i32, fn(Particle) -> i32, K> {
+        self.split_contig(|p| p.atom.resid)
     }
 }
 
@@ -955,7 +979,7 @@ pub struct SelectionIterator<'a, K> {
 }
 
 impl<'a, K: SelectionKind> Iterator for SelectionIterator<'a, K> {
-    type Item = (usize, &'a Atom, &'a Pos);
+    type Item = Particle<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
             let ret = unsafe { self.sel.nth_unchecked(self.cur) };
@@ -1062,6 +1086,7 @@ impl<K: MutableSel> RandomPosMutProvider for Sel<K> {
 }
 
 impl<K: MutableSel> ModifyPos for Sel<K> {}
+impl<K: MutableSel> ModifyPeriodic for Sel<K> {}
 impl<K: MutableSel> ModifyRandomAccess for Sel<K> {}
 
 //-------------------------------------------------------
@@ -1088,7 +1113,7 @@ impl<S> SelectionSplitIterator<'_, (), (), S> {
     pub fn new<RT, F>(sel: &Sel<S>, func: F) -> SelectionSplitIterator<'_, RT, F, S>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
     {
         SelectionSplitIterator {
             sel,
@@ -1104,7 +1129,7 @@ impl<S> SelectionSplitIterator<'_, (), (), S> {
 impl<RT, F, S> Iterator for SelectionSplitIterator<'_, RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
-    F: Fn(usize, &Atom, &Pos) -> RT,
+    F: Fn(Particle) -> RT,
     S: SelectionKind,
 {
     // Non-consuming splitter returns subselections
@@ -1146,7 +1171,7 @@ impl<S> IntoSelectionSplitIterator<(), (), S> {
 impl<RT, F, S> Iterator for IntoSelectionSplitIterator<RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
-    F: Fn(usize, &Atom, &Pos) -> RT,
+    F: Fn(Particle) -> RT,
     S: SelectionKind,
 {
     // Consuming splitter always return the same selection kind as parent
@@ -1161,13 +1186,14 @@ where
 fn next_split<RT, F, S, SR>(data: &mut SplitData<RT, F>, sel: &Sel<S>) -> Option<Sel<SR>>
 where
     RT: Default + std::cmp::PartialEq,
-    F: Fn(usize, &Atom, &Pos) -> RT,
+    F: Fn(Particle) -> RT,
     S: SelectionKind,
 {
     let mut index = Vec::<usize>::new();
     while data.counter < sel.len() {
-        let (i, at, pos) = unsafe { sel.nth_unchecked(data.counter) };
-        let id = (data.func)(i, at, pos);
+        let p = unsafe { sel.nth_unchecked(data.counter) };
+        let i = p.id;
+        let id = (data.func)(p);
 
         if id == data.id {
             // Current selection continues. Add current index
@@ -1245,10 +1271,10 @@ mod tests {
         b.add_from_iter(15..25).unwrap();
         // Process them
         let v = Vector3f::new(1.0, 2.0, 3.0);
-        let res: Vec<_> = b.map_par(|sel| {
+        let res = b.par_iter().map(|sel| {
             sel.translate(&v);
             Ok(sel.center_of_mass()?)
-        })?;
+        }).collect::<anyhow::Result<Vec<_>>>()?;
         
         println!("cm1 = {:?}",res);
         Ok(())
@@ -1343,7 +1369,7 @@ mod tests {
         let sel = make_sel_prot().unwrap();
         let mut searcher = DistanceSearcherSingle::new_periodic(
             0.3, 
-            sel.iter().map(|(i,_,p)| (i,p)), 
+            sel.iter().map(|p| (p.id,p.pos)), 
             sel.get_box().unwrap(), 
             &PBC_FULL
         );
@@ -1395,7 +1421,7 @@ mod tests {
     #[test]
     fn split_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        for res in sel1.split_contig(|_, at, _| at.resid) {
+        for res in sel1.split_contig(|p| p.atom.resid) {
             println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
         Ok(())
