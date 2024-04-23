@@ -1,5 +1,3 @@
-use std::{env, path::PathBuf};
-
 use cmake::Config;
 
 fn main() {
