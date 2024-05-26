@@ -98,7 +98,7 @@ impl std::ops::Index<usize> for SearchConnectivity {
 
 //========================================================
 pub struct DistanceSearcherSingle {
-    grid: Grid<GridCellData>,
+    grid: Grid<GridCell>,
     cutoff: f32,
     serial_limit: usize,
 }
@@ -111,7 +111,7 @@ impl DistanceSearcherSingle {
         upper: &Vector3f,
     ) -> Self {
         // Create grid
-        let mut grid = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff, lower, upper);
+        let mut grid = Grid::<GridCell>::from_cuoff_and_min_max(cutoff, lower, upper);
         grid.populate(data, lower, upper);
         // Create an instance
         Self { grid, cutoff, serial_limit: SERIAL_LIMIT }
@@ -124,18 +124,18 @@ impl DistanceSearcherSingle {
         periodic_dims: &PbcDims,
     ) -> Self {
         // Create grid
-        let mut grid = Grid::<GridCellData>::from_cuoff_and_box(cutoff, box_);
+        let mut grid = Grid::<GridCell>::from_cuoff_and_box(cutoff, box_);
         grid.populate_periodic(data, box_, &periodic_dims);
         // Create an instance
         Self { grid, cutoff, serial_limit: SERIAL_LIMIT }
     }
 
-    fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
+    fn dist_squared_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         let pbc = self.grid.pbc.as_ref().unwrap();
         pbc.pbox.distance_squared(p1, p2, &pbc.dims)
     }
 
-    fn dist_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
+    fn dist_squared_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         (p1 - p2).norm_squared()
     }
 
@@ -149,7 +149,6 @@ impl DistanceSearcherSingle {
         T: SearchOutputType + Send + Sync + Clone,
         C: FromParallelIterator<T> + FromIterator<T> + Send
     {
-        //pub fn search(&self) -> Vec<ValidPair> {
         // Get periodic dimensions for iterator
         let periodic_dims = match self.grid.pbc.as_ref() {
             Some(pbc) => pbc.dims,
@@ -157,9 +156,9 @@ impl DistanceSearcherSingle {
         };
 
         // Get periodic or non-periodic distance function
-        let dist_func = match self.grid.pbc.as_ref() {
-            Some(_) => Self::dist_periodic,
-            None => Self::dist_non_periodic,
+        let dist_squared_func = match self.grid.pbc.as_ref() {
+            Some(_) => Self::dist_squared_periodic,
+            None => Self::dist_squared_non_periodic,
         };
 
         let nt = rayon::current_num_threads();
@@ -178,7 +177,7 @@ impl DistanceSearcherSingle {
                     ch*chunk_size,
                     if ch<nt-1 {(ch+1)*chunk_size} else {self.grid.dim()[0]}
                 ) {
-                    self.search_cell_pair(pair, dist_func, buf);
+                    self.search_cell_pair(pair, dist_squared_func, buf);
                 }
             });
             
@@ -188,7 +187,7 @@ impl DistanceSearcherSingle {
             // Serial
             let mut buf = Vec::<T>::with_capacity(INIT_BUF_SIZE);
             for pair in CellPairIter::new(&self.grid.dim(), &periodic_dims) {
-                self.search_cell_pair(pair, dist_func, &mut buf);
+                self.search_cell_pair(pair, dist_squared_func, &mut buf);
             }
             buf.into_iter().collect::<C>()            
         }
@@ -197,7 +196,7 @@ impl DistanceSearcherSingle {
     fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
-        dist_func: fn(&Self, &Pos, &Pos) -> f32,
+        dist_squared_func: fn(&Self, &Pos, &Pos) -> f32,
         found: &mut Vec<T>,
     ) {
         let n1 = self.grid[&pair.c1].len();
@@ -216,13 +215,13 @@ impl DistanceSearcherSingle {
                 let p1 = &self.grid[&pair.c1].coords[i];
                 for j in i + 1..n1 {
                     let p2 = &self.grid[&pair.c1].coords[j];
-                    let dist = dist_func(self, p1, p2);
+                    let dist2 = dist_squared_func(self, p1, p2);
 
-                    if dist <= cutoff2 {
+                    if dist2 <= cutoff2 {
                         found.push(T::from_search_results(
                             self.grid[&pair.c1].ids[i],
                             self.grid[&pair.c1].ids[j],
-                            dist.sqrt(),
+                            dist2.sqrt(),
                         ));
                     }
                 }
@@ -233,12 +232,12 @@ impl DistanceSearcherSingle {
                 let p1 = &self.grid[&pair.c1].coords[i];
                 for j in 0..n2 {
                     let p2 = &self.grid[&pair.c2].coords[j];
-                    let dist = dist_func(self, p1, p2);
-                    if dist <= cutoff2 {
+                    let dist2 = dist_squared_func(self, p1, p2);
+                    if dist2 <= cutoff2 {
                         found.push(T::from_search_results(
                             self.grid[&pair.c1].ids[i],
                             self.grid[&pair.c2].ids[j],
-                            dist.sqrt(),
+                            dist2.sqrt(),
                         ));
                     }
                 }
@@ -249,8 +248,8 @@ impl DistanceSearcherSingle {
 
 //=============================================================================
 pub struct DistanceSearcherDouble {
-    grid1: Grid<GridCellData>,
-    grid2: Grid<GridCellData>,
+    grid1: Grid<GridCell>,
+    grid2: Grid<GridCell>,
     cutoff: f32,
     serial_limit: usize,
 }
@@ -264,8 +263,8 @@ impl DistanceSearcherDouble {
         upper: &Vector3f,
     ) -> Self {
         // Create grids
-        let mut grid1 = Grid::<GridCellData>::from_cuoff_and_min_max(cutoff, lower, upper);
-        let mut grid2 = Grid::<GridCellData>::new(grid1.dim());
+        let mut grid1 = Grid::<GridCell>::from_cuoff_and_min_max(cutoff, lower, upper);
+        let mut grid2 = Grid::<GridCell>::new(grid1.dim());
 
         grid1.populate(data1, lower, upper);
         grid2.populate(data2, lower, upper);
@@ -286,8 +285,8 @@ impl DistanceSearcherDouble {
         periodic_dims: &PbcDims,
     ) -> Self {
         // Create grids
-        let mut grid1 = Grid::<GridCellData>::from_cuoff_and_box(cutoff, box_);
-        let mut grid2 = Grid::<GridCellData>::new(grid1.dim());
+        let mut grid1 = Grid::<GridCell>::from_cuoff_and_box(cutoff, box_);
+        let mut grid2 = Grid::<GridCell>::new(grid1.dim());
 
         grid1.populate_periodic(data1, box_, &periodic_dims);
         grid2.populate_periodic(data2, box_, &periodic_dims);
@@ -300,12 +299,12 @@ impl DistanceSearcherDouble {
         }
     }
 
-    fn dist_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
+    fn dist_squared_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         let pbc = self.grid1.pbc.as_ref().unwrap(); // First grid as reference
         pbc.pbox.distance_squared(p1, p2, &pbc.dims)
     }
 
-    fn dist_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
+    fn dist_squared_non_periodic(&self, p1: &Pos, p2: &Pos) -> f32 {
         (p1 - p2).norm_squared()
     }
 
@@ -322,9 +321,9 @@ impl DistanceSearcherDouble {
         };
 
         // Get periodic or non-periodic distance function
-        let dist_func = match self.grid1.pbc.as_ref() {
-            Some(_) => Self::dist_periodic,
-            None => Self::dist_non_periodic,
+        let dist_squared_func = match self.grid1.pbc.as_ref() {
+            Some(_) => Self::dist_squared_periodic,
+            None => Self::dist_squared_non_periodic,
         };
 
         let nt = rayon::current_num_threads();
@@ -347,8 +346,8 @@ impl DistanceSearcherDouble {
                     // then for the swapped pair c2->grid1; c1->grid2
                     // grid1 always goes first
                     let swapped_pair = pair.swaped();
-                    self.search_cell_pair(pair, dist_func, buf);
-                    self.search_cell_pair(swapped_pair, dist_func, buf);
+                    self.search_cell_pair(pair, dist_squared_func, buf);
+                    self.search_cell_pair(swapped_pair, dist_squared_func, buf);
                 }                
             });
             
@@ -358,8 +357,8 @@ impl DistanceSearcherDouble {
             let mut buf = Vec::<T>::with_capacity(INIT_BUF_SIZE);
             for pair in CellPairIter::new(&self.grid1.dim(), &periodic_dims) {
                 let swapped_pair = pair.swaped();
-                self.search_cell_pair(pair, dist_func, &mut buf);
-                self.search_cell_pair(swapped_pair, dist_func, &mut buf);
+                self.search_cell_pair(pair, dist_squared_func, &mut buf);
+                self.search_cell_pair(swapped_pair, dist_squared_func, &mut buf);
             }
             buf.into_iter().collect::<C>()   
         }        
@@ -368,7 +367,7 @@ impl DistanceSearcherDouble {
     fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
-        dist_func: fn(&Self, &Pos, &Pos) -> f32,
+        dist_squared_func: fn(&Self, &Pos, &Pos) -> f32,
         found: &mut Vec<T>,
     ) {
         let n1 = self.grid1[&pair.c1].len();
@@ -385,12 +384,12 @@ impl DistanceSearcherDouble {
             let p1 = &self.grid1[&pair.c1].coords[i];
             for j in 0..n2 {
                 let p2 = &self.grid2[&pair.c2].coords[j];
-                let dist = dist_func(self, p1, p2);
-                if dist <= cutoff2 {
+                let dist2 = dist_squared_func(self, p1, p2);
+                if dist2 <= cutoff2 {
                     found.push(T::from_search_results(
                         self.grid1[&pair.c1].ids[i],
                         self.grid2[&pair.c2].ids[j],
-                        dist,
+                        dist2,
                     ));
                 }
             }

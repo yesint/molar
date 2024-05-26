@@ -9,12 +9,12 @@ pub type CellLoc = nalgebra::Vector3<usize>;
 //====================================================================
 // Grid cell with points and indexes
 #[derive(Debug, Clone, Default)]
-pub struct GridCellData {
+pub struct GridCell {
     pub ids: Vec<usize>,
     pub coords: Vec<Pos>,
 }
 
-impl GridCellData {
+impl GridCell {
     pub fn add(&mut self, id: usize, coord: &Pos) {
         self.ids.push(id);
         self.coords.push(coord.clone());
@@ -94,7 +94,7 @@ where
     }
 }
 
-impl Grid<GridCellData> {
+impl Grid<GridCell> {
     pub fn populate<'a>(
         &mut self,
         id_pos: impl IdPosIterator<'a>,
