@@ -6,7 +6,7 @@ use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
 // Cell location in the grid
 pub type CellLoc = nalgebra::Vector3<usize>;
 
-pub trait GridItem {    
+pub trait GridItem: Send + Sync {    
     fn get_pos(&self) -> &Pos;
     fn get_id(&self) -> usize;
 }

@@ -104,6 +104,7 @@ pub struct DistanceSearcherSingle<I> {
 }
 
 /*
+// Specialization for VdW search
 impl DistanceSearcherSingle<(usize,&Pos,f32)> {
     pub fn search_vdw<T, C>(&self) -> C
     where
@@ -134,7 +135,8 @@ impl DistanceSearcherSingle<(usize,&Pos,f32)> {
 }
 */
 
-impl<I: GridItem + Sync + Send> DistanceSearcherSingle<I> {
+
+impl<I: GridItem> DistanceSearcherSingle<I> {
     pub fn new<'a>(
         cutoff: f32,
         data: impl Iterator<Item = I>,
@@ -290,7 +292,7 @@ pub struct DistanceSearcherDouble<I> {
     serial_limit: usize,
 }
 
-impl<I: GridItem + Send + Sync> DistanceSearcherDouble<I> {
+impl<I: GridItem> DistanceSearcherDouble<I> {
     pub fn new<'a>(
         cutoff: f32,
         data1: impl Iterator<Item = I>,
