@@ -103,39 +103,6 @@ pub struct DistanceSearcherSingle<I> {
     serial_limit: usize,
 }
 
-/*
-// Specialization for VdW search
-impl DistanceSearcherSingle<(usize,&Pos,f32)> {
-    pub fn search_vdw<T, C>(&self) -> C
-    where
-        T: SearchOutputType + Send + Sync + Clone,
-        C: FromParallelIterator<T> + FromIterator<T> + Send,
-    {
-        let cutoff2 = self.cutoff.powi(2);
-        // Get periodic or non-periodic distance function
-        match self.grid.pbc.as_ref() {
-            Some(pbc) => self.search_internal(&pbc.dims, |p1, p2| {
-                let d2 = pbc.pbox.distance_squared(p1, p2, &pbc.dims);
-                if d2 <= cutoff2 {
-                    (true, d2.sqrt())
-                } else {
-                    (false, 0.0)
-                }
-            }),
-            None => self.search_internal(&PBC_NONE, |p1, p2| {
-                let d2 = (p1 - p2).norm_squared();
-                if d2 <= cutoff2 {
-                    (true, d2.sqrt())
-                } else {
-                    (false, 0.0)
-                }
-            }),
-        }
-    }
-}
-*/
-
-
 impl<I: GridItem> DistanceSearcherSingle<I> {
     pub fn new<'a>(
         cutoff: f32,
@@ -184,16 +151,16 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
         let cutoff2 = self.cutoff.powi(2);
         // Get periodic or non-periodic distance function
         match self.grid.pbc.as_ref() {
-            Some(pbc) => self.search_internal(&pbc.dims, |p1, p2| {
-                let d2 = pbc.pbox.distance_squared(p1, p2, &pbc.dims);
+            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2| {
+                let d2 = pbc.pbox.distance_squared(at1.get_pos(), at2.get_pos(), &pbc.dims);
                 if d2 <= cutoff2 {
                     (true, d2.sqrt())
                 } else {
                     (false, 0.0)
                 }
             }),
-            None => self.search_internal(&PBC_NONE, |p1, p2| {
-                let d2 = (p1 - p2).norm_squared();
+            None => self.search_internal(&PBC_NONE, |at1, at2| {
+                let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
                 if d2 <= cutoff2 {
                     (true, d2.sqrt())
                 } else {
@@ -207,7 +174,7 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
     where
         T: SearchOutputType + Send + Sync + Clone,
         C: FromParallelIterator<T> + FromIterator<T> + Send,
-        F: Fn(&Pos, &Pos) -> (bool, f32) + Send + Sync,
+        F: Fn(&I, &I) -> (bool, f32) + Send + Sync,
     {
         let nt = rayon::current_num_threads();
         if self.grid.dim()[0] >= nt && self.grid.dim()[0] >= self.serial_limit {
@@ -247,7 +214,7 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
     fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
-        accept_func: impl Fn(&Pos, &Pos) -> (bool, f32),
+        accept_func: impl Fn(&I, &I) -> (bool, f32),
         found: &mut Vec<T>,
     ) {
         let n1 = self.grid[&pair.c1].len();
@@ -264,7 +231,7 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
                 let at1 = &self.grid[&pair.c1][i];
                 for j in i + 1..n1 {
                     let at2 = &self.grid[&pair.c1][j];
-                    if let (true, d) = accept_func(&at1.get_pos(), &at2.get_pos()) {
+                    if let (true, d) = accept_func(&at1, &at2) {
                         found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                     }
                 }
@@ -275,11 +242,83 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
                 let at1 = &self.grid[&pair.c1][i];
                 for j in 0..n2 {
                     let at2 = &self.grid[&pair.c2][j];
-                    if let (true, d) = accept_func(&at1.get_pos(), &at2.get_pos()) {
+                    if let (true, d) = accept_func(&at1, &at2) {
                         found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                     }
                 }
             }
+        }
+    }
+}
+
+// Specialization for VdW search
+impl<'a> DistanceSearcherSingle<(usize,&'a Pos,f32)> {
+    pub fn new_vdw(
+        data: impl Iterator<Item = (usize,&'a Pos,f32)>,
+        lower: &Vector3f,
+        upper: &Vector3f,
+    ) -> Self {
+        // Get the cutoff
+        // We need to reuse iterator twice, so we need to collect it into a vector
+        let cont = data.collect::<Vec<_>>();
+        let max_vdw = cont.iter().map(|el| el.2).reduce(f32::max).unwrap();
+
+        // Create grid
+        let mut grid = Grid::from_cutoff_and_min_max(max_vdw, lower, upper);
+        grid.populate(cont.iter().cloned(), lower, upper);
+        // Create an instance
+        Self {
+            grid,
+            cutoff: max_vdw,
+            serial_limit: SERIAL_LIMIT,
+        }
+    }
+
+    pub fn new_vdw_periodic(
+        data: impl Iterator<Item = (usize,&'a Pos,f32)>,
+        box_: &PeriodicBox,
+        periodic_dims: &PbcDims,
+    ) -> Self {
+        // Get the cutoff
+        // We need to reuse iterator twice, so we need to collect it into a vector
+        let cont = data.collect::<Vec<_>>();
+        let max_vdw = cont.iter().map(|el| el.2).reduce(f32::max).unwrap();
+
+        // Create grid
+        let mut grid = Grid::from_cutoff_and_box(max_vdw, box_);
+        grid.populate_periodic(cont.iter().cloned(), box_, &periodic_dims);
+        // Create an instance
+        Self {
+            grid,
+            cutoff: max_vdw,
+            serial_limit: SERIAL_LIMIT,
+        }
+    }
+
+
+    pub fn search_vdw<T, C>(&self) -> C
+    where
+        T: SearchOutputType + Send + Sync + Clone,
+        C: FromParallelIterator<T> + FromIterator<T> + Send,
+    {
+        // Get periodic or non-periodic distance function
+        match self.grid.pbc.as_ref() {
+            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2| {
+                let d2 = pbc.pbox.distance_squared(at1.get_pos(), at2.get_pos(), &pbc.dims);
+                if d2 < (at1.2+at2.2+f32::EPSILON).powi(2) {
+                    (true, d2.sqrt())
+                } else {
+                    (false, 0.0)
+                }
+            }),
+            None => self.search_internal(&PBC_NONE, |at1, at2| {
+                let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
+                if d2 < (at1.2+at2.2+f32::EPSILON).powi(2) {
+                    (true, d2.sqrt())
+                } else {
+                    (false, 0.0)
+                }
+            }),
         }
     }
 }
@@ -346,16 +385,16 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
         let cutoff2 = self.cutoff.powi(2);
         // Get periodic or non-periodic distance function
         match self.grid1.pbc.as_ref() {
-            Some(pbc) => self.search_internal(&pbc.dims, |p1, p2| {
-                let d2 = pbc.pbox.distance_squared(p1, p2, &pbc.dims);
+            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2| {
+                let d2 = pbc.pbox.distance_squared(at1.get_pos(), at2.get_pos(), &pbc.dims);
                 if d2 <= cutoff2 {
                     (true, d2.sqrt())
                 } else {
                     (false, 0.0)
                 }
             }),
-            None => self.search_internal(&PBC_NONE, |p1, p2| {
-                let d2 = (p1 - p2).norm_squared();
+            None => self.search_internal(&PBC_NONE, |at1, at2| {
+                let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
                 if d2 <= cutoff2 {
                     (true, d2.sqrt())
                 } else {
@@ -369,7 +408,7 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
     where
         T: SearchOutputType + Send + Clone,
         C: FromIterator<T>,
-        F: Fn(&Pos, &Pos) -> (bool, f32) + Send + Sync,
+        F: Fn(&I, &I) -> (bool, f32) + Send + Sync,
     {
         let nt = rayon::current_num_threads();
         if self.grid1.dim()[0] >= nt && self.grid1.dim()[0] >= self.serial_limit {
@@ -416,7 +455,7 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
     fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
-        accept_func: impl Fn(&Pos, &Pos) -> (bool,f32),
+        accept_func: impl Fn(&I, &I) -> (bool,f32),
         found: &mut Vec<T>,
     ) {
         let n1 = self.grid1[&pair.c1].len();
@@ -431,13 +470,101 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
             let at1 = &self.grid1[&pair.c1][i];
             for j in 0..n2 {
                 let at2 = &self.grid2[&pair.c2][j];
-                if let (true,d) = accept_func(&at1.get_pos(), &at2.get_pos()) {                
+                if let (true,d) = accept_func(&at1, &at2) {                
                     found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                 }
             }
         }
     }
 }
+
+// Specialization for vdw search
+impl<'a> DistanceSearcherDouble<(usize,&'a Pos,f32)> {
+    pub fn new_vdw(
+        cutoff: f32,
+        data1: impl Iterator<Item = (usize,&'a Pos,f32)>,
+        data2: impl Iterator<Item = (usize,&'a Pos,f32)>,
+        lower: &Vector3f,
+        upper: &Vector3f,
+    ) -> Self {
+        // Create grids
+        let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, lower, upper);
+        let mut grid2 = Grid::new(grid1.dim());
+
+        let cont1 = data1.collect::<Vec<_>>();
+        let cont2 = data2.collect::<Vec<_>>();
+        let max_vdw = cont1.iter().map(|el| el.2)
+            .chain(cont2.iter().map(|el| el.2))
+            .reduce(f32::max).unwrap();
+
+        grid1.populate(cont1.iter().cloned(), lower, upper);
+        grid2.populate(cont2.iter().cloned(), lower, upper);
+        // Create an instance
+        Self {
+            grid1,
+            grid2,
+            cutoff: max_vdw,
+            serial_limit: SERIAL_LIMIT,
+        }
+    }
+
+    pub fn new_vdw_periodic(
+        cutoff: f32,
+        data1: impl Iterator<Item = (usize,&'a Pos,f32)>,
+        data2: impl Iterator<Item = (usize,&'a Pos,f32)>,
+        box_: &PeriodicBox,
+        periodic_dims: &PbcDims,
+    ) -> Self {
+        // Create grids
+        let mut grid1 = Grid::from_cutoff_and_box(cutoff, box_);
+        let mut grid2 = Grid::new(grid1.dim());
+
+        let cont1 = data1.collect::<Vec<_>>();
+        let cont2 = data2.collect::<Vec<_>>();
+        let max_vdw = cont1.iter().map(|el| el.2)
+            .chain(cont2.iter().map(|el| el.2))
+            .reduce(f32::max).unwrap();
+
+        grid1.populate_periodic(cont1.iter().cloned(), box_, &periodic_dims);
+        grid2.populate_periodic(cont2.iter().cloned(), box_, &periodic_dims);
+        // Create an instance
+        Self {
+            grid1,
+            grid2,
+            cutoff: max_vdw,
+            serial_limit: SERIAL_LIMIT,
+        }
+    }
+
+    pub fn search_vdw<T, C>(&self) -> C
+    where
+        T: SearchOutputType + Send + Sync + Clone,
+        C: FromParallelIterator<T> + FromIterator<T> + Send,
+    {
+        // Get periodic or non-periodic distance function
+        match self.grid1.pbc.as_ref() {
+            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2| {
+                let d2 = pbc.pbox.distance_squared(at1.get_pos(), at2.get_pos(), &pbc.dims);
+                if d2 < (at1.2+at2.2+f32::EPSILON).powi(2) {
+                    (true, d2.sqrt())
+                } else {
+                    (false, 0.0)
+                }
+            }),
+            None => self.search_internal(&PBC_NONE, |at1, at2| {
+                let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
+                if d2 < (at1.2+at2.2+f32::EPSILON).powi(2) {
+                    (true, d2.sqrt())
+                } else {
+                    (false, 0.0)
+                }
+            }),
+        }
+    }
+}
+
+//====================================================================
+
 
 pub trait SearchOutputType {
     fn from_search_results(i: usize, j: usize, d: f32) -> Self;
