@@ -6,23 +6,11 @@ use crate::core::{IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f};
 // Cell location in the grid
 pub type CellLoc = nalgebra::Vector3<usize>;
 
-//====================================================================
-// Grid cell with points and indexes
 #[derive(Debug, Clone, Default)]
-pub struct GridCell {
-    pub ids: Vec<usize>,
-    pub coords: Vec<Pos>,
-}
-
-impl GridCell {
-    pub fn add(&mut self, id: usize, coord: &Pos) {
-        self.ids.push(id);
-        self.coords.push(coord.clone());
-    }
-
-    pub fn len(&self) -> usize {
-        self.ids.len()
-    }
+pub struct GridAtom {
+    pub id: usize,
+    pub pos: Pos,
+    pub vdw: f32,
 }
 
 //======================================================================
@@ -80,11 +68,11 @@ where
         Self::new(sz)
     }
 
-    pub fn from_cuoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
+    pub fn from_cutoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
         Self::from_cutoff_and_extents(cutoff, &(max - min))
     }
 
-    pub fn from_cuoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
+    pub fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
         Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
     }
 
@@ -94,7 +82,7 @@ where
     }
 }
 
-impl Grid<GridCell> {
+impl Grid<Vec<GridAtom>> {
     pub fn populate<'a>(
         &mut self,
         id_pos: impl IdPosIterator<'a>,
@@ -113,7 +101,11 @@ impl Grid<GridCell> {
                     ind[d] = n as usize;
                 }
             }
-            self.data[ind].add(id, &pos);
+            self.data[ind].push(GridAtom {
+                id,
+                pos: *pos,
+                vdw: 0.0,
+            });
             self.n_items += 1;
         }
     }
@@ -139,7 +131,11 @@ impl Grid<GridCell> {
                 ind[d] = (rel[d] * dim[d] as f32).floor().rem_euclid(dim[d] as f32) as usize;
             }
             //println!("{:?}",ind);
-            self.data[ind].add(id, &pos);
+            self.data[ind].push(GridAtom {
+                id,
+                pos: *pos,
+                vdw: 0.0,
+            });
             self.n_items += 1;
         }
         self.pbc = Some(GridPbc {
@@ -167,8 +163,8 @@ impl<T> std::ops::IndexMut<&CellLoc> for Grid<T> {
 //============================================================================
 #[cfg(test)]
 mod tests {
-    use crate::prelude::*;
     use super::*;
+    use crate::prelude::*;
 
     #[test]
     fn test_grid() {
