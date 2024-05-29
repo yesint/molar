@@ -1,16 +1,54 @@
 use num_traits::clamp_min;
 
-use crate::core::{IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f};
+use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
 
 //====================================================================
 // Cell location in the grid
 pub type CellLoc = nalgebra::Vector3<usize>;
 
-#[derive(Debug, Clone, Default)]
-pub struct GridAtom {
-    pub id: usize,
-    pub pos: Pos,
-    pub vdw: f32,
+pub trait GridItem {    
+    fn get_pos(&self) -> &Pos;
+    fn get_id(&self) -> usize;
+}
+
+impl GridItem for (usize,Pos) {
+    fn get_pos(&self) -> &Pos {
+        &self.1
+    }
+    
+    fn get_id(&self) -> usize {
+        self.0
+    }
+}
+
+impl GridItem for (usize,&Pos) {    
+    fn get_pos(&self) -> &Pos {
+        self.1
+    }
+
+    fn get_id(&self) -> usize {
+        self.0
+    }
+}
+
+impl GridItem for (usize,Pos,f32) {    
+    fn get_pos(&self) -> &Pos {
+        &self.1
+    }
+
+    fn get_id(&self) -> usize {
+        self.0
+    }
+}
+
+impl GridItem for (usize,&Pos,f32) {
+    fn get_pos(&self) -> &Pos {
+        self.1
+    }
+
+    fn get_id(&self) -> usize {
+        self.0
+    }
 }
 
 //======================================================================
@@ -82,45 +120,42 @@ where
     }
 }
 
-impl Grid<Vec<GridAtom>> {
+impl<I: GridItem> Grid<Vec<I>> 
+{
     pub fn populate<'a>(
         &mut self,
-        id_pos: impl IdPosIterator<'a>,
+        iter: impl Iterator<Item = I>,
         lower: &Vector3f,
         upper: &Vector3f,
     ) {
         let dim = self.dim();
         let dim_sz = upper - lower;
-        'outer: for (id, pos) in id_pos {
+        'outer: for el in iter {
             let mut ind = [0usize, 0, 0];
             for d in 0..3 {
-                let n = (dim[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
+                let n = (dim[d] as f32 * (el.get_pos()[d] - lower[d]) / dim_sz[d]).floor() as isize;
                 if n < 0 || n >= dim[d] as isize {
                     continue 'outer;
                 } else {
                     ind[d] = n as usize;
                 }
             }
-            self.data[ind].push(GridAtom {
-                id,
-                pos: *pos,
-                vdw: 0.0,
-            });
+            self.data[ind].push(el);
             self.n_items += 1;
         }
     }
 
     pub fn populate_periodic<'a>(
         &mut self,
-        id_pos: impl IdPosIterator<'a>,
+        iter: impl Iterator<Item = I>,
         box_: &PeriodicBox,
         pbc_dims: &PbcDims,
     ) {
         let dim = &self.dim();
 
-        'outer: for (id, pos) in id_pos {
+        'outer: for el in iter {
             // Relative coordinates
-            let rel = box_.to_box_coords(&pos.coords);
+            let rel = box_.to_box_coords(&el.get_pos().coords);
             let mut ind = [0usize, 0, 0];
             for d in 0..3 {
                 // If dimension in not periodic and
@@ -131,11 +166,7 @@ impl Grid<Vec<GridAtom>> {
                 ind[d] = (rel[d] * dim[d] as f32).floor().rem_euclid(dim[d] as f32) as usize;
             }
             //println!("{:?}",ind);
-            self.data[ind].push(GridAtom {
-                id,
-                pos: *pos,
-                vdw: 0.0,
-            });
+            self.data[ind].push(el);
             self.n_items += 1;
         }
         self.pbc = Some(GridPbc {

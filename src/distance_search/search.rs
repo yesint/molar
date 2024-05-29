@@ -1,6 +1,6 @@
 use super::grid::*;
 use crate::{
-    core::{IdPosIterator, PbcDims, PeriodicBox, Pos, Vector3f, PBC_NONE},
+    core::{PbcDims, PeriodicBox, Pos, Vector3f, PBC_NONE},
     distance_search::cell_pair_iterator::CellPairIter,
 };
 use rayon::prelude::*;
@@ -97,16 +97,47 @@ impl std::ops::Index<usize> for SearchConnectivity {
 }
 
 //========================================================
-pub struct DistanceSearcherSingle {
-    grid: Grid<Vec<GridAtom>>,
+pub struct DistanceSearcherSingle<I> {
+    grid: Grid<Vec<I>>,
     cutoff: f32,
     serial_limit: usize,
 }
 
-impl DistanceSearcherSingle {
+/*
+impl DistanceSearcherSingle<(usize,&Pos,f32)> {
+    pub fn search_vdw<T, C>(&self) -> C
+    where
+        T: SearchOutputType + Send + Sync + Clone,
+        C: FromParallelIterator<T> + FromIterator<T> + Send,
+    {
+        let cutoff2 = self.cutoff.powi(2);
+        // Get periodic or non-periodic distance function
+        match self.grid.pbc.as_ref() {
+            Some(pbc) => self.search_internal(&pbc.dims, |p1, p2| {
+                let d2 = pbc.pbox.distance_squared(p1, p2, &pbc.dims);
+                if d2 <= cutoff2 {
+                    (true, d2.sqrt())
+                } else {
+                    (false, 0.0)
+                }
+            }),
+            None => self.search_internal(&PBC_NONE, |p1, p2| {
+                let d2 = (p1 - p2).norm_squared();
+                if d2 <= cutoff2 {
+                    (true, d2.sqrt())
+                } else {
+                    (false, 0.0)
+                }
+            }),
+        }
+    }
+}
+*/
+
+impl<I: GridItem + Sync + Send> DistanceSearcherSingle<I> {
     pub fn new<'a>(
         cutoff: f32,
-        data: impl IdPosIterator<'a>,
+        data: impl Iterator<Item = I>,
         lower: &Vector3f,
         upper: &Vector3f,
     ) -> Self {
@@ -123,7 +154,7 @@ impl DistanceSearcherSingle {
 
     pub fn new_periodic<'a>(
         cutoff: f32,
-        data: impl IdPosIterator<'a>,
+        data: impl Iterator<Item = I>,
         box_: &PeriodicBox,
         periodic_dims: &PbcDims,
     ) -> Self {
@@ -231,8 +262,8 @@ impl DistanceSearcherSingle {
                 let at1 = &self.grid[&pair.c1][i];
                 for j in i + 1..n1 {
                     let at2 = &self.grid[&pair.c1][j];
-                    if let (true, d) = accept_func(&at1.pos, &at2.pos) {
-                        found.push(T::from_search_results(at1.id, at2.id, d));
+                    if let (true, d) = accept_func(&at1.get_pos(), &at2.get_pos()) {
+                        found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                     }
                 }
             }
@@ -242,8 +273,8 @@ impl DistanceSearcherSingle {
                 let at1 = &self.grid[&pair.c1][i];
                 for j in 0..n2 {
                     let at2 = &self.grid[&pair.c2][j];
-                    if let (true, d) = accept_func(&at1.pos, &at2.pos) {
-                        found.push(T::from_search_results(at1.id, at2.id, d));
+                    if let (true, d) = accept_func(&at1.get_pos(), &at2.get_pos()) {
+                        found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                     }
                 }
             }
@@ -252,18 +283,18 @@ impl DistanceSearcherSingle {
 }
 
 //=============================================================================
-pub struct DistanceSearcherDouble {
-    grid1: Grid<Vec<GridAtom>>,
-    grid2: Grid<Vec<GridAtom>>,
+pub struct DistanceSearcherDouble<I> {
+    grid1: Grid<Vec<I>>,
+    grid2: Grid<Vec<I>>,
     cutoff: f32,
     serial_limit: usize,
 }
 
-impl DistanceSearcherDouble {
+impl<I: GridItem + Send + Sync> DistanceSearcherDouble<I> {
     pub fn new<'a>(
         cutoff: f32,
-        data1: impl IdPosIterator<'a>,
-        data2: impl IdPosIterator<'a>,
+        data1: impl Iterator<Item = I>,
+        data2: impl Iterator<Item = I>,
         lower: &Vector3f,
         upper: &Vector3f,
     ) -> Self {
@@ -284,8 +315,8 @@ impl DistanceSearcherDouble {
 
     pub fn new_periodic<'a>(
         cutoff: f32,
-        data1: impl IdPosIterator<'a>,
-        data2: impl IdPosIterator<'a>,
+        data1: impl Iterator<Item = I>,
+        data2: impl Iterator<Item = I>,
         box_: &PeriodicBox,
         periodic_dims: &PbcDims,
     ) -> Self {
@@ -398,8 +429,8 @@ impl DistanceSearcherDouble {
             let at1 = &self.grid1[&pair.c1][i];
             for j in 0..n2 {
                 let at2 = &self.grid2[&pair.c2][j];
-                if let (true,d) = accept_func(&at1.pos, &at2.pos) {                
-                    found.push(T::from_search_results(at1.id, at2.id, d));
+                if let (true,d) = accept_func(&at1.get_pos(), &at2.get_pos()) {                
+                    found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                 }
             }
         }
