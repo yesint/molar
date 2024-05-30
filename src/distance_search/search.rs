@@ -1,6 +1,6 @@
 use super::grid::*;
 use crate::{
-    core::{BoxProvider, MeasurePos, PbcDims, PeriodicBox, Pos, Sel, Vector3f, PBC_NONE},
+    core::{BoxProvider, MeasurePos, PbcDims, PeriodicBox, Pos, Sel, SelectionKind, Vector3f, PBC_NONE},
     distance_search::cell_pair_iterator::CellPairIter,
 };
 use anyhow::anyhow;
@@ -258,9 +258,9 @@ impl DistanceSearcherSingle<(usize, Pos)> {
         }
     }
 
-    pub fn from_sel (
+    pub fn from_sel<K: SelectionKind> (
         cutoff: f32,
-        sel: Sel,
+        sel: &Sel<K>,
     ) -> Self {
         let (lower,upper) = sel.min_max();
         Self::new(
@@ -270,9 +270,9 @@ impl DistanceSearcherSingle<(usize, Pos)> {
         )
     }
 
-    pub fn from_sel_periodic (
+    pub fn from_sel_periodic<K: SelectionKind> (
         cutoff: f32,
-        sel: Sel,
+        sel: &Sel<K>,
         periodic_dims: &PbcDims,
     ) -> anyhow::Result<Self> {
         let box_ = sel.get_box().ok_or_else(|| anyhow!("No periodic box!"))?;
@@ -340,7 +340,7 @@ impl DistanceSearcherSingle<(usize, Pos, f32)> {
         }
     }
 
-    pub fn from_sel_vdw (sel: Sel) -> Self {
+    pub fn from_sel_vdw<K: SelectionKind> (sel: &Sel<K>) -> Self {
         let (lower,upper) = sel.min_max();
         Self::new_vdw(
             sel.iter().map(|p| (p.id,*p.pos)),
@@ -349,8 +349,8 @@ impl DistanceSearcherSingle<(usize, Pos, f32)> {
         )
     }
 
-    pub fn from_sel_vdw_periodic (
-        sel: Sel,
+    pub fn from_sel_vdw_periodic<K: SelectionKind> (
+        sel: &Sel<K>,
         periodic_dims: &PbcDims,
     ) -> anyhow::Result<Self> {
         let box_ = sel.get_box().ok_or_else(|| anyhow!("No periodic box!"))?;
@@ -399,50 +399,6 @@ pub struct DistanceSearcherDouble<I> {
 }
 
 impl<I: GridItem> DistanceSearcherDouble<I> {
-    pub fn new(
-        cutoff: f32,
-        data1: impl Iterator<Item = I>,
-        data2: impl Iterator<Item = I>,
-        lower: &Vector3f,
-        upper: &Vector3f,
-    ) -> Self {
-        // Create grids
-        let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, lower, upper);
-        let mut grid2 = Grid::new(grid1.dim());
-
-        grid1.populate(data1, lower, upper);
-        grid2.populate(data2, lower, upper);
-        // Create an instance
-        Self {
-            grid1,
-            grid2,
-            cutoff,
-            serial_limit: SERIAL_LIMIT,
-        }
-    }
-
-    pub fn new_periodic(
-        cutoff: f32,
-        data1: impl Iterator<Item = I>,
-        data2: impl Iterator<Item = I>,
-        box_: &PeriodicBox,
-        periodic_dims: &PbcDims,
-    ) -> Self {
-        // Create grids
-        let mut grid1 = Grid::from_cutoff_and_box(cutoff, box_);
-        let mut grid2 = Grid::new(grid1.dim());
-
-        grid1.populate_periodic(data1, box_, &periodic_dims);
-        grid2.populate_periodic(data2, box_, &periodic_dims);
-        // Create an instance
-        Self {
-            grid1,
-            grid2,
-            cutoff,
-            serial_limit: SERIAL_LIMIT,
-        }
-    }
-
     // Main search function
     pub fn search<T, C>(&self) -> C
     where
@@ -547,6 +503,90 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
     }
 }
 
+impl DistanceSearcherDouble<(usize, Pos)> {
+    pub fn new(
+        cutoff: f32,
+        data1: impl Iterator<Item = (usize, Pos)>,
+        data2: impl Iterator<Item = (usize, Pos)>,
+        lower: &Vector3f,
+        upper: &Vector3f,
+    ) -> Self {
+        // Create grids
+        let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, lower, upper);
+        let mut grid2 = Grid::new(grid1.dim());
+
+        grid1.populate(data1, lower, upper);
+        grid2.populate(data2, lower, upper);
+        // Create an instance
+        Self {
+            grid1,
+            grid2,
+            cutoff,
+            serial_limit: SERIAL_LIMIT,
+        }
+    }
+
+    pub fn new_periodic(
+        cutoff: f32,
+        data1: impl Iterator<Item = (usize, Pos)>,
+        data2: impl Iterator<Item = (usize, Pos)>,
+        box_: &PeriodicBox,
+        periodic_dims: &PbcDims,
+    ) -> Self {
+        // Create grids
+        let mut grid1 = Grid::from_cutoff_and_box(cutoff, box_);
+        let mut grid2 = Grid::new(grid1.dim());
+
+        grid1.populate_periodic(data1, box_, &periodic_dims);
+        grid2.populate_periodic(data2, box_, &periodic_dims);
+        // Create an instance
+        Self {
+            grid1,
+            grid2,
+            cutoff,
+            serial_limit: SERIAL_LIMIT,
+        }
+    }
+
+    pub fn from_sel<K1,K2> (cutoff: f32, sel1: &Sel<K1>, sel2: &Sel<K2>) -> Self 
+    where
+        K1: SelectionKind,
+        K2: SelectionKind,
+    {
+        let (lower1,upper1) = sel1.min_max();
+        let (lower2,upper2) = sel2.min_max();
+        let (lower,upper) = combine_bounds(&lower1,&upper1,&lower2,&upper2);
+
+        Self::new(
+            cutoff,
+            sel1.iter().map(|p| (p.id,*p.pos)),
+            sel2.iter().map(|p| (p.id,*p.pos)),
+            &lower, &upper
+        )
+    }
+
+    pub fn from_sel_periodic<K1,K2>(
+        cutoff: f32,
+        sel1: &Sel<K1>,
+        sel2: &Sel<K2>,
+        periodic_dims: &PbcDims,
+    ) -> anyhow::Result<Self> 
+    where
+        K1: SelectionKind,
+        K2: SelectionKind,
+    {
+        let box_ = sel1.get_box().ok_or_else(|| anyhow!("No periodic box in sel1!"))?;
+        
+        Ok(Self::new_periodic(
+            cutoff,
+            sel1.iter().map(|p| (p.id,*p.pos)),
+            sel2.iter().map(|p| (p.id,*p.pos)),
+            box_, periodic_dims
+        ))
+    }
+
+}
+
 // Specialization for vdw search
 impl DistanceSearcherDouble<(usize, Pos, f32)> {
     pub fn new_vdw(
@@ -581,9 +621,9 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
     }
 
     pub fn new_vdw_periodic(
-        data1: impl Iterator<Item = (usize, Pos, f32)>,
+        data1: impl Iterator<Item = (usize, Pos)>,
         vdw1: impl Iterator<Item = f32>,
-        data2: impl Iterator<Item = (usize, Pos, f32)>,
+        data2: impl Iterator<Item = (usize, Pos)>,
         vdw2: impl Iterator<Item = f32>,
         box_: &PeriodicBox,
         periodic_dims: &PbcDims,
@@ -609,6 +649,44 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
             cutoff,
             serial_limit: SERIAL_LIMIT,
         }
+    }
+
+    pub fn from_sel_vdw<K1,K2> (sel1: &Sel<K1>, sel2: &Sel<K2>) -> Self 
+    where
+        K1: SelectionKind,
+        K2: SelectionKind,
+    {
+        let (lower1,upper1) = sel1.min_max();
+        let (lower2,upper2) = sel2.min_max();
+        let (lower,upper) = combine_bounds(&lower1,&upper1,&lower2,&upper2);
+
+        Self::new_vdw(
+            sel1.iter().map(|p| (p.id,*p.pos)),
+            sel1.iter().map(|p| p.atom.vdw()),
+            sel2.iter().map(|p| (p.id,*p.pos)),
+            sel2.iter().map(|p| p.atom.vdw()),
+            &lower, &upper
+        )
+    }
+
+    pub fn from_sel_vdw_periodic<K1,K2>(
+        sel1: &Sel<K1>,
+        sel2: &Sel<K2>,
+        periodic_dims: &PbcDims,
+    ) -> anyhow::Result<Self> 
+    where
+        K1: SelectionKind,
+        K2: SelectionKind,
+    {
+        let box_ = sel1.get_box().ok_or_else(|| anyhow!("No periodic box in sel1!"))?;
+        
+        Ok(Self::new_vdw_periodic(
+            sel1.iter().map(|p| (p.id,*p.pos)),
+            sel1.iter().map(|p| p.atom.vdw()),
+            sel2.iter().map(|p| (p.id,*p.pos)),
+            sel2.iter().map(|p| p.atom.vdw()),
+            box_, periodic_dims
+        ))
     }
 
     pub fn search_vdw<T, C>(&self) -> C
@@ -638,6 +716,16 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
             }),
         }
     }
+}
+
+fn combine_bounds(lower1: &Pos, upper1: &Pos, lower2: &Pos, upper2: &Pos) -> (Vector3f, Vector3f) {
+    let mut lower = Vector3f::zeros();
+    let mut upper = Vector3f::zeros();
+    for i in 0..2 {
+        lower[i] = lower1[i].min(lower2[i]);
+        upper[i] = upper1[i].max(upper2[i]);
+    }
+    (lower, upper)
 }
 
 //====================================================================
