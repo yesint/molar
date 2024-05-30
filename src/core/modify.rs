@@ -71,8 +71,12 @@ pub trait ModifyRandomAccess:
             .ok_or_else(|| anyhow!("No periodicity!"))?
             .to_owned();
         let conn: SearchConnectivity =
-            DistanceSearcherSingle::new_periodic(cutoff, self.iter_pos().enumerate(), &b, &dims)
-                .search();
+            DistanceSearcherSingle::new_periodic(
+                cutoff,
+                self.iter_pos().cloned().enumerate(),
+                &b,
+                &dims
+            ).search();
 
         // used atoms
         let mut used = vec![false; conn.len()];

@@ -6,7 +6,9 @@ use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
 // Cell location in the grid
 pub type CellLoc = nalgebra::Vector3<usize>;
 
-pub trait GridItem: Send + Sync {    
+/// Trait for grid items
+/// Objects implementing thi strait will work for distance search.
+pub trait GridItem: Send + Sync { 
     fn get_pos(&self) -> &Pos;
     fn get_id(&self) -> usize;
 }
@@ -21,29 +23,9 @@ impl GridItem for (usize,Pos) {
     }
 }
 
-impl GridItem for (usize,&Pos) {    
-    fn get_pos(&self) -> &Pos {
-        self.1
-    }
-
-    fn get_id(&self) -> usize {
-        self.0
-    }
-}
-
 impl GridItem for (usize,Pos,f32) {    
     fn get_pos(&self) -> &Pos {
         &self.1
-    }
-
-    fn get_id(&self) -> usize {
-        self.0
-    }
-}
-
-impl GridItem for (usize,&Pos,f32) {
-    fn get_pos(&self) -> &Pos {
-        self.1
     }
 
     fn get_id(&self) -> usize {
@@ -122,7 +104,7 @@ where
 
 impl<I: GridItem> Grid<Vec<I>> 
 {
-    pub fn populate<'a>(
+    pub fn populate(
         &mut self,
         iter: impl Iterator<Item = I>,
         lower: &Vector3f,
@@ -145,7 +127,7 @@ impl<I: GridItem> Grid<Vec<I>>
         }
     }
 
-    pub fn populate_periodic<'a>(
+    pub fn populate_periodic(
         &mut self,
         iter: impl Iterator<Item = I>,
         box_: &PeriodicBox,
@@ -208,7 +190,7 @@ mod tests {
 
         let mut gr = Grid::new([10, 10, 10]);
         gr.populate_periodic(
-            zip(0..st.num_coords(), st.iter_pos()),
+            zip(0..st.num_coords(), st.iter_pos().cloned()),
             &st.get_box().unwrap(),
             &PBC_FULL,
         );

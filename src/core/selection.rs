@@ -1369,7 +1369,7 @@ mod tests {
         let sel = make_sel_prot().unwrap();
         let mut searcher = DistanceSearcherSingle::new_periodic(
             0.3, 
-            sel.iter().map(|p| (p.id,p.pos)), 
+            sel.iter().map(|p| (p.id,*p.pos)), 
             sel.get_box().unwrap(), 
             &PBC_FULL
         );
@@ -1383,6 +1383,21 @@ mod tests {
         let v2: Vec<usize> = searcher.search();
 
         assert_eq!(v1.len(),v2.len());
+    }
+
+    #[test]
+    fn test_searcher_single_vdw() {
+        let sel = make_sel_prot().unwrap();
+        let searcher = DistanceSearcherSingle::new_vdw_periodic(
+            sel.iter().map(|p| (p.id,*p.pos)), 
+            sel.iter().map(|p| p.atom.vdw()),
+            sel.get_box().unwrap(), 
+            &PBC_FULL
+        );
+
+        let v1: Vec<usize> = searcher.search();
+
+        assert!(v1.len()>0);
     }
 
 

@@ -46,7 +46,7 @@ fn search_par(c: &mut Criterion) {
 
     let mut searcher = DistanceSearcherSingle::new_periodic(
         0.3, 
-        sel.iter().map(|p| (p.id,p.pos)), 
+        sel.iter().map(|p| (p.id,*p.pos)), 
         sel.get_box().unwrap(), 
         &PBC_FULL
     );

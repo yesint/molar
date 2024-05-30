@@ -224,11 +224,11 @@ impl<'a> ApplyData<'a> {
         index.map(|i| unsafe { self.topology.nth_atom_unchecked(i) })
     }
 
-    fn iter_ind_pos_from_index(
-        &self,
-        index: impl ExactSizeIterator<Item = usize>,
-    ) -> impl ExactSizeIterator<Item = (usize, &Pos)> {
-        index.map(|i| unsafe { (i, self.state.nth_pos_unchecked(i)) })
+    fn iter_ind_pos_from_index<'b>(
+        &'b self,
+        index: impl ExactSizeIterator<Item = usize> + 'b,
+    ) -> impl ExactSizeIterator<Item = (usize, Pos)> + 'b {
+        index.map(|i| unsafe { (i, *self.state.nth_pos_unchecked(i)) })
     }
 
     fn iter_ind_atom_from_index(
