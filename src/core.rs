@@ -8,6 +8,7 @@ mod measure;
 mod modify;
 mod periodic_table;
 mod particle;
+mod builder;
 
 pub use {
     atom::*, 

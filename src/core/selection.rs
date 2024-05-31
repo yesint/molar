@@ -812,6 +812,10 @@ impl<K: SelectionKind> Sel<K> {
         )
     }
 
+    //============================
+    // Splitting
+    //============================
+
     // Helper splitting function generic over returned selections kind
     fn split_gen<RT, F, C, Kind>(&self, func: F) -> C
     where
@@ -968,6 +972,12 @@ impl<K: SelectionKind> Sel<K> {
         &self,
     ) -> SelectionSplitIterator<'_, i32, fn(Particle) -> i32, K> {
         self.split_contig(|p| p.atom.resid)
+    }
+
+    /// Tests if two selections are from the same source
+    pub fn same_source(&self, other: &Sel<K>) -> bool {
+        triomphe::Arc::ptr_eq(&self.topology, &other.topology) &&
+        triomphe::Arc::ptr_eq(&self.state, &other.state)
     }
 }
 

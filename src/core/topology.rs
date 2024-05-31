@@ -4,7 +4,6 @@ use sync_unsafe_cell::SyncUnsafeCell;
 use crate::io::TopologyProvider;
 
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, TopologyUArc};
-//use super::handle::{SharedHandle, Handle};
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
