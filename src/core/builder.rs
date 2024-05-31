@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use anyhow::Result;
 
 struct Builder {
     source: Source,
@@ -8,7 +9,7 @@ impl Builder {
     pub fn new(
         topology: TopologyUArc,
         state: StateUArc,
-    ) -> Result<Self> {
+    ) -> anyhow::Result<Self> {
         Ok(Self{source: Source::new(topology,state)?})
     }
 
