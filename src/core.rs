@@ -8,7 +8,8 @@ mod measure;
 mod modify;
 mod periodic_table;
 mod particle;
-mod builder;
+#[allow(dead_code)]
+mod selection_parser;
 
 pub use {
     atom::*, 
@@ -21,10 +22,9 @@ pub use {
     modify::*,
     periodic_table::*,
     particle::*,
+    selection_parser::SelectionExpr,
 }; 
 
-#[allow(dead_code)]
-mod selection_parser;
 
 // Aliases for vector and points
 pub type Vector3f = nalgebra::Vector3<f32>;
