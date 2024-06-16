@@ -361,3 +361,18 @@ impl<K: ParallelSel> SourceParallel<K> {
     
 }
 
+#[cfg(test)]
+mod tests {    
+    use crate::prelude::*;
+    use rayon::iter::ParallelIterator;
+    #[test]
+    fn par_iter2() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+        let mut src = SourceParallel::new_mut(top, st)?;
+        src.add_str("resid 545")?;
+        src.add_str("resid 546")?;
+        src.add_str("resid 547")?;
+        src.par_iter().for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+        Ok::<(), anyhow::Error>(())
+    }
+}

@@ -9,4 +9,5 @@ pub mod prelude {
     pub use crate::core::*;
     pub use crate::io::*;
     pub use crate::distance_search::*;
+    pub use rayon::iter::ParallelIterator;
 }
