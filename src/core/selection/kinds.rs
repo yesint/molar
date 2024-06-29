@@ -44,12 +44,3 @@ impl SelectionKind for ImmutableParallel {
 }
 impl MayOverlap for ImmutableParallel {}
 impl ParallelSel for ImmutableParallel {}
-
-/// Marker type for checked possibly overlapping mutable builder selection (single-threaded)
-pub struct BuilderSerial(PhantomData<*const ()>);
-impl SelectionKind for BuilderSerial {
-    type SubselKind = BuilderSerial;
-    const NEED_CHECK_OVERLAP: bool = false;
-}
-impl MayOverlap for BuilderSerial {}
-impl MutableSel for BuilderSerial {}

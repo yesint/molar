@@ -56,12 +56,7 @@ pub struct Sel<K = MutableSerial> {
 impl Sel<MutableSerial> {
     // Only visible in selection module
     pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self {
-            topology: sel.topology,
-            state: sel.state,
-            index: sel.index,
-            _marker: PhantomData::default(),
-        }
+        Self::new(sel.topology,sel.state,sel.index)
     }
 }
 
@@ -300,12 +295,12 @@ impl<K: SelectionKind> Sel<K> {
         h.write(self)
     }
 
-    /// Get an (index,atom,position) triplet for the first selection index.
+    /// Get a Particle for the first selection index.
     pub fn first(&self) -> Particle {
         unsafe { self.nth_unchecked(0) }
     }
 
-    /// Get an (index,atom,position) triplet for the first selection index.
+    /// Get a Particle for the first selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
     pub fn nth(&self, i: usize) -> Result<Particle> {
         if i > self.len() {
@@ -368,7 +363,7 @@ impl<K: SelectionKind> Sel<K> {
 }
 
 //---------------------------------------------
-/// Iterator over the (index,atom,position) triplets from selection.
+/// Iterator over the [Particle]s from selection.
 pub struct SelectionIterator<'a, K> {
     sel: &'a Sel<K>,
     cur: usize,
