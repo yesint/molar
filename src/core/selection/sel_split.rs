@@ -103,7 +103,7 @@ where
 {
     let mut index = Vec::<usize>::new();
     while data.counter < sel.len() {
-        let p = unsafe { sel.nth_unchecked(data.counter) };
+        let p = unsafe { sel.nth_particle_unchecked(data.counter) };
         let i = p.id;
         let id = (data.func)(p);
 

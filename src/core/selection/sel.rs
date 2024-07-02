@@ -170,7 +170,7 @@ impl<K: SelectionKind> Sel<K> {
     /// Get an (index,atom,position) triplet for i-th selection index.
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
-    pub unsafe fn nth_unchecked(&self, i: usize) -> Particle<'_> {
+    pub unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
         let ind = *self.index.get_unchecked(i);
         Particle {
             id: ind,
@@ -183,7 +183,7 @@ impl<K: SelectionKind> Sel<K> {
     /// mutable atom and position.
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
-    pub unsafe fn nth_unchecked_mut(&self, i: usize) -> (usize, &mut Atom, &mut Pos) {
+    pub unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> (usize, &mut Atom, &mut Pos) {
         let ind = *self.index.get_unchecked(i);
         (
             ind,
@@ -207,7 +207,7 @@ impl<K: SelectionKind> Sel<K> {
         let mut ids = HashMap::<RT, Vec<usize>>::default();
 
         for i in 0..self.index.len() {
-            let p = unsafe { self.nth_unchecked(i) };
+            let p = unsafe { self.nth_particle_unchecked(i) };
             let i = p.id;
             let id = func(p);
             if let Some(el) = ids.get_mut(&id) {
@@ -297,7 +297,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Get a Particle for the first selection index.
     pub fn first(&self) -> Particle {
-        unsafe { self.nth_unchecked(0) }
+        unsafe { self.nth_particle_unchecked(0) }
     }
 
     /// Get a Particle for the first selection index.
@@ -306,7 +306,7 @@ impl<K: SelectionKind> Sel<K> {
         if i > self.len() {
             bail!("Index {} is beyond the allowed range [0:{}]", i, self.len())
         }
-        Ok(unsafe { self.nth_unchecked(i) })
+        Ok(unsafe { self.nth_particle_unchecked(i) })
     }
 
     pub fn iter(&self) -> SelectionIterator<K> {
@@ -373,7 +373,7 @@ impl<'a, K: SelectionKind> Iterator for SelectionIterator<'a, K> {
     type Item = Particle<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
-            let ret = unsafe { self.sel.nth_unchecked(self.cur) };
+            let ret = unsafe { self.sel.nth_particle_unchecked(self.cur) };
             self.cur += 1;
             Some(ret)
         } else {
