@@ -206,8 +206,7 @@ impl<K: SelectionKind> Sel<K> {
     {
         let mut ids = HashMap::<RT, Vec<usize>>::default();
 
-        for i in 0..self.index.len() {
-            let p = unsafe { self.nth_particle_unchecked(i) };
+        for p in self.iter() {
             let i = p.id;
             let id = func(p);
             if let Some(el) = ids.get_mut(&id) {

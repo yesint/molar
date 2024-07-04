@@ -80,7 +80,6 @@ impl State {
     pub fn interchangeable(&self, other: &State) -> bool {
         self.get().coords.len() == other.get().coords.len()
     }
-    
 }
 
 // Impls for smart pointers

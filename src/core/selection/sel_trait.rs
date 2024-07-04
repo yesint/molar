@@ -12,7 +12,7 @@ pub(super) mod selection_impl {
         fn get_index_iter(&self) -> impl ExactSizeIterator<Item = usize>;    
         fn get_topology(&self) -> &Topology;
         fn get_state(&self) -> &State;
-        fn subselect(&self,index: &Vec<usize>) -> Self::Subsel;
+        fn subselect(&self,index: &Vec<usize>) -> impl super::Selection;
         
         // Types can overload this default implementation to get higher performance
         fn nth_index(&self,i: usize) -> Option<usize> {
@@ -29,7 +29,32 @@ pub(super) mod selection_impl {
             })
         }
 
-        
+        // Helper splitting function generic over returned selections kind
+        fn split_gen<RT, F, C, S>(&self, func: F) -> C
+        where
+            RT: Default + std::hash::Hash + std::cmp::Eq,
+            F: Fn(Particle) -> RT,
+            C: FromIterator<S> + Default,
+        {
+            let mut ids = std::collections::HashMap::<RT, Vec<usize>>::default();
+
+            for ind in self.get_index_iter() {
+                let p = self.nth_particle(ind).unwrap();
+                let i = p.id;
+                let id = func(p);
+                if let Some(el) = ids.get_mut(&id) {
+                    el.push(i);
+                } else {
+                    ids.insert(id, vec![i]);
+                }
+            }
+
+            C::from_iter(
+                ids.into_values()
+                    .map(|ind| self.subselect(&ind) ),
+                // This should never fail because `ind` can't be empty
+            )
+        }
     }
 }
 
@@ -110,31 +135,54 @@ pub trait Selection: selection_impl::SelectionImpl + Sized {
     // Splitting
     //============================
 
-    // Helper splitting function generic over returned selections kind
-    fn split_gen<RT, F, C>(&self, func: F) -> C
+    
+
+    /// Splits selection to pieces that could be disjoint
+    /// according to the value of function. Parent selection is kept intact.
+    /// 
+    /// The number of selections correspond to the distinct values returned by `func`.
+    /// Selections are stored in a container `C` and has the same kind as subselections.
+    fn split<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> RT,
-        C: FromIterator<Self::Subsel> + Default,        
+        C: FromIterator<Self::Subsel> + Default,
     {
-        let mut ids = std::collections::HashMap::<RT, Vec<usize>>::default();
-
-        for p in self.iter_particles() {
-            let i = p.id;
-            let id = func(p);
-            if let Some(el) = ids.get_mut(&id) {
-                el.push(i);
-            } else {
-                ids.insert(id, vec![i]);
-            }
-        }
-
-        C::from_iter(
-            ids.into_values()
-                .map(|ind| self.subselect(&ind)),
-            // This should never fail because `ind` can't be empty
-        )
+        split_gen(self,func)
     }
+
+    /// Splits selection to pieces that could be disjoint
+    /// according to the value of function. Parent selection is consumed.
+    /// 
+    /// The number of selections correspond to the distinct values returned by `func`.
+    /// Selections are stored in a container `C` and has the same kind as parent selection.
+    fn split_into<RT, F, C>(self, func: F) -> C
+    where
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+        F: Fn(Particle) -> RT,
+        C: FromIterator<Self> + Default,
+    {
+        split_gen(&self,func)
+    }
+
+    /// Helper method that splits selection into the parts with distinct resids.
+    /// Parent selection is left alive.
+    fn split_resid<C>(&self) -> C
+    where
+        C: FromIterator<Self::Subsel> + Default,
+    {
+        self.split_gen(|p| p.atom.resid)
+    }
+
+    /// Helper method that splits selection into the parts with distinct resids.
+    /// Parent selection is consumed.
+    fn split_resid_into<C>(self) -> C
+    where
+        C: FromIterator<Self> + Default,
+    {
+        self.split_gen(|p| p.atom.resid)
+    }
+
 
 }
 
