@@ -294,6 +294,16 @@ impl<K: SelectionKind> Sel<K> {
         h.write(self)
     }
 
+    pub fn first_index(&self) -> usize {
+        self.index[0]
+    }
+
+    pub fn last_index(&self) -> usize {
+        self.index[self.index.len()-1]
+    }
+
+    
+
     /// Get a Particle for the first selection index.
     pub fn first(&self) -> Particle {
         unsafe { self.nth_particle_unchecked(0) }
