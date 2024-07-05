@@ -301,8 +301,6 @@ impl<K: SelectionKind> Sel<K> {
         self.index[self.index.len()-1]
     }
 
-    
-
     /// Get a Particle for the first selection index.
     pub fn first(&self) -> Particle {
         unsafe { self.nth_particle_unchecked(0) }
