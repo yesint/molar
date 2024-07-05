@@ -167,7 +167,7 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    /// Get an (index,atom,position) triplet for i-th selection index.
+    /// Get a Particle for i-th selection index.
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
@@ -179,17 +179,16 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    /// Get an (index,atom,position) triplet for i-th selection index with
-    /// mutable atom and position.
+    /// Get a mutable Particle for i-th selection index with
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
-    pub unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> (usize, &mut Atom, &mut Pos) {
+    pub unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> ParticleMut<'_> {
         let ind = *self.index.get_unchecked(i);
-        (
-            ind,
-            self.topology.nth_atom_unchecked_mut(ind),
-            self.state.nth_pos_unchecked_mut(ind),
-        )
+        ParticleMut {
+            id: ind,
+            atom: self.topology.nth_atom_unchecked_mut(ind),
+            pos: self.state.nth_pos_unchecked_mut(ind),
+        }
     }
 
     //============================
@@ -293,6 +292,16 @@ impl<K: SelectionKind> Sel<K> {
         let mut h = FileHandler::create(fname)?;
         h.write(self)
     }
+
+    pub fn first_index(&self) -> usize {
+        self.index[0]
+    }
+
+    pub fn last_index(&self) -> usize {
+        self.index[self.index.len()-1]
+    }
+
+    
 
     /// Get a Particle for the first selection index.
     pub fn first(&self) -> Particle {
