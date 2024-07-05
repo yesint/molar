@@ -5,7 +5,7 @@ use anyhow::{Result,bail};
 use crate::prelude::*;
 
 pub struct SelChecked {
-    sel: RefCell<Sel<MutableSerial>>,
+    sel: Sel<MutableSerial>,
 }
 
 impl SelChecked {
@@ -21,18 +21,10 @@ impl SelChecked {
         Ok(())
     }
 
-    pub fn get<'a>(&'a self) -> Result<Ref<'a, Sel<MutableSerial>>>{
-        // Check validity of selection
-        let ret = self.sel.borrow();
-        Self::check_validity(&ret)?;
-        Ok(ret)
-    }
-
-    pub fn get_mut<'a>(&'a self) -> Result<RefMut<'a, Sel<MutableSerial>>>{
-        // Check validity of selection
-        let ret = self.sel.borrow_mut();
-        Self::check_validity(&ret)?;
-        Ok(ret)
+    pub fn get(&self) -> Result<&Sel<MutableSerial>>{
+        // Check validity of selection        
+        Self::check_validity(&self.sel)?;
+        Ok(&self.sel)
     }
 }
 
