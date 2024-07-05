@@ -4,7 +4,6 @@ mod source;
 mod source_parallel;
 mod sel;
 mod sel_split;
-mod sel_trait;
 mod builder;
 
 pub use kinds::*;
