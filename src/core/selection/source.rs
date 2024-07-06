@@ -40,9 +40,7 @@ impl Source {
             _marker: Default::default(),
         }
     }
-}
 
-impl Source {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
     pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
         Ok((
@@ -52,13 +50,12 @@ impl Source {
                 .or_else(|_| bail!("Can't release state: multiple references are active!"))?,
         ))
     }
-}
 
-//---------------------------------
-// Creating selections
-//---------------------------------
+    //---------------------------------
+    // Creating selections
+    //---------------------------------
 
-impl Source {
+    /*
     /// Get a shared pointer to contained [Topology]
     pub fn get_topology(&self) -> TopologyArc {
         triomphe::Arc::clone(&self.topology)
@@ -68,6 +65,7 @@ impl Source {
     pub fn get_state(&self) -> StateArc {
         triomphe::Arc::clone(&self.state)
     }
+    */
 
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.

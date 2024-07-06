@@ -28,6 +28,18 @@ impl SelChecked {
     }
 }
 
-struct Builder {
-    src: RefCell<Source>,
+pub struct Builder {
+    topology: TopologyStorage,
+    state: StateStorage,
+}
+
+impl Builder {
+    pub fn clone_as_source(&self) -> Source {
+        Source::new(
+            self.topology.clone().into(),
+            self.state.clone().into()
+        ).unwrap()
+    }
+
+    
 }

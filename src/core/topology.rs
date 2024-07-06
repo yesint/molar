@@ -90,6 +90,7 @@ impl Topology {
     }
 
     pub fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+        todo!("Check if bond already exists");
         self.get_mut().bonds.extend(added);
     }
 
@@ -97,7 +98,7 @@ impl Topology {
         self.get_mut().molecules.extend(added);
     }
 
-    pub fn remove(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+    pub fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
         let mut ind = removed.collect::<Vec<_>>();
         if ind.len()==0 {
             return Ok(());
@@ -121,7 +122,8 @@ impl Topology {
                     if m[1]>0 {
                         m[0] -= 1
                     } else {
-                        return false;
+                        // Remove whole molecule
+                        return false
                     }
                 }
                 m[1]>=m[0]
