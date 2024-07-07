@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new(top, st)?;
+        let b = Source::new(top, st)?;
         // Create two overlapping selections
         let _sel1 = b.select_from_iter(0..10)?;
         let _sel2 = b.select_from_iter(5..15)?;
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn builder_par_no_overlap() {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new(top, st).unwrap();
+        let b = Source::new(top, st).unwrap();
         // Create two non-overlapping selections.
         let _sel1 = b.select_from_iter(0..10).unwrap();
         let _sel2 = b.select_from_iter(11..15).unwrap();
@@ -104,14 +104,14 @@ mod tests {
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new(top, st)?;
+        let b = Source::new(top, st)?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new(top, st)?;
+        let b = Source::new(top, st)?;
         let sel = b.select_str("not resname TIP3 POT CLA")?;
         Ok(sel)
     }

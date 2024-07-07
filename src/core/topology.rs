@@ -1,10 +1,9 @@
-use std::ops::Deref;
 use anyhow::bail;
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::TopologyProvider;
 
-use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, TopologyUArc};
+use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, TopologyArc, TopologyUArc};
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
@@ -163,25 +162,25 @@ impl MassesProvider for Topology {
 //--------------------------
 // Impls for smart pointers
 //--------------------------
-impl<T: Deref<Target=Topology>> TopologyProvider for T {
+impl TopologyProvider for TopologyArc {
     fn num_atoms(&self) -> usize {
         self.get().atoms.len()
     }
 }
 
-impl<T: Deref<Target=Topology>> AtomsProvider for T {
+impl AtomsProvider for TopologyArc {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
         self.get().atoms.iter()
     }
 }
 
-impl<T: Deref<Target=Topology>> AtomsMutProvider for T {
+impl AtomsMutProvider for TopologyArc {
     fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
         self.get_mut().atoms.iter_mut()
     }
 }
 
-impl<T: Deref<Target=Topology>> MassesProvider for T {
+impl MassesProvider for TopologyArc {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.get().atoms.iter().map(|at| at.mass)
     }

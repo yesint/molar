@@ -10,6 +10,8 @@ use super::utils::*;
 /// 
 /// [Source] takes ownership of [Topology] and [State] so that after creating a [Source] they are no longer accessible outside it.
 /// This guarantees correct access without data integrity issues.
+
+#[derive(Default)]
 pub struct Source {
     topology: TopologyArc,
     state: StateArc,

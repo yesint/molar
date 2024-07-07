@@ -47,6 +47,7 @@ impl StateStorage {
 /// to be manipulated directly by the user. Insead [State] and [Topology](super::Topology)
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
+#[derive(Default)]
 pub struct State(SyncUnsafeCell<StateStorage>);
 
 impl Clone for State {
