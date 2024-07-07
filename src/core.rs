@@ -25,7 +25,6 @@ pub use {
     selection_parser::SelectionExpr,
 }; 
 
-
 // Aliases for vector and points
 pub type Vector3f = nalgebra::Vector3<f32>;
 pub type Matrix3f = nalgebra::Matrix3<f32>;

@@ -3,7 +3,7 @@ use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::TopologyProvider;
 
-use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, TopologyArc, TopologyUArc};
+use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
@@ -162,25 +162,25 @@ impl MassesProvider for Topology {
 //--------------------------
 // Impls for smart pointers
 //--------------------------
-impl TopologyProvider for TopologyArc {
+impl TopologyProvider for triomphe::Arc<Topology> {
     fn num_atoms(&self) -> usize {
         self.get_storage().atoms.len()
     }
 }
 
-impl AtomsProvider for TopologyArc {
+impl AtomsProvider for triomphe::Arc<Topology> {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
         self.get_storage().atoms.iter()
     }
 }
 
-impl AtomsMutProvider for TopologyArc {
+impl AtomsMutProvider for triomphe::Arc<Topology> {
     fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
         self.get_storage_mut().atoms.iter_mut()
     }
 }
 
-impl MassesProvider for TopologyArc {
+impl MassesProvider for triomphe::Arc<Topology> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.get_storage().atoms.iter().map(|at| at.mass)
     }
