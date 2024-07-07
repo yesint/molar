@@ -55,22 +55,21 @@ impl Source {
     // Creating selections
     //---------------------------------
 
-    /*
-    /// Get a shared pointer to contained [Topology]
-    pub fn get_topology(&self) -> TopologyArc {
-        triomphe::Arc::clone(&self.topology)
+    
+    /// Get a pointer to contained [Topology]
+    pub(super) fn get_topology(&self) -> &TopologyArc {
+        &self.topology
     }
     
-    /// Get a shared pointer to contained [State]
-    pub fn get_state(&self) -> StateArc {
-        triomphe::Arc::clone(&self.state)
+    /// Get a pointer to contained [State]
+    pub(super) fn get_state(&self) -> &StateArc {
+        &self.state
     }
-    */
-
+    
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
     pub fn select_from_iter(
-        &mut self,
+        &self,
         iter: impl Iterator<Item = usize>,
     ) -> anyhow::Result<Sel<MutableSerial>> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
@@ -82,7 +81,7 @@ impl Source {
     }
 
     /// Selects all
-    pub fn select_all(&mut self) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_all(&self) -> anyhow::Result<Sel<MutableSerial>> {
         let vec = index_from_all(self.topology.num_atoms());
         Ok(Sel::new(
             triomphe::Arc::clone(&self.topology),
@@ -93,7 +92,7 @@ impl Source {
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
-    pub fn select_str(&mut self, selstr: &str) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_str(&self, selstr: &str) -> anyhow::Result<Sel<MutableSerial>> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.topology),
@@ -103,7 +102,7 @@ impl Source {
     }
 
     /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_expr(&self, expr: &SelectionExpr) -> anyhow::Result<Sel<MutableSerial>> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.topology),
@@ -114,7 +113,7 @@ impl Source {
 
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_range(&self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<MutableSerial>> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.topology),

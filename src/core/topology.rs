@@ -14,6 +14,55 @@ pub(crate) struct TopologyStorage {
     pub molecules: Vec<[usize; 2]>,
 }
 
+impl TopologyStorage {
+    pub fn add_atoms<'a>(&'a mut self, atoms: impl super::AtomIterator<'a>) {
+        self.atoms.extend(atoms.cloned());
+    }
+
+    pub fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+        todo!("Check if bond already exists");
+        self.bonds.extend(added);
+    }
+
+    pub fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+        self.molecules.extend(added);
+    }
+
+    pub fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+        let mut ind = removed.collect::<Vec<_>>();
+        if ind.len()==0 {
+            return Ok(());
+        }
+        ind.sort_unstable();
+        ind.dedup();
+        if ind[0] >= self.atoms.len() || ind[ind.len()-1] >= self.atoms.len() {
+            bail!(
+                "Indexes to remove [{}:{}] are out of allowed range [0:{}]",
+                ind[0],ind[ind.len()-1],self.atoms.len()
+            );
+        }
+        for i in ind.iter().rev().cloned() {
+            self.atoms.remove(i);
+            // Remove affected bonds
+            self.bonds.retain(|b| b[0] != i && b[1] != i);
+            // Modify molecules and remove those, which become invalid
+            self.molecules.retain_mut(|m| {
+                if m[0]==i {m[0] += 1}
+                if m[1]==i {
+                    if m[1]>0 {
+                        m[0] -= 1
+                    } else {
+                        // Remove whole molecule
+                        return false
+                    }
+                }
+                m[1]>=m[0]
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Topology of the molecular system: atoms, bonds, molecules, etc.
 /// 
 /// [Topology] is typically read from structure of trajectory file and is not intended
@@ -38,12 +87,12 @@ impl From<TopologyStorage> for TopologyUArc {
 impl Topology {
     // Private convenience accessors
     #[inline(always)]
-    fn get(&self) -> &TopologyStorage {
+    pub(super) fn get(&self) -> &TopologyStorage {
         unsafe {&*self.0.get()}
     }
 
     #[inline(always)]
-    fn get_mut(&self) -> &mut TopologyStorage {
+    pub(super) fn get_mut(&self) -> &mut TopologyStorage {
         unsafe {&mut *self.0.get()}
     }
 
@@ -83,53 +132,6 @@ impl Topology {
             self.get().atoms.len() == other.get().atoms.len()
         &&  self.get().bonds.len() == other.get().bonds.len()
         &&  self.get().molecules.len() == other.get().molecules.len()
-    }
-
-    pub fn add_atoms(&mut self, added: impl Iterator<Item = Atom>) {
-        self.get_mut().atoms.extend(added);
-    }
-
-    pub fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-        todo!("Check if bond already exists");
-        self.get_mut().bonds.extend(added);
-    }
-
-    pub fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-        self.get_mut().molecules.extend(added);
-    }
-
-    pub fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
-        let mut ind = removed.collect::<Vec<_>>();
-        if ind.len()==0 {
-            return Ok(());
-        }
-        ind.sort_unstable();
-        ind.dedup();
-        if ind[0] >= self.num_atoms() || ind[ind.len()-1] >= self.num_atoms() {
-            bail!(
-                "Indexes to remove [{}:{}] are out of allowed range [0:{}]",
-                ind[0],ind[ind.len()-1],self.num_atoms()
-            );
-        }
-        for i in ind.iter().rev().cloned() {
-            self.get_mut().atoms.remove(i);
-            // Remove affected bonds
-            self.get_mut().bonds.retain(|b| b[0] != i && b[1] != i);
-            // Modify molecules and remove those, which become invalid
-            self.get_mut().molecules.retain_mut(|m| {
-                if m[0]==i {m[0] += 1}
-                if m[1]==i {
-                    if m[1]>0 {
-                        m[0] -= 1
-                    } else {
-                        // Remove whole molecule
-                        return false
-                    }
-                }
-                m[1]>=m[0]
-            });
-        }
-        Ok(())
     }
 }
 

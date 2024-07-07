@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use anyhow::bail;
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::StateProvider;
@@ -12,6 +13,31 @@ pub(crate) struct StateStorage {
     pub coords: Vec<Pos>,
     pub time: f32,
     pub pbox: Option<PeriodicBox>,
+}
+impl StateStorage {
+    pub fn add_coords<'a>(&mut self, pos: impl super::PosIterator<'a>) {
+        self.coords.extend(pos.cloned());
+    }
+
+    pub fn remove_coords(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+        let mut ind = removed.collect::<Vec<_>>();
+        if ind.len()==0 {
+            return Ok(());
+        }
+        ind.sort_unstable();
+        ind.dedup();
+        if ind[0] >= self.coords.len() || ind[ind.len()-1] >= self.coords.len() {
+            bail!(
+                "Indexes to remove [{}:{}] are out of allowed range [0:{}]",
+                ind[0],ind[ind.len()-1],self.coords.len()
+            );
+        }
+
+        for i in ind.iter().rev().cloned() {
+            self.coords.remove(i);
+        }
+        Ok(())
+    }
 }
 
 /// State of molecular system including its coordinates, time stamp 
@@ -38,12 +64,12 @@ impl From<StateStorage> for StateUArc {
 impl State {
     // Private convenience accessors
     #[inline(always)]
-    fn get(&self) -> &StateStorage {
+    pub(super) fn get(&self) -> &StateStorage {
         unsafe {&*self.0.get()}
     }
 
     #[inline(always)]
-    fn get_mut(&self) -> &mut StateStorage {
+    pub(super) fn get_mut(&self) -> &mut StateStorage {
         unsafe {&mut *self.0.get()}
     }
     
