@@ -1,4 +1,5 @@
-use std::{marker::PhantomData, ptr::{self, addr_of_mut}};
+use std::marker::PhantomData;
+
 use crate::prelude::*;
 use anyhow::{bail, Context, Result, anyhow};
 use rayon::prelude::*;
@@ -312,7 +313,7 @@ impl<K: ParallelSel> SourceParallel<K> {
             bail!("Can't set state: states are incompatible!")
         }
         unsafe {
-            ptr::swap(
+            std::ptr::swap(
                 self.system.state.get_storage_mut(), 
                 state.get_storage_mut()
             );
@@ -338,7 +339,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         }
 
         unsafe {
-            ptr::swap(
+            std::ptr::swap(
                 self.system.topology.get_storage_mut(), 
                 topology.get_storage_mut()
             );

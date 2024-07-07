@@ -30,7 +30,7 @@ impl Source {
         })
     }
 
-    pub fn new_from_system(system: triomphe::Arc<System>) -> Result<Self> {
+    pub(crate) fn new_from_system(system: triomphe::Arc<System>) -> Result<Self> {
         check_sizes(&system.topology, &system.state)?;
         Ok(Source {
             system,
@@ -48,12 +48,6 @@ impl Source {
     //---------------------------------
     // Creating selections
     //---------------------------------
-    
-    /// Get a pointer to contained system
-    pub(super) fn get_system(&self) -> &triomphe::Arc<System> {
-        &self.system
-    }
-    
     
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
