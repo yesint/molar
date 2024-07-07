@@ -31,12 +31,6 @@ pub type Vector3f = nalgebra::Vector3<f32>;
 pub type Matrix3f = nalgebra::Matrix3<f32>;
 pub type Pos = nalgebra::Point3<f32>; // Atom position
 
-// Aliases to smart pointers
-pub type TopologyArc = triomphe::Arc<Topology>;
-pub type TopologyUArc = triomphe::UniqueArc<Topology>;
-pub type StateArc = triomphe::Arc<State>;
-pub type StateUArc = triomphe::UniqueArc<State>;
-
 // Define alias traits for iterators to make it less verbose
 pub trait IndexIterator: ExactSizeIterator<Item = usize> {}
 impl<T> IndexIterator for T where T: ExactSizeIterator<Item = usize> {}

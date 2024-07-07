@@ -73,46 +73,46 @@ pub struct Topology(SyncUnsafeCell<TopologyStorage>);
 
 impl Clone for Topology {
     fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get().clone()))
+        Self(SyncUnsafeCell::new(self.get_storage().clone()))
     }
 }
 
-impl From<TopologyStorage> for TopologyUArc {
+impl From<TopologyStorage> for Topology {
     fn from(value: TopologyStorage) -> Self {
-        Self::new(Topology(SyncUnsafeCell::new(value)))
+        Topology(SyncUnsafeCell::new(value))
     }
 }
 
 impl Topology {
     // Private convenience accessors
     #[inline(always)]
-    pub(super) fn get(&self) -> &TopologyStorage {
+    pub(super) fn get_storage(&self) -> &TopologyStorage {
         unsafe {&*self.0.get()}
     }
 
     #[inline(always)]
-    pub(super) fn get_mut(&self) -> &mut TopologyStorage {
+    pub(super) fn get_storage_mut(&self) -> &mut TopologyStorage {
         unsafe {&mut *self.0.get()}
     }
 
     #[inline(always)]
     pub unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-        self.get().atoms.get_unchecked(i)
+        self.get_storage().atoms.get_unchecked(i)
     }
 
     #[inline(always)]
     pub unsafe fn nth_atom_unchecked_mut(&self, i: usize) -> &mut Atom {
-        self.get_mut().atoms.get_unchecked_mut(i)
+        self.get_storage_mut().atoms.get_unchecked_mut(i)
     }
 
     #[inline(always)]
     pub fn nth_atom(&self, i: usize) -> Option<&Atom> {
-        self.get().atoms.get(i)
+        self.get_storage().atoms.get(i)
     }
 
     #[inline(always)]
     pub fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
-        self.get_mut().atoms.get_mut(i)
+        self.get_storage_mut().atoms.get_mut(i)
     }
 
     pub fn assign_resindex(&mut self) {
@@ -128,34 +128,34 @@ impl Topology {
     }
 
     pub fn interchangeable(&self, other: &Topology) -> bool {
-            self.get().atoms.len() == other.get().atoms.len()
-        &&  self.get().bonds.len() == other.get().bonds.len()
-        &&  self.get().molecules.len() == other.get().molecules.len()
+            self.get_storage().atoms.len() == other.get_storage().atoms.len()
+        &&  self.get_storage().bonds.len() == other.get_storage().bonds.len()
+        &&  self.get_storage().molecules.len() == other.get_storage().molecules.len()
     }
 }
 
 // Impls for Topology itself
 impl TopologyProvider for Topology {
     fn num_atoms(&self) -> usize {
-        self.get().atoms.len()
+        self.get_storage().atoms.len()
     }
 }
 
 impl AtomsProvider for Topology {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
-        self.get().atoms.iter()
+        self.get_storage().atoms.iter()
     }
 }
 
 impl AtomsMutProvider for Topology {
     fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
-        self.get_mut().atoms.iter_mut()
+        self.get_storage_mut().atoms.iter_mut()
     }
 }
 
 impl MassesProvider for Topology {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
-        self.get().atoms.iter().map(|at| at.mass)
+        self.get_storage().atoms.iter().map(|at| at.mass)
     }
 }
 
@@ -164,24 +164,24 @@ impl MassesProvider for Topology {
 //--------------------------
 impl TopologyProvider for TopologyArc {
     fn num_atoms(&self) -> usize {
-        self.get().atoms.len()
+        self.get_storage().atoms.len()
     }
 }
 
 impl AtomsProvider for TopologyArc {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
-        self.get().atoms.iter()
+        self.get_storage().atoms.iter()
     }
 }
 
 impl AtomsMutProvider for TopologyArc {
     fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
-        self.get_mut().atoms.iter_mut()
+        self.get_storage_mut().atoms.iter_mut()
     }
 }
 
 impl MassesProvider for TopologyArc {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
-        self.get().atoms.iter().map(|at| at.mass)
+        self.get_storage().atoms.iter().map(|at| at.mass)
     }
 }

@@ -141,7 +141,7 @@ impl VmdMolFileHandler<'_> {
         Ok(instance)
     }
 
-    pub fn read_topology(&mut self) -> Result<TopologyUArc> {
+    pub fn read_topology(&mut self) -> Result<Topology> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -188,7 +188,7 @@ impl VmdMolFileHandler<'_> {
         }
 
         // Assign resindexes
-        let mut top: TopologyUArc = top.into();
+        let mut top: Topology = top.into();
         top.assign_resindex();
 
         Ok(top)
@@ -230,7 +230,7 @@ impl VmdMolFileHandler<'_> {
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<StateUArc>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         let mut state: StateStorage = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them

@@ -29,7 +29,7 @@ impl TprFileHandler {
 }
 
 impl ReadTopAndState for TprFileHandler {
-    fn read_top_and_state(&mut self) -> Result<(TopologyUArc, StateUArc)> {
+    fn read_top_and_state(&mut self) -> Result<(Topology, State)> {
         //================
         // Read top
         //================
@@ -121,7 +121,7 @@ impl ReadTopAndState for TprFileHandler {
         } //unsafe
 
         // Assign resindexes
-        let mut top: TopologyUArc = top.into();
+        let mut top: Topology = top.into();
         top.assign_resindex();
 
         //================

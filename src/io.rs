@@ -55,7 +55,7 @@ pub struct IoStateIterator<'a> {
 }
 
 impl Iterator for IoStateIterator<'_> {
-    type Item = triomphe::UniqueArc<State>;
+    type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
     }
@@ -113,7 +113,7 @@ impl FileHandler<'_> {
         }
     }
 
-    pub fn read(&mut self) -> Result<(TopologyUArc,StateUArc)> {
+    pub fn read(&mut self) -> Result<(Topology,State)> {
         let (top,st) = match self {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read()?,
@@ -142,7 +142,7 @@ impl FileHandler<'_> {
         }
     }
 
-    pub fn read_topology(&mut self) -> Result<TopologyUArc> {
+    pub fn read_topology(&mut self) -> Result<Topology> {
         let top = match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => h.read_topology()?,
             _ => bail!("Unable to read topology"),
@@ -159,7 +159,7 @@ impl FileHandler<'_> {
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<StateUArc>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         let st = match self {
             Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
                 h.read_state()?
@@ -221,7 +221,7 @@ impl FileHandler<'_> {
 }
 
 impl<'a> IntoIterator for FileHandler<'a> {
-    type Item = StateUArc;
+    type Item = State;
     type IntoIter = IoStateIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -277,10 +277,10 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = triomphe::UniqueArc::new(st1.clone());
-        println!("#1: {}",(*top1).num_atoms());
+        let st2 = st1.clone();
+        println!("#1: {}",top1.num_atoms());
 
-        let mut b = Source::new(top1,st2)?;
+        let b = Source::new(top1,st2)?;
         let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 

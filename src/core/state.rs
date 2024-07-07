@@ -3,7 +3,7 @@ use anyhow::bail;
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::StateProvider;
-use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos, StateUArc};
+use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
 
 
@@ -52,105 +52,105 @@ pub struct State(SyncUnsafeCell<StateStorage>);
 
 impl Clone for State {
     fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get().clone()))
+        Self(SyncUnsafeCell::new(self.get_storage().clone()))
     }
 }
 
-impl From<StateStorage> for StateUArc {
+impl From<StateStorage> for State {
     fn from(value: StateStorage) -> Self {
-        Self::new(State(SyncUnsafeCell::new(value)))
+        State(SyncUnsafeCell::new(value))
     }
 }
 
 impl State {
     // Private convenience accessors
     #[inline(always)]
-    pub(super) fn get(&self) -> &StateStorage {
+    pub(crate) fn get_storage(&self) -> &StateStorage {
         unsafe {&*self.0.get()}
     }
 
     #[inline(always)]
-    pub(super) fn get_mut(&self) -> &mut StateStorage {
+    pub(crate) fn get_storage_mut(&self) -> &mut StateStorage {
         unsafe {&mut *self.0.get()}
     }
     
     #[inline(always)]
     pub unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        self.get().coords.get_unchecked(i)
+        self.get_storage().coords.get_unchecked(i)
     }
 
     #[inline(always)]
     pub unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
-        self.get_mut().coords.get_unchecked_mut(i)
+        self.get_storage_mut().coords.get_unchecked_mut(i)
     }
 
     #[inline(always)]
     pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
-        self.get().coords.get(i)
+        self.get_storage().coords.get(i)
     }
 
     #[inline(always)]
     pub fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        self.get_mut().coords.get_mut(i)
+        self.get_storage_mut().coords.get_mut(i)
     }
 
     #[inline(always)]
     pub fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get().pbox.as_ref()
+        self.get_storage().pbox.as_ref()
     }
 
     #[inline(always)]
     pub fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        self.get_mut().pbox.as_mut()
+        self.get_storage_mut().pbox.as_mut()
     }
 
     pub fn interchangeable(&self, other: &State) -> bool {
-        self.get().coords.len() == other.get().coords.len()
+        self.get_storage().coords.len() == other.get_storage().coords.len()
     }
 }
 
 // Impls for smart pointers
 impl<T: Deref<Target=State>> StateProvider for T {
     fn get_time(&self) -> f32 {
-        self.get().time
+        self.get_storage().time
     }
 
     fn num_coords(&self) -> usize {
-        self.get().coords.len()
+        self.get_storage().coords.len()
     }
 }
 
 impl<T: Deref<Target=State>> PosProvider for T {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get().coords.iter()
+        self.get_storage().coords.iter()
     }
 }
 
 impl<T: Deref<Target=State>> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get().pbox.as_ref()
+        self.get_storage().pbox.as_ref()
     }
 }
 
 // Impls for State itself
 impl StateProvider for State {
     fn get_time(&self) -> f32 {
-        self.get().time
+        self.get_storage().time
     }
 
     fn num_coords(&self) -> usize {
-        self.get().coords.len()
+        self.get_storage().coords.len()
     }
 }
 
 impl PosProvider for State {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get().coords.iter()
+        self.get_storage().coords.iter()
     }
 }
 
 impl BoxProvider for State {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get().pbox.as_ref()
+        self.get_storage().pbox.as_ref()
     }
 }

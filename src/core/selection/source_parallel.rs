@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ptr::{self, addr_of_mut}};
 use crate::prelude::*;
 use anyhow::{bail, Context, Result, anyhow};
 use rayon::prelude::*;
@@ -116,8 +116,7 @@ use super::utils::*;
  
     
 pub struct SourceParallel<K> {
-    topology: TopologyArc,
-    state: StateArc,
+    system: triomphe::Arc<System>,
     selections: Vec<Sel<K>>,
     used: rustc_hash::FxHashSet<usize>,
     _marker: PhantomData<*const ()>,
@@ -126,13 +125,12 @@ pub struct SourceParallel<K> {
 impl SourceParallel<()> {    
     /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_mut (
-        topology: TopologyUArc,
-        state: StateUArc,
+        topology: Topology,
+        state: State,
     ) -> Result<SourceParallel<MutableParallel>> {
         check_sizes(&topology, &state)?;
         Ok(SourceParallel {
-            topology: topology.shareable(),
-            state: state.shareable(),
+            system: triomphe::Arc::new(System{topology,state}),
             selections: Default::default(),
             used: Default::default(),
             _marker: Default::default(),
@@ -141,13 +139,12 @@ impl SourceParallel<()> {
 
     /// Creates a source of immutable parallel selections that _may_ overlap.
     pub fn new (
-        topology: TopologyUArc,
-        state: StateUArc,
+        topology: Topology,
+        state: State,
     ) -> Result<SourceParallel<ImmutableParallel>> {
         check_sizes(&topology, &state)?;
         Ok(SourceParallel {
-            topology: topology.shareable(),
-            state: state.shareable(),
+            system: triomphe::Arc::new(System{topology,state}),
             selections: Default::default(),
             used: Default::default(),
             _marker: Default::default(),
@@ -157,13 +154,10 @@ impl SourceParallel<()> {
 
 impl<K: ParallelSel> SourceParallel<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
-        Ok((
-            triomphe::Arc::try_unique(self.topology)
-                .or_else(|_| bail!("Can't release topology: multiple references are active!"))?,
-            triomphe::Arc::try_unique(self.state)
-                .or_else(|_| bail!("Can't release state: multiple references are active!"))?,
-        ))
+    pub fn release(self) -> anyhow::Result<(Topology, State)> {
+        let sys = triomphe::Arc::try_unwrap(self.system)
+                .or_else(|_| bail!("Can't release Source: multiple references are active!"))?;
+        Ok((sys.topology,sys.state))
     }
 
     /// Executes provided closure on each stored selection in parallel and
@@ -224,11 +218,10 @@ impl<K: ParallelSel> SourceParallel<K> {
         &mut self,
         iter: impl Iterator<Item = usize>,
     ) -> anyhow::Result<usize> {
-        let vec = index_from_iter(iter, self.topology.num_atoms())?;
+        let vec = index_from_iter(iter, self.system.topology.num_atoms())?;
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ));
         Ok(self.selections.len()-1)
@@ -236,11 +229,10 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds selection of all
     pub fn select_all(&mut self) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_all(self.topology.num_atoms());
+        let vec = index_from_all(self.system.topology.num_atoms());
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
@@ -249,12 +241,11 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn add_str(&mut self, selstr: impl AsRef<str>) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
+        let vec = index_from_str(selstr.as_ref(), &self.system.topology, &self.system.state)?;
         self.check_overlap_if_needed(&vec)
             .with_context(|| format!("Adding str selection '{}'",selstr.as_ref()))?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
@@ -266,11 +257,10 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds new selection from an existing selection expression.
     pub fn add_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_expr(expr, &self.topology, &self.state)?;
+        let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
@@ -279,11 +269,10 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Adds new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
     pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_range(range, self.topology.num_atoms())?;
+        let vec = index_from_range(range, self.system.topology.num_atoms())?;
         self.check_overlap_if_needed(&vec)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
@@ -295,8 +284,8 @@ impl<K: ParallelSel> SourceParallel<K> {
         let sels: Vec<Sel<MutableSerial>> = self.selections.into_iter().map(|sel|             
             Sel::from_parallel(sel)
         ).collect();
-        // This should never fail        
-        let src = unsafe { Source::new_from_arc(self.topology,self.state) }; 
+        // This should never fail
+        let src = Source::new_from_system(self.system).unwrap(); 
         (src,sels)
     }
 
@@ -317,20 +306,19 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
     /// 
-    pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
+    pub fn set_state(&mut self, state: State) -> Result<State> {
         // Check if the states are compatible
-        if !self.state.interchangeable(&state) {
-            bail!("States are incompatible!")
+        if !self.system.state.interchangeable(&state) {
+            bail!("Can't set state: states are incompatible!")
         }
-
-        let ret = state.shareable();
         unsafe {
-            std::ptr::swap(
-                self.state.as_ptr() as *mut State,
-                ret.as_ptr() as *mut State,
-            )
-        }
-        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+            ptr::swap(
+                self.system.state.get_storage_mut(), 
+                state.get_storage_mut()
+            );
+        };
+
+        Ok(state)
     }
 
     /// Sets new [Topology] in this source. All selections created from this Source will automatically view
@@ -343,20 +331,20 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
+    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology> {
         // Check if the states are compatible
-        if !self.topology.interchangeable(&topology) {
-            bail!("Topologies are incompatible!")
+        if !self.system.topology.interchangeable(&topology) {
+            bail!("Can't set topology: topologies are incompatible!")
         }
 
-        let ret = topology.shareable();
         unsafe {
-            std::ptr::swap(
-                self.topology.as_ptr() as *mut State,
-                ret.as_ptr() as *mut State,
-            )
-        }
-        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Multiple references are active!"))
+            ptr::swap(
+                self.system.topology.get_storage_mut(), 
+                topology.get_storage_mut()
+            );
+        };
+
+        Ok(topology)
     }
     
 }

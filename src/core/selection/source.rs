@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ptr};
 use crate::prelude::*;
 use anyhow::{bail, Result};
 use super::utils::*;
@@ -13,60 +13,47 @@ use super::utils::*;
 
 #[derive(Default)]
 pub struct Source {
-    topology: TopologyArc,
-    state: StateArc,
+    system: triomphe::Arc<System>,
     _marker: PhantomData<*const ()>,
 }
 
 impl Source {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
     pub fn new(
-        topology: TopologyUArc,
-        state: StateUArc,
+        topology: Topology,
+        state: State,
     ) -> Result<Self> {
         check_sizes(&topology, &state)?;
         Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
+            system: triomphe::Arc::new(System{topology,state}),
             _marker: Default::default(),
         })
     }
 
-    pub(super) unsafe fn new_from_arc(
-        topology: TopologyArc,
-        state: StateArc,
-    ) -> Self {        
-        Source {
-            topology,
-            state,
+    pub fn new_from_system(system: triomphe::Arc<System>) -> Result<Self> {
+        check_sizes(&system.topology, &system.state)?;
+        Ok(Source {
+            system,
             _marker: Default::default(),
-        }
+        })
     }
 
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> anyhow::Result<(TopologyUArc, StateUArc)> {
-        Ok((
-            triomphe::Arc::try_unique(self.topology)
-                .or_else(|_| bail!("Can't release topology: multiple references are active!"))?,
-            triomphe::Arc::try_unique(self.state)
-                .or_else(|_| bail!("Can't release state: multiple references are active!"))?,
-        ))
+    pub fn release(self) -> anyhow::Result<(Topology, State)> {
+        let sys = triomphe::Arc::try_unwrap(self.system)
+                .or_else(|_| bail!("Can't release Source: multiple references are active!"))?;
+        Ok((sys.topology,sys.state))
     }
 
     //---------------------------------
     // Creating selections
     //---------------------------------
-
     
-    /// Get a pointer to contained [Topology]
-    pub(super) fn get_topology(&self) -> &TopologyArc {
-        &self.topology
+    /// Get a pointer to contained system
+    pub(super) fn get_system(&self) -> &triomphe::Arc<System> {
+        &self.system
     }
     
-    /// Get a pointer to contained [State]
-    pub(super) fn get_state(&self) -> &StateArc {
-        &self.state
-    }
     
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
@@ -74,20 +61,18 @@ impl Source {
         &self,
         iter: impl Iterator<Item = usize>,
     ) -> anyhow::Result<Sel<MutableSerial>> {
-        let vec = index_from_iter(iter, self.topology.num_atoms())?;
+        let vec = index_from_iter(iter, self.system.topology.num_atoms())?;
         Ok(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ))
     }
 
     /// Selects all
     pub fn select_all(&self) -> anyhow::Result<Sel<MutableSerial>> {
-        let vec = index_from_all(self.topology.num_atoms());
+        let vec = index_from_all(self.system.topology.num_atoms());
         Ok(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,
         ))
     }
@@ -95,20 +80,18 @@ impl Source {
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
     pub fn select_str(&self, selstr: &str) -> anyhow::Result<Sel<MutableSerial>> {
-        let vec = index_from_str(selstr, &self.topology, &self.state)?;
+        let vec = index_from_str(selstr, &self.system.topology, &self.system.state)?;
         Ok(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,            
         ))
     }
 
     /// Creates new selection from an existing selection expression.
     pub fn select_expr(&self, expr: &SelectionExpr) -> anyhow::Result<Sel<MutableSerial>> {
-        let vec = index_from_expr(expr, &self.topology, &self.state)?;
+        let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
         Ok(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,
         ))
     }
@@ -116,55 +99,58 @@ impl Source {
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
     pub fn select_range(&self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<MutableSerial>> {
-        let vec = index_from_range(range, self.topology.num_atoms())?;
+        let vec = index_from_range(range, self.system.topology.num_atoms())?;
         Ok(Sel::new(
-            triomphe::Arc::clone(&self.topology),
-            triomphe::Arc::clone(&self.state),
+            triomphe::Arc::clone(&self.system),
             vec,
         ))
     }
 
-    /// Sets new [State] in this [Source]. All selections created from this [Source] will automatically view
+    /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state. 
     /// 
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
-    pub fn set_state(&mut self, state: StateUArc) -> Result<StateUArc> {
+    /// 
+    pub fn set_state(&mut self, state: State) -> Result<State> {
         // Check if the states are compatible
-        if !self.state.interchangeable(&state) {
+        if !self.system.state.interchangeable(&state) {
             bail!("Can't set state: states are incompatible!")
         }
-
-        let ret = state.shareable();
         unsafe {
-            std::ptr::swap(
-                self.state.as_ptr() as *mut State,
-                ret.as_ptr() as *mut State,
-            )
-        }
-        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Can't set state: multiple references are active!"))
+            ptr::swap(
+                self.system.state.get_storage_mut(), 
+                state.get_storage_mut()
+            );
+        };
+
+        Ok(state)
     }
 
-    /// Sets new topology in this [Source]. All selections created from this [Source] will automatically view
-    /// the new [Topology]. 
+    /// Sets new [Topology] in this source. All selections created from this Source will automatically view
+    /// the new topology. 
     /// 
-    /// New [Topology] should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
+    /// New topology should be compatible with the old one (have the same number of atoms, bonds, molecules, etc.). If not, the error is returned.
     /// 
     /// Returns unique pointer to the old topology, so it could be reused if needed.
-    pub fn set_topology(&mut self, topology: TopologyUArc) -> Result<TopologyUArc> {
+    /// 
+    /// # Safety
+    /// If such change happens when selections from different threads are accessing the data
+    /// inconsistent results may be produced, however this should never lead to issues with memory safety.
+    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology> {
         // Check if the states are compatible
-        if !self.topology.interchangeable(&topology) {
+        if !self.system.topology.interchangeable(&topology) {
             bail!("Can't set topology: topologies are incompatible!")
         }
 
-        let ret = topology.shareable();
         unsafe {
-            std::ptr::swap(
-                self.topology.as_ptr() as *mut State,
-                ret.as_ptr() as *mut State,
-            )
-        }
-        triomphe::Arc::try_unique(ret).or_else(|_| bail!("Can't set topology: multiple references are active!"))
+            ptr::swap(
+                self.system.topology.get_storage_mut(), 
+                topology.get_storage_mut()
+            );
+        };
+
+        Ok(topology)
     }
 }

@@ -1,5 +1,5 @@
 from pteros import *
-sys = System('no_ATP.pdb')
+sys = System('protein.pdb')
 
 # Format: "pteros selection"  "molar selection"
 selections = [

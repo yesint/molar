@@ -1,5 +1,5 @@
-use super::{io_splitter::ReadTopAndState, StateProvider, TopologyProvider};
-use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, StateStorage, StateUArc, TopologyStorage, TopologyUArc};
+use super::{io_splitter::ReadTopAndState, State, StateProvider, Topology, TopologyProvider};
+use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, StateStorage, TopologyStorage};
 use anyhow::Result;
 use std::{
     fs::File,
@@ -83,7 +83,7 @@ impl GroFileHandler {
 }
 
 impl ReadTopAndState for GroFileHandler {
-    fn read_top_and_state(&mut self) -> Result<(TopologyUArc, StateUArc)> {
+    fn read_top_and_state(&mut self) -> Result<(Topology, State)> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 
@@ -152,9 +152,9 @@ impl ReadTopAndState for GroFileHandler {
         }
         state.pbox = Some(PeriodicBox::from_matrix(m)?);
 
-        let state: StateUArc = state.into();
+        let state: State = state.into();
 
-        let mut top: TopologyUArc = top.into();
+        let mut top: Topology = top.into();
         // Assign resindex
         top.assign_resindex();
 

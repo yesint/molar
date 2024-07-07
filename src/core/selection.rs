@@ -23,7 +23,7 @@ mod tests {
     pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
     use super::*;
 
-    pub fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
+    pub fn read_test_pdb() -> (Topology, State) {
         FileHandler::open("tests/protein.pdb").unwrap().read().unwrap()
     }
 

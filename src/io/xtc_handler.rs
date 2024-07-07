@@ -1,8 +1,8 @@
-use super::StateProvider;
+use super::{State, StateProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 
-use crate::core::{PeriodicBox, StateStorage, StateUArc};
+use crate::core::{PeriodicBox, StateStorage};
 
 use anyhow::{bail, Result};
 use std::ffi::CString;
@@ -141,7 +141,7 @@ impl XtcFileHandler {
     }
 
     #[allow(non_upper_case_globals)]
-    pub fn read_state(&mut self) -> Result<Option<StateUArc>> {
+    pub fn read_state(&mut self) -> Result<Option<State>> {
         let mut st: StateStorage = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;
