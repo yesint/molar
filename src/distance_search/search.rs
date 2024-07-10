@@ -403,17 +403,6 @@ pub struct DistanceSearcherDouble<I> {
 }
 
 impl<I: GridItem> DistanceSearcherDouble<I> {
-    
-    fn accept_func_nonperiodic(&self, at1: &I, at2: &I) -> (bool, f32) {
-        todo!("Take into account wrapped attibute of the cell pairs!");
-
-        let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
-        if d2 <= self.cutoff * self.cutoff {
-            (true, d2.sqrt())
-        } else {
-            (false, 0.0)
-        }
-    }
 
     // Main search function
     pub fn search<T, C>(&self) -> C
@@ -424,22 +413,22 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
         let cutoff2 = self.cutoff.powi(2);
         // Get periodic or non-periodic distance function
         match self.grid1.pbc.as_ref() {
-            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2| {
+            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2, dims| {
                 let d2 = pbc
                     .pbox
-                    .distance_squared(at1.get_pos(), at2.get_pos(), &pbc.dims);
+                    .distance_squared(at1.get_pos(), at2.get_pos(), dims);
                 if d2 <= cutoff2 {
-                    (true, d2.sqrt())
+                    Some(d2.sqrt())
                 } else {
-                    (false, 0.0)
+                    None
                 }
             }),
-            None => self.search_internal(&PBC_NONE, |at1, at2| {
+            None => self.search_internal(&PBC_NONE, |at1, at2, _| {
                 let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
                 if d2 <= cutoff2 {
-                    (true, d2.sqrt())
+                    Some(d2.sqrt())
                 } else {
-                    (false, 0.0)
+                    None
                 }
             }),
         }
@@ -449,7 +438,7 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
     where
         T: SearchOutputType + Send + Clone,
         C: FromIterator<T>,
-        F: Fn(&I, &I) -> (bool, f32) + Send + Sync,
+        F: Fn(&I, &I, &[bool;3]) -> Option<f32> + Send + Sync,
     {
         let nt = rayon::current_num_threads();
         if self.grid1.dim()[0] >= nt && self.grid1.dim()[0] >= self.serial_limit {
@@ -496,7 +485,7 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
     fn search_cell_pair<T: SearchOutputType>(
         &self,
         pair: CellPair,
-        accept_func: impl Fn(&I, &I) -> (bool, f32),
+        accept_func: impl Fn(&I, &I, &[bool;3]) -> Option<f32>,
         found: &mut Vec<T>,
     ) {
         let n1 = self.grid1[&pair.c1].len();
@@ -511,7 +500,7 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
             let at1 = &self.grid1[&pair.c1][i];
             for j in 0..n2 {
                 let at2 = &self.grid2[&pair.c2][j];
-                if let (true, d) = accept_func(&at1, &at2) {
+                if let Some(d) = accept_func(&at1, &at2, &pair.wrapped) {
                     found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
                 }
             }
@@ -735,22 +724,22 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
     {
         // Get periodic or non-periodic distance function
         match self.grid1.pbc.as_ref() {
-            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2| {
+            Some(pbc) => self.search_internal(&pbc.dims, |at1, at2, dims| {
                 let d2 = pbc
                     .pbox
-                    .distance_squared(at1.get_pos(), at2.get_pos(), &pbc.dims);
+                    .distance_squared(at1.get_pos(), at2.get_pos(), dims);
                 if d2 < (at1.2 + at2.2 + f32::EPSILON).powi(2) {
-                    (true, d2.sqrt())
+                    Some(d2.sqrt())
                 } else {
-                    (false, 0.0)
+                    None
                 }
             }),
-            None => self.search_internal(&PBC_NONE, |at1, at2| {
+            None => self.search_internal(&PBC_NONE, |at1, at2, _| {
                 let d2 = (at1.get_pos() - at2.get_pos()).norm_squared();
                 if d2 < (at1.2 + at2.2 + f32::EPSILON).powi(2) {
-                    (true, d2.sqrt())
+                    Some(d2.sqrt())
                 } else {
-                    (false, 0.0)
+                    None
                 }
             }),
         }
