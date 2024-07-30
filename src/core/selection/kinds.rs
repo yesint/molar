@@ -1,13 +1,15 @@
 use std::marker::PhantomData;
 
-pub(crate) trait CheckedIndex {
-    fn check_index(&self) -> &Vec<usize>;
-}
+use crate::io::StateProvider;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
     type SubselKind: SelectionKind;
     const NEED_CHECK_OVERLAP: bool;
+
+    #[inline(always)]
+    #[allow(unused_variables)]
+    fn check_index(index: &Vec<usize>, system: &super::System) {}
 }
 
 /// Trait marking selections that can overlap
@@ -37,6 +39,18 @@ pub struct BuilderSerial(PhantomData<*const ()>);
 impl SelectionKind for BuilderSerial {
     type SubselKind = BuilderSerial;
     const NEED_CHECK_OVERLAP: bool = false;
+    #[inline(always)]
+    fn check_index(index: &Vec<usize>, system: &super::System) {
+        let first = index[0];
+        let last = index[index.len()-1];
+        let n = system.state.num_coords();
+        if first >= n || last >= n {
+            panic!(
+                "Builder selection indexes [{}:{}] are out of allowed range [0:{}]",
+                first,last,n
+            );
+        }
+    }
 }
 impl MayOverlap for BuilderSerial {}
 impl MutableSel for BuilderSerial {}

@@ -4,7 +4,7 @@ use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
 
 #[derive(Default)]
-pub(crate) struct System {
+pub struct System {
     pub topology: Topology,
     pub state: State,
 }
@@ -54,66 +54,31 @@ pub(crate) struct System {
 /// kind as a parent selection.
 pub struct Sel<K> {
     system: triomphe::Arc<System>,
-    index: Vec<usize>,
+    index_vec: Vec<usize>,
     _marker: PhantomData<K>,
 }
 
-//-------------------------------------------
-// Implementations of index valifdity checking
-impl CheckedIndex for Sel<MutableSerial> {
-    #[inline(always)]
-    fn check_index(&self) -> &Vec<usize> {
-        &self.index
-    }
-}
-
-impl CheckedIndex for Sel<MutableParallel> {
-    #[inline(always)]
-    fn check_index(&self) -> &Vec<usize> {
-        &self.index
-    }
-}
-
-impl CheckedIndex for Sel<ImmutableParallel> {
-    #[inline(always)]
-    fn check_index(&self) -> &Vec<usize> {
-        &self.index
-    }
-}
-
-impl CheckedIndex for Sel<BuilderSerial> {
-    #[inline(always)]
-    fn check_index(&self) -> &Vec<usize> {
-        let first = self.index[0];
-        let last = self.index[&self.index.len()-1];
-        let n = self.system.state.num_coords();
-        if first >= n || last >= n {
-            panic!(
-                "Builder selection indexes [{}:{}] are out of allowed range [0:{}]",
-                first,last,n
-            );
-        }
-        &self.index
-    }
-}
 //-------------------------------------------
 
 impl Sel<MutableSerial> {
     // Only visible in selection module
     pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self::new(sel.system,sel.index)
+        Self::new(sel.system,sel.index_vec)
     }
 }
 
-impl<K> Sel<K> 
-where 
-    K: SelectionKind,    
-{
+impl<K: SelectionKind> Sel<K> {
+    #[inline(always)]
+    fn index(&self) -> &Vec<usize> {
+        K::check_index(&self.index_vec, &self.system);
+        &self.index_vec
+    }
+
     // Only visible in selection module
     pub(super) fn new(system: triomphe::Arc<System>, index: Vec<usize>) -> Self {
         Self {
             system,
-            index,
+            index_vec: index,
             _marker: PhantomData::default(),
         }
     }
@@ -129,7 +94,7 @@ where
 
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K::SubselKind>> {
-        let index = expr.apply_subset(&self.system.topology, &self.system.state, self.index.iter().cloned())?;
+        let index = expr.apply_subset(&self.system.topology, &self.system.state, self.index().iter().cloned())?;
         if index.len() > 0 {
             Ok(Sel::new(
                 triomphe::Arc::clone(&self.system),
@@ -151,18 +116,18 @@ where
         &self,
         range: std::ops::Range<usize>,
     ) -> Result<Sel<K::SubselKind>> {
-        if range.end >= self.index.len() {
+        if range.end >= self.index().len() {
             bail!(
                 "Invalid local sub-range: {}:{}, valid range: 0:{}",
                 range.start,
                 range.end,
-                self.index.len() - 1
+                self.index().len() - 1
             );
         }
 
         // Translate range of local indexes to global indexes
         let index: Vec<usize> = self
-            .index
+            .index()
             .iter()
             .cloned()
             .skip(range.start)
@@ -185,11 +150,11 @@ where
             .sorted()
             .dedup()
             .map(|i| {
-                self.index.get(i).cloned().ok_or_else(|| {
+                self.index().get(i).cloned().ok_or_else(|| {
                     anyhow!(
                         "Index {} is out of allowed range [0:{}]",
                         i,
-                        self.index.len()
+                        self.index().len()
                     )
                 })
             })
@@ -214,7 +179,7 @@ where
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = *self.index.get_unchecked(i);
+        let ind = *self.index().get_unchecked(i);
         Particle {
             id: ind,
             atom: self.system.topology.nth_atom_unchecked(ind),
@@ -226,7 +191,7 @@ where
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> ParticleMut<'_> {
-        let ind = *self.index.get_unchecked(i);
+        let ind = *self.index().get_unchecked(i);
         ParticleMut {
             id: ind,
             atom: self.system.topology.nth_atom_unchecked_mut(ind),
@@ -317,7 +282,7 @@ where
             self.len(),
             0.14,
             |i| unsafe {
-                let ind = *self.index.get_unchecked(i);
+                let ind = *self.index().get_unchecked(i);
                 self.system.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
             },
             |i: usize| self.nth(i).unwrap().atom.vdw(),
@@ -327,7 +292,7 @@ where
 
     /// Returns a copy of the selection index vector.
     pub fn get_index_vec(&self) -> Vec<usize> {
-        self.index.clone()
+        self.index().clone()
     }
 
     /// Saves selection to file. File type is deduced from extension.
@@ -337,11 +302,11 @@ where
     }
 
     pub fn first_index(&self) -> usize {
-        self.index[0]
+        self.index()[0]
     }
 
     pub fn last_index(&self) -> usize {
-        self.index[self.index.len()-1]
+        self.index()[self.index().len()-1]
     }
 
     /// Get a Particle for the first selection index.
@@ -475,68 +440,68 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
 //---------------------------------------------
 // Implement traits for IO
 
-impl<K> IndexProvider for Sel<K> {
+impl<K: SelectionKind> IndexProvider for Sel<K> {
     fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
+        self.index().iter().cloned()
     }
 }
 
-impl<K> TopologyProvider for Sel<K> {
+impl<K: SelectionKind> TopologyProvider for Sel<K> {
     fn num_atoms(&self) -> usize {
-        self.index.len()
+        self.index().len()
     }
 }
 
-impl<K> StateProvider for Sel<K> {
+impl<K: SelectionKind> StateProvider for Sel<K> {
     fn get_time(&self) -> f32 {
         self.system.state.get_time()
     }
 
     fn num_coords(&self) -> usize {
-        self.index.len()
+        self.index().len()
     }
 }
 
 //==================================================================
 // Implement analysis traits
 
-impl<K> BoxProvider for Sel<K> {
+impl<K: SelectionKind> BoxProvider for Sel<K> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.system.state.get_box()
     }
 }
 
-impl<T> MeasurePeriodic for Sel<T> {}
+impl<K: SelectionKind> MeasurePeriodic for Sel<K> {}
 
-impl<K> PosProvider for Sel<K> {
+impl<K: SelectionKind> PosProvider for Sel<K> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        unsafe { self.index.iter().map(|i| self.system.state.nth_pos_unchecked(*i)) }
+        unsafe { self.index().iter().map(|i| self.system.state.nth_pos_unchecked(*i)) }
     }
 }
 
-impl<K> MeasurePos for Sel<K> {}
+impl<K: SelectionKind> MeasurePos for Sel<K> {}
 
-impl<K> AtomsProvider for Sel<K> {
+impl<K: SelectionKind> AtomsProvider for Sel<K> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
-            self.index
+            self.index()
                 .iter()
                 .map(|i| self.system.topology.nth_atom_unchecked(*i))
         }
     }
 }
 
-impl<K> MassesProvider for Sel<K> {
+impl<K: SelectionKind> MassesProvider for Sel<K> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
-            self.index
+            self.index()
                 .iter()
                 .map(|i| self.system.topology.nth_atom_unchecked(*i).mass)
         }
     }
 }
 
-impl<K> MeasureMasses for Sel<K> {}
+impl<K: SelectionKind> MeasureMasses for Sel<K> {}
 
 //-------------------------------------------------------
 // Mutable analysis traits only for mutable selections
@@ -544,7 +509,7 @@ impl<K> MeasureMasses for Sel<K> {}
 impl<K: MutableSel> PosMutProvider for Sel<K> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
-            self.index
+            self.index()
                 .iter()
                 .map(|i| self.system.state.nth_pos_unchecked_mut(*i))
         }
@@ -554,7 +519,7 @@ impl<K: MutableSel> PosMutProvider for Sel<K> {
 impl<K: MutableSel> RandomPosMutProvider for Sel<K> {
     #[inline(always)]
     unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
-        let ind = *self.index.get_unchecked(i);
+        let ind = *self.index().get_unchecked(i);
         self.system.state.nth_pos_unchecked_mut(ind)
     }
 }

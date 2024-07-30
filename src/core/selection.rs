@@ -4,14 +4,12 @@ mod source;
 mod source_parallel;
 mod sel;
 mod sel_split;
-mod builder;
 
 pub use kinds::*;
 pub use source::*;
 pub use source_parallel::*;
 pub use sel::*;
 pub use sel_split::*;
-pub use builder::*;
 
 //############################################################
 //#  Tests

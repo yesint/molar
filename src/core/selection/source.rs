@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ptr};
 use crate::prelude::*;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use super::utils::*;
 
 /// Source of serial selections.
@@ -161,6 +161,7 @@ impl<K: SerialSel> Source<K> {
     }
 }
 
+// Specific methods of builder source
 impl Source<BuilderSerial> {
     fn check_index(&self, mut it: impl Iterator<Item=usize>) -> Result<()> {
         let first = it.next().ok_or_else(|| anyhow!("Empty index!"))?;
@@ -168,18 +169,22 @@ impl Source<BuilderSerial> {
         let n = self.system.state.num_coords();
         if first >= n || last >= n {
             bail!(
-                "BuilderSel indexes [{}:{}] are out of allowed range [0:{}]",
+                "Indexes [{}:{}] are out of allowed range [0:{}]",
                 first,last,n
             );
         }
         Ok(())
     }
 
-    pub fn append<'a>(&'a self, data: &(impl IndexProvider + PosProvider + AtomsProvider)) -> Result<()> {
-        // We have to check validity of indexes
-        self.check_index(data.iter_index())?;
+    pub fn append(&self, data: &(impl PosProvider + AtomsProvider)) {
         self.system.topology.get_storage_mut().add_atoms(data.iter_atoms());
         self.system.state.get_storage_mut().add_coords(data.iter_pos());
+    }
+
+    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<()> {
+        // We are checking index validity inside remove methods
+        self.system.topology.get_storage_mut().remove_atoms(to_remove.iter_index())?;
+        self.system.state.get_storage_mut().remove_coords(to_remove.iter_index())?;
         Ok(())
     }
 }

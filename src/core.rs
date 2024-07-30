@@ -23,7 +23,7 @@ pub use {
     periodic_table::*,
     particle::*,
     selection_parser::SelectionExpr,
-}; 
+};
 
 // Aliases for vector and points
 pub type Vector3f = nalgebra::Vector3<f32>;
