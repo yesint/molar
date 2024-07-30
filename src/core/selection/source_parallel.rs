@@ -281,7 +281,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Converts `Self` into a serial [Source]. All stored parallel selections 
     /// are converted into serial mutable selections and returned as a vector. 
-    pub fn into_serial_with_sels(self) -> (Source,Vec<Sel<MutableSerial>>) {                
+    pub fn into_serial_with_sels(self) -> (Source<MutableSerial>,Vec<Sel<MutableSerial>>) {                
         let sels: Vec<Sel<MutableSerial>> = self.selections.into_iter().map(|sel|             
             Sel::from_parallel(sel)
         ).collect();
@@ -292,7 +292,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Converts `Self` into a serial [Source]. All stored parallel selections 
     /// are dropped. 
-    pub fn into_serial(mut self) -> Source {
+    pub fn into_serial(mut self) -> Source<MutableSerial> {
         // Drop all selections
         self.selections.clear();
         let (top,st) = self.release().unwrap();

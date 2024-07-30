@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ptr};
 use crate::prelude::*;
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use super::utils::*;
 
 /// Source of serial selections.
@@ -11,18 +11,17 @@ use super::utils::*;
 /// [Source] takes ownership of [Topology] and [State] so that after creating a [Source] they are no longer accessible outside it.
 /// This guarantees correct access without data integrity issues.
 
-#[derive(Default)]
-pub struct Source {
+pub struct Source<K> {
     system: triomphe::Arc<System>,
-    _marker: PhantomData<*const ()>,
+    _marker: PhantomData<K>,
 }
 
-impl Source {
+impl Source<()> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
     pub fn new(
         topology: Topology,
         state: State,
-    ) -> Result<Self> {
+    ) -> Result<Source<MutableSerial>> {
         check_sizes(&topology, &state)?;
         Ok(Source {
             system: triomphe::Arc::new(System{topology,state}),
@@ -30,14 +29,27 @@ impl Source {
         })
     }
 
-    pub(crate) fn new_from_system(system: triomphe::Arc<System>) -> Result<Self> {
+    pub fn new_builder(
+        topology: Topology,
+        state: State,
+    ) -> Result<Source<BuilderSerial>> {
+        check_sizes(&topology, &state)?;
+        Ok(Source {
+            system: triomphe::Arc::new(System{topology,state}),
+            _marker: Default::default(),
+        })
+    }
+
+    pub(crate) fn new_from_system(system: triomphe::Arc<System>) -> Result<Source<MutableSerial>> {
         check_sizes(&system.topology, &system.state)?;
         Ok(Source {
             system,
             _marker: Default::default(),
         })
     }
+}
 
+impl<K: SerialSel> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
     pub fn release(self) -> anyhow::Result<(Topology, State)> {
         let sys = triomphe::Arc::try_unwrap(self.system)
@@ -54,7 +66,7 @@ impl Source {
     pub fn select_from_iter(
         &self,
         iter: impl Iterator<Item = usize>,
-    ) -> anyhow::Result<Sel<MutableSerial>> {
+    ) -> anyhow::Result<Sel<K>> {
         let vec = index_from_iter(iter, self.system.topology.num_atoms())?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -63,7 +75,7 @@ impl Source {
     }
 
     /// Selects all
-    pub fn select_all(&self) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_all(&self) -> anyhow::Result<Sel<K>> {
         let vec = index_from_all(self.system.topology.num_atoms());
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -73,7 +85,7 @@ impl Source {
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
-    pub fn select_str(&self, selstr: &str) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_str(&self, selstr: &str) -> anyhow::Result<Sel<K>> {
         let vec = index_from_str(selstr, &self.system.topology, &self.system.state)?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -82,7 +94,7 @@ impl Source {
     }
 
     /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&self, expr: &SelectionExpr) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_expr(&self, expr: &SelectionExpr) -> anyhow::Result<Sel<K>> {
         let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -92,7 +104,7 @@ impl Source {
 
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<MutableSerial>> {
+    pub fn select_range(&self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<K>> {
         let vec = index_from_range(range, self.system.topology.num_atoms())?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -146,5 +158,28 @@ impl Source {
         };
 
         Ok(topology)
+    }
+}
+
+impl Source<BuilderSerial> {
+    fn check_index(&self, mut it: impl Iterator<Item=usize>) -> Result<()> {
+        let first = it.next().ok_or_else(|| anyhow!("Empty index!"))?;
+        let last = it.last().ok_or_else(|| anyhow!("Empty index!"))?;
+        let n = self.system.state.num_coords();
+        if first >= n || last >= n {
+            bail!(
+                "BuilderSel indexes [{}:{}] are out of allowed range [0:{}]",
+                first,last,n
+            );
+        }
+        Ok(())
+    }
+
+    pub fn append<'a>(&'a self, data: &(impl IndexProvider + PosProvider + AtomsProvider)) -> Result<()> {
+        // We have to check validity of indexes
+        self.check_index(data.iter_index())?;
+        self.system.topology.get_storage_mut().add_atoms(data.iter_atoms());
+        self.system.state.get_storage_mut().add_coords(data.iter_pos());
+        Ok(())
     }
 }

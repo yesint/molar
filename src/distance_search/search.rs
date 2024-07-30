@@ -1,7 +1,7 @@
 use super::grid::*;
 use crate::{
     core::{
-        BoxProvider, MeasurePos, PbcDims, PeriodicBox, Pos, Sel, SelectionKind, Vector3f, PBC_NONE,
+        AtomsProvider, BoxProvider, MeasurePos, ParticleProvider, PbcDims, PeriodicBox, Pos, Sel, SelectionKind, Vector3f, PBC_NONE
     },
     distance_search::cell_pair_iterator::CellPairIter,
 };
@@ -264,7 +264,7 @@ impl DistanceSearcherSingle<(usize, Pos)> {
         let (lower, upper) = sel.min_max();
         Self::new(
             cutoff,
-            sel.iter().map(|p| (p.id, *p.pos)),
+            sel.iter_particle().map(|p| (p.id, *p.pos)),
             &lower.coords,
             &upper.coords,
         )
@@ -278,7 +278,7 @@ impl DistanceSearcherSingle<(usize, Pos)> {
         let box_ = sel.get_box().ok_or_else(|| anyhow!("No periodic box!"))?;
         Ok(Self::new_periodic(
             cutoff,
-            sel.iter().map(|p| (p.id, *p.pos)),
+            sel.iter_particle().map(|p| (p.id, *p.pos)),
             box_,
             periodic_dims,
         ))
@@ -345,8 +345,8 @@ impl DistanceSearcherSingle<(usize, Pos, f32)> {
     pub fn from_sel_vdw<K: SelectionKind>(sel: &Sel<K>) -> Self {
         let (lower, upper) = sel.min_max();
         Self::new_vdw(
-            sel.iter().map(|p| (p.id, *p.pos)),
-            sel.iter().map(|p| p.atom.vdw()),
+            sel.iter_particle().map(|p| (p.id, *p.pos)),
+            sel.iter_atoms().map(|a| a.vdw()),
             &lower.coords,
             &upper.coords,
         )
@@ -358,8 +358,8 @@ impl DistanceSearcherSingle<(usize, Pos, f32)> {
     ) -> anyhow::Result<Self> {
         let box_ = sel.get_box().ok_or_else(|| anyhow!("No periodic box!"))?;
         Ok(Self::new_vdw_periodic(
-            sel.iter().map(|p| (p.id, *p.pos)),
-            sel.iter().map(|p| p.atom.vdw()),
+            sel.iter_particle().map(|p| (p.id, *p.pos)),
+            sel.iter_atoms().map(|a| a.vdw()),
             box_,
             periodic_dims,
         ))
@@ -564,8 +564,8 @@ impl DistanceSearcherDouble<(usize, Pos)> {
 
         Self::new(
             cutoff,
-            sel1.iter().map(|p| (p.id, *p.pos)),
-            sel2.iter().map(|p| (p.id, *p.pos)),
+            sel1.iter_particle().map(|p| (p.id, *p.pos)),
+            sel2.iter_particle().map(|p| (p.id, *p.pos)),
             &lower,
             &upper,
         )
@@ -587,8 +587,8 @@ impl DistanceSearcherDouble<(usize, Pos)> {
 
         Ok(Self::new_periodic(
             cutoff,
-            sel1.iter().map(|p| (p.id, *p.pos)),
-            sel2.iter().map(|p| (p.id, *p.pos)),
+            sel1.iter_particle().map(|p| (p.id, *p.pos)),
+            sel2.iter_particle().map(|p| (p.id, *p.pos)),
             box_,
             periodic_dims,
         ))
@@ -685,10 +685,10 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
         let (lower, upper) = combine_bounds(&lower1, &upper1, &lower2, &upper2);
 
         Self::new_vdw(
-            sel1.iter().map(|p| (p.id, *p.pos)),
-            sel1.iter().map(|p| p.atom.vdw()),
-            sel2.iter().map(|p| (p.id, *p.pos)),
-            sel2.iter().map(|p| p.atom.vdw()),
+            sel1.iter_particle().map(|p| (p.id, *p.pos)),
+            sel1.iter_atoms().map(|a| a.vdw()),
+            sel2.iter_particle().map(|p| (p.id, *p.pos)),
+            sel2.iter_atoms().map(|a| a.vdw()),
             &lower,
             &upper,
         )
@@ -708,10 +708,10 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
             .ok_or_else(|| anyhow!("No periodic box in sel1!"))?;
 
         Ok(Self::new_vdw_periodic(
-            sel1.iter().map(|p| (p.id, *p.pos)),
-            sel1.iter().map(|p| p.atom.vdw()),
-            sel2.iter().map(|p| (p.id, *p.pos)),
-            sel2.iter().map(|p| p.atom.vdw()),
+            sel1.iter_particle().map(|p| (p.id, *p.pos)),
+            sel1.iter_atoms().map(|a| a.vdw()),
+            sel2.iter_particle().map(|p| (p.id, *p.pos)),
+            sel2.iter_atoms().map(|a| a.vdw()),
             box_,
             periodic_dims,
         ))

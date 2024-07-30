@@ -164,7 +164,7 @@ mod tests {
         let sel = make_sel_prot().unwrap();
         let mut searcher = DistanceSearcherSingle::new_periodic(
             0.3, 
-            sel.iter().map(|p| (p.id,*p.pos)), 
+            sel.iter_particle().map(|p| (p.id,*p.pos)), 
             sel.get_box().unwrap(), 
             &PBC_FULL
         );
@@ -184,8 +184,8 @@ mod tests {
     fn test_searcher_single_vdw() {
         let sel = make_sel_prot().unwrap();
         let searcher = DistanceSearcherSingle::new_vdw_periodic(
-            sel.iter().map(|p| (p.id,*p.pos)), 
-            sel.iter().map(|p| p.atom.vdw()),
+            sel.iter_particle().map(|p| (p.id,*p.pos)), 
+            sel.iter_particle().map(|p| p.atom.vdw()),
             sel.get_box().unwrap(), 
             &PBC_FULL
         );

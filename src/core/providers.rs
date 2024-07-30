@@ -1,4 +1,4 @@
-use super::{AtomIterator, AtomMutIterator, PeriodicBox, Pos, PosIterator, PosMutIterator};
+use crate::prelude::*;
 
 //--------------------------------------------------------------
 // Immutable providers
@@ -19,6 +19,10 @@ pub trait BoxProvider {
     fn get_box(&self) -> Option<&PeriodicBox>;
 }
 
+pub trait ParticleProvider {
+    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
+}
+
 //--------------------------------------------------------------
 // Mutable providers
 //--------------------------------------------------------------
@@ -37,4 +41,8 @@ pub trait RandomPosMutProvider {
 
 pub trait AtomsMutProvider {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
+}
+
+pub trait ParticleMutProvider {
+    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>>;
 }

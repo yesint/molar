@@ -52,11 +52,51 @@ pub(crate) struct System {
 /// The parts follow the rules of subselections.
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_ 
 /// kind as a parent selection.
-pub struct Sel<K = MutableSerial> {
+pub struct Sel<K> {
     system: triomphe::Arc<System>,
     index: Vec<usize>,
     _marker: PhantomData<K>,
 }
+
+//-------------------------------------------
+// Implementations of index valifdity checking
+impl CheckedIndex for Sel<MutableSerial> {
+    #[inline(always)]
+    fn check_index(&self) -> &Vec<usize> {
+        &self.index
+    }
+}
+
+impl CheckedIndex for Sel<MutableParallel> {
+    #[inline(always)]
+    fn check_index(&self) -> &Vec<usize> {
+        &self.index
+    }
+}
+
+impl CheckedIndex for Sel<ImmutableParallel> {
+    #[inline(always)]
+    fn check_index(&self) -> &Vec<usize> {
+        &self.index
+    }
+}
+
+impl CheckedIndex for Sel<BuilderSerial> {
+    #[inline(always)]
+    fn check_index(&self) -> &Vec<usize> {
+        let first = self.index[0];
+        let last = self.index[&self.index.len()-1];
+        let n = self.system.state.num_coords();
+        if first >= n || last >= n {
+            panic!(
+                "Builder selection indexes [{}:{}] are out of allowed range [0:{}]",
+                first,last,n
+            );
+        }
+        &self.index
+    }
+}
+//-------------------------------------------
 
 impl Sel<MutableSerial> {
     // Only visible in selection module
@@ -65,7 +105,10 @@ impl Sel<MutableSerial> {
     }
 }
 
-impl<K: SelectionKind> Sel<K> {
+impl<K> Sel<K> 
+where 
+    K: SelectionKind,    
+{
     // Only visible in selection module
     pub(super) fn new(system: triomphe::Arc<System>, index: Vec<usize>) -> Self {
         Self {
@@ -205,7 +248,7 @@ impl<K: SelectionKind> Sel<K> {
     {
         let mut ids = HashMap::<RT, Vec<usize>>::default();
 
-        for p in self.iter() {
+        for p in self.iter_particle() {
             let i = p.id;
             let id = func(p);
             if let Some(el) = ids.get_mut(&id) {
@@ -315,10 +358,6 @@ impl<K: SelectionKind> Sel<K> {
         Ok(unsafe { self.nth_particle_unchecked(i) })
     }
 
-    pub fn iter(&self) -> SelectionIterator<K> {
-        SelectionIterator { sel: self, cur: 0 }
-    }
-
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Consumes a selection and returns selections of the same kind.
     /// 
@@ -387,11 +426,50 @@ impl<'a, K: SelectionKind> Iterator for SelectionIterator<'a, K> {
     }
 }
 
-impl<'a, K: SelectionKind> ExactSizeIterator for SelectionIterator<'a, K> {
+impl<K: SelectionKind> ExactSizeIterator for SelectionIterator<'_, K> {
     fn len(&self) -> usize {
         self.sel.len()
     }
 }
+
+impl<K: SelectionKind> ParticleProvider for Sel<K> {
+    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
+        SelectionIterator { sel: self, cur: 0 }
+    }
+}
+
+//---------------------------------------------
+/// Mutable iterator over the [Particle]s from selection.
+pub struct SelectionIteratorMut<'a, K> {
+    sel: &'a Sel<K>,
+    cur: usize,
+}
+
+impl<'a, K: SelectionKind> Iterator for SelectionIteratorMut<'a, K> {
+    type Item = ParticleMut<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur < self.sel.len() {
+            let ret = unsafe { self.sel.nth_particle_unchecked_mut(self.cur) };
+            self.cur += 1;
+            Some(ret)
+        } else {
+            None
+        }
+    }
+}
+
+impl<K: SelectionKind> ExactSizeIterator for SelectionIteratorMut<'_, K> {
+    fn len(&self) -> usize {
+        self.sel.len()
+    }
+}
+
+impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
+    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
+        SelectionIteratorMut { sel: self, cur: 0 }
+    }
+}
+
 
 
 //---------------------------------------------
