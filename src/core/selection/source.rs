@@ -22,9 +22,19 @@ impl Source<()> {
         topology: Topology,
         state: State,
     ) -> Result<Source<MutableSerial>> {
-        check_sizes(&topology, &state)?;
+        check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             system: triomphe::Arc::new(System{topology,state}),
+            _marker: Default::default(),
+        })
+    }
+
+    pub fn from_system(
+        system: System,
+    ) -> Result<Source<MutableSerial>> {
+        check_topology_state_sizes(&system.topology, &system.state)?;
+        Ok(Source {
+            system: triomphe::Arc::new(system),
             _marker: Default::default(),
         })
     }
@@ -33,7 +43,7 @@ impl Source<()> {
         topology: Topology,
         state: State,
     ) -> Result<Source<BuilderSerial>> {
-        check_sizes(&topology, &state)?;
+        check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             system: triomphe::Arc::new(System{topology,state}),
             _marker: Default::default(),
@@ -41,7 +51,7 @@ impl Source<()> {
     }
 
     pub(crate) fn new_from_system(system: triomphe::Arc<System>) -> Result<Source<MutableSerial>> {
-        check_sizes(&system.topology, &system.state)?;
+        check_topology_state_sizes(&system.topology, &system.state)?;
         Ok(Source {
             system,
             _marker: Default::default(),

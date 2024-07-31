@@ -3,7 +3,7 @@ use anyhow::{Result,bail};
 use sorted_vec::SortedSet;
 use crate::prelude::*;
 
-pub(super) fn check_sizes(topology: &Topology, state: &State) -> Result<()> {
+pub(super) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<()> {
     let n1 = topology.num_atoms();
     let n2 = state.num_coords();
     match n1 == n2 {

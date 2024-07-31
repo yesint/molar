@@ -8,7 +8,6 @@ mod xtc_handler;
 mod gro_handler;
 #[cfg(feature = "gromacs")]
 mod tpr_handler;
-mod file_content;
 mod io_splitter;
 //mod pdb_handler;
 
@@ -18,7 +17,6 @@ pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 pub use gro_handler::GroFileHandler;
-pub use file_content::FileContent;
 
 //===============================
 // Traits for file opening
@@ -126,6 +124,11 @@ impl FileHandler<'_> {
             _ => bail!("Not a once-read format"),
         };
         Ok((top,st))
+    }
+
+    pub fn read_system(&mut self) -> Result<System> {
+        let (topology,state) = self.read()?;
+        Ok(System {topology,state})
     }
 
     pub fn write<'a,T>(&mut self, data: &'a T) -> Result<()> 
@@ -240,13 +243,8 @@ mod tests {
         let r = FileHandler::open("tests/protein.xtc")?;
         let mut w = FileHandler::create(concat!(env!("OUT_DIR"), "/1.xtc"))?;
 
-        //let st = r.read_topology()?;
-        //println!("{:?}", st.atoms);
-
         for fr in r {
             w.write_state(&fr)?;
-            //let f = fr.into_inner();
-            //println!("{}", f.time);
         }
 
         Ok(())
@@ -264,11 +262,6 @@ mod tests {
         r.seek_frame(2000)?;
         let (cur_fr, cur_t) = r.tell_current()?;
         println!("cur after seek to fr 2000: {cur_fr}:{cur_t}");
-
-        //r.seek_time(250000.0)?;
-        //let (cur_fr,cur_t) = r.tell_current()?;
-        //println!("cur after seek to t 250k: {cur_fr}:{cur_t}");
-
         Ok(())
     }
     
@@ -286,17 +279,6 @@ mod tests {
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
-        //let mut w = FileHandler::create(outname)?;
-        //w.write_topology(&b)?;
-        //w.write_state(&st1)?;
-        //w.write_state(&b)?;
-
-        //let top2 = r.read_topology()?;
-        //let st2 = r.read_next_state()?.unwrap();
-        //println!("#2: {}",top2.atoms.len());
-        //for fr in r.iter_states() {
-        //    println!("fr {}", fr.time);
-        //}
         Ok(())
     }
 }

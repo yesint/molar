@@ -129,7 +129,7 @@ impl SourceParallel<()> {
         topology: Topology,
         state: State,
     ) -> Result<SourceParallel<MutableParallel>> {
-        check_sizes(&topology, &state)?;
+        check_topology_state_sizes(&topology, &state)?;
         Ok(SourceParallel {
             system: triomphe::Arc::new(System{topology,state}),
             selections: Default::default(),
@@ -143,7 +143,7 @@ impl SourceParallel<()> {
         topology: Topology,
         state: State,
     ) -> Result<SourceParallel<ImmutableParallel>> {
-        check_sizes(&topology, &state)?;
+        check_topology_state_sizes(&topology, &state)?;
         Ok(SourceParallel {
             system: triomphe::Arc::new(System{topology,state}),
             selections: Default::default(),

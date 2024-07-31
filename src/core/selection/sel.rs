@@ -3,12 +3,19 @@ use crate::prelude::*;
 use anyhow::{bail, Result};
 use sorted_vec::SortedSet;
 
-use super::utils::{index_from_expr, index_from_iter, index_from_vec};
+use super::utils::{check_topology_state_sizes, index_from_expr, index_from_iter, index_from_vec};
 
 #[derive(Default)]
 pub struct System {
     pub topology: Topology,
     pub state: State,
+}
+
+impl System {
+    pub fn new(topology: Topology, state: State) -> Result<Self> {
+        check_topology_state_sizes(&topology, &state)?;
+        Ok(Self{topology,state})
+    }
 }
 
 //---------------------------------------
