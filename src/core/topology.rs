@@ -14,20 +14,20 @@ pub(crate) struct TopologyStorage {
 }
 
 impl TopologyStorage {
-    pub fn add_atoms<'a>(&'a mut self, atoms: impl super::AtomIterator<'a>) {
+    pub(crate) fn add_atoms<'a>(&'a mut self, atoms: impl super::AtomIterator<'a>) {
         self.atoms.extend(atoms.cloned());
     }
 
-    pub fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+    pub(crate) fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
         todo!("Check if bond already exists");
         self.bonds.extend(added);
     }
 
-    pub fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+    pub(crate) fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
         self.molecules.extend(added);
     }
 
-    pub fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+    pub(crate) fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
         let mut ind = removed.collect::<Vec<_>>();
         if ind.len()==0 {
             return Ok(());

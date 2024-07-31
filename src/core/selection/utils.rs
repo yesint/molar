@@ -50,6 +50,21 @@ pub(super) fn index_from_range(range: &Range<usize>, n: usize) -> Result<SortedS
     }
 }
 
+pub(super) fn index_from_vec(vec: &Vec<usize>, n: usize) -> Result<SortedSet<usize>> {
+    let ind = SortedSet::from_unsorted(vec.clone());
+    if ind.is_empty() {        
+        bail!(format!("Selection constructed from vector is empty"))
+    }
+    if ind[0] > n || ind[ind.len()-1] > n {
+        bail!(
+            "Vector with indexes {}:{} is invalid, 0:{} is allowed for constructing selection",
+            ind[0],ind[ind.len()-1],n
+        );
+    }
+    Ok(ind)
+}
+
+
 pub(super) fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<SortedSet<usize>> {
     let index = SortedSet::from_unsorted(it.collect());
     if index.is_empty() {

@@ -4,20 +4,23 @@ use crate::io::StateProvider;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
-    type SubselKind: SelectionKind;
-    const NEED_CHECK_OVERLAP: bool;
+    type SubselKind: SelectionKind;    
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_index(index: &SortedSet<usize>, system: &super::System) {}
-}
+    fn check_index(index: &SortedSet<usize>, system: &super::System) -> anyhow::Result<()> {
+        Ok(())
+    }
 
-/// Trait marking selections that can overlap
-pub trait MayOverlap: SelectionKind {}
+    #[inline(always)]
+    #[allow(unused_variables)]
+    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
 
 /// Trait marking non-overlapping selections
 pub trait MutableSel: SelectionKind {}
-
 /// Trait marking parallel selections
 pub trait ParallelSel: SelectionKind + Send + Sync {}
 /// Trait marking serial selections
@@ -28,31 +31,29 @@ pub trait SerialSel: SelectionKind {}
 pub struct MutableSerial(PhantomData<*const ()>);
 impl SelectionKind for MutableSerial {
     type SubselKind = MutableSerial;
-    const NEED_CHECK_OVERLAP: bool = false;
 }
-impl MayOverlap for MutableSerial {}
 impl MutableSel for MutableSerial {}
 impl SerialSel for MutableSerial {}
 
 /// Marker type for possibly overlapping builder selection (single-threaded)
 pub struct BuilderSerial(PhantomData<*const ()>);
 impl SelectionKind for BuilderSerial {
-    type SubselKind = BuilderSerial;
-    const NEED_CHECK_OVERLAP: bool = false;
+    type SubselKind = BuilderSerial;    
+    
     #[inline(always)]
-    fn check_index(index: &SortedSet<usize>, system: &super::System) {
+    fn check_index(index: &SortedSet<usize>, system: &super::System) -> anyhow::Result<()> {
         let first = index[0];
         let last = index[index.len()-1];
         let n = system.state.num_coords();
         if first >= n || last >= n {
             panic!(
-                "Builder selection indexes [{}:{}] are out of allowed range [0:{}]",
+                "Indexes [{}:{}] are out of allowed range [0:{}]",
                 first,last,n
             );
         }
-    }
+        Ok(())
+    }    
 }
-impl MayOverlap for BuilderSerial {}
 impl MutableSel for BuilderSerial {}
 impl SerialSel for BuilderSerial {}
 
@@ -61,8 +62,17 @@ pub struct MutableParallel {}
 
 impl SelectionKind for MutableParallel {
     // Subseletions may overlap but won't be Send
-    type SubselKind = MutableSerial;
-    const NEED_CHECK_OVERLAP: bool = true;
+    type SubselKind = MutableSerial;    
+
+    #[inline(always)]
+    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> anyhow::Result<()> {
+        for i in index.iter() {
+            if !used.insert(*i) {
+                anyhow::bail!("Index {i} is already used!");
+            }
+        }
+        Ok(())
+    }
 }
 impl MutableSel for MutableParallel {}
 impl ParallelSel for MutableParallel {}
@@ -71,7 +81,5 @@ impl ParallelSel for MutableParallel {}
 pub struct ImmutableParallel {}
 impl SelectionKind for ImmutableParallel {
     type SubselKind = ImmutableParallel;
-    const NEED_CHECK_OVERLAP: bool = false;
 }
-impl MayOverlap for ImmutableParallel {}
 impl ParallelSel for ImmutableParallel {}

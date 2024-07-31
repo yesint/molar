@@ -195,18 +195,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn par_iter(&self) -> impl ParallelIterator<Item = &Sel<K>> {
         self.selections.par_iter()
     }
-    
-    fn check_overlap_if_needed(&mut self, index: &Vec<usize>) -> anyhow::Result<()> {
-        if K::NEED_CHECK_OVERLAP {
-            for i in index.iter() {
-                if !self.used.insert(*i) {
-                    bail!("Index {i} is already used!");
-                }
-            }
-        }
-        Ok(())
-    }
-
+        
     /// Adds an existing serial selection. Passed selection is consumed
     /// and its index is re-evaluated against the new [SourceParallel].
     pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> anyhow::Result<usize> {
@@ -219,8 +208,8 @@ impl<K: ParallelSel> SourceParallel<K> {
         &mut self,
         iter: impl Iterator<Item = usize>,
     ) -> anyhow::Result<usize> {
-        let vec = index_from_iter(iter, self.system.topology.num_atoms())?;
-        self.check_overlap_if_needed(&vec)?;
+        let vec = index_from_iter(iter, self.system.topology.num_atoms())?;        
+        K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
             triomphe::Arc::clone(&self.system),
             vec,            
@@ -230,8 +219,8 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds selection of all
     pub fn select_all(&mut self) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_all(self.system.topology.num_atoms());
-        self.check_overlap_if_needed(&vec)?;
+        let vec = index_from_all(self.system.topology.num_atoms());        
+        K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
             triomphe::Arc::clone(&self.system),
             vec,            
@@ -242,8 +231,8 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn add_str(&mut self, selstr: impl AsRef<str>) -> anyhow::Result<&Sel<K>> {
-        let vec = index_from_str(selstr.as_ref(), &self.system.topology, &self.system.state)?;
-        self.check_overlap_if_needed(&vec)
+        let vec = index_from_str(selstr.as_ref(), &self.system.topology, &self.system.state)?;        
+        K::check_overlap(&vec, &mut self.used)
             .with_context(|| format!("Adding str selection '{}'",selstr.as_ref()))?;
         self.selections.push(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -259,7 +248,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Adds new selection from an existing selection expression.
     pub fn add_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
-        self.check_overlap_if_needed(&vec)?;
+        K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
             triomphe::Arc::clone(&self.system),
             vec,            
@@ -271,7 +260,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// If rangeis out of bounds the error is returned.
     pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<&Sel<K>> {
         let vec = index_from_range(range, self.system.topology.num_atoms())?;
-        self.check_overlap_if_needed(&vec)?;
+        K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
             triomphe::Arc::clone(&self.system),
             vec,            

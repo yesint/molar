@@ -1,8 +1,9 @@
 use std::{collections::HashMap, marker::PhantomData};
 use crate::prelude::*;
-use anyhow::{bail, Result, anyhow};
-use itertools::Itertools;
+use anyhow::{bail, Result};
 use sorted_vec::SortedSet;
+
+use super::utils::{index_from_expr, index_from_iter, index_from_vec};
 
 #[derive(Default)]
 pub struct System {
@@ -71,7 +72,7 @@ impl Sel<MutableSerial> {
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     fn index(&self) -> &SortedSet<usize> {
-        K::check_index(&self.index_storage, &self.system);
+        K::check_index(&self.index_storage, &self.system).unwrap();
         &self.index_storage
     }
 
@@ -86,6 +87,8 @@ impl<K: SelectionKind> Sel<K> {
 
     #[inline(always)]
     pub fn len(&self) -> usize {
+        // We need to check index here manually
+        K::check_index(&self.index_storage, &self.system).unwrap();
         self.num_atoms()
     }
 
@@ -94,16 +97,11 @@ impl<K: SelectionKind> Sel<K> {
     //===================
 
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K::SubselKind>> {
-        let index = expr.apply_subset(&self.system.topology, &self.system.state, self.index().iter().cloned())?;
-        if index.len() > 0 {
-            Ok(Sel::new(
-                triomphe::Arc::clone(&self.system),
-                index,
-            ))
-        } else {
-            bail!("Selection is empty")
-        }
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K::SubselKind>> {    
+        Ok(Sel::new(
+            triomphe::Arc::clone(&self.system),
+            index_from_expr(expr, &self.system.topology, &self.system.state)?,
+        ))
     }
 
     /// Subselection from string
@@ -145,26 +143,10 @@ impl<K: SelectionKind> Sel<K> {
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<K::SubselKind>> {
-        let sorted = SortedSet::from_unsorted(iter.collect::<Vec<usize>>());
-        // Check range
-        let first = sorted[0];
-        let last = sorted[sorted.len()-1];
-        let n = self.system.state.num_coords();
-        if first >= n || last >= n {
-            bail!(
-                "Selecton indexes [{}:{}] are out of allowed range [0:{}]",
-                first,last,n
-            );
-        }
-
-        if sorted.is_empty() {
-            bail!("Selection index is empty")
-        }
-                
+    ) -> Result<Sel<K::SubselKind>> {        
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
-            sorted,
+            index_from_iter(iter, self.len())?,
         ))
     }
 
@@ -180,15 +162,11 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    pub fn subsel_from_vec<S: SelectionKind>(&self, index: Vec<usize>) -> Result<Sel<S>> {
-        if index.len() > 0 {
-            Ok(Sel::new(
-                triomphe::Arc::clone(&self.system),
-                SortedSet::from_unsorted(index),
-            ))
-        } else {
-            bail!("Selection is empty")
-        }
+    pub fn subsel_from_vec<S: SelectionKind>(&self, index: &Vec<usize>) -> Result<Sel<S>> {                
+        Ok(Sel::new(
+            triomphe::Arc::clone(&self.system),
+            index_from_vec(index, self.len())?,
+        ))        
     }
 
     /// Get a Particle for i-th selection index.

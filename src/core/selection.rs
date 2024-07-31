@@ -292,5 +292,43 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
         let mut src = SourceParallel::new_mut(top, st).unwrap();
         src.add_str("resid 5").unwrap();        
-    }    
+    }
+
+    #[test]
+    fn test_builder_append_from_self() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+        let n = top.num_atoms();
+        let mut builder = Source::new_builder(top, st)?;
+        let sel = builder.select_str("resid 550:560")?;
+        let added = sel.len();
+        builder.append(&sel);
+        let all = builder.select_all()?;
+        assert_eq!(all.len(),n+added);
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_remove_from_self() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+        let n = top.num_atoms();
+        let mut builder = Source::new_builder(top, st)?;
+        let sel = builder.select_str("resid 550:560")?;
+        let removed = sel.len();
+        builder.remove(&sel)?;
+        let all = builder.select_all()?;
+        assert_eq!(all.len(),n-removed);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_builder_fail_invalid_selection() {
+        let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
+        let mut builder = Source::new_builder(top, st).unwrap();
+        let sel = builder.select_str("resid 809").unwrap(); // last residue
+        builder.remove(&sel).unwrap();
+        // Trying to call method on invalid selection
+        let _cm = sel.center_of_mass();
+    }
+
 }
