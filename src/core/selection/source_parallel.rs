@@ -70,7 +70,7 @@ use super::utils::*;
 ///    res.unwrap_simple()?;
 ///    let ca = res.subsel_from_str("name CA")?;
 ///    let n = res.subsel_from_str("name N")?;
-///    Ok(ca.first().pos-n.first().pos)
+///    Ok(ca.first_particle().pos-n.first_particle().pos)
 /// })?;
 /// println!("{:?}",dist);
 /// #  Ok::<(), anyhow::Error>(())

@@ -58,6 +58,7 @@ itertools = "0.12"
 rustc-hash = "1.1"
 sync-unsafe-cell = "0.1.1"
 triomphe = {version = "0.1.11", default-features = false, features = ["std"]}
+sorted-vec = "0.8.3"
 #nalgebra-lapack = "0.24"
 
 [dev-dependencies]

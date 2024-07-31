@@ -2,6 +2,7 @@ use std::{collections::HashMap, marker::PhantomData};
 use crate::prelude::*;
 use anyhow::{bail, Result, anyhow};
 use itertools::Itertools;
+use sorted_vec::SortedSet;
 
 #[derive(Default)]
 pub struct System {
@@ -54,7 +55,7 @@ pub struct System {
 /// kind as a parent selection.
 pub struct Sel<K> {
     system: triomphe::Arc<System>,
-    index_vec: Vec<usize>,
+    index_storage: SortedSet<usize>,
     _marker: PhantomData<K>,
 }
 
@@ -63,22 +64,22 @@ pub struct Sel<K> {
 impl Sel<MutableSerial> {
     // Only visible in selection module
     pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self::new(sel.system,sel.index_vec)
+        Self::new(sel.system,sel.index_storage)
     }
 }
 
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
-    fn index(&self) -> &Vec<usize> {
-        K::check_index(&self.index_vec, &self.system);
-        &self.index_vec
+    fn index(&self) -> &SortedSet<usize> {
+        K::check_index(&self.index_storage, &self.system);
+        &self.index_storage
     }
 
     // Only visible in selection module
-    pub(super) fn new(system: triomphe::Arc<System>, index: Vec<usize>) -> Self {
+    pub(super) fn new(system: triomphe::Arc<System>, index: SortedSet<usize>) -> Self {
         Self {
             system,
-            index_vec: index,
+            index_storage: index,
             _marker: PhantomData::default(),
         }
     }
@@ -136,7 +137,7 @@ impl<K: SelectionKind> Sel<K> {
 
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
-            index,
+            unsafe { SortedSet::from_sorted(index) },
         ))
     }
 
@@ -145,22 +146,26 @@ impl<K: SelectionKind> Sel<K> {
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
     ) -> Result<Sel<K::SubselKind>> {
-        // Remove duplicates if any
-        let index = iter
-            .sorted()
-            .dedup()
-            .map(|i| {
-                self.index().get(i).cloned().ok_or_else(|| {
-                    anyhow!(
-                        "Index {} is out of allowed range [0:{}]",
-                        i,
-                        self.index().len()
-                    )
-                })
-            })
-            .collect::<Result<Vec<usize>>>()?;
-        // Now it's safe to call
-        unsafe { self.subsel_from_vec_unchecked(index) }
+        let sorted = SortedSet::from_unsorted(iter.collect::<Vec<usize>>());
+        // Check range
+        let first = sorted[0];
+        let last = sorted[sorted.len()-1];
+        let n = self.system.state.num_coords();
+        if first >= n || last >= n {
+            bail!(
+                "Selecton indexes [{}:{}] are out of allowed range [0:{}]",
+                first,last,n
+            );
+        }
+
+        if sorted.is_empty() {
+            bail!("Selection index is empty")
+        }
+                
+        Ok(Sel::new(
+            triomphe::Arc::clone(&self.system),
+            sorted,
+        ))
     }
 
     // This method doesn't check if the vector has duplicates and thus unsafe
@@ -168,7 +173,18 @@ impl<K: SelectionKind> Sel<K> {
         if index.len() > 0 {
             Ok(Sel::new(
                 triomphe::Arc::clone(&self.system),
-                index,
+                unsafe { SortedSet::from_sorted(index) },
+            ))
+        } else {
+            bail!("Selection is empty")
+        }
+    }
+
+    pub fn subsel_from_vec<S: SelectionKind>(&self, index: Vec<usize>) -> Result<Sel<S>> {
+        if index.len() > 0 {
+            Ok(Sel::new(
+                triomphe::Arc::clone(&self.system),
+                SortedSet::from_unsorted(index),
             ))
         } else {
             bail!("Selection is empty")
@@ -179,7 +195,7 @@ impl<K: SelectionKind> Sel<K> {
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = *self.index().get_unchecked(i);
+        let ind = *self.index_storage.get_unchecked(i);
         Particle {
             id: ind,
             atom: self.system.topology.nth_atom_unchecked(ind),
@@ -191,7 +207,7 @@ impl<K: SelectionKind> Sel<K> {
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
     pub unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> ParticleMut<'_> {
-        let ind = *self.index().get_unchecked(i);
+        let ind = *self.index_storage.get_unchecked(i);
         ParticleMut {
             id: ind,
             atom: self.system.topology.nth_atom_unchecked_mut(ind),
@@ -285,13 +301,13 @@ impl<K: SelectionKind> Sel<K> {
                 let ind = *self.index().get_unchecked(i);
                 self.system.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
             },
-            |i: usize| self.nth(i).unwrap().atom.vdw(),
+            |i: usize| self.nth_particle(i).unwrap().atom.vdw(),
         );
         (areas.into_iter().sum(), volumes.into_iter().sum())
     }
 
     /// Returns a copy of the selection index vector.
-    pub fn get_index_vec(&self) -> Vec<usize> {
+    pub fn get_index_vec(&self) -> SortedSet<usize> {
         self.index().clone()
     }
 
@@ -310,13 +326,18 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     /// Get a Particle for the first selection index.
-    pub fn first(&self) -> Particle {
+    pub fn first_particle(&self) -> Particle {
         unsafe { self.nth_particle_unchecked(0) }
+    }
+
+    /// Get a Particle for the last selection index.
+    pub fn last_particle(&self) -> Particle {
+        unsafe { self.nth_particle_unchecked(self.index_storage.len()-1) }
     }
 
     /// Get a Particle for the first selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth(&self, i: usize) -> Result<Particle> {
+    pub fn nth_particle(&self, i: usize) -> Result<Particle> {
         if i > self.len() {
             bail!("Index {} is beyond the allowed range [0:{}]", i, self.len())
         }

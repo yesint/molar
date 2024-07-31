@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-
+use sorted_vec::SortedSet;
 use crate::io::StateProvider;
 
 /// Trait for kinds of selections
@@ -9,7 +9,7 @@ pub trait SelectionKind {
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_index(index: &Vec<usize>, system: &super::System) {}
+    fn check_index(index: &SortedSet<usize>, system: &super::System) {}
 }
 
 /// Trait marking selections that can overlap
@@ -40,7 +40,7 @@ impl SelectionKind for BuilderSerial {
     type SubselKind = BuilderSerial;
     const NEED_CHECK_OVERLAP: bool = false;
     #[inline(always)]
-    fn check_index(index: &Vec<usize>, system: &super::System) {
+    fn check_index(index: &SortedSet<usize>, system: &super::System) {
         let first = index[0];
         let last = index[index.len()-1];
         let n = system.state.num_coords();

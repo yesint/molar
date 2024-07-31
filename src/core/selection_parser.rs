@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Result};
 use nalgebra::Unit;
 use num_traits::Bounded;
 use regex::bytes::Regex;
+use sorted_vec::SortedSet;
 use std::collections::HashSet;
 
 use crate::prelude::*;
@@ -1034,16 +1035,15 @@ impl TryFrom<&str> for SelectionExpr {
 }
 
 impl SelectionExpr {
-    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<Vec<usize>> {
+    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<SortedSet<usize>> {
         let subset = SubsetType::from_iter(0..topology.num_atoms());
         let data = ApplyData::new(
             topology,
             state,
             &subset,
         )?;
-        let mut index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
-        index.sort();
-        Ok(index)
+        let index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());        
+        Ok(index.into())
     }
 
     pub fn apply_subset(
@@ -1051,12 +1051,11 @@ impl SelectionExpr {
         topology: &Topology,
         state: &State,
         subset: impl Iterator<Item = usize>,
-    ) -> Result<Vec<usize>> {
+    ) -> Result<SortedSet<usize>> {
         let subset = SubsetType::from_iter(subset);
         let data = ApplyData::new(topology, state, &subset)?;
-        let mut index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
-        index.sort();
-        Ok(index)
+        let index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();        
+        Ok(index.into())
     }
 }
 
@@ -1065,7 +1064,7 @@ impl SelectionExpr {
 //##############################
 
 #[cfg(test)]
-mod tests {
+mod tests {    
     use super::{SelectionExpr, State, Topology};
     use crate::io::*;
 
@@ -1092,14 +1091,14 @@ mod tests {
         let topst = read_test_pdb();
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         ast.apply_whole(&topst.0, &topst.1)
-            .expect("Error applying AST")
+            .expect("Error applying AST").to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         let topst = read_test_pdb2();
         ast.apply_whole(&topst.0, &topst.1)
-            .expect("Error applying AST")
+            .expect("Error applying AST").to_vec()
     }
 
     #[test]
