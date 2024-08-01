@@ -297,10 +297,12 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     /// Saves selection to file. File type is deduced from extension.
+    /*
     pub fn save(&self, fname: &str) -> Result<()> {
         let mut h = FileHandler::create(fname)?;
         h.write(self)
     }
+    */
 
     pub fn first_index(&self) -> usize {
         self.index()[0]
@@ -445,6 +447,8 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
 
 //---------------------------------------------
 // Implement traits for IO
+
+impl<K: SelectionKind> WritableToFile for Sel<K> {}
 
 impl<K: SelectionKind> IndexProvider for Sel<K> {
     fn iter_index(&self) -> impl Iterator<Item = usize> {

@@ -151,6 +151,18 @@ impl SourceParallel<()> {
             _marker: Default::default(),
         })
     }
+
+    pub fn from_file(fname: &str) -> Result<SourceParallel<ImmutableParallel>> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top,st) = fh.read()?;
+        Ok(SourceParallel::new(top,st)?)
+    }
+
+    pub fn from_file_mut(fname: &str) -> Result<SourceParallel<MutableParallel>> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top,st) = fh.read()?;
+        Ok(SourceParallel::new_mut(top,st)?)
+    }
 }
 
 impl<K: ParallelSel> SourceParallel<K> {
@@ -275,7 +287,7 @@ impl<K: ParallelSel> SourceParallel<K> {
             Sel::from_parallel(sel)
         ).collect();
         // This should never fail
-        let src = Source::new_from_system(self.system).unwrap(); 
+        let src = Source::new_from_arc_system(self.system).unwrap(); 
         (src,sels)
     }
 
@@ -336,8 +348,48 @@ impl<K: ParallelSel> SourceParallel<K> {
 
         Ok(topology)
     }
-    
 }
+
+//-----------------------------------------
+// IO traits impls
+// Only for immutable parallel selections!
+//-----------------------------------------
+impl TopologyProvider for SourceParallel<ImmutableParallel> {
+    fn num_atoms(&self) -> usize {
+        self.system.state.num_coords()
+    }
+}
+
+impl AtomsProvider for SourceParallel<ImmutableParallel> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.system.topology.iter_atoms()       
+    }
+}
+
+impl StateProvider for SourceParallel<ImmutableParallel> {
+    fn get_time(&self) -> f32 {
+        self.system.state.get_time()
+    }
+
+    fn num_coords(&self) -> usize {
+        self.system.state.num_coords()       
+    }
+}
+
+impl PosProvider for SourceParallel<ImmutableParallel> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.system.state.iter_pos()
+    }
+}
+
+impl BoxProvider for SourceParallel<ImmutableParallel> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.system.state.get_box()
+    }
+}
+
+impl WritableToFile for SourceParallel<ImmutableParallel> {}
+
 
 #[cfg(test)]
 mod tests {    

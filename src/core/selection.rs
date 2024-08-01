@@ -10,6 +10,7 @@ pub use source::*;
 pub use source_parallel::*;
 pub use sel::*;
 pub use sel_split::*;
+pub(crate) use utils::*;
 
 //############################################################
 //#  Tests

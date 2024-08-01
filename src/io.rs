@@ -45,6 +45,13 @@ pub trait StateProvider: PosProvider + BoxProvider {
     fn num_coords(&self) -> usize;
 }
 
+pub trait WritableToFile: TopologyProvider + StateProvider where Self: Sized{
+    fn save(&self, fname: &str) -> Result<()> {
+        let mut h = FileHandler::create(fname)?;
+        h.write(self)
+    }
+}
+
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
@@ -123,6 +130,7 @@ impl FileHandler<'_> {
             },
             _ => bail!("Not a once-read format"),
         };
+        check_topology_state_sizes(&top, &st)?;
         Ok((top,st))
     }
 

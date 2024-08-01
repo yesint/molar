@@ -50,7 +50,20 @@ impl Source<()> {
         })
     }
 
-    pub(crate) fn new_from_system(system: triomphe::Arc<System>) -> Result<Source<MutableSerial>> {
+    pub fn from_file(fname: &str) -> Result<Source<MutableSerial>> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top,st) = fh.read()?;
+        Ok(Source::new(top,st)?)
+    }
+
+    pub fn from_file_builder(fname: &str) -> Result<Source<BuilderSerial>> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top,st) = fh.read()?;
+        Ok(Source::new_builder(top,st)?)
+    }
+
+    // Constructor for internal usage
+    pub(crate) fn new_from_arc_system(system: triomphe::Arc<System>) -> Result<Source<MutableSerial>> {
         check_topology_state_sizes(&system.topology, &system.state)?;
         Ok(Source {
             system,
@@ -185,3 +198,42 @@ impl Source<BuilderSerial> {
         Ok(())
     }
 }
+
+//------------------
+// IO traits impls
+//-----------------
+impl<K: SelectionKind> TopologyProvider for Source<K> {
+    fn num_atoms(&self) -> usize {
+        self.system.state.num_coords()
+    }
+}
+
+impl<K: SelectionKind> AtomsProvider for Source<K> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.system.topology.iter_atoms()       
+    }
+}
+
+impl<K: SelectionKind> StateProvider for Source<K> {
+    fn get_time(&self) -> f32 {
+        self.system.state.get_time()
+    }
+
+    fn num_coords(&self) -> usize {
+        self.system.state.num_coords()       
+    }
+}
+
+impl<K: SelectionKind> PosProvider for Source<K> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.system.state.iter_pos()
+    }
+}
+
+impl<K: SelectionKind> BoxProvider for Source<K> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.system.state.get_box()
+    }
+}
+
+impl<K: SelectionKind> WritableToFile for Source<K> {}
