@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use nalgebra::Unit;
 use num_traits::Bounded;
+use peg::str::LineCol;
 use regex::bytes::Regex;
 use sorted_vec::SortedSet;
 use std::collections::HashSet;
@@ -1027,8 +1028,13 @@ impl SelectionExpr {
 impl TryFrom<&str> for SelectionExpr {
     type Error = anyhow::Error;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
+        //let ret = selection_parser::logical_expr(value);
         Ok(Self {
-            ast: selection_parser::logical_expr(value)?,
+            ast: selection_parser::logical_expr(value).or_else(|e| {
+                let s = format!("Syntax error here:\n{}\n{}^\nExpected {}",value,"-".repeat(e.location.column-1),e.expected);
+                //e.location
+                bail!(s)
+            })?,
             sel_str: value.to_owned(),
         })
     }
@@ -1099,6 +1105,12 @@ mod tests {
         let topst = read_test_pdb2();
         ast.apply_whole(&topst.0, &topst.1)
             .expect("Error applying AST").to_vec()
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_syntax() {
+        let _ast: SelectionExpr = "resname A B C D and resid a:6".try_into().unwrap();
     }
 
     #[test]
