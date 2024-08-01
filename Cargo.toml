@@ -1,8 +1,8 @@
 [workspace]
 
 [workspace.package]
-version = "0.3.3"
-rust-version = "1.77" 
+version = "0.4.0"
+rust-version = "1.80" 
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
 license = "Artistic-2.0"
@@ -15,7 +15,7 @@ categories = ["science", "simulation", "external-ffi-bindings"]
 
 [workspace.dependencies]
 anyhow = "1.0"
-nalgebra = "0.32"
+nalgebra = "0.33.0"
 peg = "0.8.1"
 regex = "1.9.3"
 cmake = "0.1"
@@ -54,8 +54,8 @@ regex.workspace = true
 ndarray = "0.15.6"
 num-traits = "0.2.16"
 rayon = "1.8"
-itertools = "0.12"
-rustc-hash = "1.1"
+itertools = "0.13.0"
+rustc-hash = "2.0.0"
 sync-unsafe-cell = "0.1.1"
 triomphe = {version = "0.1.11", default-features = false, features = ["std"]}
 sorted-vec = "0.8.3"

@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use nalgebra::Unit;
 use num_traits::Bounded;
-use peg::str::LineCol;
 use regex::bytes::Regex;
 use sorted_vec::SortedSet;
 use std::collections::HashSet;
@@ -1041,6 +1040,10 @@ impl TryFrom<&str> for SelectionExpr {
 }
 
 impl SelectionExpr {
+    pub fn new(s: &str) -> Result<Self> {
+        Ok(s.try_into()?)
+    }
+
     pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<SortedSet<usize>> {
         let subset = SubsetType::from_iter(0..topology.num_atoms());
         let data = ApplyData::new(
