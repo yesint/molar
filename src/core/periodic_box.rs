@@ -1,5 +1,5 @@
 use crate::core::{Matrix3f, Pos, Vector3f};
-use anyhow::{anyhow, bail, Result};
+use thiserror::Error;
 
 #[derive(Debug, Default, Clone)]
 pub struct PeriodicBox {
@@ -11,15 +11,24 @@ pub type PbcDims = [bool; 3];
 pub const PBC_FULL: PbcDims = [true,true,true];
 pub const PBC_NONE: PbcDims = [false,false,false];
 
+#[derive(Error,Debug)]
+pub enum PeriodicBoxError {
+    #[error("zero length box vector")]
+    ZeroLengthVector,
+    
+    #[error("inverse failed")]
+    InverseFailed,
+    
+    #[error("box angle is <60 deg")]
+    AngleToSmall,
+}
+
 impl PeriodicBox {
-    pub fn from_matrix(matrix: Matrix3f) -> Result<Self> {
+    pub fn from_matrix(matrix: Matrix3f) -> Result<Self, PeriodicBoxError> {
         // Sanity check
         for col in matrix.column_iter() {
             if col.norm() == 0.0 {
-                bail!(
-                    "Three non-zero periodic box vector required! Given {}",
-                    matrix
-                )
+                Err(PeriodicBoxError::ZeroLengthVector)?
             }
         }
 
@@ -27,7 +36,7 @@ impl PeriodicBox {
             matrix,
             inv: matrix
                 .try_inverse()
-                .ok_or(anyhow!("Can't invert the pbc matrix: {}",matrix))?,
+                .ok_or_else(|| PeriodicBoxError::InverseFailed)?,
         })
     }
 
@@ -38,20 +47,15 @@ impl PeriodicBox {
         alpha: f32,
         beta: f32,
         gamma: f32,
-    ) -> Result<Self> {
+    ) -> Result<Self, PeriodicBoxError> {
         let mut m = Matrix3f::zeros();
 
         if a == 0.0 || b == 0.0 || c == 0.0 {
-            bail!("Box vectors have to be non-zero! ({} {} {})", a, b, c);
+            Err(PeriodicBoxError::ZeroLengthVector)?;
         }
 
         if alpha < 60.0 || beta < 60.0 || gamma < 60.0 {
-            bail!(
-                "Box angles should be >= 60 deg! ({} {} {})",
-                alpha,
-                beta,
-                gamma
-            );
+            Err(PeriodicBoxError::AngleToSmall)?;
         }
 
         m[(0, 0)] = a;
@@ -184,5 +188,18 @@ impl PeriodicBox {
         self.matrix[(0,1)]!=0.0 || self.matrix[(0,2)]!=0.0 ||
         self.matrix[(1,0)]!=0.0 || self.matrix[(1,2)]!=0.0 ||
         self.matrix[(2,0)]!=0.0 || self.matrix[(2,1)]!=0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PeriodicBox;
+
+    #[test]
+    #[should_panic]
+    fn invalid_from_vec_ang() {
+        let _b = PeriodicBox::from_vectors_angles(
+            10.0,0.2,15.0, 90.0, 9.0, 90.0
+        ).unwrap();
     }
 }

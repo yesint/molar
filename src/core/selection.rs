@@ -5,12 +5,59 @@ mod source_parallel;
 mod sel;
 mod sel_split;
 
+use std::ops::Range;
+
 pub use kinds::*;
 pub use source::*;
 pub use source_parallel::*;
 pub use sel::*;
 pub use sel_split::*;
 pub(crate) use utils::*;
+
+use thiserror::Error;
+
+use super::selection_parser::SelectionParserError;
+
+#[derive(Error,Debug)]
+#[error("topology and state have different sizes ({0},{1})")]
+pub struct DifferentSizes(usize,usize);
+
+#[derive(Error,Debug)]
+pub enum SelectionError {
+    #[error("selection parser failed")]
+    Parser(#[from] SelectionParserError),
+    
+    #[error(transparent)]
+    DifferentSizes(#[from] DifferentSizes),
+    
+    #[error("creating selection from expression {expr_str}")]
+    FromExpr{
+        expr_str: String,
+        source: SelectionIndexError,
+    },
+    
+    #[error("creating selection from range {range:?}")]
+    FromRange{
+        range: Range<usize>,
+        source: SelectionIndexError,
+    },
+    
+    #[error("creating selection from vec {first}..{last} of size {size}")]
+    FromVec{
+        first: usize,
+        last: usize,
+        size: usize,
+        source: SelectionIndexError
+    },
+}
+
+#[derive(Error,Debug)]
+pub enum SelectionIndexError {
+    #[error("selection index is empty")]
+    IndexEmpty,
+    #[error("selection index bounds {0}:{1} are out of allowed range 0:{2}")]
+    IndexOutOfBounds(usize,usize,usize),
+}
 
 //############################################################
 //#  Tests

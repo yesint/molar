@@ -1,39 +1,65 @@
 use crate::core::*;
 
-use anyhow::Result;
 use nalgebra::Matrix3;
 
 use molar_gromacs::gromacs_bindings::*;
+use thiserror::Error;
 use std::{
-    ffi::{CStr, CString},
-    ptr::null_mut,
+    ffi::{CStr, CString, NulError},
+    ptr::null_mut, str::Utf8Error,
 };
 
-use super::io_splitter::ReadTopAndState;
+use super::{FileHandlerError, ReadTopAndState};
 
 pub struct TprFileHandler {
     handle: TprHelper,
+    file_name: String,
 }
 
+#[derive(Debug, Error)]
+pub enum TprHandlerError {
+    #[error("unexpected null characted")]
+    CStringNull(#[from] NulError),
+    
+    #[error("invalid utf8")]
+    CStringUtf8(#[from] Utf8Error),
+
+    #[error("invalid periodic box")]
+    Pbc(#[from] PeriodicBoxError),
+
+    #[error("can't read gmx topology")]
+    GetTop,
+}
+
+
 impl TprFileHandler {
-    fn new(fname: &str) -> Result<Self> {
+    fn new(fname: &str) -> Result<Self, TprHandlerError> {
         let f_name = CString::new(fname.to_owned())?;
         Ok(TprFileHandler {
             handle: unsafe { TprHelper::new(f_name.as_ptr()) },
+            file_name: fname.into(),
         })
     }
 
-    pub fn open(fname: &str) -> Result<Self> {
+    pub fn open(fname: &str) -> Result<Self, TprHandlerError> {
         TprFileHandler::new(fname)
+    }
+    
+    pub fn get_file_name(&self) -> &str {
+        &self.file_name
     }
 }
 
 impl ReadTopAndState for TprFileHandler {
-    fn read_top_and_state(&mut self) -> Result<(Topology, State)> {
+    fn read_top_and_state(&mut self) -> Result<(Topology, State), FileHandlerError> {
         //================
         // Read top
         //================
-        let gmx_top = unsafe { self.handle.get_top().as_ref().unwrap() };
+        let gmx_top = unsafe {
+            self.handle.get_top()
+            .as_ref()
+            .ok_or_else(|| TprHandlerError::GetTop)?
+        };
         let natoms = gmx_top.atoms.nr as usize;
         let nres = gmx_top.atoms.nres as usize;
 
@@ -143,7 +169,10 @@ impl ReadTopAndState for TprFileHandler {
         // Box is stored as column-major matrix
         let sl = unsafe { std::slice::from_raw_parts(self.handle.get_box(), 9) };
         let m = Matrix3::from_column_slice(sl);
-        st.pbox = Some(PeriodicBox::from_matrix(m)?);
+        st.pbox = Some(
+            PeriodicBox::from_matrix(m)
+            .map_err(|e| TprHandlerError::Pbc(e))?
+        );
 
         Ok((top, st.into()))
     }
@@ -156,8 +185,10 @@ impl Drop for TprFileHandler {
     }
 }
 
-unsafe fn c_ptr_to_str(ptr: *const i8) -> Result<String> {
-    Ok(CStr::from_ptr(ptr).to_str()?.to_owned())
+unsafe fn c_ptr_to_str(ptr: *const i8) -> Result<String, FileHandlerError> {
+    Ok(CStr::from_ptr(ptr).to_str()
+    .map_err(|e| TprHandlerError::CStringUtf8(e))?
+    .to_owned())
 }
 
 fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {
@@ -169,7 +200,7 @@ fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {
 
 #[cfg(test)]
 mod tests {
-    use crate::io::{io_splitter::ReadTopAndState, StateProvider, TopologyProvider, TprFileHandler};
+    use crate::io::{ReadTopAndState, StateProvider, TopologyProvider, TprFileHandler};
     #[test]
     fn test_tpr() {
         let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();

@@ -19,6 +19,7 @@ nalgebra = "0.33.0"
 peg = "0.8.1"
 regex = "1.9.3"
 cmake = "0.1"
+thiserror = "1.0"
 
 [package]
 name = "molar"
@@ -47,6 +48,7 @@ molar_powersasa = {path = "crates/molar_powersasa", version="0.1"}
 molar_gromacs = {path = "crates/molar_gromacs", version="0.2", optional = true}
 # Normal dependencies
 anyhow.workspace = true
+thiserror.workspace = true
 nalgebra.workspace = true
 #nalgebra-lapack.workspace = true
 peg.workspace = true

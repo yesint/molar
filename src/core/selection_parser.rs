@@ -1,11 +1,29 @@
-use anyhow::{anyhow, bail, Result};
 use nalgebra::Unit;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use sorted_vec::SortedSet;
+use thiserror::Error;
 use std::collections::HashSet;
 
 use crate::prelude::*;
+
+#[derive(Error,Debug)]
+pub enum SelectionParserError {
+    #[error("synatx error: {0}")]
+    SyntaxError(String),
+
+    #[error(transparent)]
+    DifferentSizes(#[from] DifferentSizes),
+
+    #[error("no periodic box for pbc unwrapping")]
+    PbcUnwrap,
+
+    #[error("division by zero in math node eval")]
+    DivisionByZero,
+
+    #[error("sqrt of negative number in math node eval")]
+    NegativeSqrt,
+}
 
 //##############################
 //#  AST node types
@@ -169,14 +187,8 @@ pub(crate) struct ApplyData<'a> {
 }
 
 impl<'a> ApplyData<'a> {
-    fn new(topology: &'a Topology, state: &'a State, global_subset: &'a SubsetType) -> Result<Self> {
-        if topology.num_atoms() != state.num_coords() {
-            bail!(
-                "There are {} atoms but {} positions",
-                topology.num_atoms(),
-                state.num_coords()
-            );
-        }
+    fn new(topology: &'a Topology, state: &'a State, global_subset: &'a SubsetType) -> Result<Self, SelectionParserError> {
+        check_topology_state_sizes(topology, state)?;
 
         Ok(Self {
             topology,
@@ -292,7 +304,7 @@ impl LogicalNode {
         res
     }
 
-    pub fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
+    pub fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
         match self {
             Self::Not(node) => Ok(
                 // Here we always use global subset!
@@ -463,7 +475,7 @@ impl KeywordNode {
         res
     }
 
-    fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
+    fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
         match self {
             Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
             Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
@@ -507,7 +519,7 @@ impl MathNode {
     }
     */
     
-    fn closest_image(&self, point: &Pos, pbox: Option<&PeriodicBox>) -> Result<Option<Pos>> {
+    fn closest_image(&self, point: &Pos, pbox: Option<&PeriodicBox>) -> Result<Option<Pos>, SelectionParserError> {
         match self {
             Self::Dist(d) => {
                 match d {
@@ -519,7 +531,7 @@ impl MathNode {
                         if dims[0] || dims[1] || dims[2] {
                             Ok(Some(
                                 pbox
-                                .ok_or_else(|| anyhow!("PBC operation with no periodic box"))?
+                                .ok_or_else(|| SelectionParserError::PbcUnwrap)?
                                 .closest_image_dims(point,target,dims)
                             ))
                         } else {
@@ -532,7 +544,7 @@ impl MathNode {
         }
     }
 
-    fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32> {
+    fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32, SelectionParserError> {
         match self {
             Self::Float(v) => Ok(*v),
             Self::X => Ok(pos[0]),
@@ -546,7 +558,7 @@ impl MathNode {
             Self::Div(a, b) => {
                 let b_val = b.eval(atom, pos)?;
                 if b_val == 0.0 {
-                    bail!("Division by zero")
+                    return Err(SelectionParserError::DivisionByZero);
                 }
                 Ok(a.eval(atom, pos)? / b_val)
             }
@@ -557,7 +569,7 @@ impl MathNode {
                 match func {
                     MathFunctionName::Abs => Ok(val.abs()),
                     MathFunctionName::Sqrt => {
-                        if val<0.0 {bail!("Negative number in sqrt")}
+                        if val<0.0 { return Err(SelectionParserError::NegativeSqrt); }
                         Ok(val.sqrt())
                     },
                     MathFunctionName::Sin => Ok(val.sin()),
@@ -630,7 +642,7 @@ impl ComparisonNode {
         v1: &MathNode,
         v2: &MathNode,
         op: fn(f32, f32) -> bool,
-    ) -> Result<SubsetType> {
+    ) -> Result<SubsetType, SelectionParserError> {
         let mut res = SubsetType::default();
         let b = data.state.get_box();
 
@@ -652,7 +664,7 @@ impl ComparisonNode {
         v3: &MathNode,
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
-    ) -> Result<SubsetType> {
+    ) -> Result<SubsetType, SelectionParserError> {
         let mut res = SubsetType::default();
         let b = data.state.get_box();
 
@@ -669,7 +681,7 @@ impl ComparisonNode {
         Ok(res)
     }
 
-    fn apply(&self, data: &ApplyData) -> Result<SubsetType> {
+    fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
         match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
@@ -1025,14 +1037,13 @@ impl SelectionExpr {
 }
 
 impl TryFrom<&str> for SelectionExpr {
-    type Error = anyhow::Error;
+    type Error = SelectionParserError;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
         //let ret = selection_parser::logical_expr(value);
         Ok(Self {
-            ast: selection_parser::logical_expr(value).or_else(|e| {
-                let s = format!("Syntax error here:\n{}\n{}^\nExpected {}",value,"-".repeat(e.location.column-1),e.expected);
-                //e.location
-                bail!(s)
+            ast: selection_parser::logical_expr(value).map_err(|e| {
+                let s = format!("\n{}\n{}^\nExpected {}",value,"-".repeat(e.location.column-1),e.expected);
+                SelectionParserError::SyntaxError(s)
             })?,
             sel_str: value.to_owned(),
         })
@@ -1040,11 +1051,11 @@ impl TryFrom<&str> for SelectionExpr {
 }
 
 impl SelectionExpr {
-    pub fn new(s: &str) -> Result<Self> {
+    pub fn new(s: &str) -> Result<Self, SelectionParserError> {
         Ok(s.try_into()?)
     }
 
-    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<SortedSet<usize>> {
+    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(0..topology.num_atoms());
         let data = ApplyData::new(
             topology,
@@ -1060,7 +1071,7 @@ impl SelectionExpr {
         topology: &Topology,
         state: &State,
         subset: impl Iterator<Item = usize>,
-    ) -> Result<SortedSet<usize>> {
+    ) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(subset);
         let data = ApplyData::new(topology, state, &subset)?;
         let index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();        

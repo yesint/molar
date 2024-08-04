@@ -1,29 +1,54 @@
-use super::{io_splitter::ReadTopAndState, State, StateProvider, Topology, TopologyProvider};
+use super::{FileHandlerError, PeriodicBoxError, ReadTopAndState, State, StateProvider, Topology, TopologyProvider};
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, StateStorage, TopologyStorage};
-use anyhow::Result;
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
+    num::{ParseFloatError, ParseIntError},
 };
+use thiserror::Error;
 
 pub struct GroFileHandler {
     file_name: String,
 }
 
+#[derive(Debug, Error)]
+pub enum GroHandlerError {
+    #[error("unxpected io error")]
+    Io(#[from] std::io::Error),
+
+    #[error("unexpected end of GRO file at: {0}")]
+    Eof(String),
+    
+    #[error("not an integer at {1}: {0}")]
+    ParseInt(ParseIntError, String),
+    
+    #[error("not a float at {1}: {0}")]
+    ParseFloat(ParseFloatError, String),
+    
+    #[error("atom entry {0} truncated at {1}")]
+    AtomEntry(usize, String),
+
+    #[error("invalid periodic box")]
+    Pbc(#[from] PeriodicBoxError),
+}
+
 impl GroFileHandler {
-    pub fn open(fname: &str) -> Result<Self> {
-        Ok(Self {
+    pub fn open(fname: &str) -> Self {
+        Self {
             file_name: fname.to_owned(),
-        })
+        }
     }
 
-    pub fn create(fname: &str) -> Result<Self> {
-        Ok(Self {
+    pub fn create(fname: &str) -> Self {
+        Self {
             file_name: fname.to_owned(),
-        })
+        }
     }
 
-    pub fn write(&mut self, data: &(impl TopologyProvider + StateProvider)) -> Result<()> {
+    pub fn write(
+        &mut self,
+        data: &(impl TopologyProvider + StateProvider),
+    ) -> Result<(), GroHandlerError> {
         // Open file for writing
         let mut buf = BufWriter::new(File::create(self.file_name.to_owned())?);
         let natoms = data.num_atoms();
@@ -80,26 +105,57 @@ impl GroFileHandler {
 
         Ok(())
     }
+    
+    pub fn get_file_name(&self) -> &str {
+        &self.file_name
+    }
 }
 
 impl ReadTopAndState for GroFileHandler {
-    fn read_top_and_state(&mut self) -> Result<(Topology, State)> {
+    fn read_top_and_state(&mut self) -> Result<(Topology, State), FileHandlerError> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 
-        let mut lines = BufReader::new(File::open(self.file_name.to_owned())?).lines();
+        let mut lines =
+            BufReader::new(File::open(self.file_name.to_owned())
+                .map_err(|e| GroHandlerError::Io(e))?)
+                .lines();
         // Skip the title
-        let _ = lines.next().unwrap();
+        let _ = lines
+            .next()
+            .ok_or_else(|| GroHandlerError::Eof("title".into()))?;
+
         // Read number of atoms
-        let natoms = lines.next().unwrap()?.parse::<usize>()?;
+        let natoms = lines
+            .next()
+            .ok_or_else(|| GroHandlerError::Eof("natoms".into()))?
+            .map_err(|e| GroHandlerError::Io(e))?
+            .parse::<usize>()
+            .map_err(|e| GroHandlerError::ParseInt(e, "natoms".into()))?;
+
         // Go over atoms line by line
-        for _ in 0..natoms {
-            let line = lines.next().unwrap()?;
+        for i in 0..natoms {
+            let line = lines
+                .next()
+                .ok_or_else(|| GroHandlerError::Eof(format!("atom #{i}")))?
+                .map_err(|e| GroHandlerError::Io(e))?;
 
             let at = Atom {
-                resid: line[0..5].parse()?,
-                resname: line[5..10].trim().to_owned(),
-                name: line[10..15].trim().to_owned(),
+                resid: line
+                    .get(0..5)
+                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
+                    .parse()
+                    .map_err(|e| GroHandlerError::ParseInt(e, format!("atom #{i} resid")))?,
+                resname: line
+                    .get(5..10)
+                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
+                    .trim()
+                    .to_owned(),
+                name: line
+                    .get(10..15)
+                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
+                    .trim()
+                    .to_owned(),
                 chain: ' ',
                 type_name: "".into(),
                 type_id: 0,
@@ -114,9 +170,18 @@ impl ReadTopAndState for GroFileHandler {
 
             // Read coordinates
             let v = Pos::new(
-                line[20..28].parse()?,
-                line[28..36].parse()?,
-                line[36..44].parse()?,
+                line.get(20..28)
+                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
+                    .parse()
+                    .map_err(|e| GroHandlerError::ParseFloat(e, format!("atom #{i} y")))?,
+                line.get(28..36)
+                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
+                    .parse()
+                    .map_err(|e| GroHandlerError::ParseFloat(e, format!("atom #{i} y")))?,
+                line.get(36..44)
+                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
+                    .parse()
+                    .map_err(|e| GroHandlerError::ParseFloat(e, format!("atom #{i} z")))?,
             );
             state.coords.push(v);
         }
@@ -134,10 +199,15 @@ impl ReadTopAndState for GroFileHandler {
         */
         let l = lines
             .next()
-            .unwrap()?
+            .ok_or_else(|| GroHandlerError::Eof("pbc".into()))?
+            .map_err(|e| GroHandlerError::Io(e))?
             .split(" ")
-            .map(|s| s.parse().unwrap())
-            .collect::<Vec<f32>>();
+            .map(|s| {
+                Ok(s.parse::<f32>()
+                    .map_err(|e| GroHandlerError::ParseFloat(e, "pbc".into()))?)
+            })
+            .collect::<Result<Vec<f32>,GroHandlerError>>()?;
+
         let mut m = Matrix3f::zeros();
         m[(0, 0)] = l[0];
         m[(1, 1)] = l[1];
@@ -150,7 +220,10 @@ impl ReadTopAndState for GroFileHandler {
             m[(0, 2)] = l[7];
             m[(1, 2)] = l[8];
         }
-        state.pbox = Some(PeriodicBox::from_matrix(m)?);
+        state.pbox = Some(
+            PeriodicBox::from_matrix(m)
+            .map_err(|e| GroHandlerError::Pbc(e))?
+        );
 
         let state: State = state.into();
 
@@ -159,5 +232,17 @@ impl ReadTopAndState for GroFileHandler {
         top.assign_resindex();
 
         Ok((top, state.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::io::FileHandler;
+
+    #[test]
+    #[should_panic]
+    fn invalid_file() {
+        let mut fh = FileHandler::open("nonexisting.gro").unwrap();
+        fh.read().unwrap();
     }
 }
