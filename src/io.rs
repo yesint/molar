@@ -36,6 +36,9 @@ pub enum FileIoError {
     #[error("file {0} has no states to read")]
     NoStates(String),
 
+    #[error(transparent)]
+    DifferentSizes(#[from] DifferentSizes),
+
     #[error("not a read once format")]
     NotReadOnceFormat,
 
@@ -47,9 +50,6 @@ pub enum FileIoError {
 
     #[error("not a topology writing format")]
     NotTopologyWriteFormat,
-
-    #[error(transparent)]
-    DifferentSizes(#[from] DifferentSizes),
 
     #[error("not a trajectory reading format")]
     NotTrajectoryReadFormat,
@@ -98,15 +98,100 @@ pub trait ReadTopAndState {
 }
 
 //===============================
-// Traits for file opening
+// Traits for file handlers
 //===============================
 
-// There are the following types of data file handlers:
-// (1)  All-in-once files (GRO, TPR)
-//      Topology+State is read and written at once
-// (2)  State only multiple times (XTC, TRR)
-//      These are classical trajectories
-// (3)  Topology once + multiple states (PDB, TNG)
+pub trait FileFormatHandler {
+    // Format
+    fn format_ext() -> String;
+
+    fn format_description() -> String {
+        format!("{} file", Self::format_ext())
+    }
+
+    // Capabilities
+
+    fn read_topology_func<F>(&mut self) -> Option<F>
+    where
+        F: FnMut() -> Result<Topology, FileIoError>,
+    {
+        None
+    }
+
+    fn read_state_func<F>(&mut self) -> Option<F>
+    where
+        F: FnMut() -> Result<Option<State>, FileIoError>,
+    {
+        None
+    }
+
+    fn write_topology_func<F, D>(&mut self) -> Option<F>
+    where
+        F: FnMut(&D) -> Result<(), FileIoError>,
+        D: TopologyProvider,
+    {
+        None
+    }
+
+    fn write_state_func<F, D>(&mut self) -> Option<F>
+    where
+        F: FnMut(&D) -> Result<(), FileIoError>,
+        D: StateProvider,
+    {
+        None
+    }
+
+    fn read<F>(&mut self) -> Option<F>
+    where
+        F: FnMut() -> Result<(Topology, State), FileIoError>,
+    {
+        None
+    }
+
+    fn write<F, D>(&mut self) -> Option<F>
+    where
+        F: FnMut(&D) -> Result<(), FileIoError>,
+        D: TopologyProvider + StateProvider,
+    {
+        None
+    }
+
+    // Random access
+    fn seek_frame<F>(&mut self) -> Option<F>
+    where
+        F: FnMut(usize) -> Result<(), FileIoError>,
+    {
+        None
+    }
+
+    fn seek_time<F>(&mut self) -> Option<F>
+    where
+        F: FnMut(f32) -> Result<(), FileIoError>,
+    {
+        None
+    }
+
+    fn tell_first<F>(&self) -> Option<F>
+    where
+        F: FnMut() -> Result<(usize, f32), FileIoError>,
+    {
+        None
+    }
+
+    fn tell_current<F>(&self) -> Option<F>
+    where
+        F: FnMut() -> Result<(usize, f32), FileIoError>,
+    {
+        None
+    }
+
+    fn tell_last<F>(&self) -> Option<F>
+    where
+        F: FnMut() -> Result<(usize, f32), FileIoError>,
+    {
+        None
+    }
+}
 
 //===============================
 // Traits for writing
@@ -137,11 +222,11 @@ where
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
-pub struct IoStateIterator<'a> {
-    reader: FileHandler<'a>,
+pub struct IoStateIterator {
+    reader: FileHandler,
 }
 
-impl Iterator for IoStateIterator<'_> {
+impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
@@ -151,10 +236,10 @@ impl Iterator for IoStateIterator<'_> {
 //================================
 // General type for file handlers
 //================================
-pub enum FileHandler<'a> {
-    Pdb(VmdMolFileHandler<'a>),
-    Dcd(VmdMolFileHandler<'a>),
-    Xyz(VmdMolFileHandler<'a>),
+pub enum FileHandler {
+    Pdb(VmdMolFileHandler),
+    Dcd(VmdMolFileHandler),
+    Xyz(VmdMolFileHandler),
     Xtc(XtcFileHandler),
     #[cfg(feature = "gromacs")]
     Tpr(IoSplitter<TprFileHandler>),
@@ -170,7 +255,7 @@ pub fn get_ext(fname: &str) -> Result<&str, FileIoError> {
         .unwrap())
 }
 
-impl FileHandler<'_> {
+impl FileHandler {
     pub fn open(fname: &str) -> Result<Self, FileIoError> {
         let ext = get_ext(fname)?;
         match ext {
@@ -344,9 +429,9 @@ impl FileHandler<'_> {
     }
 }
 
-impl<'a> IntoIterator for FileHandler<'a> {
+impl<'a> IntoIterator for FileHandler {
     type Item = State;
-    type IntoIter = IoStateIterator<'a>;
+    type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
         IoStateIterator { reader: self }

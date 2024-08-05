@@ -56,7 +56,7 @@ pub enum SelectionIndexError {
     #[error("selection index is empty")]
     IndexEmpty,
     #[error("selection index bounds {0}:{1} are out of allowed range 0:{2}")]
-    IndexOutOfBounds(usize,usize,usize),
+    OutOfBounds(usize,usize,usize),
 }
 
 //############################################################

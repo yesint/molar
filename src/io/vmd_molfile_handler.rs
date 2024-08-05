@@ -19,11 +19,11 @@ pub enum VmdMolFileType {
     Dcd,
 }
 
-pub struct VmdMolFileHandler<'a> {
+pub struct VmdMolFileHandler {
     // File
     file_name: String,
     // Plugin pointer
-    plugin: &'a molfile_plugin_t,
+    plugin: *mut molfile_plugin_t,
     // File handle for C
     file_handle: *mut c_void,
     mode: OpenMode,
@@ -77,7 +77,7 @@ fn char_slice_to_str(buf: &[::std::os::raw::c_char]) -> Result<String, VmdHandle
 }
 
 /// Universal handler of different VMD molfile file formats
-impl VmdMolFileHandler<'_> {
+impl VmdMolFileHandler {
     fn new(fname: &str, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
         // Get plugin pointer
         // C funtion registers plugin on first call
@@ -88,9 +88,9 @@ impl VmdMolFileHandler<'_> {
                 VmdMolFileType::Xyz => xyz_get_plugin_ptr(),
                 VmdMolFileType::Dcd => dcd_get_plugin_ptr(),
             }
-            .as_ref()
-            .ok_or_else(|| VmdHandlerError::NullPluginPtr)?
         };
+
+        if plugin.is_null() { return Err(VmdHandlerError::NullPluginPtr) }
 
         Ok(VmdMolFileHandler {
             file_name: fname.to_owned(),
@@ -108,7 +108,7 @@ impl VmdMolFileHandler<'_> {
         // Open file and get file pointer
         let mut n: i32 = 0;
         self.file_handle = unsafe {
-            self.plugin.open_file_read.unwrap()( 
+            self.plugin.as_ref().unwrap().open_file_read.unwrap()( 
                 f_name.as_ptr(), 
                 c"".as_ptr(), // Pass empty file type
                 &mut n
@@ -133,7 +133,7 @@ impl VmdMolFileHandler<'_> {
 
         // Open file and get file handle
         self.file_handle = unsafe {
-            self.plugin.open_file_write.unwrap()(
+            self.plugin.as_ref().unwrap().open_file_write.unwrap()(
                 f_name.as_ptr(),
                 c"".as_ptr(), // Pass empty file type
                 self.natoms as i32,
@@ -183,7 +183,7 @@ impl VmdMolFileHandler<'_> {
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
 
         let ret = unsafe {
-            self.plugin.read_structure.unwrap()(
+            self.plugin.as_ref().unwrap().read_structure.unwrap()(
                 self.file_handle,
                 &mut optflags,
                 vmd_atoms.as_mut_ptr(),
@@ -257,7 +257,7 @@ impl VmdMolFileHandler<'_> {
             | MOLFILE_CHARGE
             | MOLFILE_MASS;
         let ret = unsafe {
-            self.plugin.write_structure.unwrap()(self.file_handle, flags as i32, vmd_atoms.as_ptr())
+            self.plugin.as_ref().unwrap().write_structure.unwrap()(self.file_handle, flags as i32, vmd_atoms.as_ptr())
         };
 
         match ret {
@@ -287,7 +287,7 @@ impl VmdMolFileHandler<'_> {
 
         // Read the time step
         let ret = unsafe {
-            self.plugin.read_next_timestep.unwrap()(self.file_handle, self.natoms as i32, &mut ts)
+            self.plugin.as_ref().unwrap().read_next_timestep.unwrap()(self.file_handle, self.natoms as i32, &mut ts)
         };
 
         // In case of successfull read populate rust State
@@ -351,7 +351,7 @@ impl VmdMolFileHandler<'_> {
         };
 
         let ret = unsafe {
-            self.plugin.write_timestep.unwrap() // get function ptr
+            self.plugin.as_ref().unwrap().write_timestep.unwrap() // get function ptr
             (self.file_handle, &ts) // Call function
         };
 
@@ -366,13 +366,13 @@ impl VmdMolFileHandler<'_> {
     }
 }
 
-impl Drop for VmdMolFileHandler<'_> {
+impl Drop for VmdMolFileHandler {
     fn drop(&mut self) {
         if self.file_handle != ptr::null_mut() {
             match self.mode {
-                OpenMode::Read => unsafe { self.plugin.close_file_read.unwrap()(self.file_handle) },
+                OpenMode::Read => unsafe { self.plugin.as_ref().unwrap().close_file_read.unwrap()(self.file_handle) },
                 OpenMode::Write => unsafe {
-                    self.plugin.close_file_write.unwrap()(self.file_handle)
+                    self.plugin.as_ref().unwrap().close_file_write.unwrap()(self.file_handle)
                 },
                 OpenMode::None => (),
             };

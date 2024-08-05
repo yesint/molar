@@ -9,8 +9,8 @@ use crate::prelude::*;
 
 #[derive(Error,Debug)]
 pub enum SelectionParserError {
-    #[error("synatx error: {0}")]
-    SyntaxError(String),
+    #[error("syntax error: {0}")]
+    Syntax(String),
 
     #[error(transparent)]
     DifferentSizes(#[from] DifferentSizes),
@@ -1043,7 +1043,7 @@ impl TryFrom<&str> for SelectionExpr {
         Ok(Self {
             ast: selection_parser::logical_expr(value).map_err(|e| {
                 let s = format!("\n{}\n{}^\nExpected {}",value,"-".repeat(e.location.column-1),e.expected);
-                SelectionParserError::SyntaxError(s)
+                SelectionParserError::Syntax(s)
             })?,
             sel_str: value.to_owned(),
         })
