@@ -109,87 +109,61 @@ pub trait FileFormatHandler {
         format!("{} file", Self::format_ext())
     }
 
+    fn get_file_name(&self) -> &str;
+
+    fn open(fname: String) -> Result<Self, FileIoError> {
+        Err(FileIoError::NotFileReader)
+    }
+
+    fn create(fname: String) -> Result<Self, FileIoError> {
+        Err(FileIoError::NotFileWriter)
+    }
+    
     // Capabilities
 
-    fn read_topology_func<F>(&mut self) -> Option<F>
-    where
-        F: FnMut() -> Result<Topology, FileIoError>,
-    {
-        None
+    fn read_topology(&mut self) -> Result<Topology, FileIoError> {
+        Err(FileIoError::NotTopologyReadFormat)
     }
 
-    fn read_state_func<F>(&mut self) -> Option<F>
-    where
-        F: FnMut() -> Result<Option<State>, FileIoError>,
-    {
-        None
+    fn read_state(&mut self) -> Result<Option<State>, FileIoError> {
+        Err(FileIoError::NotTrajectoryReadFormat)
     }
 
-    fn write_topology_func<F, D>(&mut self) -> Option<F>
-    where
-        F: FnMut(&D) -> Result<(), FileIoError>,
-        D: TopologyProvider,
-    {
-        None
+    fn write_topology(&mut self) -> Result<(), FileIoError> {
+        Err(FileIoError::NotTopologyWriteFormat)
     }
 
-    fn write_state_func<F, D>(&mut self) -> Option<F>
-    where
-        F: FnMut(&D) -> Result<(), FileIoError>,
-        D: StateProvider,
-    {
-        None
+    fn write_state(&mut self) -> Result<(), FileIoError> {
+        Err(FileIoError::NotTrajectoryWriteFormat)
     }
 
-    fn read<F>(&mut self) -> Option<F>
-    where
-        F: FnMut() -> Result<(Topology, State), FileIoError>,
-    {
-        None
+    fn read(&mut self) -> Result<(Topology, State), FileIoError> {
+        Err(FileIoError::NotReadOnceFormat)
     }
 
-    fn write<F, D>(&mut self) -> Option<F>
-    where
-        F: FnMut(&D) -> Result<(), FileIoError>,
-        D: TopologyProvider + StateProvider,
-    {
-        None
+    fn write(&mut self) -> Result<(), FileIoError> {
+        Err(FileIoError::NotWriteOnceFormat)
     }
 
     // Random access
-    fn seek_frame<F>(&mut self) -> Option<F>
-    where
-        F: FnMut(usize) -> Result<(), FileIoError>,
-    {
-        None
+    fn seek_frame(&mut self) -> Result<(), FileIoError> {
+        Err(FileIoError::NotRandomAccessFormat)
     }
 
-    fn seek_time<F>(&mut self) -> Option<F>
-    where
-        F: FnMut(f32) -> Result<(), FileIoError>,
-    {
-        None
+    fn seek_time(&mut self) -> Result<(), FileIoError> {
+        Err(FileIoError::NotRandomAccessFormat)
     }
 
-    fn tell_first<F>(&self) -> Option<F>
-    where
-        F: FnMut() -> Result<(usize, f32), FileIoError>,
-    {
-        None
+    fn tell_first(&self) -> Result<(usize, f32), FileIoError> {
+        Err(FileIoError::NotRandomAccessFormat)
     }
 
-    fn tell_current<F>(&self) -> Option<F>
-    where
-        F: FnMut() -> Result<(usize, f32), FileIoError>,
-    {
-        None
+    fn tell_current(&self) -> Result<(usize, f32), FileIoError> {
+        Err(FileIoError::NotRandomAccessFormat)
     }
 
-    fn tell_last<F>(&self) -> Option<F>
-    where
-        F: FnMut() -> Result<(usize, f32), FileIoError>,
-    {
-        None
+    fn tell_last(&self) -> Result<(usize, f32), FileIoError> {
+        Err(FileIoError::NotRandomAccessFormat)
     }
 }
 
@@ -271,7 +245,7 @@ impl FileHandler {
 
             "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname).with_file(|| fname)?)),
 
-            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::open(fname)))),
+            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::open(fname.into()))).with_file(|| fname)?),
 
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::Tpr(IoSplitter::new(
@@ -300,7 +274,7 @@ impl FileHandler {
             "xtc" => Ok(Self::Xtc(
                 XtcFileHandler::create(fname).with_file(|| fname)?,
             )),
-            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::create(fname)))),
+            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::create(fname.into()))).with_file(|| fname)?),
             _ => Err(FileIoError::NotRecognized(fname.into())),
         }
     }
