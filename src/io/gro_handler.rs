@@ -1,4 +1,4 @@
-use super::{FileFormatHandler, FileHandlerError, PeriodicBoxError, ReadTopAndState, State, StateProvider, Topology, TopologyProvider};
+use super::{FileHandlerError, PeriodicBoxError, ReadTopAndState, State, StateProvider, Topology, TopologyProvider};
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, StateStorage, TopologyStorage};
 use std::{
     fs::File,
@@ -32,23 +32,23 @@ pub enum GroHandlerError {
     Pbc(#[from] PeriodicBoxError),
 }
 
-impl FileFormatHandler for GroFileHandler {
-    fn format_ext() -> String {
-        "gro".into()
+impl GroFileHandler {
+    pub fn open(fname: &str) -> Self {
+        Self {
+            file_name: fname.to_owned(),
+        }
     }
 
-    fn open(fname: &str) -> Result<Self, FileIoError> {
-        Ok(Self {file_name: fname.to_owned()})
+    pub fn create(fname: &str) -> Self {
+        Self {
+            file_name: fname.to_owned(),
+        }
     }
 
-    fn create(fname: &str) -> Result<Self, FileIoError> {
-        Ok(Self {file_name: fname.to_owned()})
-    }
-
-    fn write(
+    pub fn write(
         &mut self,
         data: &(impl TopologyProvider + StateProvider),
-    ) -> Result<(), FileIoError> {
+    ) -> Result<(), GroHandlerError> {
         // Open file for writing
         let mut buf = BufWriter::new(File::create(self.file_name.to_owned())?);
         let natoms = data.num_atoms();
@@ -106,11 +106,13 @@ impl FileFormatHandler for GroFileHandler {
         Ok(())
     }
     
-    fn get_file_name(&self) -> &str {
+    pub fn get_file_name(&self) -> &str {
         &self.file_name
     }
+}
 
-    fn read(&mut self) -> Result<(Topology, State), FileIoError> {
+impl ReadTopAndState for GroFileHandler {
+    fn read_top_and_state(&mut self) -> Result<(Topology, State), FileHandlerError> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 
@@ -232,7 +234,6 @@ impl FileFormatHandler for GroFileHandler {
         Ok((top, state.into()))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

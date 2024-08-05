@@ -41,7 +41,7 @@ pub(super) fn index_from_range(range: &Range<usize>, n: usize) -> Result<SortedS
     if range.start > n || range.end > n {
         Err(SelectionError::FromRange {
             range: range.clone(), 
-            source: SelectionIndexError::OutOfBounds(range.start, range.end, n), 
+            source: SelectionIndexError::IndexOutOfBounds(range.start, range.end, n), 
         })
     } else if range.len() > 0 {
         unsafe { Ok(SortedSet::from_sorted(range.clone().collect())) }
@@ -67,7 +67,7 @@ pub(super) fn index_from_vec(vec: &Vec<usize>, n: usize) -> Result<SortedSet<usi
             first: vec[0],
             last: vec[vec.len()-1],
             size: vec.len(), 
-            source: SelectionIndexError::OutOfBounds(vec[0], vec[vec.len()-1], n), 
+            source: SelectionIndexError::IndexOutOfBounds(vec[0], vec[vec.len()-1], n), 
         })
     } else {
         Ok(ind)

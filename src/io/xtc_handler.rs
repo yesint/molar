@@ -22,12 +22,12 @@ pub struct XtcFileHandler {
 
 #[derive(Error,Debug)]
 pub enum XtcHandlerError {
-    #[error("can't open xtc file in mode '{0}'")]
-    Open(char),
-
-    #[error(transparent)]
+    #[error("unexpected null characted")]
     CStringNull(#[from] NulError),
     
+    #[error("plugin can't open file in mode {0}")]
+    Open(String),
+
     #[error("failed to read state")]
     ReadState,
 
@@ -38,43 +38,44 @@ pub enum XtcHandlerError {
     Pbc(#[from] PeriodicBoxError),
 
     #[error("fixed size field is {0} while needed {1}")]
-    FieldOverflow(usize,usize),
+    FixedSizeFieldOverflow(usize,usize),
     
     #[error("can't read number of atoms")]
     ReadNumAtoms,
 
     #[error("can't get current frame number")]
-    GetCurrentFrameNumber,
+    CantGetCurrentFrameNumber,
 
     #[error("can't get number of steps per frame")]
-    GetNumberOfStepsPerFrame,
+    CantGetNumberOfStepsPerFrame,
 
     #[error("can't get current frame time")]
-    GetCurrentFrameTime,
+    CantGetCurrentFrameTime,
 
     #[error("can't get last frame number")]
-    GetLastFrameNumber,
+    CantGetLastFrameNumber,
 
     #[error("can't get last frame time")]
-    GetLastFrameTime,
+    CantGetLastFrameTime,
 
     #[error("this xtc file doesn't allow random access")]
     RandomAccessImpossible,
 
-    #[error("can't seek to frame {0}, allowed range is {1}:{2}")]
-    SeekFrameOutOfBounds(usize,usize,usize),
+    #[error("can't seek to frame {0}, allowed range is {1:?}")]
+    SeekOutOfBounds(usize, (usize, usize)),
 
     #[error(transparent)]
     IntegerConvertion(#[from] std::num::TryFromIntError),
 
     #[error("unknown error seeking to frame {0}")]
-    SeekFrameFailed(usize),
+    SeekFailed(usize),
 
-    #[error("can't seek to time {0}, allowed range is {1}:{2})")]
-    SeekTimeOutOfBounds(f32, f32, f32),
+    #[error("can't seek to time {0}, allowed range is {1:?}")]
+    SeekTimeOutOfBounds(f32, (f32, f32)),
     
     #[error("unknown error seeking to time {0}")]
-    SeekTimeFailed(f32),    
+    SeekTimeFailed(f32),
+
 }
 
 
@@ -86,7 +87,7 @@ fn get_xdr_handle(fname: &str, mode: &str) -> Result<*mut XDRFILE, XtcHandlerErr
     };
 
     if handle == ptr::null_mut() {
-        Err(XtcHandlerError::Open(mode.chars().next().unwrap()))
+        Err(XtcHandlerError::Open(mode.into()))
     } else {
         Ok(handle)
     }
@@ -124,10 +125,10 @@ impl XtcFileHandler {
         // So we have to extract conversion factor
         let mut ok: bool = false;
         let first_step = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::GetCurrentFrameNumber) }
+        if !ok { return Err(XtcHandlerError::CantGetCurrentFrameNumber) }
         let next_step = unsafe { xtc_get_next_frame_number(self.handle, n_at) };
         if next_step < first_step {
-            return Err(XtcHandlerError::GetNumberOfStepsPerFrame);
+            return Err(XtcHandlerError::CantGetNumberOfStepsPerFrame);
         } else if first_step == next_step {
             // It seems that there is only one frame in this trajectory
             self.steps_per_frame = 1;
@@ -137,14 +138,14 @@ impl XtcFileHandler {
 
         // Get first time
         let first_time = unsafe { xtc_get_current_frame_time(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::GetCurrentFrameTime); }
+        if !ok { return Err(XtcHandlerError::CantGetCurrentFrameTime); }
 
         // Get last frame
         let last_step = unsafe { xdr_xtc_get_last_frame_number(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::GetLastFrameNumber);}
+        if !ok { return Err(XtcHandlerError::CantGetLastFrameNumber);}
         // Get last time
         let last_time = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::GetLastFrameTime); }
+        if !ok { return Err(XtcHandlerError::CantGetLastFrameTime); }
         
         if last_step < first_step || last_time < first_time {
             println!("Last frame seems to be corrupted ({last_step})!");
@@ -276,7 +277,7 @@ impl XtcFileHandler {
         }
 
         if fr<self.frame_range.0 || fr>self.frame_range.1 {
-            return Err(XtcHandlerError::SeekFrameOutOfBounds(fr,self.frame_range.0,self.frame_range.1));
+            return Err(XtcHandlerError::SeekOutOfBounds(fr,self.frame_range));
         }
 
         let ret = unsafe{
@@ -287,7 +288,7 @@ impl XtcFileHandler {
             )
         };
         if ret<0 {
-            return Err(XtcHandlerError::SeekFrameFailed(fr));
+            return Err(XtcHandlerError::SeekFailed(fr));
         }
 
         Ok(())
@@ -299,7 +300,7 @@ impl XtcFileHandler {
         }
 
         if t<self.time_range.0 || t>self.time_range.1 {
-            return Err(XtcHandlerError::SeekTimeOutOfBounds(t,self.time_range.0,self.time_range.1));
+            return Err(XtcHandlerError::SeekTimeOutOfBounds(t,self.time_range));
         }
         // We assume equally spaced frames in the trajectory. It's much faster
         /*
@@ -330,7 +331,7 @@ impl XtcFileHandler {
                 &mut ok)
         };
         if !ok || ret<0 {
-            return Err(XtcHandlerError::GetCurrentFrameNumber);
+            return Err(XtcHandlerError::CantGetCurrentFrameNumber);
         }
         let step = ret/self.steps_per_frame as i32;
         let t = unsafe{
@@ -340,7 +341,7 @@ impl XtcFileHandler {
                 &mut ok)
         };
         if !ok || t<0.0 {
-            return Err(XtcHandlerError::GetCurrentFrameTime);
+            return Err(XtcHandlerError::CantGetCurrentFrameTime);
         }
 
         Ok((step as usize,t))
