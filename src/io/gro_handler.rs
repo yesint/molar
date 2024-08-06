@@ -1,4 +1,4 @@
-use super::{FileHandlerError, PeriodicBoxError, ReadTopAndState, State, StateProvider, Topology, TopologyProvider};
+use super::{FileHandlerError, PeriodicBoxError, State, StateProvider, Topology, TopologyProvider};
 use crate::core::{Atom, Matrix3f, PeriodicBox, Pos, StateStorage, TopologyStorage};
 use std::{
     fs::File,
@@ -109,10 +109,8 @@ impl GroFileHandler {
     pub fn get_file_name(&self) -> &str {
         &self.file_name
     }
-}
-
-impl ReadTopAndState for GroFileHandler {
-    fn read_top_and_state(&mut self) -> Result<(Topology, State), FileHandlerError> {
+    
+    pub fn read(&mut self) -> Result<(Topology, State), FileHandlerError> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 

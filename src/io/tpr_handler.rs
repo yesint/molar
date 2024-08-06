@@ -9,7 +9,7 @@ use std::{
     ptr::null_mut, str::Utf8Error,
 };
 
-use super::{FileHandlerError, ReadTopAndState};
+use super::FileHandlerError;
 
 pub struct TprFileHandler {
     handle: TprHelper,
@@ -48,10 +48,8 @@ impl TprFileHandler {
     pub fn get_file_name(&self) -> &str {
         &self.file_name
     }
-}
 
-impl ReadTopAndState for TprFileHandler {
-    fn read_top_and_state(&mut self) -> Result<(Topology, State), FileHandlerError> {
+    pub fn read(&mut self) -> Result<(Topology, State), FileHandlerError> {
         //================
         // Read top
         //================
@@ -200,11 +198,12 @@ fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {
 
 #[cfg(test)]
 mod tests {
-    use crate::io::{ReadTopAndState, StateProvider, TopologyProvider, TprFileHandler};
+    use crate::io::TprFileHandler;
+    use crate::prelude::*;
     #[test]
     fn test_tpr() {
         let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
-        let (top, st) = h.read_top_and_state().unwrap();
+        let (top, st) = h.read().unwrap();
         println!("natoms: {:?}", top.num_atoms());
         //println!("nbonds: {:?}",top.bonds.len());
         //println!("molecules: {:?}",top.molecules.len());

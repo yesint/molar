@@ -1,4 +1,3 @@
-use self::io_splitter::IoSplitter;
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use std::path::Path;
@@ -8,7 +7,6 @@ use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
 
 mod gro_handler;
-mod io_splitter;
 #[cfg(feature = "gromacs")]
 mod tpr_handler;
 mod vmd_molfile_handler;
@@ -93,10 +91,6 @@ where
 }
 //-------------------------------------------------------
 
-pub trait ReadTopAndState {
-    fn read_top_and_state(&mut self) -> Result<(Topology, State), FileHandlerError>;
-}
-
 //===============================
 // Traits for file opening
 //===============================
@@ -137,11 +131,11 @@ where
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
-pub struct IoStateIterator<'a> {
-    reader: FileHandler<'a>,
+pub struct IoStateIterator {
+    reader: FileHandler,
 }
 
-impl Iterator for IoStateIterator<'_> {
+impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state().expect("Error reading state")
@@ -151,14 +145,14 @@ impl Iterator for IoStateIterator<'_> {
 //================================
 // General type for file handlers
 //================================
-pub enum FileHandler<'a> {
-    Pdb(VmdMolFileHandler<'a>),
-    Dcd(VmdMolFileHandler<'a>),
-    Xyz(VmdMolFileHandler<'a>),
+pub enum FileHandler {
+    Pdb(VmdMolFileHandler),
+    Dcd(VmdMolFileHandler),
+    Xyz(VmdMolFileHandler),
     Xtc(XtcFileHandler),
     #[cfg(feature = "gromacs")]
-    Tpr(IoSplitter<TprFileHandler>),
-    Gro(IoSplitter<GroFileHandler>),
+    Tpr(TprFileHandler),
+    Gro(GroFileHandler),
 }
 
 pub fn get_ext(fname: &str) -> Result<&str, FileIoError> {
@@ -170,7 +164,7 @@ pub fn get_ext(fname: &str) -> Result<&str, FileIoError> {
         .unwrap())
 }
 
-impl FileHandler<'_> {
+impl FileHandler {
     pub fn open(fname: &str) -> Result<Self, FileIoError> {
         let ext = get_ext(fname)?;
         match ext {
@@ -186,12 +180,10 @@ impl FileHandler<'_> {
 
             "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname).with_file(|| fname)?)),
 
-            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::open(fname)))),
+            "gro" => Ok(Self::Gro(GroFileHandler::open(fname))),
 
             #[cfg(feature = "gromacs")]
-            "tpr" => Ok(Self::Tpr(IoSplitter::new(
-                TprFileHandler::open(fname).with_file(|| fname)?,
-            ))),
+            "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname).with_file(|| fname)?)),
 
             #[cfg(not(feature = "gromacs"))]
             "tpr" => bail!("Enable 'gromacs' feature in Cargo.toml to get TPR files support."),
@@ -215,7 +207,7 @@ impl FileHandler<'_> {
             "xtc" => Ok(Self::Xtc(
                 XtcFileHandler::create(fname).with_file(|| fname)?,
             )),
-            "gro" => Ok(Self::Gro(IoSplitter::new(GroFileHandler::create(fname)))),
+            "gro" => Ok(Self::Gro(GroFileHandler::create(fname))),
             _ => Err(FileIoError::NotRecognized(fname.into())),
         }
     }
@@ -223,8 +215,8 @@ impl FileHandler<'_> {
     pub fn read(&mut self) -> Result<(Topology, State), FileIoError> {
         let (top, st) = match self {
             #[cfg(feature = "gromacs")]
-            Self::Tpr(ref mut h) => h.read().with_file(|| h.handler.get_file_name())?,
-            Self::Gro(ref mut h) => h.read().with_file(|| h.handler.get_file_name())?,
+            Self::Tpr(ref mut h) => h.read().with_file(|| h.get_file_name())?,
+            Self::Gro(ref mut h) => h.read().with_file(|| h.get_file_name())?,
             Self::Pdb(ref mut h) => {
                 let top = h.read_topology().with_file(|| h.get_file_name())?;
                 let st = h
@@ -250,9 +242,8 @@ impl FileHandler<'_> {
     {
         match self {
             Self::Gro(ref mut h) => Ok(h
-                .handler
                 .write(data)
-                .with_file(|| h.handler.get_file_name())?),
+                .with_file(|| h.get_file_name())?),
             Self::Pdb(ref mut h) => {
                 h.write_topology(data).with_file(|| h.get_file_name())?;
                 h.write_state(data).with_file(|| h.get_file_name())?;
@@ -344,9 +335,9 @@ impl FileHandler<'_> {
     }
 }
 
-impl<'a> IntoIterator for FileHandler<'a> {
+impl<'a> IntoIterator for FileHandler {
     type Item = State;
-    type IntoIter = IoStateIterator<'a>;
+    type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
         IoStateIterator { reader: self }
