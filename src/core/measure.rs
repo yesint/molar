@@ -22,6 +22,8 @@ pub enum MeasureError {
     Svd,
     #[error("no periodic box")]
     NoPbc,
+    #[error("can't unwrap disjoint pieces")]
+    Disjoint,
 }
 
 /// Trait for analysis requiring only positions

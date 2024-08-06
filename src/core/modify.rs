@@ -1,11 +1,10 @@
 use crate::distance_search::DistanceSearcherSingle;
 use crate::distance_search::SearchConnectivity;
-
 use super::providers::*;
+use super::MeasureError;
 use super::PbcDims;
 use super::Vector3f;
 use super::PBC_FULL;
-use anyhow::{anyhow, bail, Result};
 use nalgebra::Rotation3;
 use nalgebra::Unit;
 
@@ -37,10 +36,10 @@ pub trait ModifyPos: PosMutProvider + PosProvider {
 
 /// Trait for modification requiring positions and pbc
 pub trait ModifyPeriodic: PosMutProvider + BoxProvider {
-    fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<()> {
+    fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self
             .get_box()
-            .ok_or_else(|| anyhow!("No periodicity!"))?
+            .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
         let mut iter = self.iter_pos_mut();
         if iter.len() > 0 {
@@ -52,7 +51,7 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider {
         Ok(())
     }
 
-    fn unwrap_simple(&self) -> Result<()> {
+    fn unwrap_simple(&self) -> Result<(), MeasureError>{
         self.unwrap_simple_dim(PBC_FULL)
     }
 }
@@ -61,14 +60,14 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider {
 pub trait ModifyRandomAccess:
     PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
 {
-    fn unwrap_connectivity(&self, cutoff: f32) -> Result<()> {
+    fn unwrap_connectivity(&self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, &PBC_FULL)
     }
 
-    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: &PbcDims) -> Result<()> {
+    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: &PbcDims) -> Result<(),MeasureError> {
         let b = self
             .get_box()
-            .ok_or_else(|| anyhow!("No periodicity!"))?
+            .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
         let conn: SearchConnectivity =
             DistanceSearcherSingle::new_periodic(
@@ -105,10 +104,10 @@ pub trait ModifyRandomAccess:
         }
 
         if used.len() != conn.len() {
-            bail!("Selection is not compact for cutoff={}", cutoff)
+            Err(MeasureError::Disjoint)
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 }
 
