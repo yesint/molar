@@ -1,9 +1,8 @@
 use std::ops::Deref;
-use anyhow::bail;
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::io::StateProvider;
-use super::{providers::{BoxProvider, PosProvider}, PeriodicBox, Pos};
+use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
 //use super::handle::{SharedHandle, Handle};
 
 
@@ -19,7 +18,7 @@ impl StateStorage {
         self.coords.extend(pos.cloned());
     }
 
-    pub fn remove_coords(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+    pub fn remove_coords(&mut self, removed: impl Iterator<Item = usize>) -> Result<(),BuilderError> {
         let mut ind = removed.collect::<Vec<_>>();
         if ind.len()==0 {
             return Ok(());
@@ -27,10 +26,7 @@ impl StateStorage {
         ind.sort_unstable();
         ind.dedup();
         if ind[0] >= self.coords.len() || ind[ind.len()-1] >= self.coords.len() {
-            bail!(
-                "Indexes to remove [{}:{}] are out of allowed range [0:{}]",
-                ind[0],ind[ind.len()-1],self.coords.len()
-            );
+            return Err(BuilderError::RemoveIndexes(ind[0],ind[ind.len()-1],self.coords.len()));
         }
 
         for i in ind.iter().rev().cloned() {

@@ -1,11 +1,10 @@
 use super::grid::*;
 use crate::{
     core::{
-        AtomsProvider, BoxProvider, MeasurePos, ParticleProvider, PbcDims, PeriodicBox, Pos, Sel, SelectionKind, Vector3f, PBC_NONE
+        AtomsProvider, BoxProvider, MeasurePos, ParticleProvider, PbcDims, PeriodicBox, Pos, Sel, SelectionError, SelectionKind, Vector3f, PBC_NONE
     },
     distance_search::cell_pair_iterator::CellPairIter,
 };
-use anyhow::anyhow;
 use rayon::prelude::*;
 
 /// If the number of grid cells in X dimension is greater than this
@@ -274,8 +273,8 @@ impl DistanceSearcherSingle<(usize, Pos)> {
         cutoff: f32,
         sel: &Sel<K>,
         periodic_dims: &PbcDims,
-    ) -> anyhow::Result<Self> {
-        let box_ = sel.get_box().ok_or_else(|| anyhow!("No periodic box!"))?;
+    ) -> Result<Self, SelectionError> {
+        let box_ = sel.get_box().ok_or_else(|| SelectionError::NoPbc)?;
         Ok(Self::new_periodic(
             cutoff,
             sel.iter_particle().map(|p| (p.id, *p.pos)),
@@ -355,8 +354,8 @@ impl DistanceSearcherSingle<(usize, Pos, f32)> {
     pub fn from_sel_vdw_periodic<K: SelectionKind>(
         sel: &Sel<K>,
         periodic_dims: &PbcDims,
-    ) -> anyhow::Result<Self> {
-        let box_ = sel.get_box().ok_or_else(|| anyhow!("No periodic box!"))?;
+    ) -> Result<Self, SelectionError> {
+        let box_ = sel.get_box().ok_or_else(|| SelectionError::NoPbc)?;
         Ok(Self::new_vdw_periodic(
             sel.iter_particle().map(|p| (p.id, *p.pos)),
             sel.iter_atoms().map(|a| a.vdw()),
@@ -576,14 +575,14 @@ impl DistanceSearcherDouble<(usize, Pos)> {
         sel1: &Sel<K1>,
         sel2: &Sel<K2>,
         periodic_dims: &PbcDims,
-    ) -> anyhow::Result<Self>
+    ) -> Result<Self,SelectionError>
     where
         K1: SelectionKind,
         K2: SelectionKind,
     {
         let box_ = sel1
             .get_box()
-            .ok_or_else(|| anyhow!("No periodic box in sel1!"))?;
+            .ok_or_else(|| SelectionError::NoPbc)?;
 
         Ok(Self::new_periodic(
             cutoff,
@@ -698,14 +697,14 @@ impl DistanceSearcherDouble<(usize, Pos, f32)> {
         sel1: &Sel<K1>,
         sel2: &Sel<K2>,
         periodic_dims: &PbcDims,
-    ) -> anyhow::Result<Self>
+    ) -> Result<Self,SelectionError>
     where
         K1: SelectionKind,
         K2: SelectionKind,
     {
         let box_ = sel1
             .get_box()
-            .ok_or_else(|| anyhow!("No periodic box in sel1!"))?;
+            .ok_or_else(|| SelectionError::NoPbc)?;
 
         Ok(Self::new_vdw_periodic(
             sel1.iter_particle().map(|p| (p.id, *p.pos)),

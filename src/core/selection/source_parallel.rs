@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use crate::prelude::*;
-use anyhow::{bail, Context, Result, anyhow};
 use rayon::prelude::*;
 use super::utils::*;
 
@@ -128,7 +127,7 @@ impl SourceParallel<()> {
     pub fn new_mut (
         topology: Topology,
         state: State,
-    ) -> Result<SourceParallel<MutableParallel>> {
+    ) -> Result<SourceParallel<MutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(SourceParallel {
             system: triomphe::Arc::new(System{topology,state}),
@@ -142,7 +141,7 @@ impl SourceParallel<()> {
     pub fn new (
         topology: Topology,
         state: State,
-    ) -> Result<SourceParallel<ImmutableParallel>> {
+    ) -> Result<SourceParallel<ImmutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(SourceParallel {
             system: triomphe::Arc::new(System{topology,state}),
@@ -150,15 +149,15 @@ impl SourceParallel<()> {
             used: Default::default(),
             _marker: Default::default(),
         })
-    }
+    }   
 
-    pub fn from_file(fname: &str) -> Result<SourceParallel<ImmutableParallel>> {
+    pub fn from_file(fname: &str) -> Result<SourceParallel<ImmutableParallel>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top,st) = fh.read()?;
         Ok(SourceParallel::new(top,st)?)
     }
 
-    pub fn from_file_mut(fname: &str) -> Result<SourceParallel<MutableParallel>> {
+    pub fn from_file_mut(fname: &str) -> Result<SourceParallel<MutableParallel>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top,st) = fh.read()?;
         Ok(SourceParallel::new_mut(top,st)?)
@@ -167,9 +166,9 @@ impl SourceParallel<()> {
 
 impl<K: ParallelSel> SourceParallel<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> anyhow::Result<(Topology, State)> {
+    pub fn release(self) -> Result<(Topology, State), SelectionError> {
         let sys = triomphe::Arc::try_unwrap(self.system)
-                .or_else(|_| bail!("Can't release Source: multiple references are active!"))?;
+                .or_else(|_| return Err(SelectionError::Release))?;
         Ok((sys.topology,sys.state))
     }
 
@@ -178,10 +177,10 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// 
     /// Closure return `Result<RT>`, where `RT` is anything 
     /// sharable between the threads. 
-    pub fn map_par<RT,C,F>(&self, func: F) -> Result<C> 
+    pub fn map_par<RT,C,F>(&self, func: F) -> Result<C, anyhow::Error> 
     where
         RT: Send + Sync,
-        F: Fn(&Sel<K>)->Result<RT> + Send + Sync,
+        F: Fn(&Sel<K>)->Result<RT, anyhow::Error> + Send + Sync,
         C: rayon::iter::FromParallelIterator<RT>,
     {
         self.selections.par_iter().map(func).collect()
@@ -189,10 +188,10 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Executes provide closure on each stored selection serially
     /// and collect the closures' outputs into a container.
-    pub fn map<RT,C,F>(&self, func: F) -> Result<C> 
+    pub fn map<RT,C,F>(&self, func: F) -> Result<C, anyhow::Error> 
     where
         RT: Send + Sync,
-        F: Fn(&Sel<K>)->Result<RT> + Send + Sync,
+        F: Fn(&Sel<K>)->Result<RT, anyhow::Error> + Send + Sync,
         C: FromIterator<RT>,
     {
         self.selections.iter().map(func).collect()
@@ -210,7 +209,7 @@ impl<K: ParallelSel> SourceParallel<K> {
         
     /// Adds an existing serial selection. Passed selection is consumed
     /// and its index is re-evaluated against the new [SourceParallel].
-    pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> anyhow::Result<usize> {
+    pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> Result<usize, SelectionError> {
         self.add_from_iter(sel.iter_index())
     }
 
@@ -219,7 +218,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn add_from_iter(
         &mut self,
         iter: impl Iterator<Item = usize>,
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize, SelectionError> {
         let vec = index_from_iter(iter, self.system.topology.num_atoms())?;        
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
@@ -230,7 +229,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     }
 
     /// Adds selection of all
-    pub fn select_all(&mut self) -> anyhow::Result<&Sel<K>> {
+    pub fn select_all(&mut self) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_all(self.system.topology.num_atoms());        
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
@@ -242,10 +241,9 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
-    pub fn add_str(&mut self, selstr: impl AsRef<str>) -> anyhow::Result<&Sel<K>> {
+    pub fn add_str(&mut self, selstr: impl AsRef<str>) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_str(selstr.as_ref(), &self.system.topology, &self.system.state)?;        
-        K::check_overlap(&vec, &mut self.used)
-            .with_context(|| format!("Adding str selection '{}'",selstr.as_ref()))?;
+        K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
             triomphe::Arc::clone(&self.system),
             vec,            
@@ -253,12 +251,12 @@ impl<K: ParallelSel> SourceParallel<K> {
         Ok(&self.selections.last().unwrap())
     }
 
-    pub fn get_sel(&self, i: usize) -> anyhow::Result<&Sel<K>> {
-        self.selections.get(i).ok_or_else(|| anyhow!("Invalid selection index"))
+    pub fn get_sel(&self, i: usize) -> Result<&Sel<K>, SelectionError> {
+        self.selections.get(i).ok_or_else(|| SelectionError::OutOfBounds(i, self.system.state.num_coords()))
     }
 
     /// Adds new selection from an existing selection expression.
-    pub fn add_expr(&mut self, expr: &SelectionExpr) -> anyhow::Result<&Sel<K>> {
+    pub fn add_expr(&mut self, expr: &SelectionExpr) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
@@ -270,7 +268,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> anyhow::Result<&Sel<K>> {
+    pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.system.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
@@ -308,10 +306,10 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
     /// 
-    pub fn set_state(&mut self, state: State) -> Result<State> {
+    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
         // Check if the states are compatible
         if !self.system.state.interchangeable(&state) {
-            bail!("Can't set state: states are incompatible!")
+            return Err(SelectionError::SetState);
         }
         unsafe {
             std::ptr::swap(
@@ -333,10 +331,10 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology> {
+    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology, SelectionError> {
         // Check if the states are compatible
         if !self.system.topology.interchangeable(&topology) {
-            bail!("Can't set topology: topologies are incompatible!")
+            return Err(SelectionError::SetTopology)
         }
 
         unsafe {

@@ -1,7 +1,6 @@
-use std::{collections::HashMap, marker::PhantomData};
 use crate::prelude::*;
-use anyhow::{bail, Result};
 use sorted_vec::SortedSet;
+use std::{collections::HashMap, marker::PhantomData};
 
 use super::utils::{check_topology_state_sizes, index_from_expr, index_from_iter, index_from_vec};
 
@@ -12,9 +11,9 @@ pub struct System {
 }
 
 impl System {
-    pub fn new(topology: Topology, state: State) -> Result<Self> {
+    pub fn new(topology: Topology, state: State) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
-        Ok(Self{topology,state})
+        Ok(Self { topology, state })
     }
 }
 
@@ -25,14 +24,14 @@ impl System {
 /// Selection type that acts as a view into given set of indexes from [Topology] and [State].
 /// Selections allow to query various properties of the groups of atoms and to
 /// change them in different ways.
-/// 
+///
 /// # Kinds of selections
 /// There are three kinds of selections set by the generic marker parameter:
 /// ### Serial mutable (`Sel<MutableSerial>`)
 /// * May overlap
 /// * Mutable
-/// * Could only be accessed from the same thread where 
-/// they were created (they are neither [Send] nor [Sync]). 
+/// * Could only be accessed from the same thread where
+/// they were created (they are neither [Send] nor [Sync]).
 /// * Manipulated directly by the user.
 /// ### Parallel immutable (`Sel<ImmutableParallel>`)
 /// * May overlap
@@ -44,22 +43,22 @@ impl System {
 /// * Mutable
 /// * Could be processed in parallel.
 /// * Not accessible directly. Manipulated by the [SourceParallel] object that created them.
-/// 
-/// Immutable selections implement the traits that allow to query properties, while 
+///
+/// Immutable selections implement the traits that allow to query properties, while
 /// mutable once also implement traits that allow to modify atoms and coordinates.
-/// 
+///
 /// # Subselections
-/// It is possible to select within existing selection using `select_from_*` methods. 
+/// It is possible to select within existing selection using `select_from_*` methods.
 /// * For [ImmutableParallel] and [MutableSerial] selections subselectons have the same kind.
 /// * For [MutableParallel] selections subselectons have [MutableSerial] type instead because otherwise
 /// it is impossible to maintain the invariant of non-overlapping mutable access to the underlying data.
-/// 
+///
 /// # Splitting selections
 /// Selections could be split using the custom closire as a criterion. There are two flavours
-/// of splitting functions: 
+/// of splitting functions:
 /// * `split_*` produce a number of subselections but leaves the parent selection alive.
 /// The parts follow the rules of subselections.
-/// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_ 
+/// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
 pub struct Sel<K> {
     system: triomphe::Arc<System>,
@@ -72,7 +71,7 @@ pub struct Sel<K> {
 impl Sel<MutableSerial> {
     // Only visible in selection module
     pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self::new(sel.system,sel.index_storage)
+        Self::new(sel.system, sel.index_storage)
     }
 }
 
@@ -104,7 +103,10 @@ impl<K: SelectionKind> Sel<K> {
     //===================
 
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K::SubselKind>> {    
+    pub fn subsel_from_expr(
+        &self,
+        expr: &SelectionExpr,
+    ) -> Result<Sel<K::SubselKind>, SelectionError> {
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
             index_from_expr(expr, &self.system.topology, &self.system.state)?,
@@ -112,7 +114,7 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<K::SubselKind>> {
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<K::SubselKind>, SelectionError> {
         let expr = SelectionExpr::try_from(sel_str)?;
         self.subsel_from_expr(&expr)
     }
@@ -121,14 +123,13 @@ impl<K: SelectionKind> Sel<K> {
     pub fn subsel_from_local_range(
         &self,
         range: std::ops::Range<usize>,
-    ) -> Result<Sel<K::SubselKind>> {
+    ) -> Result<Sel<K::SubselKind>, SelectionError> {
         if range.end >= self.index().len() {
-            bail!(
-                "Invalid local sub-range: {}:{}, valid range: 0:{}",
+            return Err(SelectionError::LocalRange(
                 range.start,
                 range.end,
-                self.index().len() - 1
-            );
+                self.index().len() - 1,
+            ));
         }
 
         // Translate range of local indexes to global indexes
@@ -140,17 +141,16 @@ impl<K: SelectionKind> Sel<K> {
             .take(range.len())
             .collect();
 
-        Ok(Sel::new(
-            triomphe::Arc::clone(&self.system),
-            unsafe { SortedSet::from_sorted(index) },
-        ))
+        Ok(Sel::new(triomphe::Arc::clone(&self.system), unsafe {
+            SortedSet::from_sorted(index)
+        }))
     }
 
     /// Subselection from iterator that provides local selection indexes
     pub fn subsel_from_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<K::SubselKind>> {        
+    ) -> Result<Sel<K::SubselKind>, SelectionError> {
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
             index_from_iter(iter, self.len())?,
@@ -158,22 +158,32 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     // This method doesn't check if the vector has duplicates and thus unsafe
-    pub(super) unsafe fn subsel_from_vec_unchecked<S: SelectionKind>(&self, index: Vec<usize>) -> Result<Sel<S>> {
+    pub(super) unsafe fn subsel_from_vec_unchecked<S: SelectionKind>(
+        &self,
+        index: Vec<usize>,
+    ) -> Result<Sel<S>, SelectionError> {
         if index.len() > 0 {
-            Ok(Sel::new(
-                triomphe::Arc::clone(&self.system),
-                unsafe { SortedSet::from_sorted(index) },
-            ))
+            Ok(Sel::new(triomphe::Arc::clone(&self.system), unsafe {
+                SortedSet::from_sorted(index)
+            }))
         } else {
-            bail!("Selection is empty")
+            Err(SelectionError::FromVec {
+                first: index[0],
+                last: index[index.len() - 1],
+                size: index.len(),
+                source: SelectionIndexError::IndexEmpty,
+            })
         }
     }
 
-    pub fn subsel_from_vec<S: SelectionKind>(&self, index: &Vec<usize>) -> Result<Sel<S>> {                
+    pub fn subsel_from_vec<S: SelectionKind>(
+        &self,
+        index: &Vec<usize>,
+    ) -> Result<Sel<S>, SelectionError> {
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
             index_from_vec(index, self.len())?,
-        ))        
+        ))
     }
 
     /// Get a Particle for i-th selection index.
@@ -233,7 +243,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is kept intact.
-    /// 
+    ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
     pub fn split<RT, F, C>(&self, func: F) -> C
@@ -247,7 +257,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is consumed.
-    /// 
+    ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.
     pub fn split_into<RT, F, C>(self, func: F) -> C
@@ -284,7 +294,11 @@ impl<K: SelectionKind> Sel<K> {
             0.14,
             |i| unsafe {
                 let ind = *self.index().get_unchecked(i);
-                self.system.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
+                self.system
+                    .state
+                    .nth_pos_unchecked_mut(ind)
+                    .coords
+                    .as_mut_ptr()
             },
             |i: usize| self.nth_particle(i).unwrap().atom.vdw(),
         );
@@ -309,7 +323,7 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     pub fn last_index(&self) -> usize {
-        self.index()[self.index().len()-1]
+        self.index()[self.index().len() - 1]
     }
 
     /// Get a Particle for the first selection index.
@@ -319,21 +333,22 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Get a Particle for the last selection index.
     pub fn last_particle(&self) -> Particle {
-        unsafe { self.nth_particle_unchecked(self.index_storage.len()-1) }
+        unsafe { self.nth_particle_unchecked(self.index_storage.len() - 1) }
     }
 
     /// Get a Particle for the first selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth_particle(&self, i: usize) -> Result<Particle> {
+    pub fn nth_particle(&self, i: usize) -> Result<Particle, SelectionError> {
         if i > self.len() {
-            bail!("Index {} is beyond the allowed range [0:{}]", i, self.len())
+            Err(SelectionError::OutOfBounds(i, self.len()))
+        } else {
+            Ok(unsafe { self.nth_particle_unchecked(i) })
         }
-        Ok(unsafe { self.nth_particle_unchecked(i) })
     }
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Consumes a selection and returns selections of the same kind.
-    /// 
+    ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
     pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, K>
@@ -354,7 +369,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Selection is not consumed. Returned selections are of subselection kind.
-    /// 
+    ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
     pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
@@ -367,9 +382,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn split_contig_resid(
-        &self,
-    ) -> SelectionSplitIterator<'_, i32, fn(Particle) -> i32, K> {
+    pub fn split_contig_resid(&self) -> SelectionSplitIterator<'_, i32, fn(Particle) -> i32, K> {
         self.split_contig(|p| p.atom.resid)
     }
 
@@ -443,8 +456,6 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
     }
 }
 
-
-
 //---------------------------------------------
 // Implement traits for IO
 
@@ -485,7 +496,11 @@ impl<K: SelectionKind> MeasurePeriodic for Sel<K> {}
 
 impl<K: SelectionKind> PosProvider for Sel<K> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        unsafe { self.index().iter().map(|i| self.system.state.nth_pos_unchecked(*i)) }
+        unsafe {
+            self.index()
+                .iter()
+                .map(|i| self.system.state.nth_pos_unchecked(*i))
+        }
     }
 }
 

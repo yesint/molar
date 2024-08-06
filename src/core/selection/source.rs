@@ -1,6 +1,5 @@
 use std::{marker::PhantomData, ptr};
 use crate::prelude::*;
-use anyhow::{bail, Result};
 use super::utils::*;
 
 /// Source of serial selections.
@@ -21,7 +20,7 @@ impl Source<()> {
     pub fn new(
         topology: Topology,
         state: State,
-    ) -> Result<Source<MutableSerial>> {
+    ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             system: triomphe::Arc::new(System{topology,state}),
@@ -31,7 +30,7 @@ impl Source<()> {
 
     pub fn from_system(
         system: System,
-    ) -> Result<Source<MutableSerial>> {
+    ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&system.topology, &system.state)?;
         Ok(Source {
             system: triomphe::Arc::new(system),
@@ -42,7 +41,7 @@ impl Source<()> {
     pub fn new_builder(
         topology: Topology,
         state: State,
-    ) -> Result<Source<BuilderSerial>> {
+    ) -> Result<Source<BuilderSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             system: triomphe::Arc::new(System{topology,state}),
@@ -50,20 +49,20 @@ impl Source<()> {
         })
     }
 
-    pub fn from_file(fname: &str) -> Result<Source<MutableSerial>> {
+    pub fn from_file(fname: &str) -> Result<Source<MutableSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top,st) = fh.read()?;
         Ok(Source::new(top,st)?)
     }
 
-    pub fn from_file_builder(fname: &str) -> Result<Source<BuilderSerial>> {
+    pub fn from_file_builder(fname: &str) -> Result<Source<BuilderSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top,st) = fh.read()?;
         Ok(Source::new_builder(top,st)?)
     }
 
     // Constructor for internal usage
-    pub(crate) fn new_from_arc_system(system: triomphe::Arc<System>) -> Result<Source<MutableSerial>> {
+    pub(crate) fn new_from_arc_system(system: triomphe::Arc<System>) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&system.topology, &system.state)?;
         Ok(Source {
             system,
@@ -74,9 +73,9 @@ impl Source<()> {
 
 impl<K: SerialSel> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> anyhow::Result<(Topology, State)> {
+    pub fn release(self) -> Result<(Topology, State), SelectionError> {
         let sys = triomphe::Arc::try_unwrap(self.system)
-                .or_else(|_| bail!("Can't release Source: multiple references are active!"))?;
+                .or_else(|_| Err(SelectionError::Release))?;
         Ok((sys.topology,sys.state))
     }
 
@@ -89,7 +88,7 @@ impl<K: SerialSel> Source<K> {
     pub fn select_from_iter(
         &self,
         iter: impl Iterator<Item = usize>,
-    ) -> anyhow::Result<Sel<K>> {
+    ) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_iter(iter, self.system.topology.num_atoms())?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -98,7 +97,7 @@ impl<K: SerialSel> Source<K> {
     }
 
     /// Selects all
-    pub fn select_all(&self) -> anyhow::Result<Sel<K>> {
+    pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.system.topology.num_atoms());
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -108,7 +107,7 @@ impl<K: SerialSel> Source<K> {
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
-    pub fn select_str(&self, selstr: &str) -> anyhow::Result<Sel<K>> {
+    pub fn select_str(&self, selstr: &str) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_str(selstr, &self.system.topology, &self.system.state)?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -117,7 +116,7 @@ impl<K: SerialSel> Source<K> {
     }
 
     /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&self, expr: &SelectionExpr) -> anyhow::Result<Sel<K>> {
+    pub fn select_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -127,7 +126,7 @@ impl<K: SerialSel> Source<K> {
 
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&self, range: &std::ops::Range<usize>) -> anyhow::Result<Sel<K>> {
+    pub fn select_range(&self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.system.topology.num_atoms())?;
         Ok(Sel::new(
             triomphe::Arc::clone(&self.system),
@@ -142,10 +141,10 @@ impl<K: SerialSel> Source<K> {
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
     /// 
-    pub fn set_state(&mut self, state: State) -> Result<State> {
+    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
         // Check if the states are compatible
         if !self.system.state.interchangeable(&state) {
-            bail!("Can't set state: states are incompatible!")
+            return Err(SelectionError::SetState);
         }
         unsafe {
             ptr::swap(
@@ -167,10 +166,10 @@ impl<K: SerialSel> Source<K> {
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology> {
+    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology, SelectionError> {
         // Check if the states are compatible
         if !self.system.topology.interchangeable(&topology) {
-            bail!("Can't set topology: topologies are incompatible!")
+            return Err(SelectionError::SetTopology);
         }
 
         unsafe {
@@ -191,7 +190,7 @@ impl Source<BuilderSerial> {
         self.system.state.get_storage_mut().add_coords(data.iter_pos());
     }
 
-    pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<()> {
+    pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
         // We are checking index validity inside remove methods
         self.system.topology.get_storage_mut().remove_atoms(to_remove.iter_index())?;
         self.system.state.get_storage_mut().remove_coords(to_remove.iter_index())?;

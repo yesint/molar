@@ -14,7 +14,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum MeasureError {
-    #[error("invalid sizes: {0} and {1}")]
+    #[error("invalid data sizes: {0} and {1}")]
     Sizes(usize, usize),
     #[error("zero mass")]
     ZeroMass,

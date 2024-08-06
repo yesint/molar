@@ -1,5 +1,5 @@
-use anyhow::bail;
 use sync_unsafe_cell::SyncUnsafeCell;
+use thiserror::Error;
 
 use crate::io::TopologyProvider;
 
@@ -11,6 +11,12 @@ pub(crate) struct TopologyStorage {
     pub atoms: Vec<Atom>,
     pub bonds: Vec<[usize; 2]>,
     pub molecules: Vec<[usize; 2]>,
+}
+
+#[derive(Error,Debug)]
+pub enum BuilderError {
+    #[error("indexes to remove {0}:{1} are out of allowed range 0:{2}")]
+    RemoveIndexes(usize,usize,usize)
 }
 
 impl TopologyStorage {
@@ -27,7 +33,7 @@ impl TopologyStorage {
         self.molecules.extend(added);
     }
 
-    pub(crate) fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+    pub(crate) fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> Result<(),BuilderError> {
         let mut ind = removed.collect::<Vec<_>>();
         if ind.len()==0 {
             return Ok(());
@@ -35,10 +41,7 @@ impl TopologyStorage {
         ind.sort_unstable();
         ind.dedup();
         if ind[0] >= self.atoms.len() || ind[ind.len()-1] >= self.atoms.len() {
-            bail!(
-                "Indexes to remove [{}:{}] are out of allowed range [0:{}]",
-                ind[0],ind[ind.len()-1],self.atoms.len()
-            );
+            return Err(BuilderError::RemoveIndexes(ind[0],ind[ind.len()-1],self.atoms.len()));
         }
         for i in ind.iter().rev().cloned() {
             self.atoms.remove(i);

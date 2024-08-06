@@ -16,7 +16,9 @@ pub(crate) use utils::*;
 
 use thiserror::Error;
 
-use super::selection_parser::SelectionParserError;
+use crate::io::FileIoError;
+
+use super::{selection_parser::SelectionParserError, BuilderError};
 
 #[derive(Error,Debug)]
 #[error("topology and state have different sizes ({0},{1})")]
@@ -41,6 +43,9 @@ pub enum SelectionError {
         range: Range<usize>,
         source: SelectionIndexError,
     },
+
+    #[error("invalid local sub-range: {0}:{1}, valid range: 0:{2}")]
+    LocalRange(usize,usize,usize),
     
     #[error("creating selection from vec {first}..{last} of size {size}")]
     FromVec{
@@ -49,13 +54,40 @@ pub enum SelectionError {
         size: usize,
         source: SelectionIndexError
     },
+
+    #[error("pbc operation on selection withon periodic box")]
+    NoPbc,
+
+    #[error("index {0} is beyond the allowed range 0:{1}")]
+    OutOfBounds(usize, usize),
+
+    #[error("selection index {0}:{1} is outside the source range: 0:{2}")]
+    IndexCheck(usize, usize, usize),
+
+    #[error("index {0} is already used by other selection")]
+    OverlapCheck(usize),
+
+    #[error(transparent)]
+    FileIo(#[from] FileIoError),
+
+    #[error(transparent)]
+    Builder(#[from] BuilderError),
+
+    #[error("can't set incompatible state")]
+    SetState,
+
+    #[error("can't set incompatible topology")]
+    SetTopology,
+
+    #[error("can't release source: multiple references are active")]
+    Release,
 }
 
 #[derive(Error,Debug)]
 pub enum SelectionIndexError {
     #[error("selection index is empty")]
     IndexEmpty,
-    #[error("selection index bounds {0}:{1} are out of allowed range 0:{2}")]
+    #[error("selection indeces {0}:{1} are out of allowed range 0:{2}")]
     IndexOutOfBounds(usize,usize,usize),
 }
 

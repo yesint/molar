@@ -2,19 +2,21 @@ use std::marker::PhantomData;
 use sorted_vec::SortedSet;
 use crate::io::StateProvider;
 
+use super::SelectionError;
+
 /// Trait for kinds of selections
 pub trait SelectionKind {
     type SubselKind: SelectionKind;    
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_index(index: &SortedSet<usize>, system: &super::System) -> anyhow::Result<()> {
+    fn check_index(index: &SortedSet<usize>, system: &super::System) -> Result<(), SelectionError> {
         Ok(())
     }
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> anyhow::Result<()> {
+    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> Result<(), SelectionError> {
         Ok(())
     }
 }
@@ -41,17 +43,15 @@ impl SelectionKind for BuilderSerial {
     type SubselKind = BuilderSerial;    
     
     #[inline(always)]
-    fn check_index(index: &SortedSet<usize>, system: &super::System) -> anyhow::Result<()> {
+    fn check_index(index: &SortedSet<usize>, system: &super::System) -> Result<(), SelectionError> {
         let first = index[0];
         let last = index[index.len()-1];
         let n = system.state.num_coords();
         if first >= n || last >= n {
-            panic!(
-                "Indexes [{}:{}] are out of allowed range [0:{}]",
-                first,last,n
-            );
+            Err(SelectionError::IndexCheck(first,last,n))
+        } else {
+            Ok(())
         }
-        Ok(())
     }    
 }
 impl MutableSel for BuilderSerial {}
@@ -65,10 +65,10 @@ impl SelectionKind for MutableParallel {
     type SubselKind = MutableSerial;    
 
     #[inline(always)]
-    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> anyhow::Result<()> {
+    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> Result<(), SelectionError> {
         for i in index.iter() {
             if !used.insert(*i) {
-                anyhow::bail!("Index {i} is already used!");
+                return Err(SelectionError::OverlapCheck(*i));
             }
         }
         Ok(())
