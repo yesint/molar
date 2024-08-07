@@ -14,6 +14,8 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+build_gromacs = []
 
 [dependencies]
 anyhow.workspace = true

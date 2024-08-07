@@ -13,6 +13,13 @@ fn main() {
 
     let external_gmx = src_env.is_some() && bin_env.is_some() && lib_env.is_some();
 
+    #[cfg(not(feature="build_gromacs"))]
+    if !external_gmx {
+        let msg = "Either set Gromacs ENV variables in .cargo/config.toml or enable build_gromacs feature!";
+        println!("cargo:warning={msg}");
+        panic!("{msg}")
+    }
+
     let mut gmx_source_dir = String::new();
     let mut gmx_binary_dir = String::new();
 
@@ -73,10 +80,10 @@ fn main() {
         .layout_tests(false)
         // Finish the builder and generate the bindings.
         .generate()
-        .expect("Unable to generate bindings");
+        .expect("able to generate bindings");
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     bindings
         .write_to_file(out_path.join("gromacs_bindings.rs"))
-        .expect("Couldn't write bindings!");
+        .expect("able to write bindings!");
 }
