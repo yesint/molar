@@ -164,9 +164,10 @@ mod tests {
         // Process them
         let v = Vector3f::new(1.0, 2.0, 3.0);
         let mut res: Vec<_> = b.map_par(|sel| {
-            sel.translate(&v);
+            let cm = sel.center_of_mass()?;
+            sel.translate(&cm.coords);
             println!("thread: {}", rayon::current_thread_index().unwrap());
-            Ok(sel.center_of_mass()?)
+            Ok::<_,MeasureError>(sel.center_of_mass()?)
         })?;
         
         println!("cm before = {:?}",res);

@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-
 use crate::prelude::*;
 use rayon::prelude::*;
 use super::utils::*;
@@ -32,7 +31,7 @@ use super::utils::*;
 /// let v = Vector3f::new(1.0, 2.0, 3.0);
 /// let res: Vec<_> = src.map_par(|sel| {
 ///    sel.translate(&v);
-///    Ok(sel.center_of_mass()?)
+///    Ok::<_,anyhow::Error>(sel.center_of_mass()?)
 /// })?;
 /// println!("{:?}",res);
 /// #  Ok::<(), anyhow::Error>(())
@@ -69,7 +68,7 @@ use super::utils::*;
 ///    res.unwrap_simple()?;
 ///    let ca = res.subsel_from_str("name CA")?;
 ///    let n = res.subsel_from_str("name N")?;
-///    Ok(ca.first_particle().pos-n.first_particle().pos)
+///    Ok::<_,anyhow::Error>(ca.first_particle().pos-n.first_particle().pos)
 /// })?;
 /// println!("{:?}",dist);
 /// #  Ok::<(), anyhow::Error>(())
@@ -175,12 +174,13 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Executes provided closure on each stored selection in parallel and
     /// collect the closures' outputs into a container.
     /// 
-    /// Closure return `Result<RT>`, where `RT` is anything 
+    /// Closure return `Result<RT,_>`, where `RT` is anything 
     /// sharable between the threads. 
-    pub fn map_par<RT,C,F>(&self, func: F) -> Result<C, anyhow::Error> 
+    pub fn map_par<RT,C,F,E>(&self, func: F) -> Result<C, E> 
     where
         RT: Send + Sync,
-        F: Fn(&Sel<K>)->Result<RT, anyhow::Error> + Send + Sync,
+        E: Send + Sync,
+        F: Fn(&Sel<K>)->Result<RT, E> + Send + Sync,
         C: rayon::iter::FromParallelIterator<RT>,
     {
         self.selections.par_iter().map(func).collect()
@@ -188,10 +188,9 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Executes provide closure on each stored selection serially
     /// and collect the closures' outputs into a container.
-    pub fn map<RT,C,F>(&self, func: F) -> Result<C, anyhow::Error> 
+    pub fn map<RT,C,F,E>(&self, func: F) -> Result<C, E> 
     where
-        RT: Send + Sync,
-        F: Fn(&Sel<K>)->Result<RT, anyhow::Error> + Send + Sync,
+        F: Fn(&Sel<K>)->Result<RT, E> + Send + Sync,
         C: FromIterator<RT>,
     {
         self.selections.iter().map(func).collect()

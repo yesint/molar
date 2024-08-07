@@ -47,13 +47,12 @@ molar_xdrfile = {path = "crates/molar_xdrfile", version="0.1"}
 molar_powersasa = {path = "crates/molar_powersasa", version="0.1"}
 molar_gromacs = {path = "crates/molar_gromacs", version="0.2", optional = true}
 # Normal dependencies
-anyhow.workspace = true
 thiserror.workspace = true
 nalgebra.workspace = true
 #nalgebra-lapack.workspace = true
 peg.workspace = true
 regex.workspace = true
-ndarray = "0.15.6"
+ndarray = "0.16.0"
 num-traits = "0.2.16"
 rayon = "1.8"
 itertools = "0.13.0"
@@ -65,6 +64,7 @@ sorted-vec = "0.8.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+anyhow.workspace = true
 
 [features]
 default = ["gromacs"]
