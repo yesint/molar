@@ -2,10 +2,10 @@ use std::ops::Range;
 use sorted_vec::SortedSet;
 use crate::prelude::*;
 
-pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<(),super::DifferentSizes> {
+pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<(),super::TopologyStateSizes> {
     let n1 = topology.num_atoms();
     let n2 = state.num_coords();
-    if n1 != n2 { Err(super::DifferentSizes(n1,n2))? }
+    if n1 != n2 { Err(super::TopologyStateSizes(n1,n2))? }
     Ok(())
 }
 
@@ -40,14 +40,16 @@ pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -
 pub(super) fn index_from_range(range: &Range<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
     if range.start > n || range.end > n {
         Err(SelectionError::FromRange {
-            range: range.clone(), 
+            first: range.start,
+            last: range.end, 
             source: SelectionIndexError::IndexOutOfBounds(range.start, range.end, n), 
         })
     } else if range.len() > 0 {
         unsafe { Ok(SortedSet::from_sorted(range.clone().collect())) }
     } else {
         Err(SelectionError::FromRange {
-            range: range.clone(), 
+            first: range.start,
+            last: range.end, 
             source: SelectionIndexError::IndexEmpty, 
         })
     }

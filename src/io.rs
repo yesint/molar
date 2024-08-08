@@ -2,6 +2,7 @@ use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use std::path::Path;
 use thiserror::Error;
+#[cfg(feature = "gromacs")]
 use tpr_handler::TprHandlerError;
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
@@ -11,7 +12,6 @@ mod gro_handler;
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
-//mod pdb_handler;
 
 // Reexports
 pub use gro_handler::GroFileHandler;
@@ -47,7 +47,7 @@ pub enum FileIoError {
     NotTopologyWriteFormat,
 
     #[error(transparent)]
-    DifferentSizes(#[from] DifferentSizes),
+    DifferentSizes(#[from] TopologyStateSizes),
 
     #[error("not a trajectory reading format")]
     NotTrajectoryReadFormat,
@@ -57,6 +57,9 @@ pub enum FileIoError {
 
     #[error("not a random access format")]
     NotRandomAccessFormat,
+
+    #[error("Enable gromacs feature in Cargo.toml to get tpr support")]
+    TprDisabled,
 }
 
 #[derive(Error, Debug)]
@@ -138,7 +141,8 @@ pub struct IoStateIterator {
 impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
-        self.reader.read_state().expect("Error reading state")
+        self.reader.read_state()
+        .map_err(|e| panic!("error reading next state: {}",e)).unwrap()
     }
 }
 
@@ -187,8 +191,7 @@ impl FileHandler {
             "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname).with_file(|| fname)?)),
 
             #[cfg(not(feature = "gromacs"))]
-            "tpr" => bail!("Enable 'gromacs' feature in Cargo.toml to get TPR files support."),
-
+            "tpr" => Err(FileIoError::TprDisabled),
             _ => Err(FileIoError::NotRecognized(fname.into())),
         }
     }
@@ -256,9 +259,10 @@ impl FileHandler {
 
     pub fn read_topology(&mut self) -> Result<Topology, FileIoError> {
         let top = match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
+              Self::Pdb(ref mut h) 
+            | Self::Xyz(ref mut h) => {
                 h.read_topology().with_file(|| h.get_file_name())?
-            }
+            },
             _ => return Err(FileIoError::NotTopologyReadFormat),
         };
         Ok(top)
@@ -269,18 +273,21 @@ impl FileHandler {
         T: TopologyProvider,
     {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) => {
+              Self::Pdb(ref mut h) 
+            | Self::Xyz(ref mut h) => {
                 h.write_topology(data).with_file(|| h.get_file_name())
-            }
+            },
             _ => return Err(FileIoError::NotTopologyWriteFormat),
         }
     }
 
     pub fn read_state(&mut self) -> Result<Option<State>, FileIoError> {
         let st = match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
+              Self::Pdb(ref mut h) 
+            | Self::Xyz(ref mut h) 
+            | Self::Dcd(ref mut h) => {
                 h.read_state().with_file(|| h.get_file_name())?
-            }
+            },
             Self::Xtc(ref mut h) => h.read_state().with_file(|| h.get_file_name())?,
             _ => return Err(FileIoError::NotTrajectoryReadFormat),
         };
@@ -292,7 +299,9 @@ impl FileHandler {
         T: StateProvider,
     {
         match self {
-            Self::Pdb(ref mut h) | Self::Xyz(ref mut h) | Self::Dcd(ref mut h) => {
+              Self::Pdb(ref mut h) 
+            | Self::Xyz(ref mut h) 
+            | Self::Dcd(ref mut h) => {
                 h.write_state(data).with_file(|| h.get_file_name())
             }
             Self::Xtc(ref mut h) => h.write_state(data).with_file(|| h.get_file_name()),
@@ -336,7 +345,7 @@ impl FileHandler {
     }
 }
 
-impl<'a> IntoIterator for FileHandler {
+impl IntoIterator for FileHandler {
     type Item = State;
     type IntoIter = IoStateIterator;
 

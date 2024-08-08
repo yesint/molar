@@ -5,8 +5,6 @@ mod source_parallel;
 mod sel;
 mod sel_split;
 
-use std::ops::Range;
-
 pub use kinds::*;
 pub use source::*;
 pub use source_parallel::*;
@@ -22,7 +20,7 @@ use super::{selection_parser::SelectionParserError, BuilderError};
 
 #[derive(Error,Debug)]
 #[error("topology and state have different sizes ({0},{1})")]
-pub struct DifferentSizes(usize,usize);
+pub struct TopologyStateSizes(usize,usize);
 
 #[derive(Error,Debug)]
 pub enum SelectionError {
@@ -30,7 +28,7 @@ pub enum SelectionError {
     Parser(#[from] SelectionParserError),
     
     #[error(transparent)]
-    DifferentSizes(#[from] DifferentSizes),
+    DifferentSizes(#[from] TopologyStateSizes),
     
     #[error("creating selection from expression {expr_str}")]
     FromExpr{
@@ -38,9 +36,10 @@ pub enum SelectionError {
         source: SelectionIndexError,
     },
     
-    #[error("creating selection from range {range:?}")]
+    #[error("creating selection from range {first}:{last}")]
     FromRange{
-        range: Range<usize>,
+        first: usize,
+        last: usize,
         source: SelectionIndexError,
     },
 

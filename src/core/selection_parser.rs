@@ -13,7 +13,7 @@ pub enum SelectionParserError {
     SyntaxError(String),
 
     #[error(transparent)]
-    DifferentSizes(#[from] DifferentSizes),
+    DifferentSizes(#[from] TopologyStateSizes),
 
     #[error("no periodic box for pbc unwrapping")]
     PbcUnwrap,

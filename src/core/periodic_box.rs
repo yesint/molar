@@ -20,7 +20,7 @@ pub enum PeriodicBoxError {
     InverseFailed,
     
     #[error("box angle is <60 deg")]
-    AngleToSmall,
+    AngleTooSmall,
 }
 
 impl PeriodicBox {
@@ -55,7 +55,7 @@ impl PeriodicBox {
         }
 
         if alpha < 60.0 || beta < 60.0 || gamma < 60.0 {
-            Err(PeriodicBoxError::AngleToSmall)?;
+            Err(PeriodicBoxError::AngleTooSmall)?;
         }
 
         m[(0, 0)] = a;
