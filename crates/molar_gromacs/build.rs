@@ -45,7 +45,7 @@ fn main() {
     println!("cargo:rustc-link-lib=muparser");
     println!("cargo:rustc-link-lib=static=gromacs_wrapper");
 
-    // Generate the bindings
+    // Generate the bind    ings
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     if !external_gmx {

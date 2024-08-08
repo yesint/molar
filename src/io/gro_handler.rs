@@ -8,6 +8,7 @@ use std::{
 use thiserror::Error;
 
 pub struct GroFileHandler {
+    file: File,
     file_name: String,
 }
 
@@ -16,15 +17,21 @@ pub enum GroHandlerError {
     #[error("unxpected io error")]
     Io(#[from] std::io::Error),
 
-    #[error("unexpected end of GRO file at: {0}")]
+    #[error("can't open gro file for reading")]
+    OpenRead(#[source] std::io::Error),
+
+    #[error("can't open gro file for writing")]
+    OpenWrite(#[source] std::io::Error),
+
+    #[error("unexpected end of gro file at: {0}")]
     Eof(String),
-    
+
     #[error("not an integer at {1}: {0}")]
     ParseInt(ParseIntError, String),
-    
+
     #[error("not a float at {1}: {0}")]
     ParseFloat(ParseFloatError, String),
-    
+
     #[error("atom entry {0} truncated at {1}")]
     AtomEntry(usize, String),
 
@@ -33,16 +40,20 @@ pub enum GroHandlerError {
 }
 
 impl GroFileHandler {
-    pub fn open(fname: &str) -> Self {
-        Self {
+    pub fn open(fname: &str) -> Result<Self, GroHandlerError> {
+        Ok(Self {
             file_name: fname.to_owned(),
-        }
+            file: File::open(fname.to_owned())
+                .map_err(|e| GroHandlerError::OpenRead(e))?,
+        })
     }
 
-    pub fn create(fname: &str) -> Self {
-        Self {
+    pub fn create(fname: &str) -> Result<Self, GroHandlerError> {
+        Ok(Self {
             file_name: fname.to_owned(),
-        }
+            file: File::create(fname.to_owned())
+                .map_err(|e| GroHandlerError::OpenWrite(e))?,
+        })
     }
 
     pub fn write(
@@ -50,7 +61,7 @@ impl GroFileHandler {
         data: &(impl TopologyProvider + StateProvider),
     ) -> Result<(), GroHandlerError> {
         // Open file for writing
-        let mut buf = BufWriter::new(File::create(self.file_name.to_owned())?);
+        let mut buf = BufWriter::new(&self.file);
         let natoms = data.num_atoms();
 
         // Print title
@@ -105,19 +116,16 @@ impl GroFileHandler {
 
         Ok(())
     }
-    
+
     pub fn get_file_name(&self) -> &str {
         &self.file_name
     }
-    
+
     pub fn read(&mut self) -> Result<(Topology, State), FileHandlerError> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 
-        let mut lines =
-            BufReader::new(File::open(self.file_name.to_owned())
-                .map_err(|e| GroHandlerError::Io(e))?)
-                .lines();
+        let mut lines = BufReader::new(&self.file).lines();
         // Skip the title
         let _ = lines
             .next()
@@ -204,7 +212,7 @@ impl GroFileHandler {
                 Ok(s.parse::<f32>()
                     .map_err(|e| GroHandlerError::ParseFloat(e, "pbc".into()))?)
             })
-            .collect::<Result<Vec<f32>,GroHandlerError>>()?;
+            .collect::<Result<Vec<f32>, GroHandlerError>>()?;
 
         let mut m = Matrix3f::zeros();
         m[(0, 0)] = l[0];
@@ -218,10 +226,7 @@ impl GroFileHandler {
             m[(0, 2)] = l[7];
             m[(1, 2)] = l[8];
         }
-        state.pbox = Some(
-            PeriodicBox::from_matrix(m)
-            .map_err(|e| GroHandlerError::Pbc(e))?
-        );
+        state.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| GroHandlerError::Pbc(e))?);
 
         let state: State = state.into();
 

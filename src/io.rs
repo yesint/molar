@@ -145,6 +145,7 @@ impl Iterator for IoStateIterator {
 //================================
 // General type for file handlers
 //================================
+
 pub enum FileHandler {
     Pdb(VmdMolFileHandler),
     Dcd(VmdMolFileHandler),
@@ -180,7 +181,7 @@ impl FileHandler {
 
             "xtc" => Ok(Self::Xtc(XtcFileHandler::open(fname).with_file(|| fname)?)),
 
-            "gro" => Ok(Self::Gro(GroFileHandler::open(fname))),
+            "gro" => Ok(Self::Gro(GroFileHandler::open(fname).with_file(|| fname)?)),
 
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::Tpr(TprFileHandler::open(fname).with_file(|| fname)?)),
@@ -207,7 +208,9 @@ impl FileHandler {
             "xtc" => Ok(Self::Xtc(
                 XtcFileHandler::create(fname).with_file(|| fname)?,
             )),
-            "gro" => Ok(Self::Gro(GroFileHandler::create(fname))),
+            "gro" => Ok(Self::Gro(
+                GroFileHandler::create(fname).with_file(|| fname)?,
+            )),
             _ => Err(FileIoError::NotRecognized(fname.into())),
         }
     }
@@ -236,14 +239,12 @@ impl FileHandler {
         Ok(System { topology, state })
     }
 
-    pub fn write<'a, T>(&mut self, data: &'a T) -> Result<(), FileIoError>
+    pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider + StateProvider,
     {
         match self {
-            Self::Gro(ref mut h) => Ok(h
-                .write(data)
-                .with_file(|| h.get_file_name())?),
+            Self::Gro(ref mut h) => Ok(h.write(data).with_file(|| h.get_file_name())?),
             Self::Pdb(ref mut h) => {
                 h.write_topology(data).with_file(|| h.get_file_name())?;
                 h.write_state(data).with_file(|| h.get_file_name())?;
@@ -263,7 +264,7 @@ impl FileHandler {
         Ok(top)
     }
 
-    pub fn write_topology<'a, T>(&mut self, data: &'a T) -> Result<(), FileIoError>
+    pub fn write_topology<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider,
     {
@@ -286,7 +287,7 @@ impl FileHandler {
         Ok(st)
     }
 
-    pub fn write_state<'a, T>(&mut self, data: &'a T) -> Result<(), FileIoError>
+    pub fn write_state<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: StateProvider,
     {

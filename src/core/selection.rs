@@ -163,7 +163,7 @@ mod tests {
         }
         // Process them
         let v = Vector3f::new(1.0, 2.0, 3.0);
-        let mut res: Vec<_> = b.map_par(|sel| {
+        let mut res: Vec<_> = b.collect_par(|sel| {
             let cm = sel.center_of_mass()?;
             sel.translate(&cm.coords);
             println!("thread: {}", rayon::current_thread_index().unwrap());

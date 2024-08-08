@@ -29,7 +29,7 @@ use super::utils::*;
 /// src.add_from_iter(16..25)?;
 /// // Process them
 /// let v = Vector3f::new(1.0, 2.0, 3.0);
-/// let res: Vec<_> = src.map_par(|sel| {
+/// let res: Vec<_> = src.collect_par(|sel| {
 ///    sel.translate(&v);
 ///    Ok::<_,anyhow::Error>(sel.center_of_mass()?)
 /// })?;
@@ -64,7 +64,7 @@ use super::utils::*;
 /// }
 /// // Process them in parallel. For each residue
 /// // get CA and N atoms and compute a distance between them
-/// let dist: Vec<_> = src.map_par(|res| {
+/// let dist: Vec<_> = src.collect_par(|res| {
 ///    res.unwrap_simple()?;
 ///    let ca = res.subsel_from_str("name CA")?;
 ///    let n = res.subsel_from_str("name N")?;
@@ -176,7 +176,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// 
     /// Closure return `Result<RT,_>`, where `RT` is anything 
     /// sharable between the threads. 
-    pub fn map_par<RT,C,F,E>(&self, func: F) -> Result<C, E> 
+    pub fn collect_par<RT,C,F,E>(&self, func: F) -> Result<C, E> 
     where
         RT: Send + Sync,
         E: Send + Sync,
@@ -188,7 +188,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Executes provide closure on each stored selection serially
     /// and collect the closures' outputs into a container.
-    pub fn map<RT,C,F,E>(&self, func: F) -> Result<C, E> 
+    pub fn collect<RT,C,F,E>(&self, func: F) -> Result<C, E> 
     where
         F: Fn(&Sel<K>)->Result<RT, E> + Send + Sync,
         C: FromIterator<RT>,
