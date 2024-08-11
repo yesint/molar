@@ -210,6 +210,18 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
+    pub fn nth_pos(&self, i: usize) -> Result<&Pos,SelectionError> {
+        let ind = *self.index_storage.get(i)
+            .ok_or_else(|| SelectionError::OutOfBounds(i,self.len()))?;
+        Ok(unsafe { self.system.state.nth_pos_unchecked(ind) })
+    }
+
+    pub fn nth_pos_mut(&self, i: usize) -> Result<&mut Pos,SelectionError> {
+        let ind = *self.index_storage.get(i)
+            .ok_or_else(|| SelectionError::OutOfBounds(i,self.len()))?;
+        Ok(unsafe { self.system.state.nth_pos_unchecked_mut(ind) })
+    }
+
     //============================
     // Splitting
     //============================
@@ -343,6 +355,16 @@ impl<K: SelectionKind> Sel<K> {
             Err(SelectionError::OutOfBounds(i, self.len()))
         } else {
             Ok(unsafe { self.nth_particle_unchecked(i) })
+        }
+    }
+
+    /// Get a Particle for the first selection index.
+    /// Index is bound-checked, an error is returned if it is out of bounds.
+    pub fn nth_particle_mut(&self, i: usize) -> Result<ParticleMut, SelectionError> {
+        if i > self.len() {
+            Err(SelectionError::OutOfBounds(i, self.len()))
+        } else {
+            Ok(unsafe { self.nth_particle_unchecked_mut(i) })
         }
     }
 
