@@ -2,7 +2,7 @@ use std::ops::Range;
 use sorted_vec::SortedSet;
 use crate::prelude::*;
 
-pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<(),super::TopologyStateSizes> {
+pub(crate) fn check_topology_state_sizes<K>(topology: &Topology<K>, state: &State<K>) -> Result<(),super::TopologyStateSizes> {
     let n1 = topology.num_atoms();
     let n2 = state.num_coords();
     if n1 != n2 { Err(super::TopologyStateSizes(n1,n2))? }
@@ -13,7 +13,7 @@ pub(super) fn index_from_all(n: usize) -> SortedSet<usize> {
     unsafe { SortedSet::from_sorted((0..n).collect()) }
 }
 
-pub(super) fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
+pub(super) fn index_from_expr<K>(expr: &SelectionExpr, topology: &Topology<K>, state: &State<K>) -> Result<SortedSet<usize>, SelectionError> {
     let index = expr.apply_whole(&topology, &state)?;
     if index.len() > 0 {
         Ok(index)
@@ -25,7 +25,7 @@ pub(super) fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: 
     }
 }
 
-pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
+pub(super) fn index_from_str<K>(selstr: &str, topology: &Topology<K>, state: &State<K>) -> Result<SortedSet<usize>, SelectionError> {
     let index = SelectionExpr::try_from(selstr)?.apply_whole(&topology, &state)?;
     if index.len() > 0 {
         Ok(index)

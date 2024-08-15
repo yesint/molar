@@ -172,9 +172,9 @@ pub(crate) enum MathFunctionName {
 type SubsetType = rustc_hash::FxHashSet<usize>;
 
 #[derive(Clone)]
-pub(crate) struct ApplyData<'a> {
-    topology: &'a Topology,
-    state: &'a State,
+pub(crate) struct ApplyData<'a,K> {
+    topology: &'a Topology<K>,
+    state: &'a State<K>,
     // This is a subset passed from outside
     // selection is completely within it
     // Parser is not changing subset
@@ -186,8 +186,8 @@ pub(crate) struct ApplyData<'a> {
     context_subset: Option<&'a SubsetType>,
 }
 
-impl<'a> ApplyData<'a> {
-    fn new(topology: &'a Topology, state: &'a State, global_subset: &'a SubsetType) -> Result<Self, SelectionParserError> {
+impl<'a,K> ApplyData<'a,K> {
+    fn new(topology: &'a Topology<K>, state: &'a State<K>, global_subset: &'a SubsetType) -> Result<Self, SelectionParserError> {
         check_topology_state_sizes(topology, state)?;
 
         Ok(Self {
@@ -274,9 +274,9 @@ impl LogicalNode {
     }
     */
     
-    fn map_same_prop<'a, T>(
+    fn map_same_prop<'a, T,K>(
         &self,
-        data: &'a ApplyData,
+        data: &'a ApplyData<K>,
         inner: &SubsetType,
         prop_fn: fn(&'a Atom) -> &'a T,
     ) -> SubsetType
@@ -304,7 +304,7 @@ impl LogicalNode {
         res
     }
 
-    pub fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
+    pub fn apply<K>(&self, data: &ApplyData<K>) -> Result<SubsetType, SelectionParserError> {
         match self {
             Self::Not(node) => Ok(
                 // Here we always use global subset!
@@ -396,7 +396,7 @@ impl LogicalNode {
     }
 }
 
-fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) {
+fn get_min_max<K>(state: &State<K>, iter: impl IndexIterator) -> (Vector3f, Vector3f) {
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
@@ -418,9 +418,9 @@ impl KeywordNode {
         false
     }
 
-    fn map_str_values(
+    fn map_str_values<K>(
         &self,
-        data: &ApplyData,
+        data: &ApplyData<K>,
         values: &Vec<StrKeywordValue>,
         f: fn(&Atom) -> &String,
     ) -> SubsetType {
@@ -446,9 +446,9 @@ impl KeywordNode {
         res
     }
 
-    fn map_int_values(
+    fn map_int_values<K>(
         &self,
-        data: &ApplyData,
+        data: &ApplyData<K>,
         values: &Vec<IntKeywordValue>,
         f: fn(&Atom, usize) -> i32,
     ) -> SubsetType {
@@ -475,7 +475,7 @@ impl KeywordNode {
         res
     }
 
-    fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
+    fn apply<K>(&self, data: &ApplyData<K>) -> Result<SubsetType, SelectionParserError> {
         match self {
             Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
             Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
@@ -637,8 +637,8 @@ impl ComparisonNode {
     }
     */
 
-    fn eval_op(
-        data: &ApplyData,
+    fn eval_op<K>(
+        data: &ApplyData<K>,
         v1: &MathNode,
         v2: &MathNode,
         op: fn(f32, f32) -> bool,
@@ -657,8 +657,8 @@ impl ComparisonNode {
         Ok(res)
     }
 
-    fn eval_op_chained(
-        data: &ApplyData,
+    fn eval_op_chained<K>(
+        data: &ApplyData<K>,
         v1: &MathNode,
         v2: &MathNode,
         v3: &MathNode,
@@ -681,7 +681,7 @@ impl ComparisonNode {
         Ok(res)
     }
 
-    fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
+    fn apply<K>(&self, data: &ApplyData<K>) -> Result<SubsetType, SelectionParserError> {
         match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
@@ -1055,7 +1055,7 @@ impl SelectionExpr {
         Ok(s.try_into()?)
     }
 
-    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionParserError> {
+    pub fn apply_whole<K>(&self, topology: &Topology<K>, state: &State<K>) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(0..topology.num_atoms());
         let data = ApplyData::new(
             topology,
@@ -1066,10 +1066,10 @@ impl SelectionExpr {
         Ok(index.into())
     }
 
-    pub fn apply_subset(
+    pub fn apply_subset<K>(
         &self,
-        topology: &Topology,
-        state: &State,
+        topology: &Topology<K>,
+        state: &State<K>,
         subset: impl Iterator<Item = usize>,
     ) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(subset);

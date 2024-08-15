@@ -1,9 +1,12 @@
+use std::marker::PhantomData;
+
 use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
+use triomphe::Arc;
 
 use crate::io::TopologyProvider;
 
-use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
+use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom, BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, SelectionError, SelectionKind};
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
@@ -72,30 +75,85 @@ impl TopologyStorage {
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
-pub struct Topology(SyncUnsafeCell<TopologyStorage>);
+pub struct Topology<K=()>{
+    pub(crate) arc: Arc<SyncUnsafeCell<TopologyStorage>>,
+    _marker: PhantomData<K>,
+}
 
-impl Clone for Topology {
+impl<K> Clone for Topology<K> {
     fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get_storage().clone()))
+        Self{
+            arc: Arc::new(SyncUnsafeCell::new(self.get_storage().clone())),
+            _marker: Default::default(),
+        }
     }
 }
 
-impl From<TopologyStorage> for Topology {
+fn convert<K1,K2>(value: Topology<K1>) -> Result<Topology<K2>, SelectionError> {
+    if Arc::count(&value.arc) == 1 {
+        Ok(Topology::<K2> {
+            arc: value.arc,
+            _marker: Default::default(),
+        })
+    } else {
+        Err(SelectionError::Release)
+    }
+}
+
+impl TryFrom<Topology<()>> for Topology<MutableSerial> {
+    type Error = SelectionError;
+    fn try_from(value: Topology<()>) -> Result<Self, Self::Error> {
+        convert(value)
+    }
+}
+
+impl TryFrom<Topology<()>> for Topology<ImmutableParallel> {
+    type Error = SelectionError;
+    fn try_from(value: Topology<()>) -> Result<Self, Self::Error> {
+        convert(value)
+    }
+}
+
+impl TryFrom<Topology<()>> for Topology<MutableParallel> {
+    type Error = SelectionError;
+    fn try_from(value: Topology<()>) -> Result<Self, Self::Error> {
+        convert(value)
+    }
+}
+
+impl TryFrom<Topology<()>> for Topology<BuilderSerial> {
+    type Error = SelectionError;
+    fn try_from(value: Topology<()>) -> Result<Self, Self::Error> {
+        convert(value)
+    }
+}
+
+impl From<TopologyStorage> for Topology<()> {
     fn from(value: TopologyStorage) -> Self {
-        Topology(SyncUnsafeCell::new(value))
+        Topology{
+            arc: Arc::new(SyncUnsafeCell::new(value)),
+            _marker: Default::default(),
+        }
     }
 }
 
-impl Topology {
+impl<K> Topology<K> {
+    pub fn new_arc<K2: SelectionKind>(&self) -> Topology<K2> {
+        Topology::<K2>{
+            arc: Arc::clone(&self.arc),
+            _marker: Default::default(),
+        }
+    }
+
     // Private convenience accessors
     #[inline(always)]
     pub(super) fn get_storage(&self) -> &TopologyStorage {
-        unsafe {&*self.0.get()}
+        unsafe {&*self.arc.get()}
     }
 
     #[inline(always)]
     pub(super) fn get_storage_mut(&self) -> &mut TopologyStorage {
-        unsafe {&mut *self.0.get()}
+        unsafe {&mut *self.arc.get()}
     }
 
     #[inline(always)]
@@ -130,7 +188,7 @@ impl Topology {
         }
     }
 
-    pub fn interchangeable(&self, other: &Topology) -> bool {
+    pub fn interchangeable(&self, other: &Topology<K>) -> bool {
             self.get_storage().atoms.len() == other.get_storage().atoms.len()
         &&  self.get_storage().bonds.len() == other.get_storage().bonds.len()
         &&  self.get_storage().molecules.len() == other.get_storage().molecules.len()
@@ -138,52 +196,25 @@ impl Topology {
 }
 
 // Impls for Topology itself
-impl TopologyProvider for Topology {
+impl<K> TopologyProvider for Topology<K> {
     fn num_atoms(&self) -> usize {
         self.get_storage().atoms.len()
     }
 }
 
-impl AtomsProvider for Topology {
+impl<K> AtomsProvider for Topology<K> {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
         self.get_storage().atoms.iter()
     }
 }
 
-impl AtomsMutProvider for Topology {
+impl<K> AtomsMutProvider for Topology<K> {
     fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
         self.get_storage_mut().atoms.iter_mut()
     }
 }
 
-impl MassesProvider for Topology {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
-        self.get_storage().atoms.iter().map(|at| at.mass)
-    }
-}
-
-//--------------------------
-// Impls for smart pointers
-//--------------------------
-impl TopologyProvider for triomphe::Arc<Topology> {
-    fn num_atoms(&self) -> usize {
-        self.get_storage().atoms.len()
-    }
-}
-
-impl AtomsProvider for triomphe::Arc<Topology> {
-    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
-        self.get_storage().atoms.iter()
-    }
-}
-
-impl AtomsMutProvider for triomphe::Arc<Topology> {
-    fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
-        self.get_storage_mut().atoms.iter_mut()
-    }
-}
-
-impl MassesProvider for triomphe::Arc<Topology> {
+impl<K> MassesProvider for Topology<K> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.get_storage().atoms.iter().map(|at| at.mass)
     }

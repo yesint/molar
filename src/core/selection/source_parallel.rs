@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use crate::prelude::*;
 use rayon::prelude::*;
 use super::utils::*;
@@ -115,38 +114,42 @@ use super::utils::*;
  
     
 pub struct SourceParallel<K> {
-    system: triomphe::Arc<System>,
+    topology: Topology<K>,
+    state: State<K>,
     selections: Vec<Sel<K>>,
     used: rustc_hash::FxHashSet<usize>,
-    _marker: PhantomData<*const ()>,
 }
 
 impl SourceParallel<()> {    
     /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_mut (
-        topology: Topology,
-        state: State,
+        topology: impl TryInto<Topology<MutableParallel>, Error=SelectionError>,
+        state: impl TryInto<State<MutableParallel>, Error=SelectionError>,
     ) -> Result<SourceParallel<MutableParallel>, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
+        let top = topology.try_into()?;
+        let st = state.try_into()?;
+        check_topology_state_sizes(&top, &st)?;
         Ok(SourceParallel {
-            system: triomphe::Arc::new(System{topology,state}),
+            topology: top,
+            state: st,
             selections: Default::default(),
             used: Default::default(),
-            _marker: Default::default(),
         })
     }
 
     /// Creates a source of immutable parallel selections that _may_ overlap.
     pub fn new (
-        topology: Topology,
-        state: State,
+        topology: impl TryInto<Topology<ImmutableParallel>, Error=SelectionError>,
+        state: impl TryInto<State<ImmutableParallel>, Error=SelectionError>,
     ) -> Result<SourceParallel<ImmutableParallel>, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
+        let top = topology.try_into()?;
+        let st = state.try_into()?;
+        check_topology_state_sizes(&top, &st)?;
         Ok(SourceParallel {
-            system: triomphe::Arc::new(System{topology,state}),
+            topology: top,
+            state: st,
             selections: Default::default(),
             used: Default::default(),
-            _marker: Default::default(),
         })
     }   
 
@@ -164,11 +167,12 @@ impl SourceParallel<()> {
 }
 
 impl<K: ParallelSel> SourceParallel<K> {
-    /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> Result<(Topology, State), SelectionError> {
-        let sys = triomphe::Arc::try_unwrap(self.system)
-                .or_else(|_| return Err(SelectionError::Release))?;
-        Ok((sys.topology,sys.state))
+    pub fn get_topology(self) -> Topology<K> {
+        self.topology.new_arc()
+    }
+
+    pub fn get_state(self) -> State<K> {
+        self.state.new_arc()
     }
 
     /// Executes provided closure on each stored selection in parallel and
@@ -218,10 +222,11 @@ impl<K: ParallelSel> SourceParallel<K> {
         &mut self,
         iter: impl Iterator<Item = usize>,
     ) -> Result<usize, SelectionError> {
-        let vec = index_from_iter(iter, self.system.topology.num_atoms())?;        
+        let vec = index_from_iter(iter, self.topology.num_atoms())?;        
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.system),
+            self.topology.new_arc(),
+            self.state.new_arc(),
             vec,            
         ));
         Ok(self.selections.len()-1)
@@ -229,10 +234,11 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds selection of all
     pub fn select_all(&mut self) -> Result<&Sel<K>, SelectionError> {
-        let vec = index_from_all(self.system.topology.num_atoms());        
+        let vec = index_from_all(self.topology.num_atoms());        
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.system),
+            self.topology.new_arc(),
+            self.state.new_arc(),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
@@ -241,25 +247,27 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Adds new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn add_str(&mut self, selstr: impl AsRef<str>) -> Result<&Sel<K>, SelectionError> {
-        let vec = index_from_str(selstr.as_ref(), &self.system.topology, &self.system.state)?;        
+        let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;        
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.system),
+            self.topology.new_arc(),
+            self.state.new_arc(),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
     }
 
     pub fn get_sel(&self, i: usize) -> Result<&Sel<K>, SelectionError> {
-        self.selections.get(i).ok_or_else(|| SelectionError::OutOfBounds(i, self.system.state.num_coords()))
+        self.selections.get(i).ok_or_else(|| SelectionError::OutOfBounds(i, self.state.num_coords()))
     }
 
     /// Adds new selection from an existing selection expression.
     pub fn add_expr(&mut self, expr: &SelectionExpr) -> Result<&Sel<K>, SelectionError> {
-        let vec = index_from_expr(expr, &self.system.topology, &self.system.state)?;
+        let vec = index_from_expr(expr, &self.topology, &self.state)?;
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.system),
+            self.topology.new_arc(),
+            self.state.new_arc(),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
@@ -268,16 +276,18 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// Adds new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
     pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> Result<&Sel<K>, SelectionError> {
-        let vec = index_from_range(range, self.system.topology.num_atoms())?;
+        let vec = index_from_range(range, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new(
-            triomphe::Arc::clone(&self.system),
+            self.topology.new_arc(),
+            self.state.new_arc(),
             vec,            
         ));
         Ok(&self.selections.last().unwrap())
     }
 
-    /// Converts `Self` into a serial [Source]. All stored parallel selections 
+    
+    /*    /// Converts `Self` into a serial [Source]. All stored parallel selections 
     /// are converted into serial mutable selections and returned as a vector. 
     pub fn into_serial_with_sels(self) -> (Source<MutableSerial>,Vec<Sel<MutableSerial>>) {                
         let sels: Vec<Sel<MutableSerial>> = self.selections.into_iter().map(|sel|             
@@ -287,16 +297,18 @@ impl<K: ParallelSel> SourceParallel<K> {
         let src = Source::new_from_arc_system(self.system).unwrap(); 
         (src,sels)
     }
+    */
 
     /// Converts `Self` into a serial [Source]. All stored parallel selections 
     /// are dropped. 
-    pub fn into_serial(mut self) -> Source<MutableSerial> {
-        // Drop all selections
-        self.selections.clear();
-        let (top,st) = self.release().unwrap();
-        // This should never fail
-        Source::new(top,st).unwrap()
-    }
+    // pub fn into_serial(mut self) -> Source<MutableSerial> {
+    //     // Drop all selections
+    //     self.selections.clear();
+    //     let (top,st) = self.release().unwrap();
+    //     // This should never fail
+    //     Source::new(top,st).unwrap()
+    // }
+    
 
     /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state. 
@@ -305,14 +317,14 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// 
     /// Returns unique pointer to the old state, so it could be reused if needed.
     /// 
-    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
+    pub fn set_state(&mut self, state: State<K>) -> Result<State<K>, SelectionError> {
         // Check if the states are compatible
-        if !self.system.state.interchangeable(&state) {
+        if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
         unsafe {
             std::ptr::swap(
-                self.system.state.get_storage_mut(), 
+                self.state.get_storage_mut(), 
                 state.get_storage_mut()
             );
         };
@@ -330,15 +342,15 @@ impl<K: ParallelSel> SourceParallel<K> {
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology, SelectionError> {
+    pub fn set_topology(&mut self, topology: Topology<K>) -> Result<Topology<K>, SelectionError> {
         // Check if the states are compatible
-        if !self.system.topology.interchangeable(&topology) {
+        if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology)
         }
 
         unsafe {
             std::ptr::swap(
-                self.system.topology.get_storage_mut(), 
+                self.topology.get_storage_mut(), 
                 topology.get_storage_mut()
             );
         };
@@ -353,35 +365,35 @@ impl<K: ParallelSel> SourceParallel<K> {
 //-----------------------------------------
 impl TopologyProvider for SourceParallel<ImmutableParallel> {
     fn num_atoms(&self) -> usize {
-        self.system.state.num_coords()
+        self.state.num_coords()
     }
 }
 
 impl AtomsProvider for SourceParallel<ImmutableParallel> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.system.topology.iter_atoms()       
+        self.topology.iter_atoms()       
     }
 }
 
 impl StateProvider for SourceParallel<ImmutableParallel> {
     fn get_time(&self) -> f32 {
-        self.system.state.get_time()
+        self.state.get_time()
     }
 
     fn num_coords(&self) -> usize {
-        self.system.state.num_coords()       
+        self.state.num_coords()       
     }
 }
 
 impl PosProvider for SourceParallel<ImmutableParallel> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.system.state.iter_pos()
+        self.state.iter_pos()
     }
 }
 
 impl BoxProvider for SourceParallel<ImmutableParallel> {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.system.state.get_box()
+        self.state.get_box()
     }
 }
 

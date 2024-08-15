@@ -237,11 +237,6 @@ impl FileHandler {
         Ok((top, st))
     }
 
-    pub fn read_system(&mut self) -> Result<System, FileIoError> {
-        let (topology, state) = self.read()?;
-        Ok(System { topology, state })
-    }
-
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider + StateProvider,
