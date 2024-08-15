@@ -1,7 +1,10 @@
-use crate::prelude::*;
-use std::marker::PhantomData;
+use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
-use triomphe::Arc;
+
+use crate::io::StateProvider;
+use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
+//use super::handle::{SharedHandle, Handle};
+
 
 #[doc(hidden)]
 #[derive(Debug, Default,Clone)]
@@ -41,85 +44,30 @@ impl StateStorage {
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
-pub struct State<K=()>{
-    pub(crate) arc: Arc<SyncUnsafeCell<StateStorage>>,
-    _marker: PhantomData<K>,
-}
+pub struct State(SyncUnsafeCell<StateStorage>);
 
-impl<K> Clone for State<K> {
+impl Clone for State {
     fn clone(&self) -> Self {
-        Self{
-            arc: Arc::new(SyncUnsafeCell::new(self.get_storage().clone())),
-            _marker: Default::default(),
-        }
+        Self(SyncUnsafeCell::new(self.get_storage().clone()))
     }
 }
 
-fn convert<K1,K2>(value: State<K1>) -> Result<State<K2>, SelectionError> {
-    if Arc::count(&value.arc) == 1 {
-        Ok(State::<K2> {
-            arc: value.arc,
-            _marker: Default::default(),
-        })
-    } else {
-        Err(SelectionError::Release)
-    }
-}
-
-impl TryFrom<State<()>> for State<MutableSerial> {
-    type Error = SelectionError;
-    fn try_from(value: State<()>) -> Result<Self, Self::Error> {
-        convert(value)
-    }
-}
-
-impl TryFrom<State<()>> for State<ImmutableParallel> {
-    type Error = SelectionError;
-    fn try_from(value: State<()>) -> Result<Self, Self::Error> {
-        convert(value)
-    }
-}
-
-impl TryFrom<State<()>> for State<MutableParallel> {
-    type Error = SelectionError;
-    fn try_from(value: State<()>) -> Result<Self, Self::Error> {
-        convert(value)
-    }
-}
-
-impl TryFrom<State<()>> for State<BuilderSerial> {
-    type Error = SelectionError;
-    fn try_from(value: State<()>) -> Result<Self, Self::Error> {
-        convert(value)
-    }
-}
-
-impl From<StateStorage> for State<()> {
+impl From<StateStorage> for State {
     fn from(value: StateStorage) -> Self {
-        State {
-            arc: Arc::new(SyncUnsafeCell::new(value)),
-            _marker: Default::default(),
-        }    
+        State(SyncUnsafeCell::new(value))
     }
 }
 
-impl<K> State<K> {
-    pub fn new_arc<K2: SelectionKind>(&self) -> State<K2> {
-        State::<K2>{
-            arc: Arc::clone(&self.arc),
-            _marker: Default::default(),
-        }
-    }
-
+impl State {
     // Private convenience accessors
     #[inline(always)]
     pub(crate) fn get_storage(&self) -> &StateStorage {
-        unsafe {&*self.arc.get()}
+        unsafe {&*self.0.get()}
     }
 
     #[inline(always)]
     pub(crate) fn get_storage_mut(&self) -> &mut StateStorage {
-        unsafe {&mut *self.arc.get()}
+        unsafe {&mut *self.0.get()}
     }
     
     #[inline(always)]
@@ -152,13 +100,13 @@ impl<K> State<K> {
         self.get_storage_mut().pbox.as_mut()
     }
 
-    pub fn interchangeable(&self, other: &State<K>) -> bool {
+    pub fn interchangeable(&self, other: &State) -> bool {
         self.get_storage().coords.len() == other.get_storage().coords.len()
     }
 }
 
-// Impls for State itself
-impl<K> StateProvider for State<K> {
+// Impls for smart pointers
+impl<T: Deref<Target=State>> StateProvider for T {
     fn get_time(&self) -> f32 {
         self.get_storage().time
     }
@@ -168,13 +116,36 @@ impl<K> StateProvider for State<K> {
     }
 }
 
-impl<K> PosProvider for State<K> {
+impl<T: Deref<Target=State>> PosProvider for T {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         self.get_storage().coords.iter()
     }
 }
 
-impl<K> BoxProvider for State<K> {
+impl<T: Deref<Target=State>> BoxProvider for T {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.get_storage().pbox.as_ref()
+    }
+}
+
+// Impls for State itself
+impl StateProvider for State {
+    fn get_time(&self) -> f32 {
+        self.get_storage().time
+    }
+
+    fn num_coords(&self) -> usize {
+        self.get_storage().coords.len()
+    }
+}
+
+impl PosProvider for State {
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        self.get_storage().coords.iter()
+    }
+}
+
+impl BoxProvider for State {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.get_storage().pbox.as_ref()
     }

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 use sorted_vec::SortedSet;
-use crate::{core::{State, Topology}, io::{StateProvider, TopologyProvider}};
+use crate::io::StateProvider;
 
-use super::{SelectionError, TopologyStateSizes};
+use super::SelectionError;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
@@ -10,7 +10,7 @@ pub trait SelectionKind {
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_index<K>(index: &SortedSet<usize>, top: &Topology<K>, st: &State<K>) -> Result<(), SelectionError> {
+    fn check_index(index: &SortedSet<usize>, system: &super::System) -> Result<(), SelectionError> {
         Ok(())
     }
 
@@ -43,21 +43,15 @@ impl SelectionKind for BuilderSerial {
     type SubselKind = BuilderSerial;    
     
     #[inline(always)]
-    fn check_index<K>(index: &SortedSet<usize>, top: &Topology<K>, st: &State<K>) -> Result<(), SelectionError> {
+    fn check_index(index: &SortedSet<usize>, system: &super::System) -> Result<(), SelectionError> {
         let first = index[0];
         let last = index[index.len()-1];
-        //if st.num_coords() != top.num_atoms() {
-        //    return Err(SelectionError::DifferentSizes(TopologyStateSizes(st.num_coords(),top.num_atoms())))
-        //}
-        let n1 = top.num_atoms();
-        let n2 = st.num_coords();
-        if first >= n1 || last >= n1 {
-            return Err(SelectionError::IndexCheck(first,last,n1))
-        } 
-        if first >= n2 || last >= n2 {
-            return Err(SelectionError::IndexCheck(first,last,n2))
+        let n = system.state.num_coords();
+        if first >= n || last >= n {
+            Err(SelectionError::IndexCheck(first,last,n))
+        } else {
+            Ok(())
         }
-        Ok(())
     }    
 }
 impl MutableSel for BuilderSerial {}

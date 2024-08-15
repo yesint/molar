@@ -171,13 +171,12 @@ mod tests {
         
         println!("cm before = {:?}",res);
         
-        /*
         let (_,sels) = b.into_serial_with_sels();
         sels[0].translate(&v);
         res[0] = sels[0].center_of_mass()?;
         
         println!("cm after = {:?}",res);
-        */
+
         Ok(())
     }
 
