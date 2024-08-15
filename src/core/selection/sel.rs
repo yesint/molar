@@ -373,16 +373,6 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    /// Get a Particle for the first selection index.
-    /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth_particle_mut(&self, i: usize) -> Result<ParticleMut, SelectionError> {
-        if i > self.len() {
-            Err(SelectionError::OutOfBounds(i, self.len()))
-        } else {
-            Ok(unsafe { self.nth_particle_unchecked_mut(i) })
-        }
-    }
-
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Consumes a selection and returns selections of the same kind.
     ///
