@@ -61,7 +61,8 @@ impl System {
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
 pub struct Sel<K> {
-    system: triomphe::Arc<System>,
+    topology: Topology,
+    state: State,
     index_storage: SortedSet<usize>,
     _marker: PhantomData<K>,
 }
@@ -71,21 +72,22 @@ pub struct Sel<K> {
 impl Sel<MutableSerial> {
     // Only visible in selection module
     pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self::new(sel.system, sel.index_storage)
+        Self::new(sel.topology, sel.state, sel.index_storage)
     }
 }
 
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     fn index(&self) -> &SortedSet<usize> {
-        K::check_index(&self.index_storage, &self.system).unwrap();
+        K::check_index(&self.index_storage, &self.topology, &self.state).unwrap();
         &self.index_storage
     }
 
     // Only visible in selection module
-    pub(super) fn new(system: triomphe::Arc<System>, index: SortedSet<usize>) -> Self {
+    pub(super) fn new(topology: Topology, state: State, index: SortedSet<usize>) -> Self {
         Self {
-            system,
+            topology,
+            state,
             index_storage: index,
             _marker: PhantomData::default(),
         }

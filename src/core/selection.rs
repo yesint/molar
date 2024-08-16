@@ -5,6 +5,7 @@ mod source_parallel;
 mod sel;
 mod sel_split;
 
+// Reexports
 pub use kinds::*;
 pub use source::*;
 pub use source_parallel::*;
@@ -13,9 +14,7 @@ pub use sel_split::*;
 pub(crate) use utils::*;
 
 use thiserror::Error;
-
 use crate::io::FileIoError;
-
 use super::{selection_parser::SelectionParserError, BuilderError};
 
 #[derive(Error,Debug)]

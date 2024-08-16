@@ -1,9 +1,6 @@
-use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
-
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
-//use super::handle::{SharedHandle, Handle};
 
 
 #[doc(hidden)]
@@ -44,17 +41,23 @@ impl StateStorage {
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
-pub struct State(SyncUnsafeCell<StateStorage>);
+pub struct State{
+    arc: triomphe::Arc<SyncUnsafeCell<StateStorage>>,
+}
 
 impl Clone for State {
     fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get_storage().clone()))
+        Self{
+            arc: triomphe::Arc::new(SyncUnsafeCell::new(self.get_storage().clone()))
+        }
     }
 }
 
 impl From<StateStorage> for State {
     fn from(value: StateStorage) -> Self {
-        State(SyncUnsafeCell::new(value))
+        State{
+            arc: triomphe::Arc::new(SyncUnsafeCell::new(value))
+        }
     }
 }
 
@@ -62,12 +65,12 @@ impl State {
     // Private convenience accessors
     #[inline(always)]
     pub(crate) fn get_storage(&self) -> &StateStorage {
-        unsafe {&*self.0.get()}
+        unsafe {&*self.arc.get()}
     }
 
     #[inline(always)]
     pub(crate) fn get_storage_mut(&self) -> &mut StateStorage {
-        unsafe {&mut *self.0.get()}
+        unsafe {&mut *self.arc.get()}
     }
     
     #[inline(always)]
@@ -106,7 +109,7 @@ impl State {
 }
 
 // Impls for smart pointers
-impl<T: Deref<Target=State>> StateProvider for T {
+impl StateProvider for triomphe::Arc<State> {
     fn get_time(&self) -> f32 {
         self.get_storage().time
     }
@@ -116,13 +119,13 @@ impl<T: Deref<Target=State>> StateProvider for T {
     }
 }
 
-impl<T: Deref<Target=State>> PosProvider for T {
+impl PosProvider for triomphe::Arc<State> {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         self.get_storage().coords.iter()
     }
 }
 
-impl<T: Deref<Target=State>> BoxProvider for T {
+impl BoxProvider for triomphe::Arc<State> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.get_storage().pbox.as_ref()
     }

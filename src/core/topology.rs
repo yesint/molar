@@ -72,17 +72,23 @@ impl TopologyStorage {
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
-pub struct Topology(SyncUnsafeCell<TopologyStorage>);
+pub struct Topology{
+    arc: triomphe::Arc<SyncUnsafeCell<TopologyStorage>>,
+}
 
 impl Clone for Topology {
     fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get_storage().clone()))
+        Self{
+            arc: triomphe::Arc::new(SyncUnsafeCell::new(self.get_storage().clone()))
+        }
     }
 }
 
 impl From<TopologyStorage> for Topology {
     fn from(value: TopologyStorage) -> Self {
-        Topology(SyncUnsafeCell::new(value))
+        Topology{
+            arc: triomphe::Arc::new(SyncUnsafeCell::new(value))
+        }
     }
 }
 
@@ -90,12 +96,12 @@ impl Topology {
     // Private convenience accessors
     #[inline(always)]
     pub(super) fn get_storage(&self) -> &TopologyStorage {
-        unsafe {&*self.0.get()}
+        unsafe {&*self.arc.get()}
     }
 
     #[inline(always)]
     pub(super) fn get_storage_mut(&self) -> &mut TopologyStorage {
-        unsafe {&mut *self.0.get()}
+        unsafe {&mut *self.arc.get()}
     }
 
     #[inline(always)]
