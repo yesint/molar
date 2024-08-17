@@ -1,6 +1,6 @@
 [package]
 name = "molar_gromacs"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 authors.workspace = true
 links = "stdc++"
@@ -16,9 +16,6 @@ categories.workspace = true
 
 [features]
 build_gromacs = []
-
-[dependencies]
-anyhow.workspace = true
 
 [build-dependencies]
 cmake.workspace = true

@@ -1,6 +1,6 @@
 use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
-use triomphe::{Arc, UniqueArc};
+use triomphe::UniqueArc;
 
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};

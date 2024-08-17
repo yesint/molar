@@ -20,7 +20,10 @@ pub struct Source<K> {
 
 impl Source<()> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
-    pub fn new(topology: UniqueArc<Topology>, state: UniqueArc<State>) -> Result<Source<MutableSerial>, SelectionError> {
+    pub fn new(
+        topology: UniqueArc<Topology>,
+        state: UniqueArc<State>,
+    ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             topology: topology.shareable(),
@@ -63,7 +66,7 @@ impl Source<()> {
     }
 
     // Constructor for internal usage
-    pub(crate) fn new_from_arc(
+    pub(crate) fn new_internal(
         topology: Arc<Topology>,
         state: Arc<State>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
@@ -151,7 +154,10 @@ impl<K: SerialSel> Source<K> {
     ///
     /// Returns unique pointer to the old state, so it could be reused if needed.
     ///
-    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
+    pub fn set_state(
+        &mut self,
+        state: UniqueArc<State>,
+    ) -> Result<UniqueArc<State>, SelectionError> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
@@ -172,30 +178,66 @@ impl<K: SerialSel> Source<K> {
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology, SelectionError> {
+    pub fn set_topology(
+        &mut self,
+        topology: UniqueArc<Topology>,
+    ) -> Result<UniqueArc<Topology>, SelectionError> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
         unsafe {
-            ptr::swap(
-                self.topology.get_storage_mut(),
-                topology.get_storage_mut(),
-            );
+            ptr::swap(self.topology.get_storage_mut(), topology.get_storage_mut());
         };
         Ok(topology)
+    }
+}
+
+// Specific methods of serial source
+impl Source<MutableSerial> {
+    pub fn get_shared_topology(&self) -> Arc<Topology> {
+        Arc::clone(&self.topology)
+    }
+
+    pub fn get_shared_state(&self) -> Arc<State> {
+        Arc::clone(&self.state)
+    }
+
+    pub fn new_from_shared(
+        topology: &Arc<Topology>,
+        state: &Arc<State>,
+    ) -> Result<Source<MutableSerial>, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        Ok(Source {
+            topology: Arc::clone(topology),
+            state: Arc::clone(state),
+            _marker: Default::default(),
+        })
+    }
+
+    pub fn set_shared_topology(
+        &mut self,
+        topology: Arc<Topology>,
+    ) -> Result<Arc<Topology>, SelectionError> {
+        if !self.topology.interchangeable(&topology) {
+            return Err(SelectionError::SetTopology);
+        }
+        Ok(std::mem::replace(&mut self.topology, topology))
+    }
+
+    pub fn set_shared_state(&mut self, state: Arc<State>) -> Result<Arc<State>, SelectionError> {
+        if !self.state.interchangeable(&state) {
+            return Err(SelectionError::SetState);
+        }
+        Ok(std::mem::replace(&mut self.state, state))
     }
 }
 
 // Specific methods of builder source
 impl Source<BuilderSerial> {
     pub fn append(&mut self, data: &(impl PosProvider + AtomsProvider)) {
-        self.topology
-            .get_storage_mut()
-            .add_atoms(data.iter_atoms());
-        self.state
-            .get_storage_mut()
-            .add_coords(data.iter_pos());
+        self.topology.get_storage_mut().add_atoms(data.iter_atoms());
+        self.state.get_storage_mut().add_coords(data.iter_pos());
     }
 
     pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {

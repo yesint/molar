@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
-use triomphe::UniqueArc;
+use triomphe::{Arc, UniqueArc};
 use std::path::Path;
 use thiserror::Error;
 #[cfg(feature = "gromacs")]
@@ -238,6 +238,11 @@ impl FileHandler {
         Ok((top, st))
     }
 
+    pub fn read_shareable(&mut self) -> Result<(Arc<Topology>, Arc<State>), FileIoError> {
+        let (top,st) = self.read()?;
+        Ok((top.shareable(), st.shareable()))
+    }
+
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider + StateProvider,
@@ -264,6 +269,10 @@ impl FileHandler {
         Ok(top)
     }
 
+    pub fn read_topology_shareable(&mut self) -> Result<Arc<Topology>, FileIoError> {
+        Ok(self.read_topology()?.shareable())
+    }
+
     pub fn write_topology<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider,
@@ -288,6 +297,10 @@ impl FileHandler {
             _ => return Err(FileIoError::NotTrajectoryReadFormat),
         };
         Ok(st)
+    }
+
+    pub fn read_state_shareable(&mut self) -> Result<Option<Arc<State>>, FileIoError> {
+        Ok(self.read_state()?.map(|v| v.shareable()))
     }
 
     pub fn write_state<T>(&mut self, data: &T) -> Result<(), FileIoError>

@@ -14,7 +14,6 @@ keywords = ["MD", "science", "trajectory", "modeling"]
 categories = ["science", "simulation", "external-ffi-bindings"]
 
 [workspace.dependencies]
-anyhow = "1.0"
 nalgebra = "0.33.0"
 peg = "0.8.1"
 regex = "1.9.3"
@@ -64,7 +63,7 @@ sorted-vec = "0.8.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-anyhow.workspace = true
+anyhow = "1.0"
 
 [features]
 default = ["gromacs"]

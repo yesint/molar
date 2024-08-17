@@ -1,6 +1,6 @@
 use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
-use triomphe::{Arc, UniqueArc};
+use triomphe::UniqueArc;
 
 use crate::io::TopologyProvider;
 

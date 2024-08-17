@@ -297,7 +297,7 @@ impl<K: ParallelSel> SourceParallel<K> {
             .map(|sel| Sel::from_parallel(sel))
             .collect();
         // This should never fail
-        let src = Source::new_from_arc(self.topology, self.state).unwrap();
+        let src = Source::new_internal(self.topology, self.state).unwrap();
         (src, sels)
     }
 

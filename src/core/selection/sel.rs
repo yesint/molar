@@ -415,16 +415,16 @@ impl Sel<MutableSerial> {
     pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
         Self::new_internal(sel.topology, sel.state, sel.index_storage)
     }
-    
-    pub fn get_topology(&self) -> Arc<Topology> {
+
+    pub fn get_shared_topology(&self) -> Arc<Topology> {
         Arc::clone(&self.topology)
     }
 
-    pub fn get_state(&self) -> Arc<State> {
+    pub fn get_shared_state(&self) -> Arc<State> {
         Arc::clone(&self.state)
     }
 
-    pub fn set_topology(
+    pub fn set_shared_topology(
         &mut self,
         topology: Arc<Topology>,
     ) -> Result<Arc<Topology>, SelectionError> {
@@ -434,19 +434,17 @@ impl Sel<MutableSerial> {
         Ok(std::mem::replace(&mut self.topology, topology))
     }
 
-    pub fn set_state(&mut self, state: Arc<State>) -> Result<Arc<State>, SelectionError> {
+    pub fn set_shared_state(&mut self, state: Arc<State>) -> Result<Arc<State>, SelectionError> {
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
         Ok(std::mem::replace(&mut self.state, state))
     }
-}
 
-//---------------------------------------------------------------
-// For serial selections direct creation is available
-//---------------------------------------------------------------
+    //---------------------------------------------------------------
+    // For serial selections direct creation is available
+    //---------------------------------------------------------------
 
-impl<K: SerialSel> Sel<K> {
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
     pub fn from_iter(
