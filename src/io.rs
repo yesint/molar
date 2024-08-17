@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
+use triomphe::UniqueArc;
 use std::path::Path;
 use thiserror::Error;
 #[cfg(feature = "gromacs")]
@@ -139,7 +140,7 @@ pub struct IoStateIterator {
 }
 
 impl Iterator for IoStateIterator {
-    type Item = State;
+    type Item = UniqueArc<State>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state()
         .map_err(|e| panic!("error reading next state: {}",e)).unwrap()
@@ -218,7 +219,7 @@ impl FileHandler {
         }
     }
 
-    pub fn read(&mut self) -> Result<(Topology, State), FileIoError> {
+    pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileIoError> {
         let (top, st) = match self {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read().with_file(|| h.get_file_name())?,
@@ -237,11 +238,6 @@ impl FileHandler {
         Ok((top, st))
     }
 
-    pub fn read_system(&mut self) -> Result<System, FileIoError> {
-        let (topology, state) = self.read()?;
-        Ok(System { topology, state })
-    }
-
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider + StateProvider,
@@ -257,7 +253,7 @@ impl FileHandler {
         }
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology, FileIoError> {
+    pub fn read_topology(&mut self) -> Result<UniqueArc<Topology>, FileIoError> {
         let top = match self {
               Self::Pdb(ref mut h) 
             | Self::Xyz(ref mut h) => {
@@ -281,7 +277,7 @@ impl FileHandler {
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>, FileIoError> {
+    pub fn read_state(&mut self) -> Result<Option<UniqueArc<State>>, FileIoError> {
         let st = match self {
               Self::Pdb(ref mut h) 
             | Self::Xyz(ref mut h) 
@@ -346,7 +342,7 @@ impl FileHandler {
 }
 
 impl IntoIterator for FileHandler {
-    type Item = State;
+    type Item = UniqueArc<State>;
     type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -359,6 +355,7 @@ mod tests {
     use super::FileHandler;
     use crate::prelude::*;
     use anyhow::Result;
+    use triomphe::UniqueArc;
 
     #[test]
     fn test_read() -> Result<()> {
@@ -392,7 +389,7 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = st1.clone();
+        let st2 = UniqueArc::new(st1.clone());
         println!("#1: {}", top1.num_atoms());
 
         let b = Source::new(top1, st2)?;

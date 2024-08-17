@@ -3,7 +3,7 @@ use sorted_vec::SortedSet;
 use std::{collections::HashMap, marker::PhantomData};
 use triomphe::Arc;
 
-use super::utils::{check_topology_state_sizes, index_from_expr, index_from_iter, index_from_vec};
+use super::utils::*;
 
 #[derive(Default)]
 pub struct System {
@@ -69,14 +69,6 @@ pub struct Sel<K> {
 }
 
 //-------------------------------------------
-
-impl Sel<MutableSerial> {
-    // Only visible in selection module
-    pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self::new(sel.topology, sel.state, sel.index_storage)
-    }
-}
-
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     fn index(&self) -> &SortedSet<usize> {
@@ -85,7 +77,11 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     // Only visible in selection module
-    pub(super) fn new(topology: Arc<Topology>, state: Arc<State>, index: SortedSet<usize>) -> Self {
+    pub(super) fn new_internal(
+        topology: Arc<Topology>,
+        state: Arc<State>,
+        index: SortedSet<usize>,
+    ) -> Self {
         Self {
             topology,
             state,
@@ -110,7 +106,7 @@ impl<K: SelectionKind> Sel<K> {
         &self,
         expr: &SelectionExpr,
     ) -> Result<Sel<K::SubselKind>, SelectionError> {
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             index_from_expr(expr, &self.topology, &self.state)?,
@@ -145,7 +141,7 @@ impl<K: SelectionKind> Sel<K> {
             .take(range.len())
             .collect();
 
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             unsafe { SortedSet::from_sorted(index) },
@@ -157,7 +153,7 @@ impl<K: SelectionKind> Sel<K> {
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
     ) -> Result<Sel<K::SubselKind>, SelectionError> {
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             index_from_iter(iter, self.len())?,
@@ -170,7 +166,7 @@ impl<K: SelectionKind> Sel<K> {
         index: Vec<usize>,
     ) -> Result<Sel<S>, SelectionError> {
         if index.len() > 0 {
-            Ok(Sel::new(
+            Ok(Sel::new_internal(
                 Arc::clone(&self.topology),
                 Arc::clone(&self.state),
                 unsafe { SortedSet::from_sorted(index) },
@@ -189,7 +185,7 @@ impl<K: SelectionKind> Sel<K> {
         &self,
         index: &Vec<usize>,
     ) -> Result<Sel<S>, SelectionError> {
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             index_from_vec(index, self.len())?,
@@ -320,10 +316,7 @@ impl<K: SelectionKind> Sel<K> {
             0.14,
             |i| unsafe {
                 let ind = *self.index().get_unchecked(i);
-                self.state
-                    .nth_pos_unchecked_mut(ind)
-                    .coords
-                    .as_mut_ptr()
+                self.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
             },
             |i: usize| self.nth_particle(i).unwrap().atom.vdw(),
         );
@@ -413,11 +406,121 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Tests if two selections are from the same source
     pub fn same_source(&self, other: &Sel<K>) -> bool {
-        Arc::ptr_eq(&self.topology, &other.topology) &&
-        Arc::ptr_eq(&self.state, &other.state)
+        Arc::ptr_eq(&self.topology, &other.topology) && Arc::ptr_eq(&self.state, &other.state)
     }
 }
 
+impl Sel<MutableSerial> {
+    // Only visible in selection module
+    pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
+        Self::new_internal(sel.topology, sel.state, sel.index_storage)
+    }
+    
+    pub fn get_topology(&self) -> Arc<Topology> {
+        Arc::clone(&self.topology)
+    }
+
+    pub fn get_state(&self) -> Arc<State> {
+        Arc::clone(&self.state)
+    }
+
+    pub fn set_topology(
+        &mut self,
+        topology: Arc<Topology>,
+    ) -> Result<Arc<Topology>, SelectionError> {
+        if !self.topology.interchangeable(&topology) {
+            return Err(SelectionError::SetTopology);
+        }
+        Ok(std::mem::replace(&mut self.topology, topology))
+    }
+
+    pub fn set_state(&mut self, state: Arc<State>) -> Result<Arc<State>, SelectionError> {
+        if !self.state.interchangeable(&state) {
+            return Err(SelectionError::SetState);
+        }
+        Ok(std::mem::replace(&mut self.state, state))
+    }
+}
+
+//---------------------------------------------------------------
+// For serial selections direct creation is available
+//---------------------------------------------------------------
+
+impl<K: SerialSel> Sel<K> {
+    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
+    /// If any index is out of bounds the error is returned.
+    pub fn from_iter(
+        topology: &Arc<Topology>,
+        state: &Arc<State>,
+        iter: impl Iterator<Item = usize>,
+    ) -> Result<Self, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        let vec = index_from_iter(iter, topology.num_atoms())?;
+        Ok(Sel::new_internal(
+            Arc::clone(&topology),
+            Arc::clone(&state),
+            vec,
+        ))
+    }
+
+    /// Selects all
+    pub fn all(topology: &Arc<Topology>, state: &Arc<State>) -> Result<Self, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        let vec = index_from_all(topology.num_atoms());
+        Ok(Sel::new_internal(
+            Arc::clone(&topology),
+            Arc::clone(&state),
+            vec,
+        ))
+    }
+
+    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
+    /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
+    pub fn from_str(
+        topology: &Arc<Topology>,
+        state: &Arc<State>,
+        selstr: &str,
+    ) -> Result<Self, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        let vec = index_from_str(selstr, &topology, &state)?;
+        Ok(Sel::new_internal(
+            Arc::clone(&topology),
+            Arc::clone(&state),
+            vec,
+        ))
+    }
+
+    /// Creates new selection from an existing selection expression.
+    pub fn from_expr(
+        topology: &Arc<Topology>,
+        state: &Arc<State>,
+        expr: &SelectionExpr,
+    ) -> Result<Self, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        let vec = index_from_expr(expr, &topology, &state)?;
+        Ok(Sel::new_internal(
+            Arc::clone(&topology),
+            Arc::clone(&state),
+            vec,
+        ))
+    }
+
+    /// Creates new selection from a range of indexes.
+    /// If rangeis out of bounds the error is returned.
+    pub fn from_range(
+        topology: &Arc<Topology>,
+        state: &Arc<State>,
+        range: &std::ops::Range<usize>,
+    ) -> Result<Self, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        let vec = index_from_range(range, topology.num_atoms())?;
+        Ok(Sel::new_internal(
+            Arc::clone(&topology),
+            Arc::clone(&state),
+            vec,
+        ))
+    }
+}
 //---------------------------------------------
 /// Iterator over the [Particle]s from selection.
 pub struct SelectionIterator<'a, K> {

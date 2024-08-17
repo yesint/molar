@@ -2,6 +2,7 @@ use super::{StateProvider, TopologyProvider};
 use crate::core::*;
 use molar_molfile::molfile_bindings::*;
 use thiserror::Error;
+use triomphe::UniqueArc;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString, NulError};
 use std::ptr::{self, null_mut};
@@ -179,7 +180,7 @@ impl VmdMolFileHandler {
         Ok(instance)
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology, VmdHandlerError> {
+    pub fn read_topology(&mut self) -> Result<UniqueArc<Topology>, VmdHandlerError> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -226,7 +227,7 @@ impl VmdMolFileHandler {
         }
 
         // Assign resindexes
-        let mut top: Topology = top.into();
+        let top: UniqueArc<Topology> = top.into();
         top.assign_resindex();
 
         Ok(top)
@@ -268,7 +269,7 @@ impl VmdMolFileHandler {
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>, VmdHandlerError> {
+    pub fn read_state(&mut self) -> Result<Option<UniqueArc<State>>, VmdHandlerError> {
         let mut state: StateStorage = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them

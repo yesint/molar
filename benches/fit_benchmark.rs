@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use molar::prelude::*;
 use nalgebra::Unit;
 
-fn read_test_pdb() -> (Topology, State) {
+fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>) {
     let mut h = FileHandler::open("tests/colored.pdb").unwrap();
     let top = h.read_topology().unwrap();
     let state = h.read_state().unwrap().unwrap();

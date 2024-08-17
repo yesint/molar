@@ -1,5 +1,5 @@
 use std::{marker::PhantomData, ptr};
-use triomphe::Arc;
+use triomphe::{Arc, UniqueArc};
 
 use super::utils::*;
 use crate::prelude::*;
@@ -20,11 +20,11 @@ pub struct Source<K> {
 
 impl Source<()> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
-    pub fn new(topology: Topology, state: State) -> Result<Source<MutableSerial>, SelectionError> {
+    pub fn new(topology: UniqueArc<Topology>, state: UniqueArc<State>) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: Arc::new(topology),
-            state: Arc::new(state),
+            topology: topology.shareable(),
+            state: state.shareable(),
             _marker: Default::default(),
         })
     }
@@ -39,13 +39,13 @@ impl Source<()> {
     }
 
     pub fn new_builder(
-        topology: Topology,
-        state: State,
+        topology: UniqueArc<Topology>,
+        state: UniqueArc<State>,
     ) -> Result<Source<BuilderSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: Arc::new(topology),
-            state: Arc::new(state),
+            topology: topology.shareable(),
+            state: state.shareable(),
             _marker: Default::default(),
         })
     }
@@ -63,7 +63,7 @@ impl Source<()> {
     }
 
     // Constructor for internal usage
-    pub(crate) fn new_from_arc_system(
+    pub(crate) fn new_from_arc(
         topology: Arc<Topology>,
         state: Arc<State>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
@@ -95,7 +95,7 @@ impl<K: SerialSel> Source<K> {
         iter: impl Iterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -105,7 +105,7 @@ impl<K: SerialSel> Source<K> {
     /// Selects all
     pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -116,7 +116,7 @@ impl<K: SerialSel> Source<K> {
     /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
     pub fn select_str(&self, selstr: &str) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_str(selstr, &self.topology, &self.state)?;
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -126,7 +126,7 @@ impl<K: SerialSel> Source<K> {
     /// Creates new selection from an existing selection expression.
     pub fn select_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -137,7 +137,7 @@ impl<K: SerialSel> Source<K> {
     /// If rangeis out of bounds the error is returned.
     pub fn select_range(&self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
-        Ok(Sel::new(
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -159,7 +159,6 @@ impl<K: SerialSel> Source<K> {
         unsafe {
             ptr::swap(self.state.get_storage_mut(), state.get_storage_mut());
         };
-
         Ok(state)
     }
 
@@ -178,14 +177,12 @@ impl<K: SerialSel> Source<K> {
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
-
         unsafe {
             ptr::swap(
                 self.topology.get_storage_mut(),
                 topology.get_storage_mut(),
             );
         };
-
         Ok(topology)
     }
 }

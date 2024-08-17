@@ -1,5 +1,6 @@
 use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
+use triomphe::{Arc, UniqueArc};
 
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
@@ -52,9 +53,9 @@ impl Clone for State {
     }
 }
 
-impl From<StateStorage> for State {
+impl From<StateStorage> for UniqueArc<State> {
     fn from(value: StateStorage) -> Self {
-        State(SyncUnsafeCell::new(value))
+        UniqueArc::new(State(SyncUnsafeCell::new(value)))
     }
 }
 

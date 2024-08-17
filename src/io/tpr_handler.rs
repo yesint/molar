@@ -4,6 +4,7 @@ use nalgebra::Matrix3;
 
 use molar_gromacs::gromacs_bindings::*;
 use thiserror::Error;
+use triomphe::UniqueArc;
 use std::{
     ffi::{CStr, CString, NulError},
     ptr::null_mut, str::Utf8Error,
@@ -49,7 +50,7 @@ impl TprFileHandler {
         &self.file_name
     }
 
-    pub fn read(&mut self) -> Result<(Topology, State), FileHandlerError> {
+    pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileHandlerError> {
         //================
         // Read top
         //================
@@ -145,7 +146,7 @@ impl TprFileHandler {
         } //unsafe
 
         // Assign resindexes
-        let mut top: Topology = top.into();
+        let top: UniqueArc<Topology> = top.into();
         top.assign_resindex();
 
         //================

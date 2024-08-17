@@ -2,7 +2,7 @@ use super::utils::*;
 use crate::prelude::*;
 use rayon::prelude::*;
 use std::marker::PhantomData;
-use triomphe::Arc;
+use triomphe::{Arc, UniqueArc};
 
 //----------------------------------------
 // Source of parallel selections
@@ -125,13 +125,13 @@ pub struct SourceParallel<K> {
 impl SourceParallel<()> {
     /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_mut(
-        topology: Topology,
-        state: State,
+        topology: UniqueArc<Topology>,
+        state: UniqueArc<State>,
     ) -> Result<SourceParallel<MutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(SourceParallel {
-            topology: Arc::new(topology),
-            state: Arc::new(state),
+            topology: topology.shareable(),
+            state: state.shareable(),
             selections: Default::default(),
             used: Default::default(),
             _marker: Default::default(),
@@ -140,13 +140,13 @@ impl SourceParallel<()> {
 
     /// Creates a source of immutable parallel selections that _may_ overlap.
     pub fn new(
-        topology: Topology,
-        state: State,
+        topology: UniqueArc<Topology>,
+        state: UniqueArc<State>,
     ) -> Result<SourceParallel<ImmutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(SourceParallel {
-            topology: Arc::new(topology),
-            state: Arc::new(state),
+            topology: topology.shareable(),
+            state: state.shareable(),
             selections: Default::default(),
             used: Default::default(),
             _marker: Default::default(),
@@ -168,12 +168,11 @@ impl SourceParallel<()> {
 
 impl<K: ParallelSel> SourceParallel<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> Result<(Topology, State), SelectionError> {
-        let top = triomphe::Arc::try_unwrap(self.topology)
-            .or_else(|_| return Err(SelectionError::Release))?;
-        let st = triomphe::Arc::try_unwrap(self.state)
-            .or_else(|_| return Err(SelectionError::Release))?;
-        Ok((top, st))
+    pub fn release(self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), SelectionError> {
+        Ok((
+            Arc::try_unique(self.topology).map_err(|_| SelectionError::Release)?, 
+            Arc::try_unique(self.state).map_err(|_| SelectionError::Release)?,
+        ))
     }
 
     /// Executes provided closure on each stored selection in parallel and
@@ -225,7 +224,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     ) -> Result<usize, SelectionError> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
-        self.selections.push(Sel::new(
+        self.selections.push(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -237,7 +236,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn select_all(&mut self) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
         K::check_overlap(&vec, &mut self.used)?;
-        self.selections.push(Sel::new(
+        self.selections.push(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -250,7 +249,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn add_str(&mut self, selstr: impl AsRef<str>) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
         K::check_overlap(&vec, &mut self.used)?;
-        self.selections.push(Sel::new(
+        self.selections.push(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -268,7 +267,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn add_expr(&mut self, expr: &SelectionExpr) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         K::check_overlap(&vec, &mut self.used)?;
-        self.selections.push(Sel::new(
+        self.selections.push(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -281,7 +280,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn add_range(&mut self, range: &std::ops::Range<usize>) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
-        self.selections.push(Sel::new(
+        self.selections.push(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
@@ -298,7 +297,7 @@ impl<K: ParallelSel> SourceParallel<K> {
             .map(|sel| Sel::from_parallel(sel))
             .collect();
         // This should never fail
-        let src = Source::new_from_arc_system(self.topology, self.state).unwrap();
+        let src = Source::new_from_arc(self.topology, self.state).unwrap();
         (src, sels)
     }
 

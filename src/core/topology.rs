@@ -1,5 +1,6 @@
 use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
+use triomphe::{Arc, UniqueArc};
 
 use crate::io::TopologyProvider;
 
@@ -80,9 +81,9 @@ impl Clone for Topology {
     }
 }
 
-impl From<TopologyStorage> for Topology {
+impl From<TopologyStorage> for UniqueArc<Topology> {
     fn from(value: TopologyStorage) -> Self {
-        Topology(SyncUnsafeCell::new(value))
+        UniqueArc::new(Topology(SyncUnsafeCell::new(value)))
     }
 }
 
@@ -118,7 +119,7 @@ impl Topology {
         self.get_storage_mut().atoms.get_mut(i)
     }
 
-    pub fn assign_resindex(&mut self) {
+    pub fn assign_resindex(&self) {
         let mut resindex = 0usize;
         let mut cur_resid = unsafe{self.nth_atom_unchecked(0)}.resid;
         for at in self.iter_atoms_mut() {
