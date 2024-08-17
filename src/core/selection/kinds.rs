@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use sorted_vec::SortedSet;
-use crate::io::StateProvider;
+use crate::{core::{State, Topology}, io::{StateProvider, TopologyProvider}};
 
 use super::SelectionError;
 
@@ -10,7 +10,7 @@ pub trait SelectionKind {
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_index(index: &SortedSet<usize>, system: &super::System) -> Result<(), SelectionError> {
+    fn check_index(index: &SortedSet<usize>, system: &Topology, state: &State) -> Result<(), SelectionError> {
         Ok(())
     }
 
@@ -43,12 +43,13 @@ impl SelectionKind for BuilderSerial {
     type SubselKind = BuilderSerial;    
     
     #[inline(always)]
-    fn check_index(index: &SortedSet<usize>, system: &super::System) -> Result<(), SelectionError> {
+    fn check_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
         let first = index[0];
         let last = index[index.len()-1];
-        let n = system.state.num_coords();
-        if first >= n || last >= n {
-            Err(SelectionError::IndexCheck(first,last,n))
+        let n1 = topology.num_atoms();
+        let n2 = state.num_coords();
+        if first >= n1 || last >= n1 ||  first >= n2 || last >= n2 {
+            return Err(SelectionError::IndexCheck(first,last,n1));
         } else {
             Ok(())
         }
