@@ -6,6 +6,7 @@ use triomphe::UniqueArc;
 
 use crate::core::{PeriodicBox, StateStorage};
 
+use log::{debug, warn};
 use std::ffi::{CString, NulError};
 use std::ptr;
 
@@ -16,16 +17,16 @@ pub struct XtcFileHandler {
     steps_per_frame: usize,
     dt: f32,
     step: i32, // time step for C functions
-    frame_range: (usize,usize),
-    time_range: (f32,f32),
+    frame_range: (usize, usize),
+    time_range: (f32, f32),
     is_random_access: bool,
 }
 
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 pub enum XtcHandlerError {
     #[error("unexpected null characted")]
     CStringNull(#[from] NulError),
-    
+
     #[error("plugin can't open file in mode {0}")]
     Open(String),
 
@@ -39,8 +40,8 @@ pub enum XtcHandlerError {
     Pbc(#[from] PeriodicBoxError),
 
     #[error("fixed size field is {0} while needed {1}")]
-    FixedSizeFieldOverflow(usize,usize),
-    
+    FixedSizeFieldOverflow(usize, usize),
+
     #[error("can't read number of atoms")]
     ReadNumAtoms,
 
@@ -73,19 +74,15 @@ pub enum XtcHandlerError {
 
     #[error("can't seek to time {0}, allowed range is {1:?}")]
     SeekTimeOutOfBounds(f32, (f32, f32)),
-    
+
     #[error("unknown error seeking to time {0}")]
     SeekTimeFailed(f32),
-
 }
-
 
 fn get_xdr_handle(fname: &str, mode: &str) -> Result<*mut XDRFILE, XtcHandlerError> {
     let c_name = CString::new(fname)?;
     let c_mode = CString::new(mode)?;
-    let handle = unsafe {
-        xdrfile_open(c_name.as_ptr(), c_mode.as_ptr())
-    };
+    let handle = unsafe { xdrfile_open(c_name.as_ptr(), c_mode.as_ptr()) };
 
     if handle == ptr::null_mut() {
         Err(XtcHandlerError::Open(mode.into()))
@@ -95,29 +92,29 @@ fn get_xdr_handle(fname: &str, mode: &str) -> Result<*mut XDRFILE, XtcHandlerErr
 }
 
 impl XtcFileHandler {
-    fn new(fname: &str) -> Self {    
+    fn new(fname: &str) -> Self {
         XtcFileHandler {
             handle: ptr::null_mut(),
             file_name: fname.to_owned(),
             natoms: 0,
             steps_per_frame: 0,
-            frame_range: (0,0),
+            frame_range: (0, 0),
             is_random_access: true,
             dt: 0.0,
-            time_range: (0.0,0.0),
+            time_range: (0.0, 0.0),
             step: 0,
         }
     }
 
     fn open_read(&mut self) -> Result<(), XtcHandlerError> {
-        self.handle = get_xdr_handle(&self.file_name,"r")?;
+        self.handle = get_xdr_handle(&self.file_name, "r")?;
 
         // Extract number of atoms
         let mut n_at: i32 = 0;
         let ok = unsafe { xdr_xtc_get_natoms(self.handle, &mut n_at) };
         if ok != 1 {
             // 1 is success for this function, f**ing idiots!
-            return Err(XtcHandlerError::ReadNumAtoms)
+            return Err(XtcHandlerError::ReadNumAtoms);
         }
 
         self.natoms = n_at as usize;
@@ -126,12 +123,13 @@ impl XtcFileHandler {
         // So we have to extract conversion factor
         let mut ok: bool = false;
         let first_step = unsafe { xtc_get_current_frame_number(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::CantGetCurrentFrameNumber) }
+        if !ok {
+            return Err(XtcHandlerError::CantGetCurrentFrameNumber);
+        }
         let next_step = unsafe { xtc_get_next_frame_number(self.handle, n_at) };
         if next_step < first_step {
             return Err(XtcHandlerError::CantGetNumberOfStepsPerFrame);
         } else if first_step == next_step {
-            // It seems that there is only one frame in this trajectory
             self.steps_per_frame = 1;
         } else {
             self.steps_per_frame = (next_step - first_step) as usize;
@@ -139,52 +137,61 @@ impl XtcFileHandler {
 
         // Get first time
         let first_time = unsafe { xtc_get_current_frame_time(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::CantGetCurrentFrameTime); }
+        if !ok {
+            return Err(XtcHandlerError::CantGetCurrentFrameTime);
+        }
 
         // Get last frame
         let last_step = unsafe { xdr_xtc_get_last_frame_number(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::CantGetLastFrameNumber);}
+        if !ok {
+            return Err(XtcHandlerError::CantGetLastFrameNumber);
+        }
         // Get last time
         let last_time = unsafe { xdr_xtc_get_last_frame_time(self.handle, n_at, &mut ok) };
-        if !ok { return Err(XtcHandlerError::CantGetLastFrameTime); }
-        
+        if !ok {
+            return Err(XtcHandlerError::CantGetLastFrameTime);
+        }
+
         if last_step < first_step || last_time < first_time {
-            println!("Last frame seems to be corrupted ({last_step})!");
+            warn!("Last frame seems to be corrupted ({last_step})!");
             // Disable random access
             self.is_random_access = false;
         }
 
         self.frame_range = (
-            first_step as usize/ self.steps_per_frame,
-            last_step as usize/ self.steps_per_frame
+            first_step as usize / self.steps_per_frame,
+            last_step as usize / self.steps_per_frame,
         );
 
-        self.time_range = (first_time,last_time);
+        self.time_range = (first_time, last_time);
 
         // Get dt
-        self.dt = unsafe {
-            xdr_xtc_estimate_dt(self.handle, n_at, &mut ok)
-        };
+        self.dt = unsafe { xdr_xtc_estimate_dt(self.handle, n_at, &mut ok) };
         if !ok {
-            println!("Can't get dt");
+            warn!("Can't get dt");
             self.dt = -1.0;
         }
 
         if !self.is_random_access {
-            println!("Random access operations are disabled for this trajectory");
+            warn!(target: "XtcHandler", "Random access operations are disabled for this trajectory");
         }
 
-        println!(
-            "File: {}, natoms={}, frames={:?}, times={:?}, dt={}",
-            self.file_name, self.natoms, self.frame_range, self.time_range, self.dt
+        debug!(
+            "File: '{}':\nnatoms={}\nframes={:?}\ntimes={:?}\ndt={}\nsteps_per_frame={}\nrandom_access={}",
+            self.file_name,
+            self.natoms,
+            self.frame_range,
+            self.time_range,
+            self.dt,
+            self.steps_per_frame,
+            self.is_random_access
         );
 
         Ok(())
     }
 
-
     fn open_write(&mut self) -> Result<(), XtcHandlerError> {
-        self.handle = get_xdr_handle(&self.file_name,"w")?;
+        self.handle = get_xdr_handle(&self.file_name, "w")?;
         Ok(())
     }
 
@@ -229,7 +236,7 @@ impl XtcFileHandler {
             box_matrix.transpose_mut();
             st.pbox = Some(PeriodicBox::from_matrix(box_matrix)?);
         }
-        
+
         match ok as u32 {
             exdrOK => Ok(Some(st.into())),
             exdrENDOFFILE => Ok(None),
@@ -237,8 +244,7 @@ impl XtcFileHandler {
         }
     }
 
-    pub fn write_state(&mut self, data: &impl StateProvider) -> Result<(), XtcHandlerError> 
-    {        
+    pub fn write_state(&mut self, data: &impl StateProvider) -> Result<(), XtcHandlerError> {
         let n = data.num_coords();
 
         // Box have to be transposed because XTC contains row-major box
@@ -250,7 +256,7 @@ impl XtcFileHandler {
         // Coordinate buffer
         #[allow(unused_mut)]
         let mut buf = Vec::<Point3<f32>>::from_iter(data.iter_pos().cloned());
-        
+
         let ok = unsafe {
             write_xtc(
                 self.handle,
@@ -264,10 +270,10 @@ impl XtcFileHandler {
         };
 
         if ok as u32 != exdrOK {
-            return Err(XtcHandlerError::WriteState)
+            return Err(XtcHandlerError::WriteState);
         }
 
-        self.step+=1;
+        self.step += 1;
 
         Ok(())
     }
@@ -277,18 +283,18 @@ impl XtcFileHandler {
             return Err(XtcHandlerError::RandomAccessImpossible);
         }
 
-        if fr<self.frame_range.0 || fr>self.frame_range.1 {
-            return Err(XtcHandlerError::SeekOutOfBounds(fr,self.frame_range));
+        if fr < self.frame_range.0 || fr > self.frame_range.1 {
+            return Err(XtcHandlerError::SeekOutOfBounds(fr, self.frame_range));
         }
 
-        let ret = unsafe{
+        let ret = unsafe {
             xdr_xtc_seek_frame(
-                (fr*self.steps_per_frame).try_into()?,
+                (fr * self.steps_per_frame).try_into()?,
                 self.handle,
-                self.natoms.try_into()?
+                self.natoms.try_into()?,
             )
         };
-        if ret<0 {
+        if ret < 0 {
             return Err(XtcHandlerError::SeekFailed(fr));
         }
 
@@ -300,8 +306,8 @@ impl XtcFileHandler {
             return Err(XtcHandlerError::RandomAccessImpossible);
         }
 
-        if t<self.time_range.0 || t>self.time_range.1 {
-            return Err(XtcHandlerError::SeekTimeOutOfBounds(t,self.time_range));
+        if t < self.time_range.0 || t > self.time_range.1 {
+            return Err(XtcHandlerError::SeekTimeOutOfBounds(t, self.time_range));
         }
         // We assume equally spaced frames in the trajectory. It's much faster
         /*
@@ -313,55 +319,45 @@ impl XtcFileHandler {
             )
         };
         */
-        let ret = unsafe{
-            xdr_xtc_seek_time(t,self.handle,self.natoms.try_into()?,false)
-        };
-        if ret<0 {
+        let ret = unsafe { xdr_xtc_seek_time(t, self.handle, self.natoms.try_into()?, false) };
+        if ret < 0 {
             return Err(XtcHandlerError::SeekTimeFailed(t));
         }
 
         Ok(())
     }
 
-    pub fn tell_current(&self) -> Result<(usize,f32), XtcHandlerError> {
+    pub fn tell_current(&self) -> Result<(usize, f32), XtcHandlerError> {
         let mut ok = false;
-        let ret = unsafe{
-            xtc_get_current_frame_number(
-                self.handle,
-                self.natoms.try_into()?,
-                &mut ok)
-        };
-        if !ok || ret<0 {
+        let ret =
+            unsafe { xtc_get_current_frame_number(self.handle, self.natoms.try_into()?, &mut ok) };
+        if !ok || ret < 0 {
             return Err(XtcHandlerError::CantGetCurrentFrameNumber);
         }
-        let step = ret/self.steps_per_frame as i32;
-        let t = unsafe{
-            xtc_get_current_frame_time(
-                self.handle,
-                self.natoms.try_into()?,
-                &mut ok)
-        };
-        if !ok || t<0.0 {
+        let step = ret / self.steps_per_frame as i32;
+        let t =
+            unsafe { xtc_get_current_frame_time(self.handle, self.natoms.try_into()?, &mut ok) };
+        if !ok || t < 0.0 {
             return Err(XtcHandlerError::CantGetCurrentFrameTime);
         }
 
-        Ok((step as usize,t))
+        Ok((step as usize, t))
     }
 
-    pub fn tell_first(&self) -> Result<(usize,f32), XtcHandlerError> {
+    pub fn tell_first(&self) -> Result<(usize, f32), XtcHandlerError> {
         if !self.is_random_access {
             return Err(XtcHandlerError::RandomAccessImpossible);
         }
-        Ok((self.frame_range.0,self.time_range.0))
+        Ok((self.frame_range.0, self.time_range.0))
     }
 
-    pub fn tell_last(&self) -> Result<(usize,f32), XtcHandlerError> {
+    pub fn tell_last(&self) -> Result<(usize, f32), XtcHandlerError> {
         if !self.is_random_access {
             return Err(XtcHandlerError::RandomAccessImpossible);
         }
-        Ok((self.frame_range.1,self.time_range.1))
+        Ok((self.frame_range.1, self.time_range.1))
     }
-    
+
     pub fn get_file_name(&self) -> &str {
         &self.file_name
     }
@@ -372,7 +368,7 @@ impl Drop for XtcFileHandler {
         if self.handle != ptr::null_mut() {
             let ok = unsafe { xdrfile_close(self.handle) } as u32;
             if ok != exdrOK {
-                panic!("Error closing XTC file {}!",self.file_name)
+                panic!("Error closing XTC file '{}'!", self.file_name)
             }
         }
     }

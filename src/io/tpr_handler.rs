@@ -50,6 +50,7 @@ impl TprFileHandler {
         &self.file_name
     }
 
+    #[allow(non_snake_case)]
     pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileHandlerError> {
         //================
         // Read top
