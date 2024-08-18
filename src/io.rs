@@ -363,6 +363,45 @@ impl IntoIterator for FileHandler {
     }
 }
 
+//----------------------------------------
+// Implementation of IO traits for tuples
+
+impl TopologyProvider for (UniqueArc<Topology>,UniqueArc<State>) {
+    fn num_atoms(&self) -> usize {
+        self.0.num_atoms()
+    }    
+}
+
+impl AtomsProvider for (UniqueArc<Topology>,UniqueArc<State>) {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.0.iter_atoms()
+    }
+}
+
+impl StateProvider for (UniqueArc<Topology>,UniqueArc<State>) {
+    fn num_coords(&self) -> usize {
+        self.1.num_coords()
+    }
+
+    fn get_time(&self) -> f32 {
+        self.1.get_time()
+    }
+}
+
+impl BoxProvider for (UniqueArc<Topology>,UniqueArc<State>) {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.1.get_box()
+    }
+}
+
+impl PosProvider for (UniqueArc<Topology>,UniqueArc<State>) {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.1.iter_pos()
+    }
+}
+
+//----------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::FileHandler;

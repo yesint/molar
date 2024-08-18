@@ -1,6 +1,5 @@
-use std::ops::Deref;
 use sync_unsafe_cell::SyncUnsafeCell;
-use triomphe::UniqueArc;
+use triomphe::{Arc, UniqueArc};
 
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
@@ -107,7 +106,7 @@ impl State {
 }
 
 // Impls for smart pointers
-impl<T: Deref<Target=State>> StateProvider for T {
+impl StateProvider for Arc<State> {
     fn get_time(&self) -> f32 {
         self.get_storage().time
     }
@@ -117,17 +116,41 @@ impl<T: Deref<Target=State>> StateProvider for T {
     }
 }
 
-impl<T: Deref<Target=State>> PosProvider for T {
+impl PosProvider for Arc<State> {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         self.get_storage().coords.iter()
     }
 }
 
-impl<T: Deref<Target=State>> BoxProvider for T {
+impl BoxProvider for Arc<State> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.get_storage().pbox.as_ref()
     }
 }
+
+//------------------------
+impl StateProvider for UniqueArc<State> {
+    fn get_time(&self) -> f32 {
+        self.get_storage().time
+    }
+
+    fn num_coords(&self) -> usize {
+        self.get_storage().coords.len()
+    }
+}
+
+impl PosProvider for UniqueArc<State> {
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        self.get_storage().coords.iter()
+    }
+}
+
+impl BoxProvider for UniqueArc<State> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.get_storage().pbox.as_ref()
+    }
+}
+//------------------------
 
 // Impls for State itself
 impl StateProvider for State {
@@ -151,3 +174,4 @@ impl BoxProvider for State {
         self.get_storage().pbox.as_ref()
     }
 }
+//-------------------
