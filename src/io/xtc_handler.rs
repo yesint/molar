@@ -12,7 +12,6 @@ use std::ptr;
 
 pub struct XtcFileHandler {
     handle: *mut XDRFILE,
-    file_name: String,
     natoms: usize,
     steps_per_frame: usize,
     dt: f32,
@@ -91,11 +90,10 @@ fn get_xdr_handle(fname: &str, mode: &str) -> Result<*mut XDRFILE, XtcHandlerErr
     }
 }
 
-impl XtcFileHandler {
-    fn new(fname: &str) -> Self {
-        XtcFileHandler {
+impl Default for XtcFileHandler {
+    fn default() -> Self {
+        Self {
             handle: ptr::null_mut(),
-            file_name: fname.to_owned(),
             natoms: 0,
             steps_per_frame: 0,
             frame_range: (0, 0),
@@ -105,9 +103,11 @@ impl XtcFileHandler {
             step: 0,
         }
     }
+}
 
-    fn open_read(&mut self) -> Result<(), XtcHandlerError> {
-        self.handle = get_xdr_handle(&self.file_name, "r")?;
+impl XtcFileHandler {
+    fn open_read(&mut self, fname: &str) -> Result<(), XtcHandlerError> {
+        self.handle = get_xdr_handle(fname, "r")?;
 
         // Extract number of atoms
         let mut n_at: i32 = 0;
@@ -177,8 +177,7 @@ impl XtcFileHandler {
         }
 
         debug!(
-            "File: '{}':\nnatoms={}\nframes={:?}\ntimes={:?}\ndt={}\nsteps_per_frame={}\nrandom_access={}",
-            self.file_name,
+            "Xtc content:\nnatoms={}\nframes={:?}\ntimes={:?}\ndt={}\nsteps_per_frame={}\nrandom_access={}",
             self.natoms,
             self.frame_range,
             self.time_range,
@@ -190,20 +189,20 @@ impl XtcFileHandler {
         Ok(())
     }
 
-    fn open_write(&mut self) -> Result<(), XtcHandlerError> {
-        self.handle = get_xdr_handle(&self.file_name, "w")?;
+    fn open_write(&mut self, fname: &str) -> Result<(), XtcHandlerError> {
+        self.handle = get_xdr_handle(fname, "w")?;
         Ok(())
     }
 
     pub fn open(fname: &str) -> Result<Self, XtcHandlerError> {
-        let mut instance = Self::new(fname);
-        instance.open_read()?;
+        let mut instance = Self::default();
+        instance.open_read(fname)?;
         Ok(instance)
     }
 
     pub fn create(fname: &str) -> Result<Self, XtcHandlerError> {
-        let mut instance = Self::new(fname);
-        instance.open_write()?;
+        let mut instance = Self::default();
+        instance.open_write(fname)?;
         Ok(instance)
     }
 
@@ -358,9 +357,9 @@ impl XtcFileHandler {
         Ok((self.frame_range.1, self.time_range.1))
     }
 
-    pub fn get_file_name(&self) -> &str {
-        &self.file_name
-    }
+    // pub fn get_file_name(&self) -> &str {
+    //     &self.file_name
+    // }
 }
 
 impl Drop for XtcFileHandler {
@@ -368,7 +367,7 @@ impl Drop for XtcFileHandler {
         if self.handle != ptr::null_mut() {
             let ok = unsafe { xdrfile_close(self.handle) } as u32;
             if ok != exdrOK {
-                panic!("Error closing XTC file '{}'!", self.file_name)
+                panic!("Error closing XTC file!")
             }
         }
     }

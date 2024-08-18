@@ -155,12 +155,12 @@ impl Iterator for IoStateIterator {
 //================================
 
 pub struct FileHandler {
-    handler: FileType,
+    format_handler: FileFormat,
     metadata: FileMetaData,
     options: FileOptions,
 }
 
-enum FileType {
+enum FileFormat {
     Pdb(VmdMolFileHandler),
     Dcd(VmdMolFileHandler),
     Xyz(VmdMolFileHandler),
@@ -192,9 +192,9 @@ pub fn get_ext(fname: &str) -> Result<&str, FileIoError> {
 }
 
 impl FileHandler {
-    fn new(handler: FileType, file_name: String) -> Self {
+    fn new(handler: FileFormat, file_name: String) -> Self {
         Self {
-            handler,
+            format_handler: handler,
             options: Default::default(),
             metadata: FileMetaData {
                 file_name,
@@ -207,37 +207,37 @@ impl FileHandler {
         let ext = get_ext(fname)?;
         match ext {
             "pdb" => Ok(Self::new(
-                FileType::Pdb(
+                FileFormat::Pdb(
                     VmdMolFileHandler::open(fname, VmdMolFileType::Pdb).with_file(|| fname)?,
                 ),
                 fname.into(),
             )),
             "dcd" => Ok(Self::new(
-                FileType::Dcd(
+                FileFormat::Dcd(
                     VmdMolFileHandler::open(fname, VmdMolFileType::Dcd).with_file(|| fname)?,
                 ),
                 fname.into(),
             )),
             "xyz" => Ok(Self::new(
-                FileType::Xyz(
+                FileFormat::Xyz(
                     VmdMolFileHandler::open(fname, VmdMolFileType::Xyz).with_file(|| fname)?,
                 ),
                 fname.into(),
             )),
 
             "xtc" => Ok(Self::new(
-                FileType::Xtc(XtcFileHandler::open(fname).with_file(|| fname)?),
+                FileFormat::Xtc(XtcFileHandler::open(fname).with_file(|| fname)?),
                 fname.into(),
             )),
 
             "gro" => Ok(Self::new(
-                FileType::Gro(GroFileHandler::open(fname).with_file(|| fname)?),
+                FileFormat::Gro(GroFileHandler::open(fname).with_file(|| fname)?),
                 fname.into(),
             )),
 
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(Self::new(
-                FileType::Tpr(TprFileHandler::open(fname).with_file(|| fname)?),
+                FileFormat::Tpr(TprFileHandler::open(fname).with_file(|| fname)?),
                 fname.into(),
             )),
 
@@ -251,29 +251,29 @@ impl FileHandler {
         let ext = get_ext(fname)?;
         match ext {
             "pdb" => Ok(Self::new(
-                FileType::Pdb(
+                FileFormat::Pdb(
                     VmdMolFileHandler::create(fname, VmdMolFileType::Pdb).with_file(|| fname)?,
                 ),
                 fname.into(),
             )),
             "dcd" => Ok(Self::new(
-                FileType::Dcd(
+                FileFormat::Dcd(
                     VmdMolFileHandler::create(fname, VmdMolFileType::Dcd).with_file(|| fname)?,
                 ),
                 fname.into(),
             )),
             "xyz" => Ok(Self::new(
-                FileType::Xyz(
+                FileFormat::Xyz(
                     VmdMolFileHandler::create(fname, VmdMolFileType::Xyz).with_file(|| fname)?,
                 ),
                 fname.into(),
             )),
             "xtc" => Ok(Self::new(
-                FileType::Xtc(XtcFileHandler::create(fname).with_file(|| fname)?),
+                FileFormat::Xtc(XtcFileHandler::create(fname).with_file(|| fname)?),
                 fname.into(),
             )),
             "gro" => Ok(Self::new(
-                FileType::Gro(GroFileHandler::create(fname).with_file(|| fname)?),
+                FileFormat::Gro(GroFileHandler::create(fname).with_file(|| fname)?),
                 fname.into(),
             )),
             _ => Err(FileIoError::NotRecognized(fname.into())),
@@ -283,11 +283,11 @@ impl FileHandler {
     pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileIoError> {
         let t = std::time::Instant::now();
 
-        let (top, st) = match self.handler {
+        let (top, st) = match self.format_handler {
             #[cfg(feature = "gromacs")]
-            FileType::Tpr(ref mut h) => h.read().with_file(|| &self.metadata.file_name)?,
-            FileType::Gro(ref mut h) => h.read().with_file(|| &self.metadata.file_name)?,
-            FileType::Pdb(ref mut h) => {
+            FileFormat::Tpr(ref mut h) => h.read().with_file(|| &self.metadata.file_name)?,
+            FileFormat::Gro(ref mut h) => h.read().with_file(|| &self.metadata.file_name)?,
+            FileFormat::Pdb(ref mut h) => {
                 let top = h.read_topology().with_file(|| &self.metadata.file_name)?;
                 let st = h
                     .read_state()
@@ -316,9 +316,9 @@ impl FileHandler {
     {
         let t = std::time::Instant::now();
 
-        match self.handler {
-            FileType::Gro(ref mut h) => h.write(data).with_file(|| &self.metadata.file_name)?,
-            FileType::Pdb(ref mut h) => {
+        match self.format_handler {
+            FileFormat::Gro(ref mut h) => h.write(data).with_file(|| &self.metadata.file_name)?,
+            FileFormat::Pdb(ref mut h) => {
                 h.write_topology(data).with_file(|| &self.metadata.file_name)?;
                 h.write_state(data).with_file(|| &self.metadata.file_name)?;
             }
@@ -334,8 +334,8 @@ impl FileHandler {
     pub fn read_topology(&mut self) -> Result<UniqueArc<Topology>, FileIoError> {
         let t = std::time::Instant::now();
 
-        let top = match self.handler {
-            FileType::Pdb(ref mut h) | FileType::Xyz(ref mut h) => {
+        let top = match self.format_handler {
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.read_topology().with_file(|| &self.metadata.file_name)?
             }
             _ => return Err(FileIoError::NotTopologyReadFormat),
@@ -357,8 +357,8 @@ impl FileHandler {
     {
         let t = std::time::Instant::now();
 
-        match self.handler {
-            FileType::Pdb(ref mut h) | FileType::Xyz(ref mut h) => {
+        match self.format_handler {
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.write_topology(data).with_file(|| &self.metadata.file_name)?
             }
             _ => return Err(FileIoError::NotTopologyWriteFormat),
@@ -373,11 +373,11 @@ impl FileHandler {
     pub fn read_state(&mut self) -> Result<Option<UniqueArc<State>>, FileIoError> {
         let t = std::time::Instant::now();
 
-        let st = match self.handler {
-            FileType::Pdb(ref mut h) | FileType::Xyz(ref mut h) | FileType::Dcd(ref mut h) => {
+        let st = match self.format_handler {
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) | FileFormat::Dcd(ref mut h) => {
                 h.read_state().with_file(|| &self.metadata.file_name)?
             }
-            FileType::Xtc(ref mut h) => h.read_state().with_file(|| &self.metadata.file_name)?,
+            FileFormat::Xtc(ref mut h) => h.read_state().with_file(|| &self.metadata.file_name)?,
             _ => return Err(FileIoError::NotTrajectoryReadFormat),
         };
 
@@ -397,11 +397,11 @@ impl FileHandler {
     {
         let t = std::time::Instant::now();
 
-        match self.handler {
-            FileType::Pdb(ref mut h) | FileType::Xyz(ref mut h) | FileType::Dcd(ref mut h) => {
+        match self.format_handler {
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) | FileFormat::Dcd(ref mut h) => {
                 h.write_state(data).with_file(|| &self.metadata.file_name)?
             }
-            FileType::Xtc(ref mut h) => h.write_state(data).with_file(|| &self.metadata.file_name)?,
+            FileFormat::Xtc(ref mut h) => h.write_state(data).with_file(|| &self.metadata.file_name)?,
             _ => return Err(FileIoError::NotTrajectoryWriteFormat),
         }
 
@@ -412,36 +412,36 @@ impl FileHandler {
     }
 
     pub fn seek_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
-        match self.handler {
-            FileType::Xtc(ref mut h) => h.seek_frame(fr).with_file(|| &self.metadata.file_name),
+        match self.format_handler {
+            FileFormat::Xtc(ref mut h) => h.seek_frame(fr).with_file(|| &self.metadata.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileIoError> {
-        match self.handler {
-            FileType::Xtc(ref mut h) => h.seek_time(t).with_file(|| &self.metadata.file_name),
+        match self.format_handler {
+            FileFormat::Xtc(ref mut h) => h.seek_time(t).with_file(|| &self.metadata.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn tell_first(&self) -> Result<(usize, f32), FileIoError> {
-        match self.handler {
-            FileType::Xtc(ref h) => h.tell_first().with_file(|| &self.metadata.file_name),
+        match self.format_handler {
+            FileFormat::Xtc(ref h) => h.tell_first().with_file(|| &self.metadata.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn tell_current(&self) -> Result<(usize, f32), FileIoError> {
-        match self.handler {
-            FileType::Xtc(ref h) => h.tell_current().with_file(|| &self.metadata.file_name),
+        match self.format_handler {
+            FileFormat::Xtc(ref h) => h.tell_current().with_file(|| &self.metadata.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn tell_last(&self) -> Result<(usize, f32), FileIoError> {
-        match self.handler {
-            FileType::Xtc(ref h) => h.tell_last().with_file(|| &self.metadata.file_name),
+        match self.format_handler {
+            FileFormat::Xtc(ref h) => h.tell_last().with_file(|| &self.metadata.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
