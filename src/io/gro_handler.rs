@@ -10,7 +10,6 @@ use triomphe::UniqueArc;
 
 pub struct GroFileHandler {
     file: File,
-    file_name: String,
 }
 
 #[derive(Debug, Error)]
@@ -43,7 +42,6 @@ pub enum GroHandlerError {
 impl GroFileHandler {
     pub fn open(fname: &str) -> Result<Self, GroHandlerError> {
         Ok(Self {
-            file_name: fname.to_owned(),
             file: File::open(fname.to_owned())
                 .map_err(|e| GroHandlerError::OpenRead(e))?,
         })
@@ -51,7 +49,6 @@ impl GroFileHandler {
 
     pub fn create(fname: &str) -> Result<Self, GroHandlerError> {
         Ok(Self {
-            file_name: fname.to_owned(),
             file: File::create(fname.to_owned())
                 .map_err(|e| GroHandlerError::OpenWrite(e))?,
         })
@@ -118,9 +115,9 @@ impl GroFileHandler {
         Ok(())
     }
 
-    pub fn get_file_name(&self) -> &str {
-        &self.file_name
-    }
+    // pub fn get_file_name(&self) -> &str {
+    //     &self.file_name
+    // }
 
     pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileHandlerError> {
         let mut top = TopologyStorage::default();
