@@ -14,7 +14,6 @@ use super::FileHandlerError;
 
 pub struct TprFileHandler {
     handle: TprHelper,
-    file_name: String,
 }
 
 #[derive(Debug, Error)]
@@ -38,7 +37,6 @@ impl TprFileHandler {
         let f_name = CString::new(fname.to_owned())?;
         Ok(TprFileHandler {
             handle: unsafe { TprHelper::new(f_name.as_ptr()) },
-            file_name: fname.into(),
         })
     }
 
@@ -46,9 +44,9 @@ impl TprFileHandler {
         TprFileHandler::new(fname)
     }
     
-    pub fn get_file_name(&self) -> &str {
-        &self.file_name
-    }
+    // pub fn get_file_name(&self) -> &str {
+    //     &self.file_name
+    // }
 
     #[allow(non_snake_case)]
     pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileHandlerError> {
