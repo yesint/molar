@@ -1,13 +1,13 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
-use std::path::Path;
+use log::debug;
+use std::{fmt::Display, path::Path};
 use thiserror::Error;
 #[cfg(feature = "gromacs")]
 use tpr_handler::TprHandlerError;
 use triomphe::{Arc, UniqueArc};
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
-use log::debug;
 
 mod gro_handler;
 #[cfg(feature = "gromacs")]
@@ -176,10 +176,22 @@ struct FileOptions {
     with_title: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct FileStats {
     total_time: std::time::Duration,
     num_frames: usize,
+}
+
+impl Display for FileStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "total IO time {:.4}s, {} frames, {:.4}s per frame",
+            self.total_time.as_secs_f32(),
+            self.num_frames,
+            self.total_time.as_secs_f32() / self.num_frames as f32
+        )
+    }
 }
 
 pub fn get_ext(fname: &str) -> Result<&str, FileIoError> {
@@ -372,9 +384,9 @@ impl FileHandler {
         let t = std::time::Instant::now();
 
         let st = match self.format_handler {
-            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) | FileFormat::Dcd(ref mut h) => {
-                h.read_state().with_file(|| &self.file_name)?
-            }
+            FileFormat::Pdb(ref mut h)
+            | FileFormat::Xyz(ref mut h)
+            | FileFormat::Dcd(ref mut h) => h.read_state().with_file(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.read_state().with_file(|| &self.file_name)?,
             _ => return Err(FileIoError::NotTrajectoryReadFormat),
         };
@@ -396,9 +408,9 @@ impl FileHandler {
         let t = std::time::Instant::now();
 
         match self.format_handler {
-            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) | FileFormat::Dcd(ref mut h) => {
-                h.write_state(data).with_file(|| &self.file_name)?
-            }
+            FileFormat::Pdb(ref mut h)
+            | FileFormat::Xyz(ref mut h)
+            | FileFormat::Dcd(ref mut h) => h.write_state(data).with_file(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.write_state(data).with_file(|| &self.file_name)?,
             _ => return Err(FileIoError::NotTrajectoryWriteFormat),
         }
@@ -447,13 +459,7 @@ impl FileHandler {
 
 impl Drop for FileHandler {
     fn drop(&mut self) {
-        debug!(//target: "FileHandler",
-            "Done with file '{}': total IO time {:.4}s, {} frames, {:.4}s per frame",
-            self.file_name,
-            self.stats.total_time.as_secs_f32(),
-            self.stats.num_frames,
-            self.stats.total_time.as_secs_f32() / self.stats.num_frames as f32
-        );
+        debug!("Done with file '{}': {}", self.file_name, self.stats);
     }
 }
 
