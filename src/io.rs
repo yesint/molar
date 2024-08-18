@@ -7,7 +7,7 @@ use tpr_handler::TprHandlerError;
 use triomphe::{Arc, UniqueArc};
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
-use log::{info,warn,debug};
+use log::debug;
 
 mod gro_handler;
 #[cfg(feature = "gromacs")]
@@ -155,8 +155,9 @@ impl Iterator for IoStateIterator {
 //================================
 
 pub struct FileHandler {
+    file_name: String,
     format_handler: FileFormat,
-    metadata: FileMetaData,
+    stats: FileStats,
     options: FileOptions,
 }
 
@@ -176,8 +177,7 @@ struct FileOptions {
 }
 
 #[derive(Default)]
-struct FileMetaData {
-    file_name: String,
+struct FileStats {
     total_time: std::time::Duration,
     num_frames: usize,
 }
@@ -196,10 +196,8 @@ impl FileHandler {
         Self {
             format_handler: handler,
             options: Default::default(),
-            metadata: FileMetaData {
-                file_name,
-                ..Default::default()
-            },
+            file_name,
+            stats: Default::default(),
         }
     }
 
@@ -285,22 +283,22 @@ impl FileHandler {
 
         let (top, st) = match self.format_handler {
             #[cfg(feature = "gromacs")]
-            FileFormat::Tpr(ref mut h) => h.read().with_file(|| &self.metadata.file_name)?,
-            FileFormat::Gro(ref mut h) => h.read().with_file(|| &self.metadata.file_name)?,
+            FileFormat::Tpr(ref mut h) => h.read().with_file(|| &self.file_name)?,
+            FileFormat::Gro(ref mut h) => h.read().with_file(|| &self.file_name)?,
             FileFormat::Pdb(ref mut h) => {
-                let top = h.read_topology().with_file(|| &self.metadata.file_name)?;
+                let top = h.read_topology().with_file(|| &self.file_name)?;
                 let st = h
                     .read_state()
-                    .with_file(|| &self.metadata.file_name)?
-                    .ok_or_else(|| FileIoError::NoStates(self.metadata.file_name.clone()))?;
+                    .with_file(|| &self.file_name)?
+                    .ok_or_else(|| FileIoError::NoStates(self.file_name.clone()))?;
                 (top, st)
             }
             _ => return Err(FileIoError::NotReadOnceFormat),
         };
         check_topology_state_sizes(&top, &st)?;
 
-        self.metadata.total_time += t.elapsed();
-        self.metadata.num_frames += 1;
+        self.stats.total_time += t.elapsed();
+        self.stats.num_frames += 1;
 
         Ok((top, st))
     }
@@ -317,16 +315,16 @@ impl FileHandler {
         let t = std::time::Instant::now();
 
         match self.format_handler {
-            FileFormat::Gro(ref mut h) => h.write(data).with_file(|| &self.metadata.file_name)?,
+            FileFormat::Gro(ref mut h) => h.write(data).with_file(|| &self.file_name)?,
             FileFormat::Pdb(ref mut h) => {
-                h.write_topology(data).with_file(|| &self.metadata.file_name)?;
-                h.write_state(data).with_file(|| &self.metadata.file_name)?;
+                h.write_topology(data).with_file(|| &self.file_name)?;
+                h.write_state(data).with_file(|| &self.file_name)?;
             }
             _ => return Err(FileIoError::NotWriteOnceFormat),
         }
 
-        self.metadata.total_time += t.elapsed();
-        self.metadata.num_frames += 1;
+        self.stats.total_time += t.elapsed();
+        self.stats.num_frames += 1;
 
         Ok(())
     }
@@ -336,13 +334,13 @@ impl FileHandler {
 
         let top = match self.format_handler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
-                h.read_topology().with_file(|| &self.metadata.file_name)?
+                h.read_topology().with_file(|| &self.file_name)?
             }
             _ => return Err(FileIoError::NotTopologyReadFormat),
         };
 
-        self.metadata.total_time += t.elapsed();
-        self.metadata.num_frames += 1;
+        self.stats.total_time += t.elapsed();
+        self.stats.num_frames += 1;
 
         Ok(top)
     }
@@ -359,13 +357,13 @@ impl FileHandler {
 
         match self.format_handler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
-                h.write_topology(data).with_file(|| &self.metadata.file_name)?
+                h.write_topology(data).with_file(|| &self.file_name)?
             }
             _ => return Err(FileIoError::NotTopologyWriteFormat),
         }
 
-        self.metadata.total_time += t.elapsed();
-        self.metadata.num_frames += 1;
+        self.stats.total_time += t.elapsed();
+        self.stats.num_frames += 1;
 
         Ok(())
     }
@@ -375,14 +373,14 @@ impl FileHandler {
 
         let st = match self.format_handler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) | FileFormat::Dcd(ref mut h) => {
-                h.read_state().with_file(|| &self.metadata.file_name)?
+                h.read_state().with_file(|| &self.file_name)?
             }
-            FileFormat::Xtc(ref mut h) => h.read_state().with_file(|| &self.metadata.file_name)?,
+            FileFormat::Xtc(ref mut h) => h.read_state().with_file(|| &self.file_name)?,
             _ => return Err(FileIoError::NotTrajectoryReadFormat),
         };
 
-        self.metadata.total_time += t.elapsed();
-        self.metadata.num_frames += 1;
+        self.stats.total_time += t.elapsed();
+        self.stats.num_frames += 1;
 
         Ok(st)
     }
@@ -399,49 +397,49 @@ impl FileHandler {
 
         match self.format_handler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) | FileFormat::Dcd(ref mut h) => {
-                h.write_state(data).with_file(|| &self.metadata.file_name)?
+                h.write_state(data).with_file(|| &self.file_name)?
             }
-            FileFormat::Xtc(ref mut h) => h.write_state(data).with_file(|| &self.metadata.file_name)?,
+            FileFormat::Xtc(ref mut h) => h.write_state(data).with_file(|| &self.file_name)?,
             _ => return Err(FileIoError::NotTrajectoryWriteFormat),
         }
 
-        self.metadata.total_time += t.elapsed();
-        self.metadata.num_frames += 1;
+        self.stats.total_time += t.elapsed();
+        self.stats.num_frames += 1;
 
         Ok(())
     }
 
     pub fn seek_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         match self.format_handler {
-            FileFormat::Xtc(ref mut h) => h.seek_frame(fr).with_file(|| &self.metadata.file_name),
+            FileFormat::Xtc(ref mut h) => h.seek_frame(fr).with_file(|| &self.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileIoError> {
         match self.format_handler {
-            FileFormat::Xtc(ref mut h) => h.seek_time(t).with_file(|| &self.metadata.file_name),
+            FileFormat::Xtc(ref mut h) => h.seek_time(t).with_file(|| &self.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn tell_first(&self) -> Result<(usize, f32), FileIoError> {
         match self.format_handler {
-            FileFormat::Xtc(ref h) => h.tell_first().with_file(|| &self.metadata.file_name),
+            FileFormat::Xtc(ref h) => h.tell_first().with_file(|| &self.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn tell_current(&self) -> Result<(usize, f32), FileIoError> {
         match self.format_handler {
-            FileFormat::Xtc(ref h) => h.tell_current().with_file(|| &self.metadata.file_name),
+            FileFormat::Xtc(ref h) => h.tell_current().with_file(|| &self.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
 
     pub fn tell_last(&self) -> Result<(usize, f32), FileIoError> {
         match self.format_handler {
-            FileFormat::Xtc(ref h) => h.tell_last().with_file(|| &self.metadata.file_name),
+            FileFormat::Xtc(ref h) => h.tell_last().with_file(|| &self.file_name),
             _ => return Err(FileIoError::NotRandomAccessFormat),
         }
     }
@@ -451,10 +449,10 @@ impl Drop for FileHandler {
     fn drop(&mut self) {
         debug!(//target: "FileHandler",
             "Done with file '{}': total IO time {:.4}s, {} frames, {:.4}s per frame",
-            self.metadata.file_name,
-            self.metadata.total_time.as_secs_f32(),
-            self.metadata.num_frames,
-            self.metadata.total_time.as_secs_f32() / self.metadata.num_frames as f32
+            self.file_name,
+            self.stats.total_time.as_secs_f32(),
+            self.stats.num_frames,
+            self.stats.total_time.as_secs_f32() / self.stats.num_frames as f32
         );
     }
 }
