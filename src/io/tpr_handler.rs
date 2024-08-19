@@ -10,7 +10,7 @@ use std::{
     ptr::null_mut, str::Utf8Error,
 };
 
-use super::FileHandlerError;
+//use super::FormatHandlerError;
 
 pub struct TprFileHandler {
     handle: TprHelper,
@@ -49,7 +49,7 @@ impl TprFileHandler {
     // }
 
     #[allow(non_snake_case)]
-    pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileHandlerError> {
+    pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), TprHandlerError> {
         //================
         // Read top
         //================
@@ -183,7 +183,7 @@ impl Drop for TprFileHandler {
     }
 }
 
-unsafe fn c_ptr_to_str(ptr: *const i8) -> Result<String, FileHandlerError> {
+unsafe fn c_ptr_to_str(ptr: *const i8) -> Result<String, TprHandlerError> {
     Ok(CStr::from_ptr(ptr).to_str()
     .map_err(|e| TprHandlerError::CStringUtf8(e))?
     .to_owned())
