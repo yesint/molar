@@ -212,8 +212,6 @@ pub struct FileHandler {
     file_name: String,
     format_handler: FileFormat,
     stats: FileStats,
-    options: FileOptions,
-    cur_t: f32,
 }
 
 enum FileFormat {
@@ -226,15 +224,11 @@ enum FileFormat {
     Gro(GroFileHandler),
 }
 
-#[derive(Default)]
-struct FileOptions {
-    with_title: bool,
-}
-
 #[derive(Default, Debug)]
 struct FileStats {
     elapsed_time: std::time::Duration,
     frames_processed: usize,
+    cur_t: f32,
 }
 
 impl Display for FileStats {
@@ -261,11 +255,9 @@ pub fn get_ext(fname: &str) -> Result<&str, IoError> {
 impl FileHandler {
     fn new(handler: FileFormat, file_name: String) -> Self {
         Self {
-            format_handler: handler,
-            options: Default::default(),
             file_name,
+            format_handler: handler,
             stats: Default::default(),
-            cur_t: 0.0,
         }
     }
 
@@ -451,7 +443,7 @@ impl FileHandler {
         // Update stats if not None
         if st.is_some() {
             self.stats.frames_processed += 1;
-            self.cur_t = st.as_ref().unwrap().get_time();
+            self.stats.cur_t = st.as_ref().unwrap().get_time();
         }
 
         Ok(st)
@@ -506,7 +498,7 @@ impl FileHandler {
         match self.format_handler {
             FileFormat::Xtc(ref h) => h.tell_current().with_context(|| &self.file_name),
             // For non-random-access trajectories report FileHandler stats
-            _ => Ok((self.stats.frames_processed,self.cur_t)),
+            _ => Ok((self.stats.frames_processed,self.stats.cur_t)),
         }
     }
 
@@ -550,12 +542,12 @@ impl FileHandler {
             Ok(_) => { return Ok(()) },
             Err(_) => {                
                 // Not a random access trajectory
-                if self.cur_t > t {                    
+                if self.stats.cur_t > t {                    
                     // We are past the needed time, return error
                     return Err(IoError::SeekTimeError(t)).with_context(|| &self.file_name)
                 } else {
                     // Do serial read until reaching needed time or EOF
-                    while self.cur_t < t {
+                    while self.stats.cur_t < t {
                         self.read_state()?.ok_or_else(|| IoError::SeekTimeError(t)).with_context(|| &self.file_name)?;
                     }
                 }
