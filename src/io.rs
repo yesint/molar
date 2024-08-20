@@ -22,30 +22,74 @@ pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 
-#[derive(Error, Debug)]
-#[error("processing file '{file}'")]
-pub struct FileIoError {
-    file: String,
-    source: IoError,
+//-------------------------------------------------------
+// Machinery for providing a filename context to errors
+trait AddFileContext<T,E> {
+    fn with_file<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, E>;
 }
+
+macro_rules! impl_file_context {
+    ($from:ty=>$to:ident) => {
+        #[derive(Error, Debug)]
+        #[error("processing file '{file}'")]
+        pub struct $to {
+            file: String,
+            source: $from,
+        }
+
+        impl<T, E> AddFileContext<T,$to> for std::result::Result<T, E>
+        where
+            E: Into<$from>,
+        {
+            fn with_file<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, $to> {
+                self.map_err(|e| $to{file: f().into(), source: e.into()} )
+            }
+        }
+    }
+}
+//--------------------------------------------------------
+
+// macro_rules! error_with_context {
+//     ($name:ident $inner:ident { $($tt:tt)* } ) => {
+//         #[derive(Error, Debug)]
+//         #[error("processing file '{file}'")]
+//         struct $name {
+//             file: String,
+//             source: InnerError,
+//         }
+        
+//         #[derive(Error, Debug)]
+//         enum $inner{ $($tt)* }
+//     }
+// }
+
+// error_with_context!(OuterError InnerError 
+//     {
+//         #[error("not a read once format")]
+//         Variant1,
+//         #[error("not a read once format")]
+//         Variant2,
+//     }
+// );
+
+
+//--------------------------------------------------------
+
 
 #[derive(Error, Debug)]
 pub enum IoError {
-    #[error(transparent)]
+    #[error("in vmd format handler")]
     Vmd(#[from] VmdHandlerError),
 
-    #[error(transparent)]
+    #[error("in gro format handler")]
     Gro(#[from] GroHandlerError),
 
-    #[error(transparent)]
+    #[error("in xtc format handler")]
     Xtc(#[from] XtcHandlerError),
 
     #[cfg(feature = "gromacs")]
-    #[error(transparent)]
+    #[error("in tpr format handler")]
     Tpr(#[from] TprHandlerError),
-
-    //#[error(transparent)]
-    //FileHandler(#[from] FormatHandlerError),
 
     #[error("file has no extension")]
     NoExtension,
@@ -93,20 +137,17 @@ pub enum IoError {
     SeekTimeError(f32),
 }
 
-//-------------------------------------------------------
-// Machinery for providing a filename context to errors
-trait AddFileContext<T> {
-    fn with_file<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, FileIoError>;
-}
+// Add file context to IoError
+impl_file_context!(IoError => FileIoError);
 
-impl<T, E> AddFileContext<T> for std::result::Result<T, E>
-where
-    E: Into<IoError>,
-{
-    fn with_file<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, FileIoError> {
-        self.map_err(|e| FileIoError{file: f().into(), source: e.into()} )
-    }
-}
+// impl<T, E> AddFileContext<T> for std::result::Result<T, E>
+// where
+//     E: Into<IoError>,
+// {
+//     fn with_file<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, FileIoError> {
+//         self.map_err(|e| FileIoError{file: f().into(), source: e.into()} )
+//     }
+// }
 //-------------------------------------------------------
 
 //===============================
