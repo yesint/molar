@@ -71,7 +71,6 @@ pub enum FileIoError {
     NotTopologyWriteFormat,
 
     #[error(transparent)]
-    //#[error("")]
     DifferentSizes(#[from] TopologyStateSizes),
 
     #[error("not a trajectory reading format")]
@@ -95,27 +94,6 @@ pub enum FileIoError {
     #[error("can't seek to time {0}")]
     SeekTimeError(f32),
 }
-
-// impl<T,E> AddErrorContext<T, FileIoError> for std::result::Result<T, E> 
-// where
-//     E: Into<FileIoError>,
-// {
-//     fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T,FileIoError> {
-//         self.map_err(|e| 
-//             FileIoError::WithContext(f().into(),Box::new(e.into()))
-//         )
-//     }
-// }
-
-// impl<T, E> AddFileContext<T> for std::result::Result<T, E>
-// where
-//     E: Into<IoError>,
-// {
-//     fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, FileIoError> {
-//         self.map_err(|e| FileIoError{file: f().into(), source: e.into()} )
-//     }
-// }
-//-------------------------------------------------------
 
 //===============================
 // Traits for file opening
