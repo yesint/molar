@@ -22,62 +22,20 @@ pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 
+use thiserror_string_context_macro::string_context;
 //-------------------------------------------------------
 // Machinery for providing a filename context to errors
-trait AddErrorContext<Ret,E> {
-    fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<Ret, E>;
+trait AddErrorContext<T,E> {
+    fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, E>;
 }
 
-macro_rules! impl_file_context {
-    ($from:ty=>$to:ident) => {
-        #[derive(Error, Debug)]
-        #[error("processing file '{context}'")]
-        pub struct $to {
-            context: String,
-            source: $from,
-        }
-
-        impl<T, E> AddErrorContext<T,$to> for std::result::Result<T, E>
-        where
-            E: Into<$from>,
-        {
-            fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, $to> {
-                self.map_err(|e| $to{context: f().into(), source: e.into()} )
-            }
-        }
-    }
-}
 //--------------------------------------------------------
-
-// macro_rules! error_with_context {
-//     ($name:ident $inner:ident { $($tt:tt)* } ) => {
-//         #[derive(Error, Debug)]
-//         #[error("processing file '{file}'")]
-//         struct $name {
-//             file: String,
-//             source: InnerError,
-//         }
-        
-//         #[derive(Error, Debug)]
-//         enum $inner{ $($tt)* }
-//     }
-// }
-
-// error_with_context!(OuterError InnerError 
-//     {
-//         #[error("not a read once format")]
-//         Variant1,
-//         #[error("not a read once format")]
-//         Variant2,
-//     }
-// );
-
-
-//--------------------------------------------------------
-
-
+#[string_context("in custom context of '{0}'")]
 #[derive(Error, Debug)]
-pub enum IoError {
+pub enum FileIoError {
+    //#[error("in context of '{0}'")]
+    //WithContext(String, #[source] Box<Self>),
+
     #[error("in vmd format handler")]
     Vmd(#[from] VmdHandlerError),
 
@@ -113,6 +71,7 @@ pub enum IoError {
     NotTopologyWriteFormat,
 
     #[error(transparent)]
+    //#[error("")]
     DifferentSizes(#[from] TopologyStateSizes),
 
     #[error("not a trajectory reading format")]
@@ -137,8 +96,16 @@ pub enum IoError {
     SeekTimeError(f32),
 }
 
-// Add file context to IoError
-impl_file_context!(IoError => FileIoError);
+// impl<T,E> AddErrorContext<T, FileIoError> for std::result::Result<T, E> 
+// where
+//     E: Into<FileIoError>,
+// {
+//     fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T,FileIoError> {
+//         self.map_err(|e| 
+//             FileIoError::WithContext(f().into(),Box::new(e.into()))
+//         )
+//     }
+// }
 
 // impl<T, E> AddFileContext<T> for std::result::Result<T, E>
 // where
@@ -243,11 +210,11 @@ impl Display for FileStats {
     }
 }
 
-pub fn get_ext(fname: &str) -> Result<&str, IoError> {
+pub fn get_ext(fname: &str) -> Result<&str, FileIoError> {
     // Get extention
     Ok(Path::new(fname)
         .extension()
-        .ok_or_else(|| IoError::NoExtension)?
+        .ok_or_else(|| FileIoError::NoExtension)?
         .to_str()
         .unwrap())
 }
@@ -300,8 +267,8 @@ impl FileHandler {
             )),
 
             #[cfg(not(feature = "gromacs"))]
-            "tpr" => Err(IoError::TprDisabled),
-            _ => Err(IoError::NotRecognized).with_context(|| fname),
+            "tpr" => Err(FileIoError::TprDisabled),
+            _ => Err(FileIoError::NotRecognized).with_context(|| fname),
         }
     }
 
@@ -334,7 +301,7 @@ impl FileHandler {
                 FileFormat::Gro(GroFileHandler::create(fname).with_context(|| fname)?),
                 fname.into(),
             )),
-            _ => Err(IoError::NotRecognized).with_context(|| fname),
+            _ => Err(FileIoError::NotRecognized).with_context(|| fname),
         }
     }
 
@@ -350,10 +317,10 @@ impl FileHandler {
                 let st = h
                     .read_state()
                     .with_context(|| &self.file_name)?
-                    .ok_or_else(|| IoError::NoStates).with_context(|| &self.file_name)?;
+                    .ok_or_else(|| FileIoError::NoStates).with_context(|| &self.file_name)?;
                 (top, st)
             }
-            _ => return Err(IoError::NotReadOnceFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotReadOnceFormat).with_context(|| &self.file_name),
         };
         check_topology_state_sizes(&top, &st).with_context(|| &self.file_name)?;
 
@@ -380,7 +347,7 @@ impl FileHandler {
                 h.write_topology(data).with_context(|| &self.file_name)?;
                 h.write_state(data).with_context(|| &self.file_name)?;
             }
-            _ => return Err(IoError::NotWriteOnceFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotWriteOnceFormat).with_context(|| &self.file_name),
         }
 
         self.stats.elapsed_time += t.elapsed();
@@ -396,7 +363,7 @@ impl FileHandler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.read_topology().with_context(|| &self.file_name)?
             }
-            _ => return Err(IoError::NotTopologyReadFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotTopologyReadFormat).with_context(|| &self.file_name),
         };
 
         self.stats.elapsed_time += t.elapsed();
@@ -419,7 +386,7 @@ impl FileHandler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.write_topology(data).with_context(|| &self.file_name)?
             }
-            _ => return Err(IoError::NotTopologyWriteFormat).with_context(|| &self.file_name)
+            _ => return Err(FileIoError::NotTopologyWriteFormat).with_context(|| &self.file_name)
         }
 
         self.stats.elapsed_time += t.elapsed();
@@ -436,7 +403,7 @@ impl FileHandler {
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
-            _ => return Err(IoError::NotTrajectoryReadFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotTrajectoryReadFormat).with_context(|| &self.file_name),
         };
 
         self.stats.elapsed_time += t.elapsed();        
@@ -464,7 +431,7 @@ impl FileHandler {
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.write_state(data).with_context(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.write_state(data).with_context(|| &self.file_name)?,
-            _ => return Err(IoError::NotTrajectoryWriteFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotTrajectoryWriteFormat).with_context(|| &self.file_name),
         }
 
         self.stats.elapsed_time += t.elapsed();
@@ -476,21 +443,21 @@ impl FileHandler {
     pub fn seek_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         match self.format_handler {
             FileFormat::Xtc(ref mut h) => h.seek_frame(fr).with_context(|| &self.file_name),
-            _ => return Err(IoError::NotRandomAccessFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotRandomAccessFormat).with_context(|| &self.file_name),
         }
     }
 
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileIoError> {
         match self.format_handler {
             FileFormat::Xtc(ref mut h) => h.seek_time(t).with_context(|| &self.file_name),
-            _ => return Err(IoError::NotRandomAccessFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotRandomAccessFormat).with_context(|| &self.file_name),
         }
     }
 
     pub fn tell_first(&self) -> Result<(usize, f32), FileIoError> {
         match self.format_handler {
             FileFormat::Xtc(ref h) => h.tell_first().with_context(|| &self.file_name),
-            _ => return Err(IoError::NotRandomAccessFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotRandomAccessFormat).with_context(|| &self.file_name),
         }
     }
 
@@ -505,7 +472,7 @@ impl FileHandler {
     pub fn tell_last(&self) -> Result<(usize, f32), FileIoError> {
         match self.format_handler {
             FileFormat::Xtc(ref h) => h.tell_last().with_context(|| &self.file_name),
-            _ => return Err(IoError::NotRandomAccessFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotRandomAccessFormat).with_context(|| &self.file_name),
         }
     }
 
@@ -522,11 +489,11 @@ impl FileHandler {
                     return Ok(())
                 } else if self.stats.frames_processed > fr {
                     // We are past the needed frame, return error
-                    return Err(IoError::SeekFrameError(fr)).with_context(|| &self.file_name)
+                    return Err(FileIoError::SeekFrameError(fr)).with_context(|| &self.file_name)
                 } else {
                     // Do serial read until reaching needed frame or EOF
                     while self.stats.frames_processed < fr {
-                        self.read_state()?.ok_or_else(|| IoError::SeekFrameError(fr)).with_context(|| &self.file_name)?;
+                        self.read_state()?.ok_or_else(|| FileIoError::SeekFrameError(fr)).with_context(|| &self.file_name)?;
                     }
                 }
             },
@@ -544,11 +511,11 @@ impl FileHandler {
                 // Not a random access trajectory
                 if self.stats.cur_t > t {                    
                     // We are past the needed time, return error
-                    return Err(IoError::SeekTimeError(t)).with_context(|| &self.file_name)
+                    return Err(FileIoError::SeekTimeError(t)).with_context(|| &self.file_name)
                 } else {
                     // Do serial read until reaching needed time or EOF
                     while self.stats.cur_t < t {
-                        self.read_state()?.ok_or_else(|| IoError::SeekTimeError(t)).with_context(|| &self.file_name)?;
+                        self.read_state()?.ok_or_else(|| FileIoError::SeekTimeError(t)).with_context(|| &self.file_name)?;
                     }
                 }
             },
