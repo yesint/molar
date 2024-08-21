@@ -30,7 +30,7 @@ trait AddErrorContext<T,E> {
 }
 
 //--------------------------------------------------------
-#[string_context("in custom context of '{0}'")]
+#[string_context("in file '{0}'")]
 #[derive(Error, Debug)]
 pub enum FileIoError {
     //#[error("in context of '{0}'")]

@@ -7,22 +7,29 @@ use syn::{
 };
 
 struct ContextAttr {
-    message: LitStr,
+    message: Option<LitStr>,
 }
+
 
 impl Parse for ContextAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let message: LitStr = input.parse()?;
+        let message: Option<LitStr> = if input.is_empty() {
+            None
+        } else {
+            Some(input.parse()?)
+        };
         Ok(ContextAttr { message })
     }
 }
-
 
 #[proc_macro_attribute]
 pub fn string_context(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the custom message passed to the macro
     let context_attr = parse_macro_input!(attr as ContextAttr);
-    let custom_message = context_attr.message;
+    let custom_message = context_attr
+        .message
+        .unwrap_or_else(|| LitStr::new("in context of '{0}'", proc_macro2::Span::call_site()));
+
 
     // Parse the input enum
     let input_enum = parse_macro_input!(item as ItemEnum);
