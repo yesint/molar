@@ -39,7 +39,7 @@ pub fn string_context(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Create the new variant with the custom message
     let new_variant: Variant = syn::parse_quote! {
         #[error(#custom_message)]
-        WithContext(String, #[source] Box<#enum_name>)
+        __WithContext(String, #[source] Box<#enum_name>)
     };
 
     // Append the new variant to the existing variants
@@ -58,7 +58,7 @@ pub fn string_context(attr: TokenStream, item: TokenStream) -> TokenStream {
             E: Into<#enum_name>,
         {
             fn with_context<'a>(self, f: impl FnOnce() -> &'a str) -> std::result::Result<T, #enum_name> {
-                self.map_err(|e| #enum_name::WithContext(f().into(), Box::new(e.into())))
+                self.map_err(|e| #enum_name::__WithContext(f().into(), Box::new(e.into())))
             }
         }
     };

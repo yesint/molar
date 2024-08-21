@@ -1,7 +1,5 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use log::info;
-use molar::prelude::*;
 
 mod command_last;
 use command_last::command_last;
