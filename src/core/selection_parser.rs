@@ -1039,7 +1039,6 @@ impl SelectionExpr {
 impl TryFrom<&str> for SelectionExpr {
     type Error = SelectionParserError;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
-        //let ret = selection_parser::logical_expr(value);
         Ok(Self {
             ast: selection_parser::logical_expr(value).map_err(|e| {
                 let s = format!("\n{}\n{}^\nExpected {}",value,"-".repeat(e.location.column-1),e.expected);

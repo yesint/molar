@@ -44,10 +44,6 @@ impl TprFileHandler {
         TprFileHandler::new(fname)
     }
     
-    // pub fn get_file_name(&self) -> &str {
-    //     &self.file_name
-    // }
-
     #[allow(non_snake_case)]
     pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), TprHandlerError> {
         //================
@@ -67,7 +63,7 @@ impl TprFileHandler {
         let gmx_atoms = c_array_to_slice(gmx_top.atoms.atom, natoms);
         let gmx_atomnames = c_array_to_slice(gmx_top.atoms.atomname, natoms);
         let gmx_resinfo = c_array_to_slice(gmx_top.atoms.resinfo, nres);
-        let gmx_pdbinfo: Option<&[t_pdbinfo]> = if gmx_top.atoms.pdbinfo != null_mut() {
+        let gmx_pdbinfo = if gmx_top.atoms.pdbinfo != null_mut() {
             Some(c_array_to_slice(gmx_top.atoms.pdbinfo, natoms))
         } else {
             None
@@ -95,14 +91,8 @@ impl TprFileHandler {
                     atomic_number: gmx_atoms[i].atomnumber as u8,
                     type_id: gmx_atoms[i].type_ as u32,
                     type_name,
-                    occupancy: match gmx_pdbinfo {
-                        Some(pdbinfo) => pdbinfo[i].occup,
-                        None => 0.0,
-                    },
-                    bfactor: match gmx_pdbinfo {
-                        Some(pdbinfo) => pdbinfo[i].bfac,
-                        None => 0.0,
-                    },
+                    occupancy: gmx_pdbinfo.map(|inf| inf[i].occup).unwrap_or(0.0),
+                    bfactor: gmx_pdbinfo.map(|inf| inf[i].bfac).unwrap_or(0.0),
                     ..Default::default()
                 };
 
@@ -157,7 +147,7 @@ impl TprFileHandler {
         st.coords.resize(natoms, Default::default());
         unsafe {
             for i in 0..natoms {
-                // We are passinh coords of point
+                // We are passing coords of point
                 st.coords[i]
                     .coords
                     .copy_from_slice(c_array_to_slice(self.handle.get_atom_xyz(i), 3usize));
