@@ -22,20 +22,12 @@ pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 
-use thiserror_string_context_macro::string_context;
-//-------------------------------------------------------
-// Machinery for providing a filename context to errors
-trait AddErrorContext<T,E> {
-    fn with_context<'a>(self, f: impl FnOnce()->&'a str) -> std::result::Result<T, E>;
-}
+use thiserror_string_context::*;
 
 //--------------------------------------------------------
 #[string_context("in file '{0}'")]
 #[derive(Error, Debug)]
 pub enum FileIoError {
-    //#[error("in context of '{0}'")]
-    //WithContext(String, #[source] Box<Self>),
-
     #[error("in vmd format handler")]
     Vmd(#[from] VmdHandlerError),
 
