@@ -165,6 +165,12 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
+    pub fn is_inside(&self, point: &Pos) -> bool {
+        let v = self.inv * point;
+        v[0]<1.0 && v[1]<1.0 && v[2]<1.0
+    }
+
+    #[inline(always)]
     pub fn to_lab_coords(&self, vec: &Vector3f) -> Vector3f {
         self.matrix * vec
     }

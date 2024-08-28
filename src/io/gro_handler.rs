@@ -130,12 +130,13 @@ impl GroFileHandler {
             .ok_or_else(|| GroHandlerError::Eof("title".into()))?;
 
         // Read number of atoms
-        let natoms = lines
+        let natoms_str = lines
             .next()
             .ok_or_else(|| GroHandlerError::Eof("natoms".into()))?
-            .map_err(|e| GroHandlerError::Io(e))?
-            .parse::<usize>()
-            .map_err(|e| GroHandlerError::ParseInt(e, "natoms".into()))?;
+            .map_err(|e| GroHandlerError::Io(e))?;
+
+        let natoms = natoms_str.trim().parse::<usize>()
+            .map_err(|e| GroHandlerError::ParseInt(e, natoms_str.into()))?;
 
         // Go over atoms line by line
         for i in 0..natoms {
@@ -148,6 +149,7 @@ impl GroFileHandler {
                 resid: line
                     .get(0..5)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
+                    .trim()
                     .parse()
                     .map_err(|e| GroHandlerError::ParseInt(e, format!("atom #{i} resid")))?,
                 resname: line
@@ -176,14 +178,17 @@ impl GroFileHandler {
             let v = Pos::new(
                 line.get(20..28)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
+                    .trim()
                     .parse()
                     .map_err(|e| GroHandlerError::ParseFloat(e, format!("atom #{i} y")))?,
                 line.get(28..36)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
+                    .trim()
                     .parse()
                     .map_err(|e| GroHandlerError::ParseFloat(e, format!("atom #{i} y")))?,
                 line.get(36..44)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
+                    .trim()
                     .parse()
                     .map_err(|e| GroHandlerError::ParseFloat(e, format!("atom #{i} z")))?,
             );
@@ -204,9 +209,7 @@ impl GroFileHandler {
         let l = lines
             .next()
             .ok_or_else(|| GroHandlerError::Eof("pbc".into()))?
-            .map_err(|e| GroHandlerError::Io(e))?
-            .split(" ")
-            .map(|s| {
+            .map_err(|e| GroHandlerError::Io(e))?.split_whitespace().map(|s| {
                 Ok(s.parse::<f32>()
                     .map_err(|e| GroHandlerError::ParseFloat(e, "pbc".into()))?)
             })

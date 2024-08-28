@@ -381,7 +381,7 @@ impl<K: SelectionKind> Sel<K> {
     /// Parent selection is consumed.
     pub fn into_split_contig_resid(
         self,
-    ) -> IntoSelectionSplitIterator<i32, fn(usize, &Atom, &Pos) -> i32, K> {
+    ) -> IntoSelectionSplitIterator<i32, impl Fn(usize, &Atom, &Pos) -> i32, K> {
         self.into_split_contig(|_, at, _| at.resid)
     }
 
