@@ -50,8 +50,8 @@ pub enum FileIoError {
     #[error("file has no states to read")]
     NoStates,
 
-    #[error("not a read once format")]
-    NotReadOnceFormat,
+    #[error("not a format containing both structure and coordinates")]
+    NotTopologyAndStateFormat,
 
     #[error("not a write once format")]
     NotWriteOnceFormat,
@@ -290,7 +290,7 @@ impl FileHandler {
                     .ok_or_else(|| FileIoError::NoStates).with_context(|| &self.file_name)?;
                 (top, st)
             }
-            _ => return Err(FileIoError::NotReadOnceFormat).with_context(|| &self.file_name),
+            _ => return Err(FileIoError::NotTopologyAndStateFormat).with_context(|| &self.file_name),
         };
         check_topology_state_sizes(&top, &st).with_context(|| &self.file_name)?;
 
