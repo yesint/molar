@@ -113,6 +113,28 @@ impl<K: SerialSel> Source<K> {
         ))
     }
 
+    pub unsafe fn select_from_vec_unchecked(
+        &self,
+        vec: Vec<usize>,    
+    ) -> Sel<K> {
+        Sel::new_internal(
+            Arc::clone(&self.topology),
+            Arc::clone(&self.state),
+            sorted_vec::SortedSet::from_sorted(vec),
+        )
+    }
+
+    pub fn select_from_vec(
+        &self,
+        vec: Vec<usize>,    
+    ) -> Sel<K> {
+        Sel::new_internal(
+            Arc::clone(&self.topology),
+            Arc::clone(&self.state),
+            sorted_vec::SortedSet::from_unsorted(vec),
+        )
+    }
+
     /// Selects all
     pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
@@ -243,9 +265,12 @@ impl Source<MutableSerial> {
 
 // Specific methods of builder source
 impl Source<BuilderSerial> {
-    pub fn append(&mut self, data: &(impl PosProvider + AtomsProvider)) {
+    pub fn append(&mut self, data: &(impl PosProvider + AtomsProvider)) -> Sel<BuilderSerial> {
+        let first_added_index = self.num_atoms();
         self.topology.get_storage_mut().add_atoms(data.iter_atoms());
         self.state.get_storage_mut().add_coords(data.iter_pos());
+        let last_added_index = self.num_atoms();
+        self.select_range(&(first_added_index..last_added_index)).unwrap()
     }
 
     pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {

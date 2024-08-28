@@ -20,6 +20,7 @@ clap = {version = "4.5", features=["derive"]}
 env_logger = "0.11"
 log.workspace = true
 comfy-table = "7.1"
+nalgebra = "0.33"
 
 [[bin]]
 path = "src/main.rs"
