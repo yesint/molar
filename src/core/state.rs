@@ -13,6 +13,7 @@ pub(crate) struct StateStorage {
     pub time: f32,
     pub pbox: Option<PeriodicBox>,
 }
+
 impl StateStorage {
     pub fn add_coords<'a>(&mut self, pos: impl super::PosIterator<'a>) {
         self.coords.extend(pos.cloned());
