@@ -11,3 +11,5 @@ pub mod prelude {
     pub use crate::distance_search::*;
     pub use rayon::iter::ParallelIterator;
 }
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
