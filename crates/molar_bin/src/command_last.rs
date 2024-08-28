@@ -36,7 +36,7 @@ pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
 
     match trj.tell_last() {
         Ok((fr, t)) => {
-            info!("Fast-forward to last frame {last_fr}...");
+            info!("Fast-forward to last frame {last_fr}, time {t}...");
             if let Err(_) = trj.seek_frame(fr) {
                 slow_forward = true;
             } else {

@@ -53,6 +53,14 @@ impl Source<()> {
         })
     }
 
+    pub fn empty_builder() -> Result<Source<BuilderSerial>, SelectionError> {
+        Ok(Source {
+            topology: Arc::new(Topology::default()),
+            state: Arc::new(State::default()),
+            _marker: Default::default(),
+        })
+    }
+
     pub fn from_file(fname: &str) -> Result<Source<MutableSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
