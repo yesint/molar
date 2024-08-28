@@ -400,8 +400,8 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn split_contig_resid(&self) -> SelectionSplitIterator<'_, i32, fn(Particle) -> i32, K> {
-        self.split_contig(|p| p.atom.resid)
+    pub fn split_contig_resindex(&self) -> SelectionSplitIterator<'_, usize, fn(Particle) -> usize, K> {
+        self.split_contig(|p| p.atom.resindex)
     }
 
     /// Tests if two selections are from the same source
