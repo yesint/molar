@@ -1,11 +1,13 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 mod command_last;
 mod command_rearrange;
+mod command_solvate;
 
 use command_last::command_last;
 use command_rearrange::command_rearrange;
+use command_solvate::command_solvate;
 
 /// MolAR binary utility
 #[derive(Parser)]
@@ -13,6 +15,14 @@ use command_rearrange::command_rearrange;
 struct Cmd {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum SolvateMode {
+    /// Plain distance cutoff
+    Distance,
+    /// Use VdW radii
+    Vdw,
 }
 
 #[derive(Subcommand)]
@@ -33,7 +43,7 @@ enum Commands {
         /// Input file containing structure and coordinates
         #[arg(short, required = true)]
         file: String,
-        /// Output file (structure+trajectory)
+        /// Output file (structure+coordinates)
         #[arg(short, default_value = "rearranged.gro")]
         outfile: String,
         /// Selections to be put in the beginning
@@ -42,6 +52,31 @@ enum Commands {
         /// Selections to be put at the end
         #[arg(short, long)]
         end: Vec<String>,
+    },
+
+    /// Performs solvation
+    Solvate {
+        /// Input structure to be solvated
+        /// Must contain structure and coordinates
+        #[arg(short, required = true)]
+        file: String,
+
+        /// Output file (structure+coordinates)
+        #[arg(short, default_value = "rearranged.gro")]
+        outfile: String,
+
+        /// File with a periodic solvent box
+        /// If not provided tries to use Gromacs SPC water box
+        #[arg(short, long)]
+        solvent: Option<String>,
+
+        /// Selection for solvent molecules to be deleted
+        #[arg(long)]
+        exclude: Option<String>,
+
+        /// Distance search mode
+        #[arg(long,value_enum,default_value_t=SolvateMode::Distance)]
+        mode: SolvateMode,
     },
 }
 
@@ -59,17 +94,29 @@ fn main() -> Result<()> {
 
     match &cmd.command {
         Commands::Last { files, outfile } => {
-            println!("▶ Action: last",);
+            println!("▶ Action: last");
             command_last(files, outfile)?;
         }
+
         Commands::Rearrange {
             file: infile,
             outfile,
             begin,
             end,
         } => {
-            println!("▶ Action: rearrange",);
-            command_rearrange(infile,outfile,begin,end)?;
+            println!("▶ Action: rearrange");
+            command_rearrange(infile, outfile, begin, end)?;
+        }
+
+        Commands::Solvate {
+            file,
+            outfile,
+            solvent,
+            exclude,
+            mode
+        } => {
+            println!("▶ Action: solvate");
+            command_solvate(file, outfile, solvent, exclude ,mode)?;
         }
     }
     Ok(())
