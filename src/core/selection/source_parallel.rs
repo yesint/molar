@@ -212,7 +212,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Adds an existing serial selection. Passed selection is consumed
     /// and its index is re-evaluated against the new [SourceParallel].
-    pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> Result<usize, SelectionError> {
+    pub fn add_existing(&mut self, sel: Sel<MutableSerial>) -> Result<&Sel<K>, SelectionError> {
         self.add_from_iter(sel.iter_index())
     }
 
@@ -221,7 +221,7 @@ impl<K: ParallelSel> SourceParallel<K> {
     pub fn add_from_iter(
         &mut self,
         iter: impl Iterator<Item = usize>,
-    ) -> Result<usize, SelectionError> {
+    ) -> Result<&Sel<K>, SelectionError> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
         self.selections.push(Sel::new_internal(
@@ -229,7 +229,7 @@ impl<K: ParallelSel> SourceParallel<K> {
             Arc::clone(&self.state),
             vec,
         ));
-        Ok(self.selections.len() - 1)
+        Ok(&self.selections.last().unwrap())
     }
 
     /// Adds selection of all
@@ -290,7 +290,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Converts `Self` into a serial [Source]. All stored parallel selections
     /// are converted into serial mutable selections and returned as a vector.
-    pub fn into_serial_with_sels(self) -> (Source<MutableSerial>, Vec<Sel<MutableSerial>>) {
+    pub fn into_source_with_sels(self) -> (Source<MutableSerial>, Vec<Sel<MutableSerial>>) {
         let sels: Vec<Sel<MutableSerial>> = self
             .selections
             .into_iter()
@@ -303,7 +303,7 @@ impl<K: ParallelSel> SourceParallel<K> {
 
     /// Converts `Self` into a serial [Source]. All stored parallel selections
     /// are dropped.
-    pub fn into_serial(mut self) -> Source<MutableSerial> {
+    pub fn into_source(mut self) -> Source<MutableSerial> {
         // Drop all selections
         self.selections.clear();
         let (top, st) = self.release().unwrap();
