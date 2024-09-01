@@ -120,7 +120,7 @@ impl<K: SelectionKind> Sel<K> {
 
     pub fn subsel_from_vec<S: SelectionKind>(
         &self,
-        index: &Vec<usize>,
+        index: Vec<usize>,
     ) -> Result<Sel<S>, SelectionError> {
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
@@ -382,11 +382,12 @@ impl<K: AllowsSubselect> Sel<K> {
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
-        todo!("This should be local indexes! Now it's broken");
+        let ind = self.index();
+        let global_vec: Vec<_> = iter.map(|i| ind[i]).collect();
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
-            index_from_iter(iter, self.len())?,
+            index_from_vec(global_vec, self.len())?,
         ))
     }
 
@@ -594,7 +595,7 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
 impl<K: SelectionKind> WritableToFile for Sel<K> {}
 
 impl<K: SelectionKind> IndexProvider for Sel<K> {
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.index().iter().cloned()
     }
 }
@@ -673,6 +674,16 @@ impl<K: MutableSel> PosMutProvider for Sel<K> {
     }
 }
 
+impl<K: MutableSel> AtomsMutProvider for Sel<K> {
+    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
+        unsafe {
+            self.index()
+                .iter()
+                .map(|i| self.topology.nth_atom_unchecked_mut(*i))
+        }
+    }
+}
+
 impl<K: MutableSel> RandomPosMutProvider for Sel<K> {
     #[inline(always)]
     unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
@@ -684,17 +695,3 @@ impl<K: MutableSel> RandomPosMutProvider for Sel<K> {
 impl<K: MutableSel> ModifyPos for Sel<K> {}
 impl<K: MutableSel> ModifyPeriodic for Sel<K> {}
 impl<K: MutableSel> ModifyRandomAccess for Sel<K> {}
-
-//-------------------------------------------------------
-// Analysis traits for builder selections
-
-/*
-impl BoxProvider for Sel<BuilderSerial> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
-    }
-}
-
-impl<T> MeasurePeriodic for Sel<T> {}
-
-*/

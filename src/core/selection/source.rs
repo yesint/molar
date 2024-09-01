@@ -222,7 +222,7 @@ impl<K: SelectionKind> Source<K> {
 
     pub fn select_vec(
         &mut self,
-        vec: &Vec<usize>,
+        vec: Vec<usize>,
     ) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_vec(vec, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
@@ -404,84 +404,21 @@ impl Source<BuilderSerial> {
 }
 
 //--------------------------------------------------
-// For serial selections all traits are implemented
-//--------------------------------------------------
-impl TopologyProvider for Source<MutableSerial> {
-    fn num_atoms(&self) -> usize {
-        self.state.num_coords()
+// All sources provide an index trivially
+impl<K: SelectionKind> IndexProvider for Source<K> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        0..self.topology.num_atoms()
     }
 }
 
-impl AtomsProvider for Source<MutableSerial> {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.topology.iter_atoms()
-    }
-}
-
-impl StateProvider for Source<MutableSerial> {
-    fn get_time(&self) -> f32 {
-        self.state.get_time()
-    }
-
-    fn num_coords(&self) -> usize {
-        self.state.num_coords()
-    }
-}
-
-impl PosProvider for Source<MutableSerial> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.state.iter_pos()
-    }
-}
-
-impl BoxProvider for Source<MutableSerial> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
-    }
-}
-
-impl WritableToFile for Source<MutableSerial> {}
+// For serial sources all traits are implemented
+impl_read_write_source_traits!(Source<MutableSerial>);
+impl_read_write_source_traits!(Source<BuilderSerial>);
+// For immutable parallel source read-only traits are implemented
+impl_read_only_source_traits!(Source<ImmutableParallel>);
+// For mutable parallel source no traits are implemented!
 
 //--------------------------------------------------
-// For builder selections all traits are implemented
-//--------------------------------------------------
-impl TopologyProvider for Source<BuilderSerial> {
-    fn num_atoms(&self) -> usize {
-        self.state.num_coords()
-    }
-}
-
-impl AtomsProvider for Source<BuilderSerial> {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.topology.iter_atoms()
-    }
-}
-
-impl StateProvider for Source<BuilderSerial> {
-    fn get_time(&self) -> f32 {
-        self.state.get_time()
-    }
-
-    fn num_coords(&self) -> usize {
-        self.state.num_coords()
-    }
-}
-
-impl PosProvider for Source<BuilderSerial> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.state.iter_pos()
-    }
-}
-
-impl BoxProvider for Source<BuilderSerial> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
-    }
-}
-
-impl WritableToFile for Source<BuilderSerial> {}
-
-
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;

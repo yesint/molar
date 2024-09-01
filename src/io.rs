@@ -102,7 +102,7 @@ pub enum FileIoError {
 // Traits for writing
 //===============================
 pub trait IndexProvider {
-    fn iter_index(&self) -> impl Iterator<Item = usize>;
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize>;
 }
 
 pub trait TopologyProvider: AtomsProvider {

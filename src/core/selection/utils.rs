@@ -67,21 +67,21 @@ pub(super) fn index_from_range(range: &Range<usize>, n: usize) -> Result<SortedS
     }
 }
 
-pub(super) fn index_from_vec(vec: &Vec<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
-    let ind = SortedSet::from_unsorted(vec.clone());
+pub(super) fn index_from_vec(vec: Vec<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
+    let ind = SortedSet::from_unsorted(vec);
     if ind.is_empty() {        
         Err(SelectionError::FromVec {
-            first: vec[0],
-            last: vec[vec.len()-1],
-            size: vec.len(), 
+            first: ind[0],
+            last: ind[ind.len()-1],
+            size: ind.len(), 
             source: SelectionIndexError::IndexEmpty, 
         })
     } else if ind[0] > n || ind[ind.len()-1] > n {
         Err(SelectionError::FromVec {
-            first: vec[0],
-            last: vec[vec.len()-1],
-            size: vec.len(), 
-            source: SelectionIndexError::IndexOutOfBounds(vec[0], vec[vec.len()-1], n), 
+            first: ind[0],
+            last: ind[ind.len()-1],
+            size: ind.len(), 
+            source: SelectionIndexError::IndexOutOfBounds(ind[0], ind[ind.len()-1], n), 
         })
     } else {
         Ok(ind)
@@ -89,5 +89,94 @@ pub(super) fn index_from_vec(vec: &Vec<usize>, n: usize) -> Result<SortedSet<usi
 }
 
 pub(super) fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
-    index_from_vec(&it.collect(), n)   
+    index_from_vec(it.collect(), n)   
 }
+
+// Macro for implementing traits
+macro_rules! impl_read_only_source_traits {
+    ( $t:ty ) => {
+        impl TopologyProvider for $t {
+            fn num_atoms(&self) -> usize {
+                self.state.num_coords()
+            }
+        }
+        
+        impl AtomsProvider for $t {
+            fn iter_atoms(&self) -> impl AtomIterator<'_> {
+                self.topology.iter_atoms()
+            }
+        }
+        
+        impl StateProvider for $t {
+            fn get_time(&self) -> f32 {
+                self.state.get_time()
+            }
+        
+            fn num_coords(&self) -> usize {
+                self.state.num_coords()
+            }
+        }
+        
+        impl PosProvider for $t {
+            fn iter_pos(&self) -> impl PosIterator<'_> {
+                self.state.iter_pos()
+            }
+        }
+        
+        impl BoxProvider for $t {
+            fn get_box(&self) -> Option<&PeriodicBox> {
+                self.state.get_box()
+            }
+        }
+        
+        impl WritableToFile for $t {}
+
+        impl ParticleProvider for $t {
+            fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
+                self.iter_index().map(|i| Particle {
+                    id: i,
+                    atom: unsafe{self.topology.nth_atom_unchecked(i)},
+                    pos: unsafe{self.state.nth_pos_unchecked(i)},
+                })
+            }
+        }
+        
+    };
+}
+
+macro_rules! impl_read_write_source_traits {
+    ( $t:ty ) => {
+        impl_read_only_source_traits!($t);
+
+        impl PosMutProvider for $t {
+            fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
+                self.state.iter_pos_mut()
+            }
+        }
+
+        impl RandomPosMutProvider for $t {
+            unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
+                self.state.nth_pos_unchecked_mut(i)
+            }
+        }
+
+        impl AtomsMutProvider for $t {
+            fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
+                self.topology.iter_atoms_mut()
+            }
+        }
+        
+        impl ParticleMutProvider for $t {
+            fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
+                self.iter_index().map(|i| ParticleMut {
+                    id: i,
+                    atom: unsafe{self.topology.nth_atom_unchecked_mut(i)},
+                    pos: unsafe{self.state.nth_pos_unchecked_mut(i)},
+                })
+            }
+        }
+    }
+}
+
+pub(crate) use impl_read_only_source_traits;
+pub(crate) use impl_read_write_source_traits;

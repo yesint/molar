@@ -1,8 +1,7 @@
 use sync_unsafe_cell::SyncUnsafeCell;
 use triomphe::{Arc, UniqueArc};
-
 use crate::io::StateProvider;
-use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
+use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos, PosMutProvider};
 //use super::handle::{SharedHandle, Handle};
 
 
@@ -106,73 +105,41 @@ impl State {
     }
 }
 
-// Impls for smart pointers
-impl StateProvider for Arc<State> {
-    fn get_time(&self) -> f32 {
-        self.get_storage().time
-    }
-
-    fn num_coords(&self) -> usize {
-        self.get_storage().coords.len()
-    }
-}
-
-impl PosProvider for Arc<State> {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get_storage().coords.iter()
-    }
-}
-
-impl BoxProvider for Arc<State> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_storage().pbox.as_ref()
-    }
-}
-
 //------------------------
-impl StateProvider for UniqueArc<State> {
-    fn get_time(&self) -> f32 {
-        self.get_storage().time
-    }
-
-    fn num_coords(&self) -> usize {
-        self.get_storage().coords.len()
+macro_rules! impl_state_traits {
+    ( $t:ty ) => {
+        impl StateProvider for $t {
+            fn get_time(&self) -> f32 {
+                self.get_storage().time
+            }
+        
+            fn num_coords(&self) -> usize {
+                self.get_storage().coords.len()
+            }
+        }
+        
+        impl PosProvider for $t {
+            fn iter_pos(&self) -> impl super::PosIterator<'_> {
+                self.get_storage().coords.iter()
+            }
+        }
+        
+        impl BoxProvider for $t {
+            fn get_box(&self) -> Option<&PeriodicBox> {
+                self.get_storage().pbox.as_ref()
+            }
+        }
+        
+        impl PosMutProvider for $t {
+            fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
+                self.get_storage_mut().coords.iter_mut()
+            }
+        }
     }
 }
-
-impl PosProvider for UniqueArc<State> {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get_storage().coords.iter()
-    }
-}
-
-impl BoxProvider for UniqueArc<State> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_storage().pbox.as_ref()
-    }
-}
-//------------------------
 
 // Impls for State itself
-impl StateProvider for State {
-    fn get_time(&self) -> f32 {
-        self.get_storage().time
-    }
-
-    fn num_coords(&self) -> usize {
-        self.get_storage().coords.len()
-    }
-}
-
-impl PosProvider for State {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get_storage().coords.iter()
-    }
-}
-
-impl BoxProvider for State {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_storage().pbox.as_ref()
-    }
-}
-//-------------------
+impl_state_traits!(State);
+// Impls for smart pointers
+impl_state_traits!(Arc<State>);
+impl_state_traits!(UniqueArc<State>);
