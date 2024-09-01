@@ -1,26 +1,109 @@
-use std::{marker::PhantomData, ptr};
-use triomphe::{Arc, UniqueArc};
-
 use super::utils::*;
 use crate::prelude::*;
+use sorted_vec::SortedSet;
+use std::marker::PhantomData;
+use triomphe::{Arc, UniqueArc};
 
-/// Source of serial selections.
+//----------------------------------------
+// Source of parallel selections
+//----------------------------------------
+
+/// Source for selections, which are processed in parallel.
 ///
-/// [Source] produces mutable selections, which may overlap and are can only be
-/// used from the same thread where they are created.
+/// Selections are stored inside the source and the user can only access them directly by reference form
+/// the same thread where [SourceParallel] was created (an attempt to send them to other thread won't compile).
+/// In order to process selections in parallel user calls `map_par` method to run an arbitrary closure on each stored
+/// selection in separate threads.
 ///
-/// [Source] takes ownership of [Topology] and [State] so that after creating a [Source] they are no longer accessible outside it.
-/// This guarantees correct access without data integrity issues.
+/// It is safe to change the [State] contained inside [SourceParallel] by calling [set_state](SourceParallel::set_state)
+/// because it is guaranteed that no other threads are accessing stored selections at the same time.
+///
+/// # Example 1: mutable non-overlapping selections
+/// ```
+/// # use molar::prelude::*;
+/// # use anyhow::Result;
+/// # use rayon::prelude::*;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// let mut src = Source::new_parallel_mut(top, st)?;
+/// // Add a bunch of non-overlapping selections
+/// let mut sels = vec![];
+/// sels.push( src.select_iter(0..10)? );
+/// sels.push( src.select_iter(11..15)? );
+/// sels.push( src.select_iter(16..25)? );
+/// // Process them
+/// let v = Vector3f::new(1.0, 2.0, 3.0);
+/// let res = sels.par_iter().map(|sel| {
+///    sel.translate(&v);
+///    Ok(sel.center_of_mass()?)
+/// }).collect::<Result<Vec<_>>>()?;
+/// println!("{:?}",res);
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+/// # Example 2: immutable overlapping selections, using par_iter()
+/// ```
+/// # use molar::prelude::*;
+/// # use anyhow::Result;
+/// # use rayon::prelude::*;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// let mut src = Source::new_parallel(top, st)?;
+/// // Overlapping selections
+/// let mut sels = vec![];
+/// sels.push( src.select_iter(0..10)? );
+/// sels.push( src.select_iter(5..15)? );
+/// // Process them using par_iter explicitly
+/// let res = sels.par_iter().map(|sel| {
+///    Ok(sel.center_of_mass()?)
+/// }).collect::<Result<Vec<_>>>()?;
+/// println!("{:?}",res);
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+/// # Example 3: using subselections during parallel processing
+/// ```
+/// # use molar::prelude::*;
+/// # use anyhow::Result;
+/// # use rayon::prelude::*;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// let mut src = Source::new_parallel(top, st)?;
+/// // Add a bunch of non-overlapping selections for residues
+/// let mut sels = vec![];
+/// for r in 545..550 {
+///     sels.push( src.select_str(format!("resid {r}"))? );
+/// }
+/// // Process them in parallel. For each residue
+/// // get CA and N atoms and compute a distance between them
+/// let dist = sels.par_iter().map(|res| {
+///    //res.unwrap_simple()?;
+///    let ca = res.subsel_from_str("name CA")?;
+///    let n = res.subsel_from_str("name N")?;
+///    Ok::<_,anyhow::Error>(ca.first_particle().pos-n.first_particle().pos)
+/// }).collect::<Result<Vec<_>>>()?;
+/// println!("{:?}",dist);
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
+
+/// # It's Ok to move parallel selection to the other thread
+///```
+/// # use molar::prelude::*;
+/// # use std::thread;
+/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+/// // This won't compile
+/// let mut src = Source::new_parallel_mut(top, st)?;
+/// let sel = src.select_str("not resname TIP3 POT CLA")?;
+/// thread::spawn( move || sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+/// #  Ok::<(), anyhow::Error>(())
+/// ```
 
 pub struct Source<K> {
-    topology: triomphe::Arc<Topology>,
-    state: triomphe::Arc<State>,
-    _marker: PhantomData<K>,
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    used: rustc_hash::FxHashSet<usize>,
+    _no_send: PhantomData<*const ()>,
+    _kind: PhantomData<K>,
 }
 
 impl Source<()> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
-    pub fn new(
+    pub fn new_serial(
         topology: UniqueArc<Topology>,
         state: UniqueArc<State>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
@@ -28,16 +111,9 @@ impl Source<()> {
         Ok(Source {
             topology: topology.shareable(),
             state: state.shareable(),
-            _marker: Default::default(),
-        })
-    }
-
-    pub fn from_system(system: System) -> Result<Source<MutableSerial>, SelectionError> {
-        check_topology_state_sizes(&system.topology, &system.state)?;
-        Ok(Source {
-            topology: Arc::new(system.topology),
-            state: Arc::new(system.state),
-            _marker: Default::default(),
+            used: Default::default(),
+            _no_send: Default::default(),
+            _kind: Default::default()
         })
     }
 
@@ -49,63 +125,94 @@ impl Source<()> {
         Ok(Source {
             topology: topology.shareable(),
             state: state.shareable(),
-            _marker: Default::default(),
+            used: Default::default(),
+            _no_send: Default::default(),
+            _kind: Default::default()
         })
     }
 
-    pub fn empty_builder() -> Result<Source<BuilderSerial>, SelectionError> {
-        Ok(Source {
+    pub fn empty_builder() -> Source<BuilderSerial> {
+        Source {
             topology: Arc::new(Topology::default()),
             state: Arc::new(State::default()),
-            _marker: Default::default(),
+            used: Default::default(),
+            _no_send: Default::default(),
+            _kind: Default::default()
+        }
+    }
+
+    /// Creates a source of mutable parallel selections that _can't_ overlap.
+    pub fn new_parallel_mut(
+        topology: UniqueArc<Topology>,
+        state: UniqueArc<State>,
+    ) -> Result<Source<MutableParallel>, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        Ok(Source {
+            topology: topology.shareable(),
+            state: state.shareable(),
+            used: Default::default(),
+            _no_send: Default::default(),
+            _kind: Default::default()
         })
     }
 
-    pub fn from_file(fname: &str) -> Result<Source<MutableSerial>, SelectionError> {
-        let mut fh = FileHandler::open(fname)?;
-        let (top, st) = fh.read()?;
-        Ok(Source::new(top, st)?)
+    /// Creates a source of immutable parallel selections that _may_ overlap.
+    pub fn new_parallel(
+        topology: UniqueArc<Topology>,
+        state: UniqueArc<State>,
+    ) -> Result<Source<ImmutableParallel>, SelectionError> {
+        check_topology_state_sizes(&topology, &state)?;
+        Ok(Source {
+            topology: topology.shareable(),
+            state: state.shareable(),
+            used: Default::default(),
+            _no_send: Default::default(),
+            _kind: Default::default()
+        })
     }
 
-    pub fn from_file_builder(fname: &str) -> Result<Source<BuilderSerial>, SelectionError> {
+    pub fn parallel_from_file(fname: &str) -> Result<Source<ImmutableParallel>, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Source::new_parallel(top, st)?)
+    }
+
+    pub fn serial_from_file(fname: &str) -> Result<Source<MutableSerial>, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Source::new_serial(top, st)?)
+    }
+
+    pub fn builder_from_file(fname: &str) -> Result<Source<BuilderSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
         Ok(Source::new_builder(top, st)?)
     }
 
-    // Constructor for internal usage
-    pub(crate) fn new_internal(
-        topology: Arc<Topology>,
-        state: Arc<State>,
-    ) -> Result<Source<MutableSerial>, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
-        Ok(Source {
-            topology,
-            state,
-            _marker: Default::default(),
-        })
+    pub fn parallel_mut_from_file(fname: &str) -> Result<Source<MutableParallel>, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Source::new_parallel_mut(top, st)?)
     }
 }
 
-impl<K: SerialSel> Source<K> {
+impl<K: SelectionKind> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> Result<(Topology, State), SelectionError> {
-        let top = Arc::try_unwrap(self.topology).or_else(|_| Err(SelectionError::Release))?;
-        let st = Arc::try_unwrap(self.state).or_else(|_| Err(SelectionError::Release))?;
-        Ok((top, st))
+    pub fn release(self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), SelectionError> {
+        Ok((
+            Arc::try_unique(self.topology).map_err(|_| SelectionError::Release)?, 
+            Arc::try_unique(self.state).map_err(|_| SelectionError::Release)?,
+        ))
     }
 
-    //---------------------------------
-    // Creating selections
-    //---------------------------------
-
-    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
+    /// Adds new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
-    pub fn select_from_iter(
-        &self,
+    pub fn select_iter(
+        &mut self,
         iter: impl Iterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
+        K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -113,31 +220,36 @@ impl<K: SerialSel> Source<K> {
         ))
     }
 
-    pub unsafe fn select_from_vec_unchecked(
-        &self,
-        vec: Vec<usize>,    
-    ) -> Sel<K> {
-        Sel::new_internal(
+    pub fn select_vec(
+        &mut self,
+        vec: &Vec<usize>,
+    ) -> Result<Sel<K>, SelectionError> {
+        let vec = index_from_vec(vec, self.topology.num_atoms())?;
+        K::check_overlap(&vec, &mut self.used)?;
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
-            sorted_vec::SortedSet::from_sorted(vec),
-        )
+            vec,
+        ))
     }
 
-    pub fn select_from_vec(
-        &self,
-        vec: Vec<usize>,    
-    ) -> Sel<K> {
-        Sel::new_internal(
+    pub unsafe fn select_vec_unchecked(
+        &mut self,
+        vec: Vec<usize>,
+    ) -> Result<Sel<K>, SelectionError> {
+        let vec = SortedSet::from_sorted(vec);
+        K::check_overlap(&vec, &mut self.used)?;
+        Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
-            sorted_vec::SortedSet::from_unsorted(vec),
-        )
+            vec,
+        ))
     }
 
-    /// Selects all
-    pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
+    /// Adds selection of all
+    pub fn select_all(&mut self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
+        K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -145,10 +257,11 @@ impl<K: SerialSel> Source<K> {
         ))
     }
 
-    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
-    /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
-    pub fn select_str(&self, selstr: &str) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_str(selstr, &self.topology, &self.state)?;
+    /// Adds new selection from a selection expression string. Selection expression is constructed internally but
+    /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
+    pub fn select_str(&mut self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
+        let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
+        K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -156,9 +269,10 @@ impl<K: SerialSel> Source<K> {
         ))
     }
 
-    /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
+    /// Adds new selection from an existing selection expression.
+    pub fn select_expr(&mut self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
+        K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -166,17 +280,22 @@ impl<K: SerialSel> Source<K> {
         ))
     }
 
-    /// Creates new selection from a range of indexes.
+    /// Adds new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
+    pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
+        K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
             vec,
         ))
     }
+}
 
+
+// Specific methods for serial selections 
+impl<K: SerialSel> Source<K> {
     /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state.
     ///
@@ -184,17 +303,15 @@ impl<K: SerialSel> Source<K> {
     ///
     /// Returns unique pointer to the old state, so it could be reused if needed.
     ///
-    pub fn set_state(
-        &mut self,
-        state: UniqueArc<State>,
-    ) -> Result<UniqueArc<State>, SelectionError> {
+    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
         unsafe {
-            ptr::swap(self.state.get_storage_mut(), state.get_storage_mut());
+            std::ptr::swap(self.state.get_storage_mut(), state.get_storage_mut());
         };
+
         Ok(state)
     }
 
@@ -208,23 +325,22 @@ impl<K: SerialSel> Source<K> {
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(
-        &mut self,
-        topology: UniqueArc<Topology>,
-    ) -> Result<UniqueArc<Topology>, SelectionError> {
+    pub fn set_topology(&mut self, topology: Topology) -> Result<Topology, SelectionError> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
+
         unsafe {
-            ptr::swap(self.topology.get_storage_mut(), topology.get_storage_mut());
+            std::ptr::swap(
+                self.topology.get_storage_mut(),
+                topology.get_storage_mut(),
+            );
         };
+
         Ok(topology)
     }
-}
 
-// Specific methods of serial source
-impl Source<MutableSerial> {
     pub fn get_shared_topology(&self) -> Arc<Topology> {
         Arc::clone(&self.topology)
     }
@@ -241,7 +357,9 @@ impl Source<MutableSerial> {
         Ok(Source {
             topology: Arc::clone(topology),
             state: Arc::clone(state),
-            _marker: Default::default(),
+            used: Default::default(),
+            _no_send: Default::default(),
+            _kind: Default::default(),
         })
     }
 
@@ -285,22 +403,22 @@ impl Source<BuilderSerial> {
     }
 }
 
-//------------------
-// IO traits impls
-//-----------------
-impl<K: SelectionKind> TopologyProvider for Source<K> {
+//--------------------------------------------------
+// For serial selections all traits are implemented
+//--------------------------------------------------
+impl TopologyProvider for Source<MutableSerial> {
     fn num_atoms(&self) -> usize {
         self.state.num_coords()
     }
 }
 
-impl<K: SelectionKind> AtomsProvider for Source<K> {
+impl AtomsProvider for Source<MutableSerial> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.topology.iter_atoms()
     }
 }
 
-impl<K: SelectionKind> StateProvider for Source<K> {
+impl StateProvider for Source<MutableSerial> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
@@ -310,16 +428,74 @@ impl<K: SelectionKind> StateProvider for Source<K> {
     }
 }
 
-impl<K: SelectionKind> PosProvider for Source<K> {
+impl PosProvider for Source<MutableSerial> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.state.iter_pos()
     }
 }
 
-impl<K: SelectionKind> BoxProvider for Source<K> {
+impl BoxProvider for Source<MutableSerial> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
     }
 }
 
-impl<K: SelectionKind> WritableToFile for Source<K> {}
+impl WritableToFile for Source<MutableSerial> {}
+
+//--------------------------------------------------
+// For builder selections all traits are implemented
+//--------------------------------------------------
+impl TopologyProvider for Source<BuilderSerial> {
+    fn num_atoms(&self) -> usize {
+        self.state.num_coords()
+    }
+}
+
+impl AtomsProvider for Source<BuilderSerial> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.topology.iter_atoms()
+    }
+}
+
+impl StateProvider for Source<BuilderSerial> {
+    fn get_time(&self) -> f32 {
+        self.state.get_time()
+    }
+
+    fn num_coords(&self) -> usize {
+        self.state.num_coords()
+    }
+}
+
+impl PosProvider for Source<BuilderSerial> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.state.iter_pos()
+    }
+}
+
+impl BoxProvider for Source<BuilderSerial> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state.get_box()
+    }
+}
+
+impl WritableToFile for Source<BuilderSerial> {}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+    use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+    #[test]
+    fn par_iter2() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+        let mut src = Source::new_parallel_mut(top, st)?;
+        let mut sels = vec![];
+        sels.push( src.select_str("resid 545")? );
+        sels.push( src.select_str("resid 546")? );
+        sels.push( src.select_str("resid 547")? );
+        sels.par_iter_mut()
+            .for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
+        Ok::<(), anyhow::Error>(())
+    }
+}

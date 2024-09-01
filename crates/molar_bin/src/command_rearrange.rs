@@ -37,7 +37,7 @@ pub(super) fn command_rearrange(
     }
 
     // Make selections
-    let in_source = Source::new(top, st)?;
+    let mut in_source = Source::new_serial(top, st)?;
     let begin_sels = begin
         .iter()
         .map(|s| in_source.select_str(s).map_err(|e| anyhow!(e)))
@@ -62,12 +62,12 @@ pub(super) fn command_rearrange(
 
     // Get the rest of indexes, which are not used
     let all_ind = (0..in_source.num_atoms()).collect::<HashSet<usize>>();
-    let rest_sel = in_source.select_from_iter(all_ind.difference(&used).cloned())?;
+    let rest_sel = in_source.select_iter(all_ind.difference(&used).cloned())?;
 
     info!("There are {} untouched atoms",rest_sel.len());
 
     // Create output builder
-    let mut out = Source::empty_builder()?;
+    let mut out = Source::empty_builder();
     // Add beginning selections
     for sel in begin_sels {
         out.append(&sel);
