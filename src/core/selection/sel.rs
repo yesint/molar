@@ -286,17 +286,17 @@ impl<K: SelectionKind> Sel<K> {
     pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
     {
         IntoSelectionSplitIterator::new(self, func)
     }
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn into_split_contig_resid(
+    pub fn into_split_contig_resindex(
         self,
-    ) -> IntoSelectionSplitIterator<i32, impl Fn(usize, &Atom, &Pos) -> i32, K> {
-        self.into_split_contig(|_, at, _| at.resid)
+    ) -> IntoSelectionSplitIterator<usize, impl Fn(Particle) -> usize, K> {
+        self.into_split_contig(|p| p.atom.resindex)
     }
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
@@ -390,6 +390,10 @@ impl<K: AllowsSubselect> Sel<K> {
             index_from_vec(global_vec, self.len())?,
         ))
     }
+
+    //==============================================
+    // Splitting that keeps parent selection alive
+    //==============================================
 
     /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is kept intact.
