@@ -177,7 +177,7 @@ impl<K: SelectionKind> Sel<K> {
     fn split_gen<RT, F, C, Kind>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
         C: FromIterator<Sel<Kind>> + Default,
         Kind: SelectionKind,
     {
@@ -185,11 +185,12 @@ impl<K: SelectionKind> Sel<K> {
 
         for p in self.iter_particle() {
             let i = p.id;
-            let id = func(p);
-            if let Some(el) = ids.get_mut(&id) {
-                el.push(i);
-            } else {
-                ids.insert(id, vec![i]);
+            if let Some(id) = func(p) {
+                if let Some(el) = ids.get_mut(&id) {
+                    el.push(i);
+                } else {
+                    ids.insert(id, vec![i]);
+                }
             }
         }
 
@@ -208,7 +209,7 @@ impl<K: SelectionKind> Sel<K> {
     pub fn split_into<RT, F, C>(self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
         C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(func)
@@ -220,8 +221,13 @@ impl<K: SelectionKind> Sel<K> {
     where
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_gen(|p| p.atom.resid)
+        self.split_gen(|p| Some(p.atom.resid))
     }
+
+    // pub fn into_fragments(self, func: impl Fn(Self)->Vec<Sel<K>>)->Vec<Sel<K>> {
+    //     // Transform self into Serial
+    //     func(self)
+    // }
 
     /// Computes the Solvet Accessible Surface Area (SASA).
     pub fn sasa(&self) -> (f32, f32) {
@@ -286,7 +292,7 @@ impl<K: SelectionKind> Sel<K> {
     pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
     {
         IntoSelectionSplitIterator::new(self, func)
     }
@@ -295,8 +301,8 @@ impl<K: SelectionKind> Sel<K> {
     /// Parent selection is consumed.
     pub fn into_split_contig_resindex(
         self,
-    ) -> IntoSelectionSplitIterator<usize, impl Fn(Particle) -> usize, K> {
-        self.into_split_contig(|p| p.atom.resindex)
+    ) -> IntoSelectionSplitIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
+        self.into_split_contig(|p| Some(p.atom.resindex))
     }
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
@@ -307,15 +313,15 @@ impl<K: SelectionKind> Sel<K> {
     pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
     {
         SelectionSplitIterator::new(self, func)
     }
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn split_contig_resindex(&self) -> SelectionSplitIterator<'_, usize, fn(Particle) -> usize, K> {
-        self.split_contig(|p| p.atom.resindex)
+    pub fn split_contig_resindex(&self) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
+        self.split_contig(|p| Some(p.atom.resindex))
     }
 
     /// Tests if two selections are from the same source
@@ -403,7 +409,7 @@ impl<K: AllowsSubselect> Sel<K> {
     pub fn split<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
         C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(func)
@@ -415,7 +421,7 @@ impl<K: AllowsSubselect> Sel<K> {
     where
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_gen(|p| p.atom.resid)
+        self.split_gen(|p| Some(p.atom.resid))
     }
 
 }

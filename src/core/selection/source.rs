@@ -62,8 +62,9 @@ use triomphe::{Arc, UniqueArc};
 /// # use molar::prelude::*;
 /// # use anyhow::Result;
 /// # use rayon::prelude::*;
+/// use itertools::Itertools;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-/// let mut src = Source::new_parallel(top, st)?;
+/// let mut src = Source::new_parallel_mut(top, st)?;
 /// // Add a bunch of non-overlapping selections for residues
 /// let mut sels = vec![];
 /// for r in 545..550 {
@@ -71,11 +72,19 @@ use triomphe::{Arc, UniqueArc};
 /// }
 /// // Process them in parallel. For each residue
 /// // get CA and N atoms and compute a distance between them
-/// let dist = sels.par_iter().map(|res| {
-///    //res.unwrap_simple()?;
-///    let ca = res.subsel_from_str("name CA")?;
-///    let n = res.subsel_from_str("name N")?;
-///    Ok::<_,anyhow::Error>(ca.first_particle().pos-n.first_particle().pos)
+/// let dist = sels.into_par_iter().map(|res| {
+///     // Remove jusmp over periodic boundary
+///     res.unwrap_simple()?;
+///     // Consume residue selection and convert it 
+///     // into two selections for Ca and N atoms
+///     let (ca,n) = res.into_split_contig(|p| {
+///         match p.atom.name.as_str() {
+///             "CA" => Some(0),
+///             "N" => Some(1),
+///             _ => None,
+///         }
+///     }).collect_tuple().unwrap();
+///     Ok::<_,anyhow::Error>(ca.first_particle().pos-n.first_particle().pos)
 /// }).collect::<Result<Vec<_>>>()?;
 /// println!("{:?}",dist);
 /// #  Ok::<(), anyhow::Error>(())
