@@ -6,8 +6,6 @@ use super::SelectionError;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
-    type SubselKind: SelectionKind;    
-
     #[inline(always)]
     #[allow(unused_variables)]
     fn check_index(index: &SortedSet<usize>, system: &Topology, state: &State) -> Result<(), SelectionError> {
@@ -27,21 +25,20 @@ pub trait MutableSel: SelectionKind {}
 pub trait ParallelSel: SelectionKind + Send + Sync {}
 /// Trait marking serial selections
 pub trait SerialSel: SelectionKind {}
+/// Trait marking selections that allow subselections
+pub trait AllowsSubselect: SelectionKind {}
 
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
 pub struct MutableSerial(PhantomData<*const ()>);
-impl SelectionKind for MutableSerial {
-    type SubselKind = MutableSerial;
-}
+impl SelectionKind for MutableSerial {}
 impl MutableSel for MutableSerial {}
 impl SerialSel for MutableSerial {}
+impl AllowsSubselect for MutableSerial {}
 
 /// Marker type for possibly overlapping builder selection (single-threaded)
 pub struct BuilderSerial(PhantomData<*const ()>);
 impl SelectionKind for BuilderSerial {
-    type SubselKind = BuilderSerial;    
-    
     #[inline(always)]
     fn check_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
         let first = index[0];
@@ -57,14 +54,12 @@ impl SelectionKind for BuilderSerial {
 }
 impl MutableSel for BuilderSerial {}
 impl SerialSel for BuilderSerial {}
+impl AllowsSubselect for BuilderSerial {}
 
 /// Marker type for non-overlapping mutable selection (multi-threaded)
 pub struct MutableParallel {}
 
 impl SelectionKind for MutableParallel {
-    // Subseletions may overlap but won't be Send
-    type SubselKind = MutableSerial;    
-
     #[inline(always)]
     fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> Result<(), SelectionError> {
         for i in index.iter() {
@@ -77,10 +72,10 @@ impl SelectionKind for MutableParallel {
 }
 impl MutableSel for MutableParallel {}
 impl ParallelSel for MutableParallel {}
+// Doesn't allow subselecting!
 
 /// Marker type for possibly overlapping immutable selection (multi-threaded)
 pub struct ImmutableParallel {}
-impl SelectionKind for ImmutableParallel {
-    type SubselKind = ImmutableParallel;
-}
+impl SelectionKind for ImmutableParallel {}
 impl ParallelSel for ImmutableParallel {}
+impl AllowsSubselect for ImmutableParallel {}

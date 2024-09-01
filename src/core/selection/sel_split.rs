@@ -43,8 +43,7 @@ where
     F: Fn(Particle) -> RT,
     S: SelectionKind,
 {
-    // Non-consuming splitter returns subselections
-    type Item = Sel<S::SubselKind>;
+    type Item = Sel<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
         next_split(&mut self.data, self.sel)

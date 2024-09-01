@@ -12,7 +12,7 @@ fn read_test_pdb() -> (triomphe::UniqueArc<Topology>, triomphe::UniqueArc<State>
 
 fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
     let (top,st) = read_test_pdb();
-    let b = Source::new(top, st)?;
+    let mut b = Source::new_serial(top, st)?;
     //let sel = b.select_str("not resname TIP3 POT CLA")?;
     let sel = b.select_all()?;
     Ok(sel)

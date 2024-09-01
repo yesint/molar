@@ -25,6 +25,18 @@ pub(super) fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: 
     }
 }
 
+pub(super) fn index_from_expr_sub(expr: &SelectionExpr, topology: &Topology, state: &State, subset: &SortedSet<usize>) -> Result<SortedSet<usize>, SelectionError> {
+    let index = expr.apply_subset(&topology, &state, subset.iter().cloned())?;
+    if index.len() > 0 {
+        Ok(index)
+    } else {
+        Err(SelectionError::FromExpr {
+            expr_str: expr.get_str().into(), 
+            source: SelectionIndexError::IndexEmpty, 
+        })
+    }
+}
+
 pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
     let index = SelectionExpr::try_from(selstr)?.apply_whole(&topology, &state)?;
     if index.len() > 0 {

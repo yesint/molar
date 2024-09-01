@@ -97,69 +97,6 @@ impl<K: SelectionKind> Sel<K> {
         self.num_atoms()
     }
 
-    //===================
-    // Subselections
-    //===================
-
-    /// Subselection from expression
-    pub fn subsel_from_expr(
-        &self,
-        expr: &SelectionExpr,
-    ) -> Result<Sel<K::SubselKind>, SelectionError> {
-        Ok(Sel::new_internal(
-            Arc::clone(&self.topology),
-            Arc::clone(&self.state),
-            index_from_expr(expr, &self.topology, &self.state)?,
-        ))
-    }
-
-    /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<K::SubselKind>, SelectionError> {
-        let expr = SelectionExpr::try_from(sel_str)?;
-        self.subsel_from_expr(&expr)
-    }
-
-    /// Subselection from the range of local selection indexes
-    pub fn subsel_from_local_range(
-        &self,
-        range: std::ops::Range<usize>,
-    ) -> Result<Sel<K::SubselKind>, SelectionError> {
-        if range.end >= self.index().len() {
-            return Err(SelectionError::LocalRange(
-                range.start,
-                range.end,
-                self.index().len() - 1,
-            ));
-        }
-
-        // Translate range of local indexes to global indexes
-        let index: Vec<usize> = self
-            .index()
-            .iter()
-            .cloned()
-            .skip(range.start)
-            .take(range.len())
-            .collect();
-
-        Ok(Sel::new_internal(
-            Arc::clone(&self.topology),
-            Arc::clone(&self.state),
-            unsafe { SortedSet::from_sorted(index) },
-        ))
-    }
-
-    /// Subselection from iterator that provides local selection indexes
-    pub fn subsel_from_iter(
-        &self,
-        iter: impl ExactSizeIterator<Item = usize>,
-    ) -> Result<Sel<K::SubselKind>, SelectionError> {
-        Ok(Sel::new_internal(
-            Arc::clone(&self.topology),
-            Arc::clone(&self.state),
-            index_from_iter(iter, self.len())?,
-        ))
-    }
-
     // This method doesn't check if the vector has duplicates and thus unsafe
     pub(super) unsafe fn subsel_from_vec_unchecked<S: SelectionKind>(
         &self,
@@ -264,20 +201,6 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     /// Splits selection to pieces that could be disjoint
-    /// according to the value of function. Parent selection is kept intact.
-    ///
-    /// The number of selections correspond to the distinct values returned by `func`.
-    /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn split<RT, F, C>(&self, func: F) -> C
-    where
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> RT,
-        C: FromIterator<Sel<K::SubselKind>> + Default,
-    {
-        self.split_gen(func)
-    }
-
-    /// Splits selection to pieces that could be disjoint
     /// according to the value of function. Parent selection is consumed.
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
@@ -289,15 +212,6 @@ impl<K: SelectionKind> Sel<K> {
         C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(func)
-    }
-
-    /// Helper method that splits selection into the parts with distinct resids.
-    /// Parent selection is left alive.
-    pub fn split_resid<C>(&self) -> C
-    where
-        C: FromIterator<Sel<K::SubselKind>> + Default,
-    {
-        self.split_gen(|p| p.atom.resid)
     }
 
     /// Helper method that splits selection into the parts with distinct resids.
@@ -410,11 +324,102 @@ impl<K: SelectionKind> Sel<K> {
     }
 }
 
+
+impl<K: AllowsSubselect> Sel<K> {
+    //===================
+    // Subselections
+    //===================
+
+    /// Subselection from expression
+    pub fn subsel_from_expr(
+        &self,
+        expr: &SelectionExpr,
+    ) -> Result<Sel<K>, SelectionError> {
+        Ok(Sel::new_internal(
+            Arc::clone(&self.topology),
+            Arc::clone(&self.state),
+            index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?,
+        ))
+    }
+
+    /// Subselection from string
+    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<K>, SelectionError> {
+        let expr = SelectionExpr::try_from(sel_str)?;
+        self.subsel_from_expr(&expr)
+    }
+
+    /// Subselection from the range of local selection indexes
+    pub fn subsel_from_local_range(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> Result<Sel<K>, SelectionError> {
+        if range.end >= self.index().len() {
+            return Err(SelectionError::LocalRange(
+                range.start,
+                range.end,
+                self.index().len() - 1,
+            ));
+        }
+
+        // Translate range of local indexes to global indexes
+        let index: Vec<usize> = self
+            .index()
+            .iter()
+            .cloned()
+            .skip(range.start)
+            .take(range.len())
+            .collect();
+
+        Ok(Sel::new_internal(
+            Arc::clone(&self.topology),
+            Arc::clone(&self.state),
+            unsafe { SortedSet::from_sorted(index) },
+        ))
+    }
+
+    /// Subselection from iterator that provides local selection indexes
+    pub fn subsel_from_iter(
+        &self,
+        iter: impl ExactSizeIterator<Item = usize>,
+    ) -> Result<Sel<K>, SelectionError> {
+        todo!("This should be local indexes! Now it's broken");
+        Ok(Sel::new_internal(
+            Arc::clone(&self.topology),
+            Arc::clone(&self.state),
+            index_from_iter(iter, self.len())?,
+        ))
+    }
+
+    /// Splits selection to pieces that could be disjoint
+    /// according to the value of function. Parent selection is kept intact.
+    ///
+    /// The number of selections correspond to the distinct values returned by `func`.
+    /// Selections are stored in a container `C` and has the same kind as subselections.
+    pub fn split<RT, F, C>(&self, func: F) -> C
+    where
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+        F: Fn(Particle) -> RT,
+        C: FromIterator<Sel<K>> + Default,
+    {
+        self.split_gen(func)
+    }
+
+    /// Helper method that splits selection into the parts with distinct resids.
+    /// Parent selection is left alive.
+    pub fn split_resid<C>(&self) -> C
+    where
+        C: FromIterator<Sel<K>> + Default,
+    {
+        self.split_gen(|p| p.atom.resid)
+    }
+
+}
+
 impl Sel<MutableSerial> {
     // Only visible in selection module
-    pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-        Self::new_internal(sel.topology, sel.state, sel.index_storage)
-    }
+    // pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
+    //     Self::new_internal(sel.topology, sel.state, sel.index_storage)
+    // }
 
     pub fn get_shared_topology(&self) -> Arc<Topology> {
         Arc::clone(&self.topology)

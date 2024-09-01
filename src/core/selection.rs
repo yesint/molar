@@ -1,13 +1,11 @@
 mod kinds;
 mod utils;
 mod source;
-mod source_parallel;
 mod sel;
 mod sel_split;
 
 pub use kinds::*;
 pub use source::*;
-pub use source_parallel::*;
 pub use sel::*;
 pub use sel_split::*;
 pub(crate) use utils::*;
@@ -108,43 +106,44 @@ mod tests {
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let b = Source::new(top, st)?;
+        let mut b = Source::new_serial(top, st)?;
         // Create two overlapping selections
-        let _sel1 = b.select_from_iter(0..10)?;
-        let _sel2 = b.select_from_iter(5..15)?;
+        let _sel1 = b.select_iter(0..10)?;
+        let _sel2 = b.select_iter(5..15)?;
         Ok(())
     }
 
     #[test]
     fn builder_par_no_overlap() {
         let (top, st) = read_test_pdb();
-        let b = Source::new(top, st).unwrap();
+        let mut b = Source::new_serial(top, st).unwrap();
         // Create two non-overlapping selections.
-        let _sel1 = b.select_from_iter(0..10).unwrap();
-        let _sel2 = b.select_from_iter(11..15).unwrap();
+        let _sel1 = b.select_iter(0..10).unwrap();
+        let _sel2 = b.select_iter(11..15).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn builder_par_overlap() {
         let (top, st) = read_test_pdb();
-        let mut b = SourceParallel::new_mut(top, st).unwrap();
+        let mut b = Source::new_parallel_mut(top, st).unwrap();
         // Create two overlapping selections. This must fail!
-        let _sel1 = b.add_from_iter(0..10).unwrap();
-        let _sel2 = b.add_from_iter(5..15).unwrap();
+        let _sel1 = b.select_iter(0..10).unwrap();
+        let _sel2 = b.select_iter(5..15).unwrap();
     }
 
     #[test]
     fn builder_par_test() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = SourceParallel::new_mut(top, st)?;
-        // Create two valid non-overlapping selections.
-        b.add_from_iter(0..10).unwrap();
-        b.add_from_iter(11..15).unwrap();
-        b.add_from_iter(15..25).unwrap();
+        let mut b = Source::new_parallel_mut(top, st)?;
+        let mut sels = vec![];
+        // Create valid non-overlapping selections.
+        sels.push( b.select_iter(0..10).unwrap() );
+        sels.push( b.select_iter(11..15).unwrap() );
+        sels.push( b.select_iter(15..25).unwrap() );
         // Process them
         let v = Vector3f::new(1.0, 2.0, 3.0);
-        let res = b.par_iter().map(|sel| {
+        let res = sels.par_iter().map(|sel| {
             sel.translate(&v);
             Ok(sel.center_of_mass()?)
         }).collect::<anyhow::Result<Vec<_>>>()?;
@@ -154,43 +153,37 @@ mod tests {
     }
 
     #[test]
-    fn builder_par_to_serial() -> anyhow::Result<()> {
+    fn builder_par2() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = SourceParallel::new_mut(top, st)?;
-        // Create two valid non-overlapping selections.
+        let mut b = Source::new_parallel_mut(top, st)?;
+        // Create non-overlapping selections.
+        let mut sels = vec![];
         for i in 0..30 {
-            b.add_from_iter(10*i..10*(i+1)).unwrap();
+            sels.push( b.select_iter(10*i..10*(i+1)).unwrap() );
         }
         // Process them
-        let v = Vector3f::new(1.0, 2.0, 3.0);
-        let mut res: Vec<_> = b.collect_par(|sel| {
+        let res= sels.par_iter().map(|sel| {
             let cm = sel.center_of_mass()?;
             sel.translate(&cm.coords);
             println!("thread: {}", rayon::current_thread_index().unwrap());
-            Ok::<_,MeasureError>(sel.center_of_mass()?)
-        })?;
+            sel.center_of_mass()
+        }).collect::<Result<Vec<_>,MeasureError>>()?;
         
-        println!("cm before = {:?}",res);
+        println!("cm = {:?}",res);
         
-        let (_,sels) = b.into_source_with_sels();
-        sels[0].translate(&v);
-        res[0] = sels[0].center_of_mass()?;
-        
-        println!("cm after = {:?}",res);
-
         Ok(())
     }
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let b = Source::new(top, st)?;
+        let mut b = Source::new_serial(top, st)?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let b = Source::new(top, st)?;
+        let mut b = Source::new_serial(top, st)?;
         let sel = b.select_str("not resname TIP3 POT CLA")?;
         Ok(sel)
     }
@@ -371,8 +364,8 @@ mod tests {
     #[should_panic]
     fn fail_on_empty_selection() {
         let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
-        let mut src = SourceParallel::new_mut(top, st).unwrap();
-        src.add_str("resid 5").unwrap();        
+        let mut src = Source::new_parallel_mut(top, st).unwrap();
+        src.select_str("resid 5").unwrap();        
     }
 
     #[test]

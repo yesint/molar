@@ -16,7 +16,7 @@ pub(crate) fn command_solvate(
     mode: &SolvateMode,
 ) -> Result<()> {
     info!("Loading solute from file '{file}'...");
-    let mut solute = Source::from_file_builder(file)?;
+    let mut solute = Source::builder_from_file(file)?;
 
     // Check periodic box
     if solute.get_box().is_none() {
@@ -34,7 +34,7 @@ pub(crate) fn command_solvate(
         }
     };
     info!("Loading solvent from file '{solvent_file}'...");
-    let mut solvent = Source::from_file_builder(&solvent_file)?;
+    let mut solvent = Source::builder_from_file(&solvent_file)?;
     if solvent.get_box().is_none() {
         bail!("solvent file lacks a periodic box");
     }
@@ -98,7 +98,7 @@ pub(crate) fn command_solvate(
     }
     // It is safe to call here since indexes are guaranteed to be properly sorted
     let inside_sel = unsafe {
-        solvent.select_from_vec_unchecked(inside_ind)   
+        solvent.select_vec_unchecked(inside_ind)?
     };
 
     //inside_sel.save("target/inside.gro")?;
@@ -114,7 +114,7 @@ pub(crate) fn command_solvate(
     );
     // We are getting indexes from inside_sel
     let to_remove_ind: Vec<usize> = searcher.search_vdw();
-    let to_remove_sel = solvent.select_from_vec(to_remove_ind);
+    let to_remove_sel = solvent.select_vec(&to_remove_ind)?;
     solvent.remove(&to_remove_sel)?;
 
     // Add solute and save
