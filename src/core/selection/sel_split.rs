@@ -65,7 +65,7 @@ impl<S> IntoSelectionSplitIterator<(), (), S> {
     pub fn new<RT, F>(sel: Sel<S>, func: F) -> IntoSelectionSplitIterator<RT, F, S>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(usize, &Atom, &Pos) -> RT,
+        F: Fn(Particle) -> RT,
     {
         IntoSelectionSplitIterator {
             sel,
