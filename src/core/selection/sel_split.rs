@@ -24,7 +24,7 @@ impl<S> SelectionSplitIterator<'_, (), (), S> {
     pub fn new<RT, F>(sel: &Sel<S>, func: F) -> SelectionSplitIterator<'_, RT, F, S>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
     {
         SelectionSplitIterator {
             sel,
@@ -40,7 +40,7 @@ impl<S> SelectionSplitIterator<'_, (), (), S> {
 impl<RT, F, S> Iterator for SelectionSplitIterator<'_, RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
-    F: Fn(Particle) -> RT,
+    F: Fn(Particle) -> Option<RT>,
     S: SelectionKind,
 {
     type Item = Sel<S>;
@@ -65,7 +65,7 @@ impl<S> IntoSelectionSplitIterator<(), (), S> {
     pub fn new<RT, F>(sel: Sel<S>, func: F) -> IntoSelectionSplitIterator<RT, F, S>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> RT,
+        F: Fn(Particle) -> Option<RT>,
     {
         IntoSelectionSplitIterator {
             sel,
@@ -81,7 +81,7 @@ impl<S> IntoSelectionSplitIterator<(), (), S> {
 impl<RT, F, S> Iterator for IntoSelectionSplitIterator<RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
-    F: Fn(Particle) -> RT,
+    F: Fn(Particle) -> Option<RT>,
     S: SelectionKind,
 {
     // Consuming splitter always return the same selection kind as parent
@@ -96,7 +96,7 @@ where
 fn next_split<RT, F, S, SR>(data: &mut SplitData<RT, F>, sel: &Sel<S>) -> Option<Sel<SR>>
 where
     RT: Default + std::cmp::PartialEq,
-    F: Fn(Particle) -> RT,
+    F: Fn(Particle) -> Option<RT>,
     S: SelectionKind,
     SR: SelectionKind,
 {
@@ -106,18 +106,20 @@ where
         let i = p.id;
         let id = (data.func)(p);
 
-        if id == data.id {
-            // Current selection continues. Add current index
-            index.push(i);
-        } else if index.is_empty() {
-            // The very first id is not default, this is Ok, add index
-            // and update self.id
-            data.id = id;
-            index.push(i);
-        } else {
-            // The end of current selection
-            data.id = id; // Update self.id for the next selection
-            return unsafe { Some(sel.subsel_from_vec_unchecked(index).unwrap()) };
+        if let Some(id) = id {
+            if id == data.id {
+                // Current selection continues. Add current index
+                index.push(i);
+            } else if index.is_empty() {
+                // The very first id is not default, this is Ok, add index
+                // and update self.id
+                data.id = id;
+                index.push(i);
+            } else {
+                // The end of current selection
+                data.id = id; // Update self.id for the next selection
+                return unsafe { Some(sel.subsel_from_vec_unchecked(index).unwrap()) };
+            }
         }
         // Next element
         data.counter += 1;
