@@ -308,7 +308,8 @@ impl<K: SelectionKind> Sel<K> {
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Selection is not consumed. Returned selections are of subselection kind.
     ///
-    /// Whenever `func` returns a value different from the previous one, new selection is created.
+    /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
+    /// If `func` returns `None` the atom is skipped and do not added to new selection.
     /// Selections are computed lazily when iterating.
     pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
     where
