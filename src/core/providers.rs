@@ -19,7 +19,7 @@ pub trait BoxProvider {
     fn get_box(&self) -> Option<&PeriodicBox>;
 }
 
-pub trait ParticleProvider {
+pub trait ParticleProvider: IndexProvider {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
 }
 
@@ -43,6 +43,6 @@ pub trait AtomsMutProvider {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
 }
 
-pub trait ParticleMutProvider {
+pub trait ParticleMutProvider: IndexProvider {
     fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>>;
 }
