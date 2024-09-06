@@ -444,4 +444,81 @@ mod tests {
             .for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
         Ok::<(), anyhow::Error>(())
     }
+
+    #[test]
+    fn bench_align() -> anyhow::Result<()> {
+        use std::time::{Duration, Instant};
+
+        let t = Instant::now();
+
+        let mut src = Source::serial_from_file("tests/protein.pdb")?;
+        let ref_sel = src.select_all()?;
+        let mut cur_sel = src.select_all()?;
+
+        let mut rmsd = vec![];
+
+        let trj = FileHandler::open("tests/protein.xtc")?.into_iter();
+        for st in trj {
+            cur_sel.set_shared_state(st.shareable())?;
+            let tr = MeasureMasses::fit_transform(&cur_sel, &ref_sel)?;
+            cur_sel.apply_transform(&tr);
+            rmsd.push( MeasurePos::rmsd(&cur_sel, &ref_sel)? );
+        }
+
+        println!("{:?}",rmsd);
+
+        let elapsed = t.elapsed();
+        println!("elapsed time: {}",elapsed.as_secs_f32());
+
+        Ok(())
+    }
+
+    #[test]
+    fn bench_within() -> anyhow::Result<()> {
+        use std::time::{Duration, Instant};
+
+        let t = Instant::now();
+
+        let mut src = Source::serial_from_file("tests/protein.pdb")?;
+        let mut sel = src.select_str("within 1.0 of resid 560")?;
+
+        let mut cm = vec![];
+
+        let trj = FileHandler::open("tests/protein.xtc")?.into_iter();
+        for st in trj {
+            sel.set_shared_state(st.shareable())?;
+            cm.push( sel.center_of_mass()? );
+        }
+
+        println!("{:?}",cm);
+
+        let elapsed = t.elapsed();
+        println!("elapsed time: {}",elapsed.as_secs_f32());
+
+        Ok(())
+    }
+
+    #[test]
+    fn bench_trjconv() -> anyhow::Result<()> {
+        use std::time::{Duration, Instant};
+
+        let t = Instant::now();
+
+        let mut src = Source::serial_from_file("tests/protein.pdb")?;
+        let mut sel = src.select_str("resid 560")?;
+
+        let in_trj = FileHandler::open("tests/protein.xtc")?.into_iter();
+        let mut out_trj = FileHandler::create("tests/.extracted.xtc")?;
+        for st in in_trj {
+            sel.set_shared_state(st.shareable())?;
+            out_trj.write_state(&sel)?;
+        }
+
+        let elapsed = t.elapsed();
+        println!("elapsed time: {}",elapsed.as_secs_f32());
+
+        Ok(())
+    }
+
+    
 }
