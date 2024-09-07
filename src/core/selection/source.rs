@@ -432,6 +432,7 @@ impl_read_only_source_traits!(Source<ImmutableParallel>);
 mod tests {
     use crate::prelude::*;
     use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
     #[test]
     fn par_iter2() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
@@ -445,80 +446,64 @@ mod tests {
         Ok::<(), anyhow::Error>(())
     }
 
-    #[test]
-    fn bench_align() -> anyhow::Result<()> {
-        use std::time::{Duration, Instant};
+    const N_SAMPLES: usize = 3;
 
-        let t = Instant::now();
-
-        let mut src = Source::serial_from_file("tests/protein.pdb")?;
-        let ref_sel = src.select_all()?;
-        let mut cur_sel = src.select_all()?;
+    fn bench_align() {
+        let mut src = Source::serial_from_file("tests/protein.pdb").unwrap();
+        let ref_sel = src.select_all().unwrap();
+        let mut cur_sel = src.select_all().unwrap();
 
         let mut rmsd = vec![];
 
-        let trj = FileHandler::open("tests/protein.xtc")?.into_iter();
+        let trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
         for st in trj {
-            cur_sel.set_shared_state(st.shareable())?;
-            let tr = MeasureMasses::fit_transform(&cur_sel, &ref_sel)?;
+            cur_sel.set_shared_state(st.shareable()).unwrap();
+            let tr = MeasureMasses::fit_transform(&cur_sel, &ref_sel).unwrap();
             cur_sel.apply_transform(&tr);
-            rmsd.push( MeasurePos::rmsd(&cur_sel, &ref_sel)? );
+            rmsd.push( MeasurePos::rmsd(&cur_sel, &ref_sel).unwrap() );
         }
-
-        println!("{:?}",rmsd);
-
-        let elapsed = t.elapsed();
-        println!("elapsed time: {}",elapsed.as_secs_f32());
-
-        Ok(())
     }
 
-    #[test]
-    fn bench_within() -> anyhow::Result<()> {
-        use std::time::{Duration, Instant};
-
-        let t = Instant::now();
-
-        let mut src = Source::serial_from_file("tests/protein.pdb")?;
-        let mut sel = src.select_str("within 1.0 of resid 560")?;
-
+    fn bench_within() {
+        let mut src = Source::serial_from_file("tests/protein.pdb").unwrap();
+        let mut sel = src.select_str("within 1.0 of resid 560").unwrap();
         let mut cm = vec![];
-
-        let trj = FileHandler::open("tests/protein.xtc")?.into_iter();
+        let trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
         for st in trj {
-            sel.set_shared_state(st.shareable())?;
-            cm.push( sel.center_of_mass()? );
+            sel.set_shared_state(st.shareable()).unwrap();
+            cm.push( sel.center_of_mass().unwrap() );
         }
+    }
+    
+    fn bench_trjconv(){    
+        let mut src = Source::serial_from_file("tests/protein.pdb").unwrap();
+        let mut sel = src.select_str("resid 560").unwrap();
+        let in_trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
+        let mut out_trj = FileHandler::create("tests/.extracted.xtc").unwrap();
+        for st in in_trj {
+            sel.set_shared_state(st.shareable()).unwrap();
+            out_trj.write_state(&sel).unwrap();
+        }
+    }
+    
+    fn runner(name: &str, func: impl Fn()) {
+        use std::time::Instant;
+        let mut times = nalgebra::SVector::<f32,N_SAMPLES>::default();
+        for i in 0..N_SAMPLES {
+            let t = Instant::now();
+            func();
+            times[i] = t.elapsed().as_secs_f32();
+        }
+        println!("{}: {}±{}", name, times.mean(), times.variance().sqrt());
 
-        println!("{:?}",cm);
-
-        let elapsed = t.elapsed();
-        println!("elapsed time: {}",elapsed.as_secs_f32());
-
-        Ok(())
     }
 
     #[test]
-    fn bench_trjconv() -> anyhow::Result<()> {
-        use std::time::{Duration, Instant};
-
-        let t = Instant::now();
-
-        let mut src = Source::serial_from_file("tests/protein.pdb")?;
-        let mut sel = src.select_str("resid 560")?;
-
-        let in_trj = FileHandler::open("tests/protein.xtc")?.into_iter();
-        let mut out_trj = FileHandler::create("tests/.extracted.xtc")?;
-        for st in in_trj {
-            sel.set_shared_state(st.shareable())?;
-            out_trj.write_state(&sel)?;
-        }
-
-        let elapsed = t.elapsed();
-        println!("elapsed time: {}",elapsed.as_secs_f32());
-
-        Ok(())
+    fn paper_benchmarks() {
+        runner("align",bench_align);
+        runner("within",bench_within);
+        runner("trjconv",bench_trjconv);
     }
 
-    
+
 }
