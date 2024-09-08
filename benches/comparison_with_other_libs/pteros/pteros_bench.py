@@ -7,7 +7,7 @@ def trjconv_bench():
     s=System("tests/protein.pdb")
     s.load("tests/protein.xtc")
     sel = s("resid 560")
-    sel.write("tests/.extracted.xtc")
+    sel.write("tests/.extracted.dcd")
 
 
 def align_bench():
@@ -35,8 +35,10 @@ def within_bench():
     s.load("tests/protein.xtc", on_frame=do_cm)
 
 
-def run(name,func,N):
+def run(name,func,Nwarm,N):
     times = np.zeros(N)
+    for i in range(Nwarm):
+        func()
     for i in range(N):
         t = time.process_time()
         func()
@@ -44,6 +46,6 @@ def run(name,func,N):
     print(f"{name}: {times.mean()}±{times.std()}")
 
 
-run('align',align_bench,3)
-run('within',within_bench,3)
-run('trjconv',trjconv_bench,3)
+run('align',align_bench,5,10)
+run('within',within_bench,5,10)
+run('trjconv',trjconv_bench,5,10)
