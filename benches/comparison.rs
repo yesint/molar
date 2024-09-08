@@ -3,7 +3,7 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use molar::prelude::*;
 
-fn comparison_benchmark(c: &mut Criterion) {
+fn molar_benchmark(c: &mut Criterion) {
     c.bench_function("align", |b| b.iter(
         black_box(
         || {
@@ -56,6 +56,6 @@ fn comparison_benchmark(c: &mut Criterion) {
 criterion_group!{
     name = comparison;
     config = Criterion::default().sample_size(20).warm_up_time(Duration::from_secs(5));
-    targets = comparison_benchmark
+    targets = molar_benchmark
 }
 criterion_main!(comparison);
