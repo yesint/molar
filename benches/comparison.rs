@@ -50,7 +50,7 @@ fn molar_benchmark(c: &mut Criterion) {
                 out_trj.write_state(&sel).unwrap();
             }
         }))
-    );
+    );    
 }
 
 criterion_group!{
