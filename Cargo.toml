@@ -64,7 +64,7 @@ sync-unsafe-cell = "0.1.1"
 triomphe = {version = "0.1.11", default-features = false, features = ["std"]}
 sorted-vec = "0.8.3"
 #nalgebra-lapack = "0.24"
-thiserror_string_context = {version = "0.1", path="../thiserror_string_context"}
+thiserror_string_context = {version = "0.1.3", path="../thiserror_string_context"}
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

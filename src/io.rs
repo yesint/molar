@@ -226,7 +226,7 @@ impl FileHandler {
             )),
 
             "gro" => Ok(Self::new(
-                FileFormat::Gro(GroFileHandler::open(fname).with_context(|| fname)?),
+                FileFormat::Gro(GroFileHandler::open(fname).map_err(FileIoError::Gro).with_context(|| fname)?),
                 fname.into(),
             )),
 
@@ -268,7 +268,7 @@ impl FileHandler {
                 fname.into(),
             )),
             "gro" => Ok(Self::new(
-                FileFormat::Gro(GroFileHandler::create(fname).with_context(|| fname)?),
+                FileFormat::Gro(GroFileHandler::create(fname).map_err(FileIoError::Gro).with_context(|| fname)?),
                 fname.into(),
             )),
             _ => Err(FileIoError::NotRecognized).with_context(|| fname),
@@ -281,7 +281,7 @@ impl FileHandler {
         let (top, st) = match self.format_handler {
             #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => h.read().with_context(|| &self.file_name)?,
-            FileFormat::Gro(ref mut h) => h.read().with_context(|| &self.file_name)?,
+            FileFormat::Gro(ref mut h) => h.read().map_err(FileIoError::Gro).with_context(|| &self.file_name)?,
             FileFormat::Pdb(ref mut h) => {
                 let top = h.read_topology().with_context(|| &self.file_name)?;
                 let st = h
@@ -312,7 +312,7 @@ impl FileHandler {
         let t = std::time::Instant::now();
 
         match self.format_handler {
-            FileFormat::Gro(ref mut h) => h.write(data).with_context(|| &self.file_name)?,
+            FileFormat::Gro(ref mut h) => h.write(data).map_err(FileIoError::Gro).with_context(|| &self.file_name)?,
             FileFormat::Pdb(ref mut h) => {
                 h.write_topology(data).with_context(|| &self.file_name)?;
                 h.write_state(data).with_context(|| &self.file_name)?;
