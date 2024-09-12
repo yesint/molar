@@ -31,10 +31,8 @@ impl SearchConnectivity {
     pub fn iter(&self) -> SearchConnectivityIter {
         SearchConnectivityIter(self.0.iter())
     }
-}
 
-impl FromIterator<(usize, usize)> for SearchConnectivity {
-    fn from_iter<T: IntoIterator<Item = (usize, usize)>>(iter: T) -> Self {
+    fn from_iter(iter: impl IntoIterator<Item = (usize, usize)>) -> Self {
         let mut res = Self::default();
         for (i, j) in iter {
             if res.0.contains_key(&i) {
@@ -53,27 +51,19 @@ impl FromIterator<(usize, usize)> for SearchConnectivity {
     }
 }
 
+impl FromIterator<(usize, usize)> for SearchConnectivity {
+    fn from_iter<T: IntoIterator<Item = (usize, usize)>>(iter: T) -> Self {
+        Self::from_iter(iter)
+    }
+}
+
 impl FromParallelIterator<(usize, usize)> for SearchConnectivity {
     fn from_par_iter<I>(par_iter: I) -> Self
     where
         I: IntoParallelIterator<Item = (usize, usize)>,
     {
         let v = par_iter.into_par_iter().collect::<Vec<_>>();
-        let mut res = Self::default();
-        for (i, j) in v.iter().cloned() {
-            if res.0.contains_key(&i) {
-                res.0.get_mut(&i).unwrap().push(j);
-            } else {
-                res.0.insert(i, vec![j]);
-            }
-
-            if res.0.contains_key(&j) {
-                res.0.get_mut(&j).unwrap().push(i);
-            } else {
-                res.0.insert(j, vec![i]);
-            }
-        }
-        res
+        Self::from_iter(v.iter().cloned())
     }
 }
 
@@ -789,7 +779,7 @@ impl SearchOutputType for (usize, usize, f32) {
 // Tests
 /*
 
-#[test]
+#[test]I
 fn test_single_periodic() {
     use crate::io::*;
     use crate::core::PBC_FULL;
