@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use molar::core::{MutableSerial, Source};
+    use molar::core::Source;
     use std::io::prelude::*;
     use std::{fs::File, io::BufWriter};
 
