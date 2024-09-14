@@ -1,4 +1,4 @@
-mol new triclinic.pdb type pdb
+mol new tests/albumin.pdb type pdb
 
 # Format: "vmd selection"  "molar selection"
 set selections {
@@ -8,6 +8,8 @@ set selections {
     "within 5 of resid 10"  "within 0.5 of resid 10"
     "within 3 of resid 20"  "within 0.3 of resid 20"
 } 
+#"within 10 of resid 1 to 200"  "within 1.0 of resid 1:200"
+#"within 30 of resid 1 to 200"  "within 3.0 of resid 1:200"
 
 set rust_code ""
 set n 0
@@ -27,7 +29,7 @@ for {set i 0} {$i < [llength $selections]} {incr i 2} {
     incr n
 }
 
-set f [open "generated_selection_tests.in" w]
+set f [open "tests/generated_selection_tests.in" w]
 puts $f $rust_code
 close $f
 

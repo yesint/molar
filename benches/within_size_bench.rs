@@ -14,7 +14,7 @@ mod tests {
     fn within_size_benchmark() -> anyhow::Result<()> {
         let mut src = Source::serial_from_file("tests/albumin.pdb")?;
 
-        for pbc in vec!["pbc",""] {
+        for pbc in vec!["","pbc"] {
             let pbc_str = if pbc != "" {
                 "pbc"
             } else {
@@ -25,7 +25,7 @@ mod tests {
                 let mut out =
                     BufWriter::new(File::create(format!("target/molar_{}{}.dat", pbc, n_res))?);
                 for i in 0..40 {
-                    let d = 0.3 + 0.15 * i as f32;
+                    let d = 0.3 + 0.1 * i as f32;
                     let t = run(|| {
                         for start_res in (0..100).step_by(10) {
                             src.select_str(format!(

@@ -1103,14 +1103,14 @@ mod tests {
     }
 
     fn read_test_pdb() -> (UniqueArc<Topology>, UniqueArc<State>) {
-        let mut h = FileHandler::open("tests/triclinic.pdb").unwrap();
+        let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
         let structure = h.read_topology().unwrap();
         let state = h.read_state().unwrap().unwrap();
         (structure, state)
     }
 
     fn read_test_pdb2() -> (UniqueArc<Topology>, UniqueArc<State>) {
-        let mut h = FileHandler::open("tests/protein.pdb").unwrap();
+        let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
         let structure = h.read_topology().unwrap();
         let state = h.read_state().unwrap().unwrap();
         (structure, state)
