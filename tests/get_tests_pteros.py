@@ -1,5 +1,5 @@
 from pteros import *
-sys = System('protein.pdb')
+sys = System('tests/albumin.pdb')
 
 # Format: "pteros selection"  "molar selection"
 selections = [
@@ -30,5 +30,5 @@ for i in range(0,len(selections),2):
     n+=1
 
 
-with open("generated_pteros_tests.in","w") as f:
+with open("tests/generated_pteros_tests.in","w") as f:
     f.write(rust_code)

@@ -9,10 +9,10 @@ use rayon::prelude::*;
 
 /// If the number of grid cells in X dimension is greater than this
 /// then parallel distance search is performed
-pub static SERIAL_LIMIT: usize = 2;
+pub static SERIAL_LIMIT: usize = 200000;
 
 /// Pre-allocated size of buffer for found pairs per grid cell
-const INIT_BUF_SIZE: usize = 1000;
+const INIT_BUF_SIZE: usize = 1;
 
 pub struct FoundPair {
     pub i: usize,
