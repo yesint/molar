@@ -7,7 +7,7 @@ use crate::core::{PbcDims, PeriodicBox, Pos, Vector3f};
 pub type CellLoc = nalgebra::Vector3<usize>;
 
 /// Trait for grid items
-/// Objects implementing thi strait will work for distance search.
+/// Objects implementing this trait will work for distance search.
 pub trait GridItem: Send + Sync { 
     fn get_pos(&self) -> &Pos;
     fn get_id(&self) -> usize;
