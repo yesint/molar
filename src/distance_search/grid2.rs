@@ -1,22 +1,20 @@
 use num_traits::clamp_min;
+use rayon::iter::IntoParallelIterator;
 
-use crate::{
-    core::{BoxProvider, MeasurePos, PbcDims, PeriodicBox, Pos, PosProvider, RandomAtom, RandomPos, RandomPosMut, Vector3f},
-    io::IndexProvider,
-};
 use super::{grid::GridItem, SearchOutputType};
+use crate::prelude::*;
 
 pub trait DistanceSearchePosProvider {
     fn nth_pos_unchecked(&self, n: usize) -> &Pos;
 }
 
 pub trait DistanceSearchePosVdwProvider {
-    fn nth_pos_vdw_unchecked(&self, n: usize) -> (&Pos,f32);
+    fn nth_pos_vdw_unchecked(&self, n: usize) -> (&Pos, f32);
 }
 
 struct Grid3d {
     cells: Vec<Vec<usize>>,
-    dims: [usize; 3],
+    dims: [usize; 3],    
 }
 
 static MASK: [([usize; 3], [usize; 3]); 14] = [
@@ -27,7 +25,7 @@ static MASK: [([usize; 3], [usize; 3]); 14] = [
     ([0, 0, 0], [0, 1, 0]), //Y
     ([0, 0, 0], [0, 0, 1]), //Z
     // Face angles
-    ([0, 0, 0], [1, 1, 0]), //XY
+    ([0, 0, 0], [1, 1, 0]), //XYWO #1
     ([0, 0, 0], [1, 0, 1]), //XZ
     ([0, 0, 0], [0, 1, 1]), //YZ
     // Far angls
@@ -43,7 +41,7 @@ static MASK: [([usize; 3], [usize; 3]); 14] = [
 ];
 
 impl Grid3d {
-    fn new_internal(dims: [usize; 3]) -> Self {
+    fn new_with_dims(dims: [usize; 3]) -> Self {
         Self {
             cells: vec![vec![]; dims[0] * dims[1] * dims[2]],
             dims,
@@ -64,50 +62,47 @@ impl Grid3d {
         &mut self.cells[i]
     }
 
-    fn dims_from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> [usize; 3] {
+    fn from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> Self {
         let mut sz = [0, 0, 0];
         // Cell size should be >= cutoff for all dimentions
         for d in 0..3 {
             sz[d] = clamp_min((extents[d] / cutoff).floor() as usize, 1);
         }
-        sz
+        Self::new_with_dims(sz)
     }
 
-    pub fn new(cutoff: f32, data: &impl MeasurePos) -> Self {
-        // Find extents
-        let (lower, upper) = data.min_max();
-        let dim_sz = upper - lower;
-        // Compute grid dimensions
-        let dims = Self::dims_from_cutoff_and_extents(cutoff, &dim_sz);
-        let mut slf = Self::new_internal(dims);
+    pub fn from_cutoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
+        Self::from_cutoff_and_extents(cutoff, &(max - min))
+    }
 
+    pub fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
+        Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
+    }
+
+    pub fn populate(&mut self, data: &impl PosProvider, lower: &Vector3f, upper: &Vector3f) {
         // Data points are numbered sequentially from zero
         // So grid always stores the local index within the data
+        let dim_sz = upper - lower;
         'outer: for (id, pos) in data.iter_pos().enumerate() {
             let mut loc = [0usize, 0, 0];
             for d in 0..3 {
-                let n = (slf.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
-                if n < 0 || n >= slf.dims[d] as isize {
+                let n = (self.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
+                if n < 0 || n >= self.dims[d] as isize {
                     continue 'outer;
                 } else {
                     loc[d] = n as usize;
                 }
             }
-            slf.get_mut(loc).push(id);
+            self.get_mut(loc).push(id);
         }
-        slf
     }
 
-    pub fn new_pbc(
-        cutoff: f32,
+    pub fn populate_pbc(
+        &mut self,
         data: &impl PosProvider,
         box_: &PeriodicBox,
         pbc_dims: &PbcDims,
-    ) -> Self {
-        // Compute grid dimensionsdim_sz
-        let dims = Self::dims_from_cutoff_and_extents(cutoff, &box_.get_extents());
-        let mut slf = Self::new_internal(dims);
-
+    ) {
         'outer: for (id, pos) in data.iter_pos().enumerate() {
             // Relative coordinates
             let rel = box_.to_box_coords(&pos.coords);
@@ -118,63 +113,18 @@ impl Grid3d {
                 if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
                     continue 'outer;
                 }
-                loc[d] = (rel[d] * slf.dims[d] as f32)
+                loc[d] = (rel[d] * self.dims[d] as f32)
                     .floor()
-                    .rem_euclid(slf.dims[d] as f32) as usize;
+                    .rem_euclid(self.dims[d] as f32) as usize;
             }
             //println!("{:?}",ind);
-            slf.get_mut(loc).push(id);
+            self.get_mut(loc).push(id);
         }
-        slf
     }
 
-    pub fn search_plan_single(grid: &Grid3d, periodic: bool) -> Vec<(usize, usize, bool)> {
-        let mut plan = Vec::with_capacity(14 * grid.dims[0] * grid.dims[1] * grid.dims[2]);
-        // Cycle over whole grid
-        for x in 0..grid.dims[0] {
-            for y in 0..grid.dims[1] {
-                for z in 0..grid.dims[2] {
-                    // go over possible pairs
-                    for (v1, v2) in MASK {
-                        let mut c1 = [x + v1[0], y + v1[1], z + v1[2]];
-                        let mut c2 = [x + v2[0], y + v2[1], z + v2[2]];
-                        // we only go to the right, so need to check the right edge
-                        let mut wrapped = false;
-                        for d in 0..3 {
-                            if c1[d] == grid.dims[d] {
-                                if periodic {
-                                    c1[d] = 0;
-                                    wrapped = true;
-                                } else {
-                                    continue;
-                                }
-                            }
-                            if c2[d] == grid.dims[d] {
-                                if periodic {
-                                    c2[d] = 0;
-                                    wrapped = true;
-                                } else {
-                                    continue;
-                                }
-                            }
-                        }
-                        // If we are here we need to add te cell pair to then plan
-                        // Check if there are points in both cells
-                        let i1 = grid.loc_to_ind(c1);
-                        let i2 = grid.loc_to_ind(c2);
-                        if grid.cells[i1].len()>0 && grid.cells[i2].len()>0 {
-                            plan.push((i1, i2, wrapped));
-                        }
-                    }
-                }
-            }
-        }
-        plan
-    }
-
-    pub fn search_plan_double(
+    pub fn search_plan(
         grid1: &Grid3d,
-        grid2: &Grid3d,
+        grid2: Option<&Grid3d>,
         periodic: bool,
     ) -> Vec<(usize, usize, bool)> {
         let mut plan = Vec::with_capacity(14 * grid1.dims[0] * grid1.dims[1] * grid1.dims[2]);
@@ -184,36 +134,36 @@ impl Grid3d {
                 for z in 0..grid1.dims[2] {
                     // go over possible pairs
                     for (v1, v2) in MASK {
-                        let mut c1 = [x + v1[0], y + v1[1], z + v1[2]];
-                        let mut c2 = [x + v2[0], y + v2[1], z + v2[2]];
+                        let mut c = [
+                            [x + v1[0], y + v1[1], z + v1[2]],
+                            [x + v2[0], y + v2[1], z + v2[2]],
+                        ];
                         // we only go to the right, so need to check the right edge
                         let mut wrapped = false;
-                        for d in 0..3 {
-                            if c1[d] == grid1.dims[d] {
-                                if periodic {
-                                    c1[d] = 0;
-                                    wrapped = true;
-                                } else {
-                                    continue;
-                                }
-                            }
-                            if c2[d] == grid1.dims[d] {
-                                if periodic {
-                                    c2[d] = 0;
-                                    wrapped = true;
-                                } else {
-                                    continue;
+                        for i in 0..=1 {
+                            for d in 0..3 {
+                                if c[i][d] == grid1.dims[d] {
+                                    if periodic {
+                                        c[i][d] = 0;
+                                        wrapped = true;
+                                    } else {
+                                        continue;
+                                    }
                                 }
                             }
                         }
                         // If we are here we need to add te cell pair to then plan
+                        let i1 = grid1.loc_to_ind(c[0]);
+                        let i2 = grid1.loc_to_ind(c[1]);
                         // Check if there are points in both cells
-                        // Check both combinations
-                        let i1 = grid1.loc_to_ind(c1);
-                        let i2 = grid1.loc_to_ind(c2);
-                        if (grid1.cells[i1].len()>0 && grid2.cells[i2].len()>0)
-                        || (grid2.cells[i1].len()>0 && grid1.cells[i2].len()>0)
-                        {
+                        // This is different in single and double grid cases
+                        if let Some(grid2) = grid2 {
+                            if (grid1.cells[i1].len() > 0 && grid2.cells[i2].len() > 0)
+                                || (grid2.cells[i1].len() > 0 && grid1.cells[i2].len() > 0)
+                            {
+                                plan.push((i1, i2, wrapped));
+                            }
+                        } else if grid1.cells[i1].len() > 0 && grid1.cells[i2].len() > 0 {
                             plan.push((i1, i2, wrapped));
                         }
                     }
@@ -222,44 +172,35 @@ impl Grid3d {
         }
         plan
     }
+    
+    pub fn get_dims(&self) -> [usize; 3] {
+        self.dims
+    }
 }
 
-
 fn search_cell_pair<T: SearchOutputType>(
-    grid: &Grid3d,
-    pair: (usize,usize,bool),    
-    coords: impl RandomPos,    
-    accept_func: fn(&Pos, &Pos, bool) -> Option<f32>,
+    cutoff: f32,
+    grid1: &Grid3d,
+    grid2: &Grid3d,
+    pair: (usize, usize, bool),
+    coords1: &impl RandomPos,
+    coords2: &impl RandomPos,
 ) -> Vec<T> {
-    let n1 = grid.cells[pair.0].len();
-    let n2 = grid.cells[pair.1].len();
+    let n1 = grid1.cells[pair.0].len();
+    let n2 = grid2.cells[pair.1].len();
 
     let mut found = Vec::<T>::new();
 
-    if pair.0 == pair.1 {
-        // Same cell
-        for i in 0..n1 - 1 {
-            let ind1 = grid.cells[pair.0][i];
-            let p1 = unsafe{ coords.nth_pos_unchecked(ind1) };
-            for j in i + 1..n1 {
-                let ind2 = grid.cells[pair.1][j];
-                let p2 = unsafe{ coords.nth_pos_unchecked(ind2) };
-                if let Some(d) = accept_func(p1, p2, pair.2) {
-                    found.push(T::from_search_results(i,j,d));
-                }
-            }
-        }
-    } else {
-        // Different cells
-        for i in 0..n1 {
-            let ind1 = grid.cells[pair.0][i];
-            let p1 = unsafe{ coords.nth_pos_unchecked(ind1) };
-            for j in 0..n2 {
-                let ind2 = grid.cells[pair.1][j];
-                let p2 = unsafe{ coords.nth_pos_unchecked(ind2) };
-                if let Some(d) = accept_func(p1, p2, pair.2) {
-                    found.push(T::from_search_results(i,j,d));
-                }
+    for i in 0..n1 {
+        let ind1 = grid1.cells[pair.0][i];
+        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
+        for j in 0..n2 {
+            let ind2 = grid2.cells[pair.0][j];
+            let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
+
+            let d = (pos2 - pos1).norm();
+            if d <= cutoff {
+                found.push(T::from_search_results(ind1, ind2, d));
             }
         }
     }
@@ -267,11 +208,54 @@ fn search_cell_pair<T: SearchOutputType>(
     found
 }
 
-// pub fn distance_search_single<I: GridItem>(cutoff: f32, data: impl std::ops::Index<usize, Output = I>) {
-//     let grid = Grid3d::new(cutoff, data);
-//     let plan = Grid3d::search_plan_single(&grid, false);
-//     // Cycle over search plan and perform seacrh for each cell pair
-//     for pair in plan {
-//         search_cell_pair(&grid, pair, data, accept_func)
-//     }
-// }
+fn search_cell_pair_pbc<T: SearchOutputType>(
+    cutoff: f32,
+    grid1: &Grid3d,
+    grid2: &Grid3d,
+    pair: (usize, usize, bool),
+    coords1: &impl RandomPos,
+    coords2: &impl RandomPos,
+    box_: &PeriodicBox,
+) -> Vec<T> {
+    let n1 = grid1.cells[pair.0].len();
+    let n2 = grid2.cells[pair.1].len();
+
+    let mut found = Vec::<T>::new();
+
+    for i in 0..n1 {
+        let ind1 = grid1.cells[pair.0][i];
+        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
+        for j in 0..n2 {
+            let ind2 = grid2.cells[pair.0][j];
+            let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
+
+            let d = box_.distance(pos1, pos2, &PBC_FULL);
+            if d <= cutoff {
+                found.push(T::from_search_results(ind1, ind2, d));
+            }
+        }
+    }
+
+    found
+}
+
+pub fn distance_search_double(
+    cutoff: f32,
+    data1: impl RandomPos + Send + Sync,
+    data2: impl RandomPos + Send + Sync,
+    lower: &Vector3f,
+    upper: &Vector3f,
+) -> Vec<usize> {
+    let mut grid1 = Grid3d::from_cutoff_and_min_max(cutoff, lower,upper);
+    let mut grid2 = Grid3d::new_with_dims(grid1.get_dims());
+
+    grid1.populate(&data1, lower, upper);
+    grid2.populate(&data2, lower, upper);
+
+    let plan = Grid3d::search_plan(&grid1, Some(&grid2), false);
+    
+    // Cycle over search plan and perform search for each cell pair
+    plan.into_par_iter().map(|pair|
+        search_cell_pair::<usize>(cutoff, &grid1, &grid2, pair, &data1, &data2)
+    ).flatten().collect()
+}

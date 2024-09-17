@@ -23,7 +23,7 @@ pub trait ParticleProvider: IndexProvider {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
 }
 
-pub trait RandomPos {    
+pub trait RandomPos: PosProvider {    
     fn nth_pos(&self, i: usize) -> Option<&Pos>;
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
 }
@@ -41,7 +41,7 @@ pub trait PosMutProvider: PosProvider {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_>;
 }
 
-pub trait RandomPosMut: RandomPos {
+pub trait RandomPosMut: RandomPos + PosMutProvider {
     fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos>;
     unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
 }
