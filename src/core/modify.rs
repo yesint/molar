@@ -58,7 +58,7 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider {
 
 /// Trait for modification requiring random access positions and pbc
 pub trait ModifyRandomAccess:
-    PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider
+    PosMutProvider + PosProvider + BoxProvider + RandomPosMut
 {
     fn unwrap_connectivity(&self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, &PBC_FULL)
@@ -93,7 +93,7 @@ pub trait ModifyRandomAccess:
             for ind in &conn[c] {
                 // Unwrap this point if it is not used yet
                 if !used[*ind] {
-                    let p = unsafe { self.nth_pos_unchecked_mut(*ind) };
+                    let p = unsafe { self.nth_pos_mut_unchecked(*ind) };
                     *p = b.closest_image_dims(p, &p0, &dims);
                     // Add it to the stack
                     todo.push(*ind);

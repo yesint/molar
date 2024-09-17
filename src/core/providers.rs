@@ -23,26 +23,38 @@ pub trait ParticleProvider: IndexProvider {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
 }
 
+pub trait RandomPos {    
+    fn nth_pos(&self, i: usize) -> Option<&Pos>;
+    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
+}
+
+pub trait RandomAtom {    
+    fn nth_atom(&self, i: usize) -> Option<&Atom>;
+    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
+}
+
 //--------------------------------------------------------------
 // Mutable providers
 //--------------------------------------------------------------
 
-pub trait PosMutProvider {
+pub trait PosMutProvider: PosProvider {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_>;
 }
 
-pub trait RandomPosMutProvider {
-    unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos;
-
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        self.nth_pos_unchecked_mut(i)
-    }
+pub trait RandomPosMut: RandomPos {
+    fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos>;
+    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
 }
 
-pub trait AtomsMutProvider {
+pub trait AtomsMutProvider: AtomsProvider {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
 }
 
 pub trait ParticleMutProvider: IndexProvider {
     fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>>;
+}
+
+pub trait RandomAtomMut {
+    fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom>;
+    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom;
 }

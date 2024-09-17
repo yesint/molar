@@ -672,6 +672,33 @@ impl<K: SelectionKind> MassesProvider for Sel<K> {
 
 impl<K: SelectionKind> MeasureMasses for Sel<K> {}
 
+impl<K: SelectionKind> RandomPos for Sel<K> {    
+    fn nth_pos(&self, i: usize) -> Option<&Pos> {
+        self.index()
+        .get(i)
+        .map(|i| unsafe{self.state.nth_pos_unchecked(*i)})
+    }
+
+    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+        let ind = *self.index().get_unchecked(i);
+        self.state.nth_pos_unchecked(ind)
+    }
+}
+
+impl<K: SelectionKind> RandomAtom for Sel<K> {    
+    fn nth_atom(&self, i: usize) -> Option<&Atom> {
+        self.index()
+        .get(i)
+        .map(|i| unsafe{self.topology.nth_atom_unchecked(*i)})
+    }
+
+    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+        let ind = *self.index().get_unchecked(i);
+        self.topology.nth_atom_unchecked(ind)
+    }
+}
+
+
 //-------------------------------------------------------
 // Mutable analysis traits only for mutable selections
 
@@ -695,11 +722,29 @@ impl<K: MutableSel> AtomsMutProvider for Sel<K> {
     }
 }
 
-impl<K: MutableSel> RandomPosMutProvider for Sel<K> {
-    #[inline(always)]
-    unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
+impl<K: MutableSel> RandomPosMut for Sel<K> {    
+    fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+        self.index()
+        .get(i)
+        .map(|i| unsafe{self.state.nth_pos_mut_unchecked(*i)})
+    }
+
+    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
         let ind = *self.index().get_unchecked(i);
         self.state.nth_pos_unchecked_mut(ind)
+    }
+}
+
+impl<K: MutableSel> RandomAtomMut for Sel<K> {    
+    fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+        self.index()
+        .get(i)
+        .map(|i| unsafe{self.topology.nth_atom_mut_unchecked(*i)})
+    }
+
+    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+        let ind = *self.index().get_unchecked(i);
+        self.topology.nth_atom_mut_unchecked(ind)
     }
 }
 
