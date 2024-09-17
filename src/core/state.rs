@@ -1,7 +1,7 @@
 use sync_unsafe_cell::SyncUnsafeCell;
 use triomphe::{Arc, UniqueArc};
 use crate::io::StateProvider;
-use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos, PosMutProvider};
+use crate::prelude::*;
 //use super::handle::{SharedHandle, Handle};
 
 
@@ -133,6 +133,26 @@ macro_rules! impl_state_traits {
         impl PosMutProvider for $t {
             fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
                 self.get_storage_mut().coords.iter_mut()
+            }
+        }
+
+        impl RandomPos for $t {
+            fn nth_pos(&self, i: usize) -> Option<&Pos> {
+                self.get_storage().coords.get(i)
+            }
+
+            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+                self.get_storage().coords.get_unchecked(i)
+            }
+        }
+
+        impl RandomPosMut for $t {
+            fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+                self.get_storage_mut().coords.get_mut(i)
+            }
+
+            unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+                self.get_storage_mut().coords.get_unchecked_mut(i)
             }
         }
     }

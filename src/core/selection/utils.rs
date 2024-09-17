@@ -140,6 +140,16 @@ macro_rules! impl_read_only_source_traits {
                 })
             }
         }
+
+        impl RandomPos for $t {
+            fn nth_pos(&self, i: usize) -> Option<&Pos> {
+                self.state.nth_pos(i)
+            }
+
+            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+                self.state.nth_pos_unchecked(i)
+            }
+        }
         
     };
 }
@@ -154,9 +164,13 @@ macro_rules! impl_read_write_source_traits {
             }
         }
 
-        impl RandomPosMutProvider for $t {
-            unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
-                self.state.nth_pos_unchecked_mut(i)
+        impl RandomPosMut for $t {
+            fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+                self.state.nth_pos_mut(i)
+            }
+
+            unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+                self.state.nth_pos_mut_unchecked(i)
             }
         }
 

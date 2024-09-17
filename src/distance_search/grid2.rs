@@ -1,11 +1,18 @@
 use num_traits::clamp_min;
 
 use crate::{
-    core::{BoxProvider, MeasurePos, PbcDims, PeriodicBox, Pos, PosProvider, RandomPosMutProvider, Vector3f},
+    core::{BoxProvider, MeasurePos, PbcDims, PeriodicBox, Pos, PosProvider, RandomAtom, RandomPos, RandomPosMut, Vector3f},
     io::IndexProvider,
 };
-
 use super::{grid::GridItem, SearchOutputType};
+
+pub trait DistanceSearchePosProvider {
+    fn nth_pos_unchecked(&self, n: usize) -> &Pos;
+}
+
+pub trait DistanceSearchePosVdwProvider {
+    fn nth_pos_vdw_unchecked(&self, n: usize) -> (&Pos,f32);
+}
 
 struct Grid3d {
     cells: Vec<Vec<usize>>,
@@ -66,7 +73,7 @@ impl Grid3d {
         sz
     }
 
-    pub fn new(cutoff: f32, data: impl MeasurePos + IndexProvider) -> Self {
+    pub fn new(cutoff: f32, data: &impl MeasurePos) -> Self {
         // Find extents
         let (lower, upper) = data.min_max();
         let dim_sz = upper - lower;
@@ -74,7 +81,9 @@ impl Grid3d {
         let dims = Self::dims_from_cutoff_and_extents(cutoff, &dim_sz);
         let mut slf = Self::new_internal(dims);
 
-        'outer: for (id, pos) in data.iter_index().zip(data.iter_pos()) {
+        // Data points are numbered sequentially from zero
+        // So grid always stores the local index within the data
+        'outer: for (id, pos) in data.iter_pos().enumerate() {
             let mut loc = [0usize, 0, 0];
             for d in 0..3 {
                 let n = (slf.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
@@ -91,7 +100,7 @@ impl Grid3d {
 
     pub fn new_pbc(
         cutoff: f32,
-        data: impl IndexProvider + PosProvider,
+        data: &impl PosProvider,
         box_: &PeriodicBox,
         pbc_dims: &PbcDims,
     ) -> Self {
@@ -99,7 +108,7 @@ impl Grid3d {
         let dims = Self::dims_from_cutoff_and_extents(cutoff, &box_.get_extents());
         let mut slf = Self::new_internal(dims);
 
-        'outer: for (id, pos) in data.iter_index().zip(data.iter_pos()) {
+        'outer: for (id, pos) in data.iter_pos().enumerate() {
             // Relative coordinates
             let rel = box_.to_box_coords(&pos.coords);
             let mut loc = [0usize, 0, 0];
@@ -216,11 +225,11 @@ impl Grid3d {
 }
 
 
-fn search_cell_pair<I: GridItem,T: SearchOutputType>(
+fn search_cell_pair<T: SearchOutputType>(
     grid: &Grid3d,
-    pair: (usize,usize,bool),
-    data: impl std::ops::Index<usize, Output = I>,
-    accept_func: fn(&I, &I, bool) -> Option<f32>,
+    pair: (usize,usize,bool),    
+    coords: impl RandomPos,    
+    accept_func: fn(&Pos, &Pos, bool) -> Option<f32>,
 ) -> Vec<T> {
     let n1 = grid.cells[pair.0].len();
     let n2 = grid.cells[pair.1].len();
@@ -231,12 +240,12 @@ fn search_cell_pair<I: GridItem,T: SearchOutputType>(
         // Same cell
         for i in 0..n1 - 1 {
             let ind1 = grid.cells[pair.0][i];
-            let el1 = &data[ind1];
+            let p1 = unsafe{ coords.nth_pos_unchecked(ind1) };
             for j in i + 1..n1 {
                 let ind2 = grid.cells[pair.1][j];
-                let el2 = &data[ind2];
-                if let Some(d) = accept_func(el1, el2, pair.2) {
-                    found.push(T::from_search_results(el1.get_id(), el2.get_id(), d));
+                let p2 = unsafe{ coords.nth_pos_unchecked(ind2) };
+                if let Some(d) = accept_func(p1, p2, pair.2) {
+                    found.push(T::from_search_results(i,j,d));
                 }
             }
         }
@@ -244,12 +253,12 @@ fn search_cell_pair<I: GridItem,T: SearchOutputType>(
         // Different cells
         for i in 0..n1 {
             let ind1 = grid.cells[pair.0][i];
-            let el1 = &data[ind1];
+            let p1 = unsafe{ coords.nth_pos_unchecked(ind1) };
             for j in 0..n2 {
                 let ind2 = grid.cells[pair.1][j];
-                let el2 = &data[ind2];
-                if let Some(d) = accept_func(el1, el2, pair.2) {
-                    found.push(T::from_search_results(el1.get_id(), el2.get_id(), d));
+                let p2 = unsafe{ coords.nth_pos_unchecked(ind2) };
+                if let Some(d) = accept_func(p1, p2, pair.2) {
+                    found.push(T::from_search_results(i,j,d));
                 }
             }
         }

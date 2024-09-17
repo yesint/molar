@@ -2,7 +2,7 @@ use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
 use triomphe::{Arc, UniqueArc};
 use crate::io::TopologyProvider;
-use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
+use crate::prelude::*;
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
@@ -161,7 +161,27 @@ macro_rules! impl_topology_traits {
             fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
                 self.get_storage().atoms.iter().map(|at| at.mass)
             }
-        }        
+        }
+
+        impl RandomAtom for $t {
+            fn nth_atom(&self, i: usize) -> Option<&Atom> {
+                self.get_storage().atoms.get(i)
+            }
+
+            unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+                self.get_storage().atoms.get_unchecked(i)
+            }
+        }
+
+        impl RandomAtomMut for $t {
+            fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+                self.get_storage_mut().atoms.get_mut(i)
+            }
+
+            unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+                self.get_storage_mut().atoms.get_unchecked_mut(i)
+            }
+        }  
     }
 }
 
