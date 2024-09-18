@@ -23,25 +23,25 @@ mol new tests/albumin.pdb
 # List of residue counts and distances
 set res_counts {1 20 40 60}
 
-# foreach n_res $res_counts {
-#     set out_file [open "target/vmd_${n_res}.dat" "w"]
-#     for {set d 3.0} {$d <= 43.0} {set d [expr {$d + 1.0}]} {
-#         run $n_res $d $out_file
-#     }
-#     close $out_file
-# }
-
-
-for {set d 3.0} {$d <= 50.0} {set d [expr {$d + 1.0}]} {
-    set start_time [clock milliseconds]
-
-    set sel [atomselect top "within $d of residue 0 to 200"]
-    
-    set end_time [clock milliseconds]
-    
-    set t [expr ($end_time - $start_time)/1000.0]
-    puts "$d $t [$sel num]"
+foreach n_res $res_counts {
+    set out_file [open "target/vmd_${n_res}.dat" "w"]
+    for {set d 3.0} {$d <= 43.0} {set d [expr {$d + 1.0}]} {
+        run $n_res $d $out_file
+    }
+    close $out_file
 }
+
+
+# for {set d 3.0} {$d <= 50.0} {set d [expr {$d + 1.0}]} {
+#     set start_time [clock milliseconds]
+
+#     set sel [atomselect top "within $d of residue 0 to 200"]
+    
+#     set end_time [clock milliseconds]
+    
+#     set t [expr ($end_time - $start_time)/1000.0]
+#     puts "$d $t [$sel num]"
+# }
 
 # Quit VMD after completion
 quit

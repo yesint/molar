@@ -99,11 +99,24 @@ where
     pub fn dim(&self) -> [usize; 3] {
         let d = self.data.dim();
         [d.0, d.1, d.2]
-    }
+    }    
 }
 
 impl<I: GridItem> Grid<Vec<I>> 
 {
+    pub fn debug(&self) {
+        for x in 0..self.dim()[0] {
+            for y in 0..self.dim()[1] {
+                for z in 0..self.dim()[2] {
+                    let n = self.data[[x,y,z]].len();
+                    if n>0 {
+                        println!("{},{},{} {}",x,y,z,n);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn populate(
         &mut self,
         iter: impl Iterator<Item = I>,

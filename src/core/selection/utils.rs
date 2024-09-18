@@ -141,11 +141,13 @@ macro_rules! impl_read_only_source_traits {
             }
         }
 
-        impl RandomPos for $t {
-            fn nth_pos(&self, i: usize) -> Option<&Pos> {
-                self.state.nth_pos(i)
+        impl LenProvider for $t {
+            fn len(&self) -> usize {
+                self.state.num_coords()
             }
-
+        }
+        
+        impl RandomPos for $t {
             unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
                 self.state.nth_pos_unchecked(i)
             }
