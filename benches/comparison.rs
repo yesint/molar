@@ -44,7 +44,7 @@ fn molar_benchmark(c: &mut Criterion) {
             let mut sel = src.select_str("resid 560").unwrap();
 
             let in_trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
-            let mut out_trj = FileHandler::create("tartet/.extracted.dcd").unwrap();
+            let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();
             for st in in_trj {
                 sel.set_shared_state(st.shareable()).unwrap();
                 out_trj.write_state(&sel).unwrap();

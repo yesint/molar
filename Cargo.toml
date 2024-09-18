@@ -78,6 +78,10 @@ gromacs = ["dep:molar_gromacs"]
 name = "fit_benchmark"
 harness = false
 
+[[bench]]
+name = "comparison"
+harness = false
+
 [package.metadata.docs.rs]
 # Prevents CI builds from building C/C++ dependences
 no-default-features = true
