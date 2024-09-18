@@ -3,6 +3,10 @@ use crate::prelude::*;
 //--------------------------------------------------------------
 // Immutable providers
 //--------------------------------------------------------------
+pub trait LenProvider {
+    fn len(&self) -> usize;
+}
+
 pub trait PosProvider {
     fn iter_pos(&self) -> impl PosIterator<'_>;
 }
@@ -23,13 +27,26 @@ pub trait ParticleProvider: IndexProvider {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
 }
 
-pub trait RandomPos: PosProvider {    
-    fn nth_pos(&self, i: usize) -> Option<&Pos>;
+pub trait RandomPos: LenProvider {       
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
+    
+    fn nth_pos(&self, i: usize) -> Option<&Pos> {
+        if i<self.len() {
+            Some(unsafe{self.nth_pos_unchecked(i)})
+        } else {
+            None
+        }
+    }
 }
 
-pub trait RandomAtom {    
-    fn nth_atom(&self, i: usize) -> Option<&Atom>;
+pub trait RandomAtom: LenProvider {    
+    fn nth_atom(&self, i: usize) -> Option<&Atom> {
+        if i<self.len() {
+            Some(unsafe{self.nth_atom_unchecked(i)})
+        } else {
+            None
+        }
+    }
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
 }
 

@@ -511,6 +511,8 @@ impl DistanceSearcherDouble<(usize, Pos)> {
 
         grid1.populate(data1, lower, upper);
         grid2.populate(data2, lower, upper);
+
+        //grid1.debug();
         // Create an instance
         Self {
             grid1,

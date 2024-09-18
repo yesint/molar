@@ -1,5 +1,5 @@
 use num_traits::clamp_min;
-use rayon::iter::IntoParallelIterator;
+use rayon::iter::{FromParallelIterator, IntoParallelIterator};
 
 use super::{grid::GridItem, SearchOutputType};
 use crate::prelude::*;
@@ -41,6 +41,19 @@ static MASK: [([usize; 3], [usize; 3]); 14] = [
 ];
 
 impl Grid3d {
+    pub fn debug(&self) {
+        for x in 0..self.dims[0] {
+            for y in 0..self.dims[1] {
+                for z in 0..self.dims[2] {
+                    let n = self.cells[self.loc_to_ind([x,y,z])].len();
+                    if n>0 {
+                        println!("{},{},{} {}",x,y,z,n);
+                    }
+                }
+            }
+        }
+    }
+
     fn new_with_dims(dims: [usize; 3]) -> Self {
         Self {
             cells: vec![vec![]; dims[0] * dims[1] * dims[2]],
@@ -79,11 +92,12 @@ impl Grid3d {
         Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
     }
 
-    pub fn populate(&mut self, data: &impl PosProvider, lower: &Vector3f, upper: &Vector3f) {
+    pub fn populate(&mut self, data: &impl RandomPos, lower: &Vector3f, upper: &Vector3f) {
         // Data points are numbered sequentially from zero
         // So grid always stores the local index within the data
         let dim_sz = upper - lower;
-        'outer: for (id, pos) in data.iter_pos().enumerate() {
+        'outer: for id in 0..data.len() {
+            let pos = unsafe {data.nth_pos_unchecked(id)};
             let mut loc = [0usize, 0, 0];
             for d in 0..3 {
                 let n = (self.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
@@ -133,7 +147,7 @@ impl Grid3d {
             for y in 0..grid1.dims[1] {
                 for z in 0..grid1.dims[2] {
                     // go over possible pairs
-                    for (v1, v2) in MASK {
+                    'mask: for (v1, v2) in MASK {
                         let mut c = [
                             [x + v1[0], y + v1[1], z + v1[2]],
                             [x + v2[0], y + v2[1], z + v2[2]],
@@ -147,7 +161,7 @@ impl Grid3d {
                                         c[i][d] = 0;
                                         wrapped = true;
                                     } else {
-                                        continue;
+                                        continue 'mask;
                                     }
                                 }
                             }
@@ -155,6 +169,7 @@ impl Grid3d {
                         // If we are here we need to add te cell pair to then plan
                         let i1 = grid1.loc_to_ind(c[0]);
                         let i2 = grid1.loc_to_ind(c[1]);
+
                         // Check if there are points in both cells
                         // This is different in single and double grid cases
                         if let Some(grid2) = grid2 {
@@ -179,33 +194,33 @@ impl Grid3d {
 }
 
 fn search_cell_pair<T: SearchOutputType>(
-    cutoff: f32,
+    cutoff2: f32,
     grid1: &Grid3d,
     grid2: &Grid3d,
     pair: (usize, usize, bool),
     coords1: &impl RandomPos,
     coords2: &impl RandomPos,
-) -> Vec<T> {
+    found: &mut Vec<T>,
+) {
     let n1 = grid1.cells[pair.0].len();
     let n2 = grid2.cells[pair.1].len();
 
-    let mut found = Vec::<T>::new();
+    //let mut found = Vec::<T>::new();
 
     for i in 0..n1 {
         let ind1 = grid1.cells[pair.0][i];
         let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
         for j in 0..n2 {
-            let ind2 = grid2.cells[pair.0][j];
+            let ind2 = grid2.cells[pair.1][j];
+            //println!("{} {}",ind1,ind2);
             let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
 
-            let d = (pos2 - pos1).norm();
-            if d <= cutoff {
-                found.push(T::from_search_results(ind1, ind2, d));
+            let d2 = (pos2 - pos1).norm_squared();
+            if d2 <= cutoff2 {
+                found.push(T::from_search_results(ind1, ind2, d2.sqrt()));
             }
         }
     }
-
-    found
 }
 
 fn search_cell_pair_pbc<T: SearchOutputType>(
@@ -230,7 +245,7 @@ fn search_cell_pair_pbc<T: SearchOutputType>(
             let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
 
             let d = box_.distance(pos1, pos2, &PBC_FULL);
-            if d <= cutoff {
+            if d <= cutoff && d>10.0*f32::EPSILON {
                 found.push(T::from_search_results(ind1, ind2, d));
             }
         }
@@ -239,23 +254,38 @@ fn search_cell_pair_pbc<T: SearchOutputType>(
     found
 }
 
-pub fn distance_search_double(
+pub(crate) fn distance_search_double<T,C>(
     cutoff: f32,
-    data1: impl RandomPos + Send + Sync,
-    data2: impl RandomPos + Send + Sync,
+    data1: &(impl RandomPos + Send + Sync),
+    data2: &(impl RandomPos + Send + Sync),
     lower: &Vector3f,
     upper: &Vector3f,
-) -> Vec<usize> {
+) -> C 
+where
+    T: SearchOutputType + Send + Clone,
+    C: FromIterator<T> + FromParallelIterator<T>,
+{
     let mut grid1 = Grid3d::from_cutoff_and_min_max(cutoff, lower,upper);
     let mut grid2 = Grid3d::new_with_dims(grid1.get_dims());
 
-    grid1.populate(&data1, lower, upper);
-    grid2.populate(&data2, lower, upper);
+    grid1.populate(data1, lower, upper);
+    grid2.populate(data2, lower, upper);
+
+    //grid1.debug();
 
     let plan = Grid3d::search_plan(&grid1, Some(&grid2), false);
     
     // Cycle over search plan and perform search for each cell pair
-    plan.into_par_iter().map(|pair|
-        search_cell_pair::<usize>(cutoff, &grid1, &grid2, pair, &data1, &data2)
+    // Serial 
+    plan.into_par_iter().map(|pair| {
+            let mut found = Vec::new();
+            search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
+            search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
+            found
+        }
     ).flatten().collect()
+    // Parallel: SubsetType
+    // plan.into_par_iter().map(|pair|
+    //     search_cell_pair::<usize>(cutoff, &grid1, &grid2, pair, &data1, &data2)
+    // ).flatten().collect()
 }

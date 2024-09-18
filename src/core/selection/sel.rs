@@ -672,13 +672,13 @@ impl<K: SelectionKind> MassesProvider for Sel<K> {
 
 impl<K: SelectionKind> MeasureMasses for Sel<K> {}
 
-impl<K: SelectionKind> RandomPos for Sel<K> {    
-    fn nth_pos(&self, i: usize) -> Option<&Pos> {
-        self.index()
-        .get(i)
-        .map(|i| unsafe{self.state.nth_pos_unchecked(*i)})
+impl<K: SelectionKind> LenProvider for Sel<K> {
+    fn len(&self) -> usize {
+        self.index().len()
     }
+}
 
+impl<K: SelectionKind> RandomPos for Sel<K> {
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.index().get_unchecked(i);
         self.state.nth_pos_unchecked(ind)

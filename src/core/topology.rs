@@ -163,11 +163,13 @@ macro_rules! impl_topology_traits {
             }
         }
 
-        impl RandomAtom for $t {
-            fn nth_atom(&self, i: usize) -> Option<&Atom> {
-                self.get_storage().atoms.get(i)
+        impl LenProvider for $t {            
+            fn len(&self) -> usize {
+                self.get_storage_mut().atoms.len()
             }
+        }
 
+        impl RandomAtom for $t {            
             unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
                 self.get_storage().atoms.get_unchecked(i)
             }

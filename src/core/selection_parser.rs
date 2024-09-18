@@ -2,12 +2,12 @@ use nalgebra::Unit;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use sorted_vec::SortedSet;
-use thiserror::Error;
 use std::collections::HashSet;
+use thiserror::Error;
 
 use crate::prelude::*;
 
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 pub enum SelectionParserError {
     #[error("synatx error: {0}")]
     SyntaxError(String),
@@ -44,7 +44,7 @@ pub(crate) enum StrKeywordValue {
 #[derive(Debug, PartialEq)]
 pub(crate) enum MathNode {
     Float(f32),
-    Function(MathFunctionName,Box<Self>),
+    Function(MathFunctionName, Box<Self>),
     X,
     Y,
     Z,
@@ -118,13 +118,13 @@ pub(crate) enum KeywordNode {
     Index(Vec<IntKeywordValue>),
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum SameProp {
     Residue,
     Chain,
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct WithinProp {
     cutoff: f32,
     pbc: PbcDims,
@@ -155,13 +155,12 @@ enum Keyword {
     Residue,
 }
 
-
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum MathFunctionName {
     Abs,
     Sqrt,
     Sin,
-    Cos
+    Cos,
 }
 
 //##############################
@@ -169,7 +168,8 @@ pub(crate) enum MathFunctionName {
 //##############################
 
 // Intermediate index type for applying AST
-type SubsetType = rustc_hash::FxHashSet<usize>;
+//type SubsetType = rustc_hash::FxHashSet<usize>;
+type SubsetType = Vec<usize>;
 
 #[derive(Clone)]
 pub(crate) struct ApplyData<'a> {
@@ -187,7 +187,11 @@ pub(crate) struct ApplyData<'a> {
 }
 
 impl<'a> ApplyData<'a> {
-    fn new(topology: &'a Topology, state: &'a State, global_subset: &'a SubsetType) -> Result<Self, SelectionParserError> {
+    fn new(
+        topology: &'a Topology,
+        state: &'a State,
+        global_subset: &'a SubsetType,
+    ) -> Result<Self, SelectionParserError> {
         check_topology_state_sizes(topology, state)?;
 
         Ok(Self {
@@ -196,6 +200,30 @@ impl<'a> ApplyData<'a> {
             global_subset,
             context_subset: None,
         })
+    }
+
+    fn active_subset(&self) -> ActiveSubset {
+        ActiveSubset {
+            topology: &self.topology,
+            state: &self.state,
+            subset: self.context_subset.unwrap_or(self.global_subset),
+        }
+    }
+
+    fn global_subset(&self) -> ActiveSubset {
+        ActiveSubset {
+            topology: &self.topology,
+            state: &self.state,
+            subset: self.global_subset,
+        }
+    }
+
+    fn custom_subset(&'a self, custom: &'a SubsetType) -> ActiveSubset {
+        ActiveSubset {
+            topology: &self.topology,
+            state: &self.state,
+            subset: custom,
+        }
     }
 
     fn clone_with_context(&self, context_subset: &'a SubsetType) -> Self {
@@ -230,10 +258,14 @@ impl<'a> ApplyData<'a> {
     }
 
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.iter().map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
+        self.iter()
+            .map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
     }
 
-    fn iter_atom_from_index(&self, index: impl Iterator<Item = usize>) -> impl Iterator<Item = &Atom> {
+    fn iter_atom_from_index(
+        &self,
+        index: impl Iterator<Item = usize>,
+    ) -> impl Iterator<Item = &Atom> {
         index.map(|i| unsafe { self.topology.nth_atom_unchecked(i) })
     }
 
@@ -249,6 +281,50 @@ impl<'a> ApplyData<'a> {
         index: impl ExactSizeIterator<Item = usize>,
     ) -> impl ExactSizeIterator<Item = (usize, &Atom)> {
         index.map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
+    }
+}
+
+// Auxiliary struct representing a current active subset
+// Created by ApplyData and contains eithr global or context subset
+struct ActiveSubset<'a> {
+    topology: &'a Topology,
+    state: &'a State,
+    subset: &'a SubsetType,
+}
+
+impl PosProvider for ActiveSubset<'_> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.subset
+            .iter()
+            .map(|i| unsafe { self.state.nth_pos_unchecked(*i) })
+    }
+}
+
+impl LenProvider for ActiveSubset<'_> {
+    fn len(&self) -> usize {
+        self.subset.len()
+    }
+}
+
+impl RandomPos for ActiveSubset<'_> {
+    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+        let ind = *self.subset.get(i).unwrap();
+        self.state.nth_pos_unchecked(ind)
+    }
+}
+
+impl AtomsProvider for ActiveSubset<'_> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.subset
+            .iter()
+            .map(|i| unsafe { self.topology.nth_atom_unchecked(*i) })
+    }
+}
+
+impl RandomAtom for ActiveSubset<'_> {
+    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+        let ind = *self.subset.get(i).unwrap();
+        self.topology.nth_atom_unchecked(ind)
     }
 }
 
@@ -273,7 +349,7 @@ impl LogicalNode {
         }
     }
     */
-    
+
     fn map_same_prop<'a, T>(
         &self,
         data: &'a ApplyData,
@@ -291,12 +367,10 @@ impl LogicalNode {
 
         let mut res = SubsetType::default();
         // Now loop over *global* subset and add all atoms with the same property
-        for (i, at) in data
-            .iter_ind_atom_from_index(data.global_subset.iter().cloned()) 
-        {
+        for (i, at) in data.iter_ind_atom_from_index(data.global_subset.iter().cloned()) {
             for prop in properties.iter() {
                 if prop_fn(at) == prop {
-                    res.insert(i);
+                    res.push(i);
                     break;
                 }
             }
@@ -306,18 +380,19 @@ impl LogicalNode {
 
     pub fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
         match self {
-            Self::Not(node) => Ok(
+            Self::Not(node) => {
                 // Here we always use global subset!
-                data.global_subset 
-                .difference(&node.apply(data)?)
-                .cloned()
-                .collect()
-            ),
-            
-            Self::Or(a, b) => Ok(
-                a.apply(data)?.union(&b.apply(data)?).cloned().collect()
-            ),
-            
+                let set1 = rustc_hash::FxHashSet::<usize>::from_iter(data.global_subset.into_iter().cloned());
+                let set2 = rustc_hash::FxHashSet::<usize>::from_iter(node.apply(data)?.into_iter());
+                Ok(set1.difference(&set2).cloned().collect())
+            }
+
+            Self::Or(a, b) => {
+                let set1 = rustc_hash::FxHashSet::<usize>::from_iter(a.apply(data)?.into_iter());
+                let set2 = rustc_hash::FxHashSet::<usize>::from_iter(b.apply(data)?.into_iter());
+                Ok(set1.union(&set2).cloned().collect())
+            },
+
             Self::And(ref a, ref b) => {
                 // Check which operand is coord-dependent and put it first
                 // This could be optimized to precomputed index and will
@@ -331,17 +406,15 @@ impl LogicalNode {
                 // the result of a
                 let b_data = data.clone_with_context(&a_res);
 
-                Ok(
-                    a_res.intersection(&b.apply(&b_data)?)
-                    .cloned()
-                    .collect()
-                )
+                let set1 = rustc_hash::FxHashSet::<usize>::from_iter(a_res.iter().cloned());
+                let set2 = rustc_hash::FxHashSet::<usize>::from_iter(b.apply(&b_data)?.into_iter());
+                Ok(set1.intersection(&set2).cloned().collect())
             }
-            
+
             Self::Keyword(node) => node.apply(data),
-            
+
             Self::Comparison(node) => node.apply(data),
-            
+
             Self::Same(prop, node) => {
                 let inner = node.apply(data)?;
                 let res = match prop {
@@ -351,38 +424,46 @@ impl LogicalNode {
                 };
                 Ok(res)
             }
-            
+
             Self::Within(prop, node) => {
                 let inner = node.apply(data)?;
+                let mut res: SubsetType = Default::default();
                 // Perform distance search
-                let searcher = if prop.pbc == PBC_NONE {
+                if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
 
-                    DistanceSearcherDouble::new(
-                        prop.cutoff,
-                        // Global subset is used!
-                        data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
-                        data.iter_ind_pos_from_index(inner.iter().cloned()),
-                        &lower,
-                        &upper,
-                    )
+                    let sub1 = data.global_subset();
+                    let sub2 = data.custom_subset(&inner);
+                    println!("sub: {} {}",sub1.subset.len(),sub2.subset.len());
+                    println!("inner: {:?}",sub2.subset);                    
+                    res = distance_search_double(prop.cutoff, &sub1, &sub2, &lower, &upper);
+                    
+                    // let searcher = DistanceSearcherDouble::new(
+                    //     prop.cutoff,
+                    //     // Global subset is used!
+                    //     data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
+                    //     data.iter_ind_pos_from_index(inner.iter().cloned()),
+                    //     &lower,
+                    //     &upper,
+                    // );
+                    // res = searcher.search();
                 } else {
                     // Periodic variant
-                    DistanceSearcherDouble::new_periodic(
+                    let searcher = DistanceSearcherDouble::new_periodic(
                         prop.cutoff,
                         // Global subset is used!
                         data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
                         data.iter_ind_pos_from_index(inner.iter().cloned()),
                         data.state.get_box().unwrap(),
                         &prop.pbc,
-                    )
+                    );
+                    res = searcher.search();
                 };
 
-                let mut res: SubsetType = searcher.search();
                 // Add inner if asked
                 if prop.include_inner {
                     res.extend(inner);
@@ -430,13 +511,13 @@ impl KeywordNode {
                 match val {
                     StrKeywordValue::Str(s) => {
                         if s == f(a) {
-                            res.insert(ind);
+                            res.push(ind);
                             break;
                         }
                     }
                     StrKeywordValue::Regex(r) => {
                         if r.is_match(f(a).as_bytes()) {
-                            res.insert(ind);
+                            res.push(ind);
                             break;
                         }
                     }
@@ -458,14 +539,14 @@ impl KeywordNode {
                 match *val {
                     IntKeywordValue::Int(v) => {
                         if v == f(a, ind) {
-                            res.insert(ind);
+                            res.push(ind);
                             break;
                         }
                     }
                     IntKeywordValue::IntRange(b, e) => {
                         let val = f(a, ind);
                         if b <= val && val <= e {
-                            res.insert(ind);
+                            res.push(ind);
                             break;
                         }
                     }
@@ -489,7 +570,7 @@ impl KeywordNode {
                 for (i, a) in data.iter_ind_atom() {
                     for c in values {
                         if c == &a.chain {
-                            res.insert(i);
+                            res.push(i);
                         }
                     }
                 }
@@ -505,7 +586,7 @@ impl MathNode {
         match self {
             Self::Float(_) | Self::Bfactor | Self::Occupancy => false,
             Self::X | Self::Y | Self::Z => true,
-            Self::Plus(a, b) | 
+            Self::Plus(a, b) |
             Self::Minus(a, b) |
             Self::Mul(a, b) |
             Self::Div(a, b) |
@@ -518,25 +599,26 @@ impl MathNode {
         }
     }
     */
-    
-    fn closest_image(&self, point: &Pos, pbox: Option<&PeriodicBox>) -> Result<Option<Pos>, SelectionParserError> {
+
+    fn closest_image(
+        &self,
+        point: &Pos,
+        pbox: Option<&PeriodicBox>,
+    ) -> Result<Option<Pos>, SelectionParserError> {
         match self {
-            Self::Dist(d) => {
-                match d {
-                    DistanceNode::Point(target, dims) |
-                    DistanceNode::Line(target,_, dims) |
-                    DistanceNode::LineDir(target,_, dims) |
-                    DistanceNode::Plane(target,_,_, dims) |
-                    DistanceNode::PlaneNormal(target,_, dims) => {
-                        if dims[0] || dims[1] || dims[2] {
-                            Ok(Some(
-                                pbox
-                                .ok_or_else(|| SelectionParserError::PbcUnwrap)?
-                                .closest_image_dims(point,target,dims)
-                            ))
-                        } else {
-                            Ok(None)
-                        }
+            Self::Dist(d) => match d {
+                DistanceNode::Point(target, dims)
+                | DistanceNode::Line(target, _, dims)
+                | DistanceNode::LineDir(target, _, dims)
+                | DistanceNode::Plane(target, _, _, dims)
+                | DistanceNode::PlaneNormal(target, _, dims) => {
+                    if dims[0] || dims[1] || dims[2] {
+                        Ok(Some(
+                            pbox.ok_or_else(|| SelectionParserError::PbcUnwrap)?
+                                .closest_image_dims(point, target, dims),
+                        ))
+                    } else {
+                        Ok(None)
                     }
                 }
             },
@@ -569,9 +651,11 @@ impl MathNode {
                 match func {
                     MathFunctionName::Abs => Ok(val.abs()),
                     MathFunctionName::Sqrt => {
-                        if val<0.0 { return Err(SelectionParserError::NegativeSqrt); }
+                        if val < 0.0 {
+                            return Err(SelectionParserError::NegativeSqrt);
+                        }
                         Ok(val.sqrt())
-                    },
+                    }
                     MathFunctionName::Sin => Ok(val.sin()),
                     MathFunctionName::Cos => Ok(val.cos()),
                 }
@@ -579,29 +663,27 @@ impl MathNode {
             Self::Dist(d) => {
                 // Points are considered correctly unwrapped!
                 match d {
-                    DistanceNode::Point(p, _) => {
-                        Ok((pos-p).norm())
-                    },
+                    DistanceNode::Point(p, _) => Ok((pos - p).norm()),
                     DistanceNode::Line(p1, p2, _) => {
-                        let v = p2-p1;
-                        let w = pos-p1;
-                        Ok( (w-v*(w.dot(&v)/v.norm_squared())).norm() )
-                    },
+                        let v = p2 - p1;
+                        let w = pos - p1;
+                        Ok((w - v * (w.dot(&v) / v.norm_squared())).norm())
+                    }
                     DistanceNode::LineDir(p, dir, _) => {
-                        let w = pos-p;
+                        let w = pos - p;
                         // dir is already normalized
-                        Ok( (w-dir.into_inner()*w.dot(dir)).norm() )
-                    },
-                    DistanceNode::Plane(p1,p2, p3, _) => {
+                        Ok((w - dir.into_inner() * w.dot(dir)).norm())
+                    }
+                    DistanceNode::Plane(p1, p2, p3, _) => {
                         // Plane normal
-                        let n = (p2-p1).cross(&(p3-p1));
-                        let w = pos-p1;
-                        Ok( (n*(w.dot(&n)/n.norm_squared())).norm() )
-                    },
-                    DistanceNode::PlaneNormal(p,n, _) => {
+                        let n = (p2 - p1).cross(&(p3 - p1));
+                        let w = pos - p1;
+                        Ok((n * (w.dot(&n) / n.norm_squared())).norm())
+                    }
+                    DistanceNode::PlaneNormal(p, n, _) => {
                         // Plane normal is already normalized
-                        let w = pos-p;
-                        Ok( (n.into_inner()*w.dot(&n)).norm() )
+                        let w = pos - p;
+                        Ok((n.into_inner() * w.dot(&n)).norm())
                     }
                 }
             }
@@ -610,7 +692,7 @@ impl MathNode {
 }
 
 impl ComparisonNode {
-    /* 
+    /*
     pub fn is_coord_dependent(&self) -> bool {
         match self {
             Self::Eq(v1, v2) |
@@ -651,7 +733,7 @@ impl ComparisonNode {
             let p2 = &v2.closest_image(pos, b)?.unwrap_or(*pos);
 
             if op(v1.eval(atom, p1)?, v2.eval(atom, p2)?) {
-                res.insert(i);
+                res.push(i);
             }
         }
         Ok(res)
@@ -675,7 +757,7 @@ impl ComparisonNode {
 
             let mid = v2.eval(atom, p2)?;
             if op1(v1.eval(atom, p1)?, mid) && op2(mid, v3.eval(atom, p3)?) {
-                res.insert(i);
+                res.push(i);
             }
         }
         Ok(res)
@@ -812,13 +894,13 @@ peg::parser! {
         = !("and"/"or") s:$((![' '|'\''|'"'] [_])+)
         { StrKeywordValue::Str(s.to_owned()) }
 
-        
+
         // 3-vector value
         rule vec3() -> Pos = vec3_spaces() / vec3_comas()
 
         rule vec3_spaces() -> Pos
         = x:float_val() __ y:float_val() __ z:float_val() {Pos::new(x, y, z)}
-        
+
         rule vec3_comas() -> Pos
         = "[" _ x:float_val() _ "," _ y:float_val() _ "," _ z:float_val() _ "]" {
             Pos::new(x, y, z)
@@ -856,7 +938,7 @@ peg::parser! {
         = "dist" __ b:pbc_expr()? "plane" __ p:vec3() __ "normal" __ n:vec3() {
             DistanceNode::PlaneNormal(p,Unit::new_normalize(n.coords),b.unwrap_or(PBC_NONE))
         }
-        
+
 
         rule abs_function() -> MathFunctionName = "abs" {MathFunctionName::Abs}
         rule sqrt_function() -> MathFunctionName = "sqrt" {MathFunctionName::Sqrt}
@@ -886,7 +968,7 @@ peg::parser! {
             keyword_occupancy() { MathNode::Occupancy }
             keyword_bfactor() { MathNode::Bfactor }
             f:math_function_name() _ "(" _ e:math_expr() _ ")" {
-                MathNode::Function(f,Box::new(e)) 
+                MathNode::Function(f,Box::new(e))
             }
             "(" _ e:math_expr() _ ")" { e }
         }
@@ -927,7 +1009,7 @@ peg::parser! {
             op1:(comparison_op_leq()/comparison_op_lt()) _
             b:math_expr() _
             op2:(comparison_op_leq()/comparison_op_lt()) _
-            c:math_expr() 
+            c:math_expr()
         {
             use ComparisonOp as C;
             match (op1,op2) {
@@ -938,13 +1020,13 @@ peg::parser! {
                 _ => unreachable!(),
             }
         }
-        
+
         rule comparison_expr_chained_r() -> ComparisonNode
         =   a:math_expr() _
             op1:(comparison_op_geq()/comparison_op_gt()) _
             b:math_expr() _
             op2:(comparison_op_geq()/comparison_op_gt()) _
-            c:math_expr() 
+            c:math_expr()
         {
             use ComparisonOp as C;
             match (op1,op2) {
@@ -981,11 +1063,11 @@ peg::parser! {
         = pbc_with_dims() / pbc_full_no_dims() / pbc_none_no_dims()
 
         rule pbc_full_no_dims() -> [bool;3]
-        = "pbc" __ 
+        = "pbc" __
         {PBC_FULL}
 
         rule pbc_none_no_dims() -> [bool;3]
-        = "nopbc" __ 
+        = "nopbc" __
         {PBC_NONE}
 
         rule pbc_with_dims() -> [bool;3]
@@ -1049,7 +1131,12 @@ impl TryFrom<&str> for SelectionExpr {
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
         Ok(Self {
             ast: selection_parser::logical_expr(value).map_err(|e| {
-                let s = format!("\n{}\n{}^\nExpected {}",value,"-".repeat(e.location.column-1),e.expected);
+                let s = format!(
+                    "\n{}\n{}^\nExpected {}",
+                    value,
+                    "-".repeat(e.location.column - 1),
+                    e.expected
+                );
                 SelectionParserError::SyntaxError(s)
             })?,
             sel_str: value.to_owned(),
@@ -1062,14 +1149,14 @@ impl SelectionExpr {
         Ok(s.try_into()?)
     }
 
-    pub fn apply_whole(&self, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionParserError> {
+    pub fn apply_whole(
+        &self,
+        topology: &Topology,
+        state: &State,
+    ) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(0..topology.num_atoms());
-        let data = ApplyData::new(
-            topology,
-            state,
-            &subset,
-        )?;
-        let index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());        
+        let data = ApplyData::new(topology, state, &subset)?;
+        let index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         Ok(index.into())
     }
 
@@ -1081,7 +1168,7 @@ impl SelectionExpr {
     ) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(subset);
         let data = ApplyData::new(topology, state, &subset)?;
-        let index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();        
+        let index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
         Ok(index.into())
     }
 }
@@ -1091,7 +1178,7 @@ impl SelectionExpr {
 //##############################
 
 #[cfg(test)]
-mod tests {    
+mod tests {
     use triomphe::UniqueArc;
 
     use super::{SelectionExpr, State, Topology};
@@ -1120,14 +1207,16 @@ mod tests {
         let topst = read_test_pdb();
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         ast.apply_whole(&topst.0, &topst.1)
-            .expect("Error applying AST").to_vec()
+            .expect("Error applying AST")
+            .to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         let topst = read_test_pdb2();
         ast.apply_whole(&topst.0, &topst.1)
-            .expect("Error applying AST").to_vec()
+            .expect("Error applying AST")
+            .to_vec()
     }
 
     #[test]
@@ -1139,19 +1228,25 @@ mod tests {
     #[test]
     fn test_sqrt() {
         let topst = read_test_pdb2();
-        
+
         let ast: SelectionExpr = "sqrt (x^2)<5^2".try_into().expect("Error generating AST");
-        let vec1 = ast.apply_whole(&topst.0, &topst.1).expect("Error applying AST");
+        let vec1 = ast
+            .apply_whole(&topst.0, &topst.1)
+            .expect("Error applying AST");
 
         let ast: SelectionExpr = "x<25".try_into().expect("Error generating AST");
-        let vec2 = ast.apply_whole(&topst.0, &topst.1).expect("Error applying AST");
+        let vec2 = ast
+            .apply_whole(&topst.0, &topst.1)
+            .expect("Error applying AST");
 
-        assert_eq!(vec1.len(),vec2.len());
+        assert_eq!(vec1.len(), vec2.len());
     }
 
     #[test]
     fn test_dist_syntax() {
-        let _ast: SelectionExpr = "dist point 1.9 2.9 3.8 > 0.4".try_into().expect("Error generating AST");
+        let _ast: SelectionExpr = "dist point 1.9 2.9 3.8 > 0.4"
+            .try_into()
+            .expect("Error generating AST");
     }
 
     include!(concat!(

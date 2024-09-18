@@ -23,7 +23,7 @@ mod tests {
 
             for n_res in vec![1, 20, 40, 60] {
                 let mut out =
-                    BufWriter::new(File::create(format!("target/molar_{}{}.dat", pbc, n_res))?);
+                    BufWriter::new(File::create(format!("target/molar2_{}{}.dat", pbc, n_res))?);
                 for i in 0..40 {
                     let d = 0.3 + 0.1 * i as f32;
                     let t = run(|| {
