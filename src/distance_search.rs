@@ -1,7 +1,7 @@
 mod grid;
-mod grid2;
+mod grid_within;
 mod search;
 mod cell_pair_iterator;
 
 pub use search::*;
-pub use grid2::*;
+pub(crate) use grid_within::distance_search_within;

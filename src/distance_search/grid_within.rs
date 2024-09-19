@@ -1,7 +1,5 @@
 use num_traits::clamp_min;
 use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
-
-use super::SearchOutputType;
 use crate::prelude::*;
 
 struct Grid3d {
@@ -33,18 +31,18 @@ static MASK: [([usize; 3], [usize; 3]); 14] = [
 ];
 
 impl Grid3d {
-    pub fn debug(&self) {
-        for x in 0..self.dims[0] {
-            for y in 0..self.dims[1] {
-                for z in 0..self.dims[2] {
-                    let n = self.cells[self.loc_to_ind([x,y,z])].len();
-                    if n>0 {
-                        println!("{},{},{} {}",x,y,z,n);
-                    }
-                }
-            }
-        }
-    }
+    // pub fn debug(&self) {
+    //     for x in 0..self.dims[0] {
+    //         for y in 0..self.dims[1] {
+    //             for z in 0..self.dims[2] {
+    //                 let n = self.cells[self.loc_to_ind([x,y,z])].len();
+    //                 if n>0 {
+    //                     println!("{},{},{} {}",x,y,z,n);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     fn new_with_dims(dims: [usize; 3]) -> Self {
         Self {
@@ -58,11 +56,11 @@ impl Grid3d {
         loc[0] + loc[1] * self.dims[0] + loc[2] * self.dims[0] * self.dims[1]
     }
 
-    pub fn get(&self, loc: [usize; 3]) -> &Vec<usize> {
-        &self.cells[self.loc_to_ind(loc)]
-    }
+    // pub fn get(&self, loc: [usize; 3]) -> &Vec<usize> {
+    //     &self.cells[self.loc_to_ind(loc)]
+    // }
 
-    pub fn get_mut(&mut self, loc: [usize; 3]) -> &mut Vec<usize> {
+    pub fn get_loc_mut(&mut self, loc: [usize; 3]) -> &mut Vec<usize> {
         let i = self.loc_to_ind(loc);
         &mut self.cells[i]
     }
@@ -99,34 +97,34 @@ impl Grid3d {
                     loc[d] = n as usize;
                 }
             }
-            self.get_mut(loc).push(id);
+            self.get_loc_mut(loc).push(id);
         }
     }
 
-    pub fn populate_pbc(
-        &mut self,
-        data: &impl PosProvider,
-        box_: &PeriodicBox,
-        pbc_dims: &PbcDims,
-    ) {
-        'outer: for (id, pos) in data.iter_pos().enumerate() {
-            // Relative coordinates
-            let rel = box_.to_box_coords(&pos.coords);
-            let mut loc = [0usize, 0, 0];
-            for d in 0..3 {
-                // If dimension in not periodic and
-                // out of bounds - skip the point
-                if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
-                    continue 'outer;
-                }
-                loc[d] = (rel[d] * self.dims[d] as f32)
-                    .floor()
-                    .rem_euclid(self.dims[d] as f32) as usize;
-            }
-            //println!("{:?}",ind);
-            self.get_mut(loc).push(id);
-        }
-    }
+    // pub fn populate_pbc(
+    //     &mut self,
+    //     data: &impl PosProvider,
+    //     box_: &PeriodicBox,
+    //     pbc_dims: &PbcDims,
+    // ) {
+    //     'outer: for (id, pos) in data.iter_pos().enumerate() {
+    //         // Relative coordinates
+    //         let rel = box_.to_box_coords(&pos.coords);
+    //         let mut loc = [0usize, 0, 0];
+    //         for d in 0..3 {
+    //             // If dimension in not periodic and
+    //             // out of bounds - skip the point
+    //             if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
+    //                 continue 'outer;
+    //             }
+    //             loc[d] = (rel[d] * self.dims[d] as f32)
+    //                 .floor()
+    //                 .rem_euclid(self.dims[d] as f32) as usize;
+    //         }
+    //         //println!("{:?}",ind);
+    //         self.get_loc_mut(loc).push(id);
+    //     }
+    // }
 
     pub fn search_plan(
         grid1: &Grid3d,
