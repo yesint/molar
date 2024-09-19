@@ -1,5 +1,5 @@
 use num_traits::clamp_min;
-use rayon::iter::{FromParallelIterator, IntoParallelIterator};
+use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
 
 use super::SearchOutputType;
 use crate::prelude::*;
@@ -178,6 +178,24 @@ impl Grid3d {
                 }
             }
         }
+
+        // Assess the work load for each pair
+        // let mut n = 0;
+        // if let Some(grid2) = grid2 {
+        //     for p in plan.iter() {
+        //         let mut nl = 0;
+        //         nl += grid1.cells[p.0].len() * grid2.cells[p.1].len();
+        //         nl += grid1.cells[p.1].len() * grid2.cells[p.0].len();
+        //         n+=nl;
+        //     println!("{}",nl);
+        //     }
+        // } else {
+        //     for p in plan.iter() {
+        //         n += grid1.cells[p.0].len() * grid1.cells[p.1].len();
+        //     }
+        // }
+        // println!("pairs: {}, total N: {}",plan.len(),n);
+
         plan
     }
     
@@ -200,7 +218,7 @@ fn search_cell_within(
 
     for i in 0..n1 {
         let ind1 = grid1.cells[pair.0][i];
-        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
+        let pos1 = unsafe { *coords1.nth_pos_unchecked(ind1) };
         for j in 0..n2 {
             let ind2 = grid2.cells[pair.1][j];
             //println!("{} {}",ind1,ind2);
@@ -267,7 +285,7 @@ where
     let plan = Grid3d::search_plan(&grid1, Some(&grid2), false);
     
     // Cycle over search plan and perform search for each cell pair
-    plan.into_par_iter().map(|pair| {
+    plan.into_par_iter().with_min_len(3).map(|pair| {
             let mut found = Vec::new();
             search_cell_within(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
             search_cell_within(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
@@ -288,4 +306,19 @@ where
     // plan.into_par_iter().map(|pair|
     //     search_cell_pair::<usize>(cutoff, &grid1, &grid2, pair, &data1, &data2)
     // ).flatten().collect()
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::core::Source;
+    
+    #[test]
+    fn within_plan_test() -> anyhow::Result<()> {
+        let mut src = Source::serial_from_file("tests/albumin.pdb")?;
+        let t = std::time::Instant::now();
+        src.select_str("within 4.0 of resid 10:300")?;
+        println!("elapsed {}", t.elapsed().as_secs_f32());
+        Ok(())
+    }
 }
