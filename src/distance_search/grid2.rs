@@ -177,6 +177,7 @@ impl Grid3d {
                                 || (grid2.cells[i1].len() > 0 && grid1.cells[i2].len() > 0)
                             {
                                 plan.push((i1, i2, wrapped));
+                                //plan.push((i2, i1, wrapped));
                             }
                         } else if grid1.cells[i1].len() > 0 && grid1.cells[i2].len() > 0 {
                             plan.push((i1, i2, wrapped));
@@ -207,7 +208,7 @@ fn search_cell_pair<T: SearchOutputType>(
 
     //let mut found = Vec::<T>::new();
 
-    for i in 0..n1 {
+    'out: for i in 0..n1 {
         let ind1 = grid1.cells[pair.0][i];
         let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
         for j in 0..n2 {
@@ -218,6 +219,7 @@ fn search_cell_pair<T: SearchOutputType>(
             let d2 = (pos2 - pos1).norm_squared();
             if d2 <= cutoff2 {
                 found.push(T::from_search_results(ind1, ind2, d2.sqrt()));
+                continue 'out;
             }
         }
     }
@@ -276,7 +278,6 @@ where
     let plan = Grid3d::search_plan(&grid1, Some(&grid2), false);
     
     // Cycle over search plan and perform search for each cell pair
-    // Serial 
     plan.into_par_iter().map(|pair| {
             let mut found = Vec::new();
             search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
@@ -284,6 +285,16 @@ where
             found
         }
     ).flatten().collect()
+
+    // Serial
+    // let mut found = Vec::with_capacity(10000); 
+    // for pair in plan {
+    //     search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
+    //     search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
+    // }
+    // found.into_iter().collect()
+
+
     // Parallel: SubsetType
     // plan.into_par_iter().map(|pair|
     //     search_cell_pair::<usize>(cutoff, &grid1, &grid2, pair, &data1, &data2)
