@@ -440,7 +440,7 @@ impl LogicalNode {
                     let sub2 = data.custom_subset(&inner);
                     //println!("sub: {} {}",sub1.subset.len(),sub2.subset.len());
                     //println!("inner: {:?}",sub2.subset);                    
-                    res = distance_search_double(prop.cutoff, &sub1, &sub2, &lower, &upper);
+                    res = distance_search_within(prop.cutoff, &sub1, &sub2, &lower, &upper);
                     
                     // let searcher = DistanceSearcherDouble::new(
                     //     prop.cutoff,
