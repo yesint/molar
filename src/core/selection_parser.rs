@@ -428,6 +428,9 @@ impl LogicalNode {
             Self::Within(prop, node) => {
                 let inner = node.apply(data)?;
                 let mut res: SubsetType = Default::default();
+
+                let sub1 = data.global_subset();
+                let sub2 = data.custom_subset(&inner);
                 // Perform distance search
                 if prop.pbc == PBC_NONE {
                     // Non-periodic variant
@@ -435,9 +438,7 @@ impl LogicalNode {
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
-
-                    let sub1 = data.global_subset();
-                    let sub2 = data.custom_subset(&inner);
+                    
                     res = distance_search_within(prop.cutoff, &sub1, &sub2, &lower, &upper);
                     
                     // let searcher = DistanceSearcherDouble::new(
@@ -451,15 +452,17 @@ impl LogicalNode {
                     // res = searcher.search();
                 } else {
                     // Periodic variant
-                    let searcher = DistanceSearcherDouble::new_periodic(
-                        prop.cutoff,
-                        // Global subset is used!
-                        data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
-                        data.iter_ind_pos_from_index(inner.iter().cloned()),
-                        data.state.get_box().unwrap(),
-                        &prop.pbc,
-                    );
-                    res = searcher.search();
+                    res = distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), &prop.pbc);
+
+                    // let searcher = DistanceSearcherDouble::new_periodic(
+                    //     prop.cutoff,
+                    //     // Global subset is used!
+                    //     data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
+                    //     data.iter_ind_pos_from_index(inner.iter().cloned()),
+                    //     data.state.get_box().unwrap(),
+                    //     &prop.pbc,
+                    // );
+                    // res = searcher.search();
                 };
 
                 // Add inner if asked
@@ -889,7 +892,7 @@ peg::parser! {
         }
 
         rule str_value() -> StrKeywordValue
-        = !("and"/"or") s:$((![' '|'\''|'"'] [_])+)
+        = !("and"/"or") s:$((![' '|'\''|'"'|')'] [_])+)
         { StrKeywordValue::Str(s.to_owned()) }
 
 

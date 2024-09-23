@@ -54,7 +54,7 @@ pub(crate) fn command_solvate(
     // We will fill the rectangular region with solvent 
     // even if the actual box is triclinic and then we will
     // remove molecules outside the box
-    let solvent_ext = solvent.get_box().unwrap().get_extents();
+    let solvent_ext = solvent.get_box().unwrap().get_box_extents();
     let mut nbox = nalgebra::Vector3::<u32>::zeros();
     for i in 0..=2 {
         nbox[i] = (solute_max_ext[i]/solvent_ext[i]).ceil() as u32;

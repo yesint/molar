@@ -93,7 +93,7 @@ where
     }
 
     pub fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
-        Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
+        Self::from_cutoff_and_extents(cutoff, &box_.get_box_extents())
     }
 
     pub fn dim(&self) -> [usize; 3] {
