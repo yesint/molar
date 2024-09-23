@@ -79,7 +79,7 @@ impl Grid3d {
     }
 
     pub fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
-        Self::from_cutoff_and_extents(cutoff, &box_.get_extents())
+        Self::from_cutoff_and_extents(cutoff, &box_.get_lab_extents())
     }
 
     pub fn populate(&mut self, data: &impl RandomPos, lower: &Vector3f, upper: &Vector3f) {
@@ -101,32 +101,32 @@ impl Grid3d {
         }
     }
 
-    // pub fn populate_pbc(
-    //     &mut self,
-    //     data: &impl PosProvider,
-    //     box_: &PeriodicBox,
-    //     pbc_dims: &PbcDims,
-    // ) {
-    //     'outer: for (id, pos) in data.iter_pos().enumerate() {
-    //         // Relative coordinates
-    //         let rel = box_.to_box_coords(&pos.coords);
-    //         let mut loc = [0usize, 0, 0];
-    //         for d in 0..3 {
-    //             // If dimension in not periodic and
-    //             // out of bounds - skip the point
-    //             if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
-    //                 continue 'outer;
-    //             }
-    //             loc[d] = (rel[d] * self.dims[d] as f32)
-    //                 .floor()
-    //                 .rem_euclid(self.dims[d] as f32) as usize;
-    //         }
-    //         //println!("{:?}",ind);
-    //         self.get_loc_mut(loc).push(id);
-    //     }
-    // }
+    pub fn populate_pbc(
+        &mut self,
+        data: &impl RandomPos,
+        box_: &PeriodicBox,
+        pbc_dims: &PbcDims,
+    ) {
+        'outer: for id in 0..data.len() {
+            let pos = unsafe {data.nth_pos_unchecked(id)};
+            // Relative coordinates
+            let rel = box_.to_box_coords(&pos.coords);
+            let mut loc = [0usize, 0, 0];   
+            for d in 0..3 {
+                // If dimension in not periodic and
+                // out of bounds - skip the point
+                if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
+                    continue 'outer;
+                }
+                loc[d] = (rel[d] * self.dims[d] as f32)
+                    .floor()
+                    .rem_euclid(self.dims[d] as f32) as usize;
+            }
+            self.get_loc_mut(loc).push(id);
+        }
+    }
 
-    pub fn search_plan(
+    pub fn search_plan( 
         grid1: &Grid3d,
         grid2: Option<&Grid3d>,
         periodic: bool,
@@ -176,29 +176,46 @@ impl Grid3d {
                 }
             }
         }
-
-        // Assess the work load for each pair
-        // let mut n = 0;
-        // if let Some(grid2) = grid2 {
-        //     for p in plan.iter() {
-        //         let mut nl = 0;
-        //         nl += grid1.cells[p.0].len() * grid2.cells[p.1].len();
-        //         nl += grid1.cells[p.1].len() * grid2.cells[p.0].len();
-        //         n+=nl;
-        //     println!("{}",nl);
-        //     }
-        // } else {
-        //     for p in plan.iter() {
-        //         n += grid1.cells[p.0].len() * grid1.cells[p.1].len();
-        //     }
-        // }
-        // println!("pairs: {}, total N: {}",plan.len(),n);
-
         plan
     }
     
     pub fn get_dims(&self) -> [usize; 3] {
         self.dims
+    }
+}
+
+fn search_cell_within_pbc(
+    cutoff2: f32,
+    grid1: &Grid3d,
+    grid2: &Grid3d,
+    pair: (usize, usize, bool),
+    coords1: &impl RandomPos,
+    coords2: &impl RandomPos,
+    pbox: &PeriodicBox,
+    pbc_dims: &PbcDims,
+    found: &mut Vec<usize>,
+) {
+    let n1 = grid1.cells[pair.0].len();
+    let n2 = grid2.cells[pair.1].len();
+
+    for i in 0..n1 {
+        let ind1 = grid1.cells[pair.0][i];
+        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
+        for j in 0..n2 {
+            let ind2 = grid2.cells[pair.1][j];
+            //println!("{} {}",ind1,ind2);
+            let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
+
+            let d2 = if pair.2 {
+                pbox.distance_squared(&pos1,&pos2,pbc_dims)
+            } else {
+                (pos2 - pos1).norm_squared()
+            };
+            if d2 <= cutoff2 {
+                found.push(ind1);
+                break;
+            }
+        }
     }
 }
 
@@ -216,7 +233,7 @@ fn search_cell_within(
 
     for i in 0..n1 {
         let ind1 = grid1.cells[pair.0][i];
-        let pos1 = unsafe { *coords1.nth_pos_unchecked(ind1) };
+        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
         for j in 0..n2 {
             let ind2 = grid2.cells[pair.1][j];
             //println!("{} {}",ind1,ind2);
@@ -290,26 +307,43 @@ where
             found
         }
     ).flatten().collect()
+}
 
-    // Serial
-    // let mut found = Vec::with_capacity(10000); 
-    // for pair in plan {
-    //     search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
-    //     search_cell_pair::<T>(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
-    // }
-    // found.into_iter().collect()
+pub(crate) fn distance_search_within_pbc<C>(
+    cutoff: f32,
+    data1: &(impl RandomPos + Send + Sync),
+    data2: &(impl RandomPos + Send + Sync),
+    pbox: &PeriodicBox,
+    pbc_dims: &PbcDims,
+) -> C 
+where    
+    C: FromIterator<usize> + FromParallelIterator<usize>,
+{
+    println!("PBC ::::::::");
+    let mut grid1 = Grid3d::from_cutoff_and_box(cutoff, pbox);
+    let mut grid2 = Grid3d::new_with_dims(grid1.get_dims());
 
+    grid1.populate_pbc(data1, pbox, pbc_dims);
+    grid2.populate_pbc(data2, pbox, pbc_dims);
 
-    // Parallel: SubsetType
-    // plan.into_par_iter().map(|pair|
-    //     search_cell_pair::<usize>(cutoff, &grid1, &grid2, pair, &data1, &data2)
-    // ).flatten().collect()
+    let plan = Grid3d::search_plan(&grid1, Some(&grid2), true);
+    
+    // Cycle over search plan and perform search for each cell pair
+    plan.into_par_iter().with_min_len(3).map(|pair| {
+            let mut found = Vec::new();
+            search_cell_within_pbc(cutoff*cutoff, &grid1, &grid2, pair, data1, data2, pbox, pbc_dims, &mut found);
+            search_cell_within_pbc(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,pbox, pbc_dims, &mut found);
+            found
+        }
+    ).flatten().collect()
 }
 
 
 #[cfg(test)]
 mod tests {
     use crate::core::Source;
+
+    use super::WritableToFile;
     
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {
@@ -319,4 +353,13 @@ mod tests {
         println!("elapsed {}", t.elapsed().as_secs_f32());
         Ok(())
     }
+
+    #[test]
+    fn within_pbc() -> anyhow::Result<()> {
+        let mut src = Source::serial_from_file("tests/albumin.pdb")?;
+        let sel = src.select_str("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
+        sel.save("target/pbc_sel.pdb")?;
+        Ok(())
+    }
+
 }
