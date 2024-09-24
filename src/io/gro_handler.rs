@@ -129,11 +129,13 @@ impl GroFileHandler {
         reader.read_line(&mut line).with_context(|| "title")?;
         
         // Read number of atoms
-        reader.read_line(&mut line).with_context(|| "natoms")?;
+        line.clear();
+        reader.read_line(&mut line).with_context(|| "natoms")?;        
         let natoms = line.trim().parse::<usize>().with_context(|| "natoms")?;
 
         // Go over atoms line by line
         for i in 0..natoms {
+            line.clear();
             reader.read_line(&mut line).with_context(|| format!("atom #{i}"))?;
         
             let at = Atom {
@@ -197,6 +199,7 @@ impl GroFileHandler {
         So, the sequence of reads is:
         (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
         */
+        line.clear();
         reader.read_line(&mut line).with_context(|| "box")?;
         let l = line.split_whitespace().map(|s| {
                 Ok(s.parse::<f32>().with_context(|| "pbc")?)

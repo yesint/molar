@@ -400,6 +400,14 @@ impl Source<BuilderSerial> {
         self.select_range(&(first_added_index..last_added_index)).unwrap()
     }
 
+    pub fn append_atoms<'a>(&'a mut self, atoms: impl AtomIterator<'a>, coords: impl PosIterator<'a>) {
+        //let first_added_index = self.num_atoms();
+        self.topology.get_storage_mut().add_atoms(atoms);
+        self.state.get_storage_mut().add_coords(coords);
+        //let last_added_index = self.num_atoms();
+        //self.select_range(&(first_added_index..last_added_index)).unwrap()
+    }
+
     pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
         // We are checking index validity inside remove methods
         self.topology
@@ -409,6 +417,10 @@ impl Source<BuilderSerial> {
             .get_storage_mut()
             .remove_coords(to_remove.iter_index())?;
         Ok(())
+    }
+
+    pub fn set_box(&mut self, new_box: Option<PeriodicBox>) {
+        self.state.get_storage_mut().pbox = new_box;
     }
 }
 

@@ -27,7 +27,7 @@ pub enum MeasureError {
 }
 
 /// Trait for analysis requiring only positions
-pub trait MeasurePos: PosProvider {
+pub trait MeasurePos: PosProvider + LenProvider {
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
         let mut upper = Pos::min_value();
@@ -46,7 +46,7 @@ pub trait MeasurePos: PosProvider {
 
     fn center_of_geometry(&self) -> Pos {
         let iter = self.iter_pos();
-        let n = iter.len();
+        let n = self.len();
         let mut cog = Vector3f::zeros();
         for c in iter {
             cog += c.coords;
@@ -59,13 +59,13 @@ pub trait MeasurePos: PosProvider {
         let iter1 = sel1.iter_pos();
         let iter2 = sel2.iter_pos();
 
-        if iter1.len() != iter2.len() {
-            return Err(MeasureError::Sizes(iter1.len(), iter2.len()));
+        if sel1.len() != sel2.len() {
+            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
         }
 
-        let n = iter1.len();
+        let n = sel1.len();
         if n == 0 {
-            return Err(MeasureError::Sizes(iter1.len(), iter2.len()));
+            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
         }
 
         for (p1, p2) in std::iter::zip(iter1, iter2) {
@@ -77,7 +77,7 @@ pub trait MeasurePos: PosProvider {
 }
 
 /// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: PosProvider + MassesProvider {
+pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
     fn center_of_mass(&self) -> Result<Pos, MeasureError> {
         let mut cm = Vector3f::zeros();
         let mut mass = 0.0;
@@ -128,8 +128,8 @@ pub trait MeasureMasses: PosProvider + MassesProvider {
         let iter1 = sel1.iter_pos();
         let iter2 = sel2.iter_pos();
 
-        if iter1.len() != iter2.len() {
-            return Err(MeasureError::Sizes(iter1.len(), iter2.len()));
+        if sel1.len() != sel2.len() {
+            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
         }
 
         for (p1, p2, m) in izip!(iter1, iter2, sel1.iter_masses()) {
