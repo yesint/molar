@@ -4,10 +4,12 @@ use clap::{Parser, Subcommand, ValueEnum};
 mod command_last;
 mod command_rearrange;
 mod command_solvate;
+mod command_tip3_to_tip4;
 
 use command_last::command_last;
 use command_rearrange::command_rearrange;
 use command_solvate::command_solvate;
+use command_tip3_to_tip4::command_tip3_to_tip4;
 
 /// MolAR binary utility
 #[derive(Parser)]
@@ -78,6 +80,17 @@ enum Commands {
         #[arg(long,value_enum,default_value_t=SolvateMode::Distance)]
         mode: SolvateMode,
     },
+
+    /// Converts TIP3 water to TIP4 water
+    Tip3to4 {
+        /// Input file (structure+coordinates)
+        #[arg(short, required = true)]
+        file: String,
+
+        /// Output file (structure+coordinates)
+        #[arg(short, default_value = "rearranged.gro")]
+        outfile: String,
+    }
 }
 
 fn main() -> Result<()> {
@@ -96,7 +109,7 @@ fn main() -> Result<()> {
         Commands::Last { files, outfile } => {
             println!("▶ Action: last");
             command_last(files, outfile)?;
-        }
+        },
 
         Commands::Rearrange {
             file: infile,
@@ -106,7 +119,7 @@ fn main() -> Result<()> {
         } => {
             println!("▶ Action: rearrange");
             command_rearrange(infile, outfile, begin, end)?;
-        }
+        },
 
         Commands::Solvate {
             file,
@@ -117,7 +130,12 @@ fn main() -> Result<()> {
         } => {
             println!("▶ Action: solvate");
             command_solvate(file, outfile, solvent, exclude ,mode)?;
-        }
+        },
+
+        Commands::Tip3to4 { file, outfile } => {
+            println!("▶ Action: Tip3toTip4");
+            command_tip3_to_tip4(file, outfile)?;
+        },
     }
     Ok(())
 }

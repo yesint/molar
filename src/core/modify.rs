@@ -35,14 +35,14 @@ pub trait ModifyPos: PosMutProvider + PosProvider {
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: PosMutProvider + BoxProvider {
+pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
     fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self
             .get_box()
             .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
         let mut iter = self.iter_pos_mut();
-        if iter.len() > 0 {
+        if self.len() > 0 {
             let p0 = iter.next().unwrap();
             for p in iter {
                 *p = b.closest_image_dims(p, p0, &dims);
@@ -112,11 +112,11 @@ pub trait ModifyRandomAccess:
 }
 
 /// Trait for modification requiring atoms
-pub trait ModifyAtoms: AtomsMutProvider {
+pub trait ModifyAtoms: AtomsMutProvider + LenProvider {
     fn assign_resindex(&self) {
         let mut resindex = 0usize;
         let mut at_iter = self.iter_atoms_mut();
-        if at_iter.len() > 1 {
+        if self.len() > 1 {
             let at0 = at_iter.next().unwrap();
             let mut cur_resid = at0.resid;
             at0.resindex = resindex;
