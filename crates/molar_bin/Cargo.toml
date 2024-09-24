@@ -14,7 +14,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-molar = {version = "0.4", path = "../.."}
+molar = {version = "0.5", path = "../.."}
 anyhow = "1.0"
 clap = {version = "4.5", features=["derive"]}
 env_logger = "0.11"
