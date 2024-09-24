@@ -2,7 +2,7 @@
 members = ["crates/molar_bin"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 rust-version = "1.80" 
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
@@ -19,7 +19,7 @@ nalgebra = "0.33.0"
 peg = "0.8.1"
 regex = "1.9.3"
 cmake = "0.1"
-thiserror = "1.0"
+thiserror = "1.0.64"
 log = "0.4.22"
 
 [package]
@@ -68,7 +68,7 @@ thiserror_string_context = "0.1.5"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-anyhow = "1.0.88"
+anyhow = "1.0.89"
 
 [features]
 default = ["gromacs"]
