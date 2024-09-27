@@ -303,6 +303,5 @@ pub fn rot_transform(
 // Principal transform algorithms
 fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f32> {
     axes.try_inverse_mut();
-
     Translation3::from(cm) * Rotation3::from_matrix_unchecked(axes) * Translation3::from(-cm)
 }

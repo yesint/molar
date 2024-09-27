@@ -401,8 +401,8 @@ impl Source<BuilderSerial> {
             .unwrap()
     }
 
-    pub fn append_atoms<'a>(
-        &'a mut self,
+    pub fn append_atoms(
+        &mut self,
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
     ) -> Sel<BuilderSerial> {
