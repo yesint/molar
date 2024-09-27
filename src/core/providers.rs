@@ -39,7 +39,9 @@ pub trait RandomPos: LenProvider {
     }
 }
 
-pub trait RandomAtom: LenProvider {    
+pub trait RandomAtom: LenProvider {
+    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
+
     fn nth_atom(&self, i: usize) -> Option<&Atom> {
         if i<self.len() {
             Some(unsafe{self.nth_atom_unchecked(i)})
@@ -47,7 +49,6 @@ pub trait RandomAtom: LenProvider {
             None
         }
     }
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
 }
 
 //--------------------------------------------------------------
