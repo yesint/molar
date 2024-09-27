@@ -195,7 +195,7 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
                 for j in i + 1..n1 {
                     let at2 = &self.grid[&pair.c1][j];
                     if let (true, d) = accept_func(&at1, &at2) {
-                        found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
+                        found.push(T::from_ijd(at1.get_id(), at2.get_id(), d));
                     }
                 }
             }
@@ -206,7 +206,7 @@ impl<I: GridItem> DistanceSearcherSingle<I> {
                 for j in 0..n2 {
                     let at2 = &self.grid[&pair.c2][j];
                     if let (true, d) = accept_func(&at1, &at2) {
-                        found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
+                        found.push(T::from_ijd(at1.get_id(), at2.get_id(), d));
                     }
                 }
             }
@@ -490,7 +490,7 @@ impl<I: GridItem> DistanceSearcherDouble<I> {
             for j in 0..n2 {
                 let at2 = &self.grid2[&pair.c2][j];
                 if let Some(d) = accept_func(&at1, &at2, &pair.wrapped) {
-                    found.push(T::from_search_results(at1.get_id(), at2.get_id(), d));
+                    found.push(T::from_ijd(at1.get_id(), at2.get_id(), d));
                 }
             }
         }
@@ -750,29 +750,29 @@ fn combine_bounds(lower1: &Pos, upper1: &Pos, lower2: &Pos, upper2: &Pos) -> (Ve
 //====================================================================
 
 pub trait SearchOutputType {
-    fn from_search_results(i: usize, j: usize, d: f32) -> Self;
+    fn from_ijd(i: usize, j: usize, d: f32) -> Self;
 }
 
 impl SearchOutputType for usize {
-    fn from_search_results(i: usize, _j: usize, _d: f32) -> Self {
+    fn from_ijd(i: usize, _j: usize, _d: f32) -> Self {
         i
     }
 }
 
 impl SearchOutputType for FoundPair {
-    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
+    fn from_ijd(i: usize, j: usize, d: f32) -> Self {
         Self { i, j, d }
     }
 }
 
 impl SearchOutputType for (usize, usize) {
-    fn from_search_results(i: usize, j: usize, _d: f32) -> Self {
+    fn from_ijd(i: usize, j: usize, _d: f32) -> Self {
         (i, j)
     }
 }
 
 impl SearchOutputType for (usize, usize, f32) {
-    fn from_search_results(i: usize, j: usize, d: f32) -> Self {
+    fn from_ijd(i: usize, j: usize, d: f32) -> Self {
         (i, j, d)
     }
 }

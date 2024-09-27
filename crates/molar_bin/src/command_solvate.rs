@@ -95,7 +95,7 @@ pub(crate) fn command_solvate(
         solvent.select_vec_unchecked(inside_ind)?
     };
 
-    //inside_sel.save("target/inside.gro")?;
+    //inside_sel.save("target/inside.gro            ")?;
 
     // Do the distance search
     let searcher = DistanceSearcherDouble::new_vdw_periodic(

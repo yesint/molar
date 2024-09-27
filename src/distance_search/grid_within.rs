@@ -1,3 +1,6 @@
+use core::f32;
+use std::cmp::{max, min};
+
 use num_traits::clamp_min;
 use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
 use crate::prelude::*;
@@ -184,7 +187,38 @@ impl Grid3d {
     }
 }
 
-fn search_cell_within_pbc(
+
+fn search_cell_pair_within(
+    cutoff2: f32,
+    grid1: &Grid3d,
+    grid2: &Grid3d,
+    pair: (usize, usize, bool),
+    coords1: &impl RandomPos,
+    coords2: &impl RandomPos,
+    found: &mut Vec<usize>,
+) {
+    let n1 = grid1.cells[pair.0].len();
+    let n2 = grid2.cells[pair.1].len();
+
+    for i in 0..n1 {
+        let ind1 = grid1.cells[pair.0][i];
+        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
+        for j in 0..n2 {
+            let ind2 = grid2.cells[pair.1][j];
+            //println!("{} {}",ind1,ind2);
+            let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
+
+            let d2 = (pos2 - pos1).norm_squared();
+            if d2 <= cutoff2 {
+                found.push(ind1);
+                break;
+            }
+        }
+    }
+}
+
+
+fn search_cell_pair_within_pbc(
     cutoff2: f32,
     grid1: &Grid3d,
     grid2: &Grid3d,
@@ -219,14 +253,15 @@ fn search_cell_within_pbc(
     }
 }
 
-fn search_cell_within(
+
+fn search_cell_pair_double<T: SearchOutputType>(
     cutoff2: f32,
     grid1: &Grid3d,
     grid2: &Grid3d,
     pair: (usize, usize, bool),
     coords1: &impl RandomPos,
     coords2: &impl RandomPos,
-    found: &mut Vec<usize>,
+    found: &mut Vec<T>,
 ) {
     let n1 = grid1.cells[pair.0].len();
     let n2 = grid2.cells[pair.1].len();
@@ -236,48 +271,50 @@ fn search_cell_within(
         let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
         for j in 0..n2 {
             let ind2 = grid2.cells[pair.1][j];
-            //println!("{} {}",ind1,ind2);
             let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
 
             let d2 = (pos2 - pos1).norm_squared();
             if d2 <= cutoff2 {
-                found.push(ind1);
-                break;
+                found.push(T::from_ijd(ind1, ind2, d2.sqrt()));
             }
         }
     }
 }
 
-// fn search_cell_pair_pbc(
-//     cutoff: f32,
-//     grid1: &Grid3d,
-//     grid2: &Grid3d,
-//     pair: (usize, usize, bool),
-//     coords1: &impl RandomPos,
-//     coords2: &impl RandomPos,
-//     box_: &PeriodicBox,
-// ) -> Vec<usize> {
-//     let n1 = grid1.cells[pair.0].len();
-//     let n2 = grid2.cells[pair.1].len();
 
-//     let mut found = Vec::new();
+fn search_cell_pair_double_pbc<T: SearchOutputType>(
+    cutoff2: f32,
+    grid1: &Grid3d,
+    grid2: &Grid3d,
+    pair: (usize, usize, bool),
+    coords1: &impl RandomPos,
+    coords2: &impl RandomPos,
+    pbox: &PeriodicBox,
+    pbc_dims: &PbcDims,
+    found: &mut Vec<T>,
+) {
+    let n1 = grid1.cells[pair.0].len();
+    let n2 = grid2.cells[pair.1].len();
 
-//     for i in 0..n1 {
-//         let ind1 = grid1.cells[pair.0][i];
-//         let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
-//         for j in 0..n2 {
-//             let ind2 = grid2.cells[pair.0][j];
-//             let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
+    for i in 0..n1 {
+        let ind1 = grid1.cells[pair.0][i];
+        let pos1 = unsafe { coords1.nth_pos_unchecked(ind1) };
+        for j in 0..n2 {
+            let ind2 = grid2.cells[pair.1][j];
+            let pos2 = unsafe { coords2.nth_pos_unchecked(ind2) };
 
-//             let d = box_.distance(pos1, pos2, &PBC_FULL);
-//             if d <= cutoff && d>10.0*f32::EPSILON {
-//                 found.push(ind1);
-//             }
-//         }
-//     }
+            let d2 = if pair.2 {
+                pbox.distance_squared(&pos1,&pos2,pbc_dims)
+            } else {
+                (pos2 - pos1).norm_squared()
+            };
+            if d2 <= cutoff2 {
+                found.push(T::from_ijd(ind1, ind2, d2.sqrt()));
+            }
+        }
+    }
+}
 
-//     found
-// }
 
 pub(crate) fn distance_search_within<C>(
     cutoff: f32,
@@ -302,12 +339,13 @@ where
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter().with_min_len(3).map(|pair| {
             let mut found = Vec::new();
-            search_cell_within(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
-            search_cell_within(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
+            search_cell_pair_within(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
+            search_cell_pair_within(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
             found
         }
     ).flatten().collect()
 }
+
 
 pub(crate) fn distance_search_within_pbc<C>(
     cutoff: f32,
@@ -319,7 +357,6 @@ pub(crate) fn distance_search_within_pbc<C>(
 where    
     C: FromIterator<usize> + FromParallelIterator<usize>,
 {
-    println!("PBC ::::::::");
     let mut grid1 = Grid3d::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid3d::new_with_dims(grid1.get_dims());
 
@@ -331,13 +368,113 @@ where
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter().with_min_len(3).map(|pair| {
             let mut found = Vec::new();
-            search_cell_within_pbc(cutoff*cutoff, &grid1, &grid2, pair, data1, data2, pbox, pbc_dims, &mut found);
-            search_cell_within_pbc(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,pbox, pbc_dims, &mut found);
+            search_cell_pair_within_pbc(cutoff*cutoff, &grid1, &grid2, pair, data1, data2, pbox, pbc_dims, &mut found);
+            search_cell_pair_within_pbc(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,pbox, pbc_dims, &mut found);
             found
         }
     ).flatten().collect()
 }
 
+
+//-------------------------------------------------------------------------
+
+fn compute_min_max(data: &impl RandomPos) -> (Vector3f,Vector3f) {
+    let mut lower = Vector3f::zeros();
+    let mut upper = Vector3f::zeros();
+    for i in 0..data.len() {
+        let p = unsafe{data.nth_pos_unchecked(i)};
+        for d in 0..3 {
+            if p[d] < lower[d] {
+                lower[d] = p[d];
+            }
+            if p[d] > upper[d] {
+                upper[d] = p[d];
+            }
+        }
+    }
+    (lower,upper)
+}    
+
+
+fn compute_bounding_box(cutoff: f32, data1: &impl RandomPos, data2: &impl RandomPos) -> (Vector3f,Vector3f) {
+    let (l1,u1) = compute_min_max(data1);
+    let (l2,u2) = compute_min_max(data2);
+    
+    let mut l= Vector3f::zeros();
+    let mut u = Vector3f::zeros();
+    for d in 0..3 {
+        l[d] = l1[d].min(l2[d]);
+        u[d] = u1[d].max(u2[d]);
+    }
+    
+    l.add_scalar_mut(-cutoff-f32::EPSILON);
+    u.add_scalar_mut(cutoff+f32::EPSILON);
+    (l,u)
+}
+
+
+pub(crate) fn distance_search_double<T,C>(
+    cutoff: f32,
+    data1: &(impl RandomPos + Send + Sync),
+    data2: &(impl RandomPos + Send + Sync),
+) -> C 
+where    
+    T: SearchOutputType + Send + Sync,
+    C: FromIterator<T> + FromParallelIterator<T>,
+{
+    // Compute the extents
+    let (lower,upper) = compute_bounding_box(cutoff,data1,data2);
+
+    let mut grid1 = Grid3d::from_cutoff_and_min_max(cutoff, &lower,&upper);
+    let mut grid2 = Grid3d::new_with_dims(grid1.get_dims());
+
+    grid1.populate(data1, &lower, &upper);
+    grid2.populate(data2, &lower, &upper);
+
+    let plan = Grid3d::search_plan(&grid1, Some(&grid2), false);
+    
+    // Cycle over search plan and perform search for each cell pair
+    plan.into_par_iter().with_min_len(3).map(|pair| {
+            let mut found = Vec::new();
+            search_cell_pair_double(cutoff*cutoff, &grid1, &grid2, pair, data1, data2,&mut found);
+            search_cell_pair_double(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,&mut found);
+            found
+        }
+    ).flatten().collect()
+}
+
+
+pub(crate) fn distance_search_double_pbc<T,C>(
+    cutoff: f32,
+    data1: &(impl RandomPos + Send + Sync),
+    data2: &(impl RandomPos + Send + Sync),
+    pbox: &PeriodicBox,
+    pbc_dims: &PbcDims,
+) -> C 
+where    
+    T: SearchOutputType + Send + Sync,
+    C: FromIterator<T> + FromParallelIterator<T>,
+{
+    let mut grid1 = Grid3d::from_cutoff_and_box(cutoff, pbox);
+    let mut grid2 = Grid3d::new_with_dims(grid1.get_dims());
+
+    grid1.populate_pbc(data1, pbox, pbc_dims);
+    grid2.populate_pbc(data2, pbox, pbc_dims);
+
+    let plan = Grid3d::search_plan(&grid1, Some(&grid2), true);
+    
+    // Cycle over search plan and perform search for each cell pair
+    plan.into_par_iter().with_min_len(3).map(|pair| {
+            let mut found = Vec::new();
+            search_cell_pair_double_pbc(cutoff*cutoff, &grid1, &grid2, pair, data1, data2, pbox, pbc_dims, &mut found);
+            search_cell_pair_double_pbc(cutoff*cutoff, &grid1, &grid2, (pair.1,pair.0,pair.2), data1, data2,pbox, pbc_dims, &mut found);
+            found
+        }
+    ).flatten().collect()
+}
+
+
+//-------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
