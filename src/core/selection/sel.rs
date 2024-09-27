@@ -132,7 +132,7 @@ impl<K: SelectionKind> Sel<K> {
     /// Get a Particle for i-th selection index.
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
-    pub unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
+    pub(super) unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
         let ind = *self.index_storage.get_unchecked(i);
         Particle {
             id: ind,
@@ -144,7 +144,7 @@ impl<K: SelectionKind> Sel<K> {
     /// Get a mutable Particle for i-th selection index with
     /// # Safety
     /// This is an unsafe operation that doesn't check if the index is in bounds.
-    pub unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> ParticleMut<'_> {
+    pub(super) unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> ParticleMut<'_> {
         let ind = *self.index_storage.get_unchecked(i);
         ParticleMut {
             id: ind,
@@ -153,20 +153,14 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    pub fn nth_pos(&self, i: usize) -> Result<&Pos, SelectionError> {
-        let ind = *self
-            .index_storage
-            .get(i)
-            .ok_or_else(|| SelectionError::OutOfBounds(i, self.len()))?;
-        Ok(unsafe { self.state.nth_pos_unchecked(ind) })
+    pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
+        let ind = *self.index().get(i)?;
+        Some(unsafe { self.state.nth_pos_unchecked(ind) })
     }
 
-    pub fn nth_pos_mut(&self, i: usize) -> Result<&mut Pos, SelectionError> {
-        let ind = *self
-            .index_storage
-            .get(i)
-            .ok_or_else(|| SelectionError::OutOfBounds(i, self.len()))?;
-        Ok(unsafe { self.state.nth_pos_unchecked_mut(ind) })
+    pub fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+        let ind = *self.index().get(i)?;
+        Some(unsafe { self.state.nth_pos_unchecked_mut(ind) })
     }
 
     //============================
@@ -277,7 +271,7 @@ impl<K: SelectionKind> Sel<K> {
     /// Get a Particle for the first selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
     pub fn nth_particle(&self, i: usize) -> Result<Particle, SelectionError> {
-        if i > self.len() {
+        if i >= self.len() {
             Err(SelectionError::OutOfBounds(i, self.len()))
         } else {
             Ok(unsafe { self.nth_particle_unchecked(i) })
@@ -321,7 +315,9 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn split_contig_resindex(&self) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
+    pub fn split_contig_resindex(
+        &self,
+    ) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
         self.split_contig(|p| Some(p.atom.resindex))
     }
 
@@ -331,17 +327,13 @@ impl<K: SelectionKind> Sel<K> {
     }
 }
 
-
 impl<K: AllowsSubselect> Sel<K> {
     //===================
     // Subselections
     //===================
 
     /// Subselection from expression
-    pub fn subsel_from_expr(
-        &self,
-        expr: &SelectionExpr,
-    ) -> Result<Sel<K>, SelectionError> {
+    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -424,7 +416,6 @@ impl<K: AllowsSubselect> Sel<K> {
     {
         self.split_gen(|p| Some(p.atom.resid))
     }
-
 }
 
 impl Sel<MutableSerial> {
@@ -685,11 +676,11 @@ impl<K: SelectionKind> RandomPos for Sel<K> {
     }
 }
 
-impl<K: SelectionKind> RandomAtom for Sel<K> {    
+impl<K: SelectionKind> RandomAtom for Sel<K> {
     fn nth_atom(&self, i: usize) -> Option<&Atom> {
         self.index()
-        .get(i)
-        .map(|i| unsafe{self.topology.nth_atom_unchecked(*i)})
+            .get(i)
+            .map(|i| unsafe { self.topology.nth_atom_unchecked(*i) })
     }
 
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
@@ -697,7 +688,6 @@ impl<K: SelectionKind> RandomAtom for Sel<K> {
         self.topology.nth_atom_unchecked(ind)
     }
 }
-
 
 //-------------------------------------------------------
 // Mutable analysis traits only for mutable selections
@@ -722,11 +712,11 @@ impl<K: MutableSel> AtomsMutProvider for Sel<K> {
     }
 }
 
-impl<K: MutableSel> RandomPosMut for Sel<K> {    
+impl<K: MutableSel> RandomPosMut for Sel<K> {
     fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
         self.index()
-        .get(i)
-        .map(|i| unsafe{self.state.nth_pos_mut_unchecked(*i)})
+            .get(i)
+            .map(|i| unsafe { self.state.nth_pos_mut_unchecked(*i) })
     }
 
     unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
@@ -735,11 +725,11 @@ impl<K: MutableSel> RandomPosMut for Sel<K> {
     }
 }
 
-impl<K: MutableSel> RandomAtomMut for Sel<K> {    
+impl<K: MutableSel> RandomAtomMut for Sel<K> {
     fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
         self.index()
-        .get(i)
-        .map(|i| unsafe{self.topology.nth_atom_mut_unchecked(*i)})
+            .get(i)
+            .map(|i| unsafe { self.topology.nth_atom_mut_unchecked(*i) })
     }
 
     unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {

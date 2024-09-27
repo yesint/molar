@@ -19,8 +19,8 @@ pub enum BuilderError {
 }
 
 impl TopologyStorage {
-    pub(crate) fn add_atoms<'a>(&'a mut self, atoms: impl super::AtomIterator<'a>) {
-        self.atoms.extend(atoms.cloned());
+    pub(crate) fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
+        self.atoms.extend(atoms);
     }
 
     pub(crate) fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {

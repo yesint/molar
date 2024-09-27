@@ -75,7 +75,7 @@ use triomphe::{Arc, UniqueArc};
 /// let dist = sels.into_par_iter().map(|res| {
 ///     // Remove jusmp over periodic boundary
 ///     res.unwrap_simple()?;
-///     // Consume residue selection and convert it 
+///     // Consume residue selection and convert it
 ///     // into two selections for Ca and N atoms
 ///     let (ca,n) = res.into_split_contig(|p| {
 ///         match p.atom.name.as_str() {
@@ -122,7 +122,7 @@ impl Source<()> {
             state: state.shareable(),
             used: Default::default(),
             _no_send: Default::default(),
-            _kind: Default::default()
+            _kind: Default::default(),
         })
     }
 
@@ -136,7 +136,7 @@ impl Source<()> {
             state: state.shareable(),
             used: Default::default(),
             _no_send: Default::default(),
-            _kind: Default::default()
+            _kind: Default::default(),
         })
     }
 
@@ -146,7 +146,7 @@ impl Source<()> {
             state: Arc::new(State::default()),
             used: Default::default(),
             _no_send: Default::default(),
-            _kind: Default::default()
+            _kind: Default::default(),
         }
     }
 
@@ -161,7 +161,7 @@ impl Source<()> {
             state: state.shareable(),
             used: Default::default(),
             _no_send: Default::default(),
-            _kind: Default::default()
+            _kind: Default::default(),
         })
     }
 
@@ -176,7 +176,7 @@ impl Source<()> {
             state: state.shareable(),
             used: Default::default(),
             _no_send: Default::default(),
-            _kind: Default::default()
+            _kind: Default::default(),
         })
     }
 
@@ -209,7 +209,7 @@ impl<K: SelectionKind> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
     pub fn release(self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), SelectionError> {
         Ok((
-            Arc::try_unique(self.topology).map_err(|_| SelectionError::Release)?, 
+            Arc::try_unique(self.topology).map_err(|_| SelectionError::Release)?,
             Arc::try_unique(self.state).map_err(|_| SelectionError::Release)?,
         ))
     }
@@ -229,10 +229,7 @@ impl<K: SelectionKind> Source<K> {
         ))
     }
 
-    pub fn select_vec(
-        &mut self,
-        vec: Vec<usize>,
-    ) -> Result<Sel<K>, SelectionError> {
+    pub fn select_vec(&mut self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_vec(vec, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
@@ -291,7 +288,10 @@ impl<K: SelectionKind> Source<K> {
 
     /// Adds new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&mut self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
+    pub fn select_range(
+        &mut self,
+        range: &std::ops::Range<usize>,
+    ) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         K::check_overlap(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
@@ -302,8 +302,7 @@ impl<K: SelectionKind> Source<K> {
     }
 }
 
-
-// Specific methods for serial selections 
+// Specific methods for serial selections
 impl<K: SerialSel> Source<K> {
     /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state.
@@ -341,10 +340,7 @@ impl<K: SerialSel> Source<K> {
         }
 
         unsafe {
-            std::ptr::swap(
-                self.topology.get_storage_mut(),
-                topology.get_storage_mut(),
-            );
+            std::ptr::swap(self.topology.get_storage_mut(), topology.get_storage_mut());
         };
 
         Ok(topology)
@@ -394,18 +390,28 @@ impl<K: SerialSel> Source<K> {
 impl Source<BuilderSerial> {
     pub fn append(&mut self, data: &(impl PosProvider + AtomsProvider)) -> Sel<BuilderSerial> {
         let first_added_index = self.num_atoms();
-        self.topology.get_storage_mut().add_atoms(data.iter_atoms());
-        self.state.get_storage_mut().add_coords(data.iter_pos());
+        self.topology
+            .get_storage_mut()
+            .add_atoms(data.iter_atoms().cloned());
+        self.state
+            .get_storage_mut()
+            .add_coords(data.iter_pos().cloned());
         let last_added_index = self.num_atoms();
-        self.select_range(&(first_added_index..last_added_index)).unwrap()
+        self.select_range(&(first_added_index..last_added_index))
+            .unwrap()
     }
 
-    pub fn append_atoms<'a>(&'a mut self, atoms: impl AtomIterator<'a>, coords: impl PosIterator<'a>) {
-        //let first_added_index = self.num_atoms();
+    pub fn append_atoms<'a>(
+        &'a mut self,
+        atoms: impl Iterator<Item = Atom>,
+        coords: impl Iterator<Item = Pos>,
+    ) -> Sel<BuilderSerial> {
+        let first_added_index = self.num_atoms();
         self.topology.get_storage_mut().add_atoms(atoms);
         self.state.get_storage_mut().add_coords(coords);
-        //let last_added_index = self.num_atoms();
-        //self.select_range(&(first_added_index..last_added_index)).unwrap()
+        let last_added_index = self.num_atoms();
+        self.select_range(&(first_added_index..last_added_index))
+            .unwrap()
     }
 
     pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
@@ -450,9 +456,9 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let mut src = Source::new_parallel_mut(top, st)?;
         let mut sels = vec![];
-        sels.push( src.select_str("resid 545")? );
-        sels.push( src.select_str("resid 546")? );
-        sels.push( src.select_str("resid 547")? );
+        sels.push(src.select_str("resid 545")?);
+        sels.push(src.select_str("resid 546")?);
+        sels.push(src.select_str("resid 547")?);
         sels.par_iter_mut()
             .for_each(|sel| sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
         Ok::<(), anyhow::Error>(())

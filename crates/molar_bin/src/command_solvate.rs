@@ -43,13 +43,7 @@ pub(crate) fn command_solvate(
     }
 
     // Get solute extents
-    let m = solute.get_box().unwrap().get_matrix();
-    // Matrix is column-major
-    let solute_max_ext = Vector3f::new(
-        m[(0, 0)] + m[(0, 1)] + m[(0, 2)],
-        m[(1, 0)] + m[(1, 1)] + m[(1, 2)],
-        m[(2, 0)] + m[(2, 1)] + m[(2, 2)],
-    );
+    let solute_max_ext = solute.get_box().unwrap().get_lab_extents();
 
     // We will fill the rectangular region with solvent 
     // even if the actual box is triclinic and then we will
