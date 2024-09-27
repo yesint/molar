@@ -1,10 +1,10 @@
 
 use std::iter;
 
-use anyhow::Result;
+use anyhow::{Result,anyhow};
 use log::info;
 use molar::{
-    core::{Atom, AtomsMutProvider, AtomsProvider, BoxProvider, Source},
+    core::{Atom, AtomsMutProvider, AtomsProvider, BoxProvider, PosProvider, Source},
     io::{TopologyProvider, WritableToFile},
 };
 
@@ -39,9 +39,9 @@ pub(crate) fn command_tip3_to_tip4(
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, aotms 1 and 2 are H
 	    // Get cooridnates
-        let o_pos = mol.nth_pos(0)?;
-        let h1_pos = mol.nth_pos(1)?;
-        let h2_pos = mol.nth_pos(2)?;
+        let o_pos = *mol.nth_pos(0).unwrap();
+        let h1_pos = *mol.nth_pos(1).unwrap();
+        let h2_pos = *mol.nth_pos(2).unwrap();
 	    // Get center of masses of H
 	    let hc = 0.5*(h1_pos.coords + h2_pos.coords);
 	    // Unit vector from o to hc
@@ -64,8 +64,8 @@ pub(crate) fn command_tip3_to_tip4(
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
         out.append_atoms(
-            mol.iter_atoms().chain(iter::once(&m_at)),
-            [o_pos,h1_pos,h2_pos,&m_pos].into_iter()
+            mol.iter_atoms().cloned().chain(iter::once(m_at)),
+            mol.iter_pos().cloned().chain(iter::once(m_pos)),
         );
     }
 

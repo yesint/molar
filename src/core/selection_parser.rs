@@ -333,23 +333,6 @@ impl RandomAtom for ActiveSubset<'_> {
 //###################################
 
 impl LogicalNode {
-    /*
-    pub fn is_coord_dependent(&self) -> bool {
-        match self {
-            Self::Not(node) => node.is_coord_dependent(),
-            Self::Or(a,b) |
-            Self::And(a,b) => {
-                a.is_coord_dependent() || b.is_coord_dependent()
-            },
-            Self::Keyword(node) => node.is_coord_dependent(),
-            Self::Comparison(node) =>  node.is_coord_dependent(),
-            Self::All => false,
-            Self::Same(_,node) => node.is_coord_dependent(),
-            Self::Within(_,node) => node.is_coord_dependent(),
-        }
-    }
-    */
-
     fn map_same_prop<'a, T>(
         &self,
         data: &'a ApplyData,
@@ -394,13 +377,6 @@ impl LogicalNode {
             },
 
             Self::And(ref a, ref b) => {
-                // Check which operand is coord-dependent and put it first
-                // This could be optimized to precomputed index and will
-                // make re-evaluation of AST faster
-                //if !a.is_coord_dependent() && b.is_coord_dependent() {
-                //    mem::swap(a,  &mut b);
-                //}
-
                 let a_res = a.apply(data)?;
                 // Create new instance of data and set a context subset to
                 // the result of a
@@ -427,42 +403,21 @@ impl LogicalNode {
 
             Self::Within(prop, node) => {
                 let inner = node.apply(data)?;
-                let mut res: SubsetType = Default::default();
 
                 let sub1 = data.global_subset();
                 let sub2 = data.custom_subset(&inner);
                 // Perform distance search
-                if prop.pbc == PBC_NONE {
+                let mut res: SubsetType = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
                     
-                    res = distance_search_within(prop.cutoff, &sub1, &sub2, &lower, &upper);
-                    
-                    // let searcher = DistanceSearcherDouble::new(
-                    //     prop.cutoff,
-                    //     // Global subset is used!
-                    //     data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
-                    //     data.iter_ind_pos_from_index(inner.iter().cloned()),
-                    //     &lower,
-                    //     &upper,
-                    // );
-                    // res = searcher.search();
+                    distance_search_within(prop.cutoff, &sub1, &sub2, &lower, &upper)
                 } else {
                     // Periodic variant
-                    res = distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), &prop.pbc);
-
-                    // let searcher = DistanceSearcherDouble::new_periodic(
-                    //     prop.cutoff,
-                    //     // Global subset is used!
-                    //     data.iter_ind_pos_from_index(data.global_subset.iter().cloned()),
-                    //     data.iter_ind_pos_from_index(inner.iter().cloned()),
-                    //     data.state.get_box().unwrap(),
-                    //     &prop.pbc,
-                    // );
-                    // res = searcher.search();
+                    distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), &prop.pbc)
                 };
 
                 // Add inner if asked
@@ -582,25 +537,6 @@ impl KeywordNode {
 }
 
 impl MathNode {
-    /*
-    pub fn is_coord_dependent(&self) -> bool {
-        match self {
-            Self::Float(_) | Self::Bfactor | Self::Occupancy => false,
-            Self::X | Self::Y | Self::Z => true,
-            Self::Plus(a, b) |
-            Self::Minus(a, b) |
-            Self::Mul(a, b) |
-            Self::Div(a, b) |
-            Self::Pow(a, b) => {
-                a.is_coord_dependent() || b.is_coord_dependent()
-            },
-            Self::Neg(v) => v.is_coord_dependent(),
-            Self::Function(_,v) => v.is_coord_dependent(),
-            Self::Dist(_) => true,
-        }
-    }
-    */
-
     fn closest_image(
         &self,
         point: &Pos,
@@ -693,33 +629,6 @@ impl MathNode {
 }
 
 impl ComparisonNode {
-    /*
-    pub fn is_coord_dependent(&self) -> bool {
-        match self {
-            Self::Eq(v1, v2) |
-            Self::Neq(v1, v2) |
-            Self::Gt(v1, v2) |
-            Self::Geq(v1, v2) |
-            Self::Lt(v1, v2) |
-            Self::Leq(v1, v2) => {
-                v1.is_coord_dependent() || v2.is_coord_dependent()
-            },
-            // Chained left
-            Self::LtLt(v1, v2, v3) |
-            Self::LtLeq(v1, v2, v3) |
-            Self::LeqLt(v1, v2, v3) |
-            Self::LeqLeq(v1, v2, v3) |
-            // Chained right
-            Self::GtGt(v1, v2, v3) |
-            Self::GtGeq(v1, v2, v3) |
-            Self::GeqGt(v1, v2, v3) |
-            Self::GeqGeq(v1, v2, v3) => {
-                v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent()
-            }
-        }
-    }
-    */
-
     fn eval_op(
         data: &ApplyData,
         v1: &MathNode,

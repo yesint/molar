@@ -14,8 +14,8 @@ pub(crate) struct StateStorage {
 }
 
 impl StateStorage {
-    pub fn add_coords<'a>(&mut self, pos: impl super::PosIterator<'a>) {
-        self.coords.extend(pos.cloned());
+    pub fn add_coords<'a>(&mut self, pos: impl Iterator<Item = Pos>) {
+        self.coords.extend(pos);
     }
 
     pub fn remove_coords(&mut self, removed: impl Iterator<Item = usize>) -> Result<(),BuilderError> {
