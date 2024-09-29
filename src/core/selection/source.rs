@@ -214,7 +214,7 @@ impl<K: SelectionKind> Source<K> {
         ))
     }
 
-    /// Adds new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
+    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
     pub fn select_iter(
         &mut self,
@@ -252,7 +252,7 @@ impl<K: SelectionKind> Source<K> {
         ))
     }
 
-    /// Adds selection of all
+    /// Creates selection of all
     pub fn select_all(&mut self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
         K::check_overlap(&vec, &mut self.used)?;
@@ -263,7 +263,7 @@ impl<K: SelectionKind> Source<K> {
         ))
     }
 
-    /// Adds new selection from a selection expression string. Selection expression is constructed internally but
+    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn select_str(&mut self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
@@ -275,7 +275,7 @@ impl<K: SelectionKind> Source<K> {
         ))
     }
 
-    /// Adds new selection from an existing selection expression.
+    /// Creates new selection from an existing selection expression.
     pub fn select_expr(&mut self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         K::check_overlap(&vec, &mut self.used)?;
@@ -286,7 +286,7 @@ impl<K: SelectionKind> Source<K> {
         ))
     }
 
-    /// Adds new selection from a range of indexes.
+    /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
     pub fn select_range(
         &mut self,
