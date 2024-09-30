@@ -106,8 +106,8 @@ pub(crate) fn command_solvate(
         b,
         &PBC_FULL,
     );
-    // We are getting indexes from inside_sel
     let to_remove_ind: Vec<usize> = searcher.search_vdw();
+    
     let to_remove_sel = solvent.select_vec(to_remove_ind)?;
     solvent.remove(&to_remove_sel)?;
 

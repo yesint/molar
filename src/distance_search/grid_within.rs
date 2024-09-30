@@ -430,8 +430,8 @@ fn search_cell_pair_single_pbc<T: SearchOutputType>(
 
 pub(crate) fn distance_search_within<C>(
     cutoff: f32,
-    data1: &(impl RandomPos + Send + Sync),
-    data2: &(impl RandomPos + Send + Sync),
+    data1: &(impl RandomPos + Sync),
+    data2: &(impl RandomPos + Sync),
     lower: &Vector3f,
     upper: &Vector3f,
 ) -> C
@@ -479,8 +479,8 @@ where
 
 pub(crate) fn distance_search_within_pbc<C>(
     cutoff: f32,
-    data1: &(impl RandomPos + Send + Sync),
-    data2: &(impl RandomPos + Send + Sync),
+    data1: &(impl RandomPos + Sync),
+    data2: &(impl RandomPos + Sync),
     pbox: &PeriodicBox,
     pbc_dims: &PbcDims,
 ) -> C
@@ -576,8 +576,8 @@ fn compute_bounding_box_single(cutoff: f32, data: &impl RandomPos) -> (Vector3f,
 
 pub(crate) fn distance_search_double<T, C>(
     cutoff: f32,
-    data1: &(impl RandomPos + Send + Sync),
-    data2: &(impl RandomPos + Send + Sync),
+    data1: &(impl RandomPos + Sync),
+    data2: &(impl RandomPos + Sync),
 ) -> C
 where
     T: SearchOutputType + Send + Sync,
@@ -601,20 +601,16 @@ where
             let mut found = Vec::new();
             search_cell_pair_double(
                 cutoff * cutoff,
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 pair,
-                data1,
-                data2,
+                data1,data2,
                 &mut found,
             );
             search_cell_pair_double(
                 cutoff * cutoff,
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 (pair.1, pair.0, pair.2),
-                data1,
-                data2,
+                data1,data2,
                 &mut found,
             );
             found
@@ -625,8 +621,8 @@ where
 
 pub(crate) fn distance_search_double_pbc<T, C>(
     cutoff: f32,
-    data1: &(impl RandomPos + Send + Sync + BoxProvider),
-    data2: &(impl RandomPos + Send + Sync),
+    data1: &(impl RandomPos + Sync + BoxProvider),
+    data2: &(impl RandomPos + Sync),
     pbox: &PeriodicBox,
     pbc_dims: &PbcDims,
 ) -> C
@@ -649,24 +645,18 @@ where
             let mut found = Vec::new();
             search_cell_pair_double_pbc(
                 cutoff * cutoff,
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 pair,
-                data1,
-                data2,
-                pbox,
-                pbc_dims,
+                data1,data2,
+                pbox,pbc_dims,
                 &mut found,
             );
             search_cell_pair_double_pbc(
                 cutoff * cutoff,
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 (pair.1, pair.0, pair.2),
-                data1,
-                data2,
-                pbox,
-                pbc_dims,
+                data1,data2,
+                pbox,pbc_dims,
                 &mut found,
             );
             found
@@ -676,8 +666,8 @@ where
 }
 
 pub(crate) fn distance_search_double_vdw<T, C>(
-    data1: &(impl RandomPos + Send + Sync),
-    data2: &(impl RandomPos + Send + Sync),
+    data1: &(impl RandomPos + Sync),
+    data2: &(impl RandomPos + Sync),
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
 ) -> C
@@ -707,22 +697,16 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw(
-                &grid1, 
-                &grid2, 
+                &grid1, &grid2, 
                 pair, 
-                data1, 
-                data2, 
-                vdw1, 
-                vdw2, 
+                data1, data2, 
+                vdw1, vdw2, 
                 &mut found);
             search_cell_pair_double_vdw(
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 (pair.1, pair.0, pair.2),
-                data1,
-                data2,
-                vdw1,
-                vdw2,
+                data1,data2,
+                vdw1,vdw2,
                 &mut found,
             );
             found
@@ -732,8 +716,8 @@ where
 }
 
 pub fn distance_search_double_vdw_pbc<T, C>(
-    data1: &(impl RandomPos + Send + Sync + BoxProvider),
-    data2: &(impl RandomPos + Send + Sync),
+    data1: &(impl RandomPos + Sync + BoxProvider),
+    data2: &(impl RandomPos + Sync),
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     pbox: &PeriodicBox,
@@ -762,27 +746,19 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw_pbc(
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 pair,
-                data1,
-                data2,
-                vdw1,
-                vdw2,
-                pbox,
-                pbc_dims,
+                data1,data2,
+                vdw1,vdw2,              
+                pbox,pbc_dims,
                 &mut found,
             );
             search_cell_pair_double_vdw_pbc(
-                &grid1,
-                &grid2,
+                &grid1,&grid2,
                 (pair.1, pair.0, pair.2),
-                data1,
-                data2,
-                vdw1,
-                vdw2,
-                pbox,
-                pbc_dims,
+                data1,data2,
+                vdw1,vdw2,
+                pbox,pbc_dims,
                 &mut found,
             );
             found
@@ -793,7 +769,7 @@ where
 
 //-------------------------------------------------------------------------
 
-pub(crate) fn distance_search_single<T, C>(cutoff: f32, data: &(impl RandomPos + Send + Sync)) -> C
+pub(crate) fn distance_search_single<T, C>(cutoff: f32, data: &(impl RandomPos + Sync)) -> C
 where
     T: SearchOutputType + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
@@ -816,7 +792,7 @@ where
 
 pub(crate) fn distance_search_single_pbc<T, C>(
     cutoff: f32,
-    data: &(impl RandomPos + Send + Sync + BoxProvider),
+    data: &(impl RandomPos + Sync + BoxProvider),
     pbox: &PeriodicBox,
     pbc_dims: &PbcDims,
 ) -> C
