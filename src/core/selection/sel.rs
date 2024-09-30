@@ -5,19 +5,6 @@ use triomphe::Arc;
 
 use super::utils::*;
 
-#[derive(Default)]
-pub struct System {
-    pub topology: Topology,
-    pub state: State,
-}
-
-impl System {
-    pub fn new(topology: Topology, state: State) -> Result<Self, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
-        Ok(Self { topology, state })
-    }
-}
-
 //---------------------------------------
 // Selection
 //---------------------------------------
