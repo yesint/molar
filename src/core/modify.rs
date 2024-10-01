@@ -1,5 +1,5 @@
-use crate::distance_search::DistanceSearcherSingle;
 use crate::distance_search::SearchConnectivity;
+use crate::prelude::distance_search_single_pbc;
 use super::providers::*;
 use super::MeasureError;
 use super::PbcDims;
@@ -69,14 +69,8 @@ pub trait ModifyRandomAccess:
             .get_box()
             .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
-        let conn: SearchConnectivity =
-            DistanceSearcherSingle::new_periodic(
-                cutoff,
-                self.iter_pos().cloned().enumerate(),
-                &b,
-                &dims
-            ).search();
-
+        let conn: SearchConnectivity = distance_search_single_pbc(cutoff, self, &b, &dims);
+        
         // used atoms
         let mut used = vec![false; conn.len()];
         // Centers to unwrap

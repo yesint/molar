@@ -2,11 +2,7 @@
 use crate::SolvateMode;
 use anyhow::{bail, Context, Result};
 use log::info;
-use molar::{
-    core::{AtomsProvider, BoxProvider, ModifyPos, ParticleProvider, PosProvider, Source, Vector3f, PBC_FULL},
-    io::{IndexProvider, WritableToFile},
-    prelude::DistanceSearcherDouble,
-};
+use molar::prelude::*;
 
 pub(crate) fn command_solvate(
     file: &str,
@@ -98,15 +94,17 @@ pub(crate) fn command_solvate(
     //inside_sel.save("target/inside.gro            ")?;
 
     // Do the distance search
-    let searcher = DistanceSearcherDouble::new_vdw_periodic(
-        inside_sel.iter_particle().map(|p| (p.id, *p.pos)),
-        inside_sel.iter_atoms().map(|a| a.vdw()),
-        solute.iter_pos().cloned().enumerate(), 
-        solute.iter_atoms().map(|a| a.vdw()),
-        b,
-        &PBC_FULL,
-    );
-    let to_remove_ind: Vec<usize> = searcher.search_vdw();
+    // let searcher = DistanceSearcherDouble::new_vdw_periodic(
+    //     inside_sel.iter_particle().map(|p| (p.id, *p.pos)),
+    //     inside_sel.iter_atoms().map(|a| a.vdw()),
+    //     solute.iter_pos().cloned().enumerate(), 
+    //     solute.iter_atoms().map(|a| a.vdw()),
+    //     b,
+    //     &PBC_FULL,
+    // );
+    let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
+    let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
+    let to_remove_ind: Vec<usize> = distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, &PBC_FULL);
     
     let to_remove_sel = solvent.select_vec(to_remove_ind)?;
     solvent.remove(&to_remove_sel)?;
