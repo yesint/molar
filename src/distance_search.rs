@@ -152,14 +152,10 @@ impl<'a> Grid<'a> {
         loc[0] + loc[1] * self.dims[0] + loc[2] * self.dims[0] * self.dims[1]
     }
 
-    // pub fn get(&self, loc: [usize; 3]) -> &Vec<usize> {
-    //     &self.cells[self.loc_to_ind(loc)]
+    // pub fn get_loc_mut(&mut self, loc: [usize; 3]) -> &mut Vec<(usize,&'a Pos)> {
+    //     let i = self.loc_to_ind(loc);
+    //     &mut self.cells[i]
     // }
-
-    pub fn get_loc_mut(&mut self, loc: [usize; 3]) -> &mut Vec<(usize,&'a Pos)> {
-        let i = self.loc_to_ind(loc);
-        &mut self.cells[i]
-    }
 
     pub fn push_loc(&mut self, loc: [usize; 3], data: (usize,&'a Pos)) {
         let i = self.loc_to_ind(loc);
@@ -225,7 +221,7 @@ impl<'a> Grid<'a> {
     }
 }
 
-pub fn search_plan(
+fn search_plan(
     grid1: &Grid,
     grid2: Option<&Grid>,
     periodic: bool,
@@ -448,7 +444,6 @@ fn search_cell_pair_single<T: SearchOutputType>(
     pair: (usize, usize, bool),
 ) -> Vec<T> {
     let mut found = Vec::<T>::new();
-    let n = grid.cells[pair.0].len();
 
     if pair.0 == pair.1 {
         let n = grid.cells[pair.0].len();
@@ -668,7 +663,7 @@ fn compute_bounding_box_single(cutoff: f32, data: &impl PosProvider) -> (Vector3
     (l, u)
 }
 
-pub(crate) fn distance_search_double<T, C>(
+pub fn distance_search_double<T, C>(
     cutoff: f32,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
@@ -711,7 +706,7 @@ where
         .collect()
 }
 
-pub(crate) fn distance_search_double_pbc<T, C>(
+pub fn distance_search_double_pbc<T, C>(
     cutoff: f32,
     data1: &(impl PosProvider + BoxProvider),
     data2: &impl PosProvider,
@@ -755,7 +750,7 @@ where
         .collect()
 }
 
-pub(crate) fn distance_search_double_vdw<T, C>(
+pub fn distance_search_double_vdw<T, C>(
     data1: &impl PosProvider,
     data2: &impl PosProvider,
     vdw1: &Vec<f32>,
@@ -855,7 +850,7 @@ where
 
 //-------------------------------------------------------------------------
 
-pub(crate) fn distance_search_single<T, C>(cutoff: f32, data: &impl PosProvider) -> C
+pub fn distance_search_single<T, C>(cutoff: f32, data: &impl PosProvider) -> C
 where
     T: SearchOutputType + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
@@ -876,7 +871,7 @@ where
         .collect()
 }
 
-pub(crate) fn distance_search_single_pbc<T, C>(
+pub fn distance_search_single_pbc<T, C>(
     cutoff: f32,
     data: &(impl PosProvider + BoxProvider + ?Sized),
     pbox: &PeriodicBox,
