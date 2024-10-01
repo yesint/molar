@@ -91,17 +91,9 @@ pub(crate) fn command_solvate(
         solvent.select_vec_unchecked(inside_ind)?
     };
 
-    //inside_sel.save("target/inside.gro            ")?;
+    //inside_sel.save("target/inside.gro")?;
 
     // Do the distance search
-    // let searcher = DistanceSearcherDouble::new_vdw_periodic(
-    //     inside_sel.iter_particle().map(|p| (p.id, *p.pos)),
-    //     inside_sel.iter_atoms().map(|a| a.vdw()),
-    //     solute.iter_pos().cloned().enumerate(), 
-    //     solute.iter_atoms().map(|a| a.vdw()),
-    //     b,
-    //     &PBC_FULL,
-    // );
     let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
     let to_remove_ind: Vec<usize> = distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, &PBC_FULL);
@@ -109,8 +101,18 @@ pub(crate) fn command_solvate(
     let to_remove_sel = solvent.select_vec(to_remove_ind)?;
     solvent.remove(&to_remove_sel)?;
 
-    // Add solute and save
+    // Add solute
     solute.append(&solvent);
+
+    // If exclude selection is provided remove it
+    if exclude.is_some() {
+        let sel_str = exclude.as_ref().unwrap();
+        let excl_sel = solute.select_str(sel_str)?;
+        info!("Excluding {} atoms by selection '{}'",excl_sel.len(),sel_str);
+        solute.remove(&excl_sel)?;
+    }
+
+    // Save
     solute.save(outfile)?;
 
     Ok(())
