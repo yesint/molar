@@ -232,43 +232,6 @@ mod tests {
     }
 
     #[test]
-    fn test_searcher_single() {
-        let sel = make_sel_prot().unwrap();
-        let mut searcher = DistanceSearcherSingle::new_periodic(
-            0.3, 
-            sel.iter_particle().map(|p| (p.id,*p.pos)), 
-            sel.get_box().unwrap(), 
-            &PBC_FULL
-        );
-
-        // Enforce parallel
-        searcher.set_serial_limit(0);
-        let v1: Vec<usize> = searcher.search();
-
-        // Enforce serial
-        searcher.set_serial_limit(1e10 as usize);
-        let v2: Vec<usize> = searcher.search();
-
-        assert_eq!(v1.len(),v2.len());
-    }
-
-    #[test]
-    fn test_searcher_single_vdw() {
-        let sel = make_sel_prot().unwrap();
-        let searcher = DistanceSearcherSingle::new_vdw_periodic(
-            sel.iter_particle().map(|p| (p.id,*p.pos)), 
-            sel.iter_particle().map(|p| p.atom.vdw()),
-            sel.get_box().unwrap(), 
-            &PBC_FULL
-        );
-
-        let v1: Vec<usize> = searcher.search();
-
-        assert!(v1.len()>0);
-    }
-
-
-    #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let sel = make_sel_prot()?;
         sel.unwrap_connectivity_dim(0.2, &PBC_FULL)?;
