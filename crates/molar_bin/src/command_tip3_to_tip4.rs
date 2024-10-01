@@ -1,7 +1,7 @@
 
 use std::iter;
 
-use anyhow::{Result,anyhow};
+use anyhow::Result;
 use log::info;
 use molar::{
     core::{Atom, AtomsMutProvider, AtomsProvider, BoxProvider, PosProvider, Source},

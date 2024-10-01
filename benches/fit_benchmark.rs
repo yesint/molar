@@ -41,36 +41,10 @@ fn test_fit(c: &mut Criterion) {
     );
 }
 
-fn search_par(c: &mut Criterion) {
-    let sel = make_sel_prot().unwrap();
-
-    let mut searcher = DistanceSearcherSingle::new_periodic(
-        0.3, 
-        sel.iter_particle().map(|p| (p.id,*p.pos)), 
-        sel.get_box().unwrap(), 
-        &PBC_FULL
-    );
-
-    c.bench_function("serial search_single", |b| b.iter(
-        || {
-            searcher.set_serial_limit(1e10 as usize);
-            let _: Vec<usize> = black_box(searcher.search());
-        })
-    );
-
-    c.bench_function("parallel search_single", |b| b.iter(
-        || {
-            searcher.set_serial_limit(0);
-            let _: Vec<usize> = black_box(searcher.search());
-        })
-    );
-}
-
-
 criterion_group!{
     name = benches;
     // This can be any expression that returns a `Criterion` object.
     config = Criterion::default().sample_size(10);
-    targets = search_par,test_fit
+    targets = test_fit
 }
 criterion_main!(benches);
