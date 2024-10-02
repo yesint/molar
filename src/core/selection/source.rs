@@ -1,7 +1,7 @@
 use super::utils::*;
 use crate::prelude::*;
 use sorted_vec::SortedSet;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Deref};
 use triomphe::{Arc, UniqueArc};
 
 //----------------------------------------
@@ -101,6 +101,44 @@ use triomphe::{Arc, UniqueArc};
 /// thread::spawn( move || sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
 /// #  Ok::<(), anyhow::Error>(())
 /// ```
+
+/// Smart pointer wrapper for sharing [Topology] and [State] between serial selections.
+/// Acts like Rc parameterized by selection kind, so the user can't accidentally mix incompatible
+/// selections pointing to the same data.
+/// Can't be sent to other threads.
+/// Normally this type should not be used directly by the user.
+pub struct SharedSerial<T, K> {
+    arc: Arc<T>,
+    _no_send: PhantomData<*const ()>,
+    _kind: PhantomData<K>,
+}
+
+impl<T, K: SerialSel> SharedSerial<T, K> {
+    pub(crate) fn new(arc: Arc<T>) -> Self {
+        Self {
+            arc,
+            _no_send: Default::default(),
+            _kind: Default::default(),
+        }
+    }
+
+    pub fn into_arc(self) -> Arc<T> {
+        self.arc
+    }
+}
+
+impl<T, K: SerialSel> Clone for SharedSerial<T, K> {
+    fn clone(&self) -> Self {
+        Self::new(self.arc.clone())
+    }
+}
+
+impl<T, K: SerialSel> Deref for SharedSerial<T, K> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.arc
+    }
+}
 
 pub struct Source<K> {
     topology: Arc<Topology>,
@@ -346,22 +384,22 @@ impl<K: SerialSel> Source<K> {
         Ok(topology)
     }
 
-    pub fn get_shared_topology(&self) -> Arc<Topology> {
-        Arc::clone(&self.topology)
+    pub fn get_shared_topology(&self) -> SharedSerial<Topology, K> {
+        SharedSerial::new(Arc::clone(&self.topology))
     }
 
-    pub fn get_shared_state(&self) -> Arc<State> {
-        Arc::clone(&self.state)
+    pub fn get_shared_state(&self) -> SharedSerial<State, K> {
+        SharedSerial::new(Arc::clone(&self.state))
     }
 
     pub fn new_from_shared(
-        topology: &Arc<Topology>,
-        state: &Arc<State>,
+        topology: SharedSerial<Topology, K>,
+        state: SharedSerial<State, K>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: Arc::clone(topology),
-            state: Arc::clone(state),
+            topology: topology.into_arc(),
+            state: state.into_arc(),
             used: Default::default(),
             _no_send: Default::default(),
             _kind: Default::default(),
@@ -370,19 +408,28 @@ impl<K: SerialSel> Source<K> {
 
     pub fn set_shared_topology(
         &mut self,
-        topology: Arc<Topology>,
-    ) -> Result<Arc<Topology>, SelectionError> {
+        topology: SharedSerial<Topology, K>,
+    ) -> Result<SharedSerial<Topology, K>, SelectionError> {
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
-        Ok(std::mem::replace(&mut self.topology, topology))
+        Ok(SharedSerial::new(std::mem::replace(
+            &mut self.topology,
+            topology.into_arc(),
+        )))
     }
 
-    pub fn set_shared_state(&mut self, state: Arc<State>) -> Result<Arc<State>, SelectionError> {
+    pub fn set_shared_state(
+        &mut self,
+        state: SharedSerial<State, K>,
+    ) -> Result<SharedSerial<State, K>, SelectionError> {
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
-        Ok(std::mem::replace(&mut self.state, state))
+        Ok(SharedSerial::new(std::mem::replace(
+            &mut self.state,
+            state.into_arc(),
+        )))
     }
 }
 

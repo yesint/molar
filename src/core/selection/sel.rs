@@ -405,29 +405,40 @@ impl<K: AllowsSubselect> Sel<K> {
     }
 }
 
-impl Sel<MutableSerial> {
-    // Only visible in selection module
-    // pub(super) fn from_parallel(sel: Sel<impl ParallelSel>) -> Self {
-    //     Self::new_internal(sel.topology, sel.state, sel.index_storage)
-    // }
+impl<K: SerialSel> Sel<K> {
+    pub fn get_shared_topology(&self) -> SharedSerial<Topology, K> {
+        SharedSerial::new(Arc::clone(&self.topology))
+    }
 
-    // pub fn get_shared_topology(&self) -> Arc<Topology> {
-    //     Arc::clone(&self.topology)
-    // }
+    pub fn get_shared_state(&self) -> SharedSerial<State, K> {
+        SharedSerial::new(Arc::clone(&self.state))
+    }
 
-    // pub fn get_shared_state(&self) -> Arc<State> {
-    //     Arc::clone(&self.state)
-    // }
+    pub fn set_shared_topology(
+        &mut self,
+        topology: SharedSerial<Topology, K>,
+    ) -> Result<SharedSerial<Topology, K>, SelectionError> {
+        if !self.topology.interchangeable(&topology) {
+            return Err(SelectionError::SetTopology);
+        }
+        Ok(SharedSerial::new(std::mem::replace(
+            &mut self.topology,
+            topology.into_arc(),
+        )))
+    }
 
-    // pub fn set_shared_topology(
-    //     &mut self,
-    //     topology: Arc<Topology>,
-    // ) -> Result<Arc<Topology>, SelectionError> {
-    //     if !self.topology.interchangeable(&topology) {
-    //         return Err(SelectionError::SetTopology);
-    //     }
-    //     Ok(std::mem::replace(&mut self.topology, topology))
-    // }
+    pub fn set_shared_state(
+        &mut self,
+        state: SharedSerial<State, K>,
+    ) -> Result<SharedSerial<State, K>, SelectionError> {
+        if !self.state.interchangeable(&state) {
+            return Err(SelectionError::SetState);
+        }
+        Ok(SharedSerial::new(std::mem::replace(
+            &mut self.state,
+            state.into_arc(),
+        )))
+    }
 
     pub fn set_state(&mut self, state: UniqueArc<State>) -> Result<Arc<State>, SelectionError> {
         if !self.state.interchangeable(&state) {
