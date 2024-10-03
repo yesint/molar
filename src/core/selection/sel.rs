@@ -406,22 +406,22 @@ impl<K: AllowsSubselect> Sel<K> {
 }
 
 impl<K: SerialSel> Sel<K> {
-    pub fn get_shared_topology(&self) -> SharedSerial<Topology, K> {
-        SharedSerial::new(Arc::clone(&self.topology))
+    pub fn get_shared_topology(&self) -> Holder<Topology, K> {
+        Holder::from_arc(Arc::clone(&self.topology))
     }
 
-    pub fn get_shared_state(&self) -> SharedSerial<State, K> {
-        SharedSerial::new(Arc::clone(&self.state))
+    pub fn get_shared_state(&self) -> Holder<State, K> {
+        Holder::from_arc(Arc::clone(&self.state))
     }
 
     pub fn set_shared_topology(
         &mut self,
-        topology: SharedSerial<Topology, K>,
-    ) -> Result<SharedSerial<Topology, K>, SelectionError> {
+        topology: Holder<Topology, K>,
+    ) -> Result<Holder<Topology, K>, SelectionError> {
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
-        Ok(SharedSerial::new(std::mem::replace(
+        Ok(Holder::from_arc(std::mem::replace(
             &mut self.topology,
             topology.into_arc(),
         )))
@@ -429,12 +429,12 @@ impl<K: SerialSel> Sel<K> {
 
     pub fn set_shared_state(
         &mut self,
-        state: SharedSerial<State, K>,
-    ) -> Result<SharedSerial<State, K>, SelectionError> {
+        state: Holder<State, K>,
+    ) -> Result<Holder<State, K>, SelectionError> {
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
-        Ok(SharedSerial::new(std::mem::replace(
+        Ok(Holder::from_arc(std::mem::replace(
             &mut self.state,
             state.into_arc(),
         )))
