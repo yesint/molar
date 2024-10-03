@@ -1,7 +1,7 @@
 use super::utils::*;
 use crate::prelude::*;
 use sorted_vec::SortedSet;
-use std::{marker::PhantomData, ops::Deref};
+use std::{marker::PhantomData, ops::Deref, sync::RwLock};
 use triomphe::{Arc, UniqueArc};
 
 //----------------------------------------
@@ -107,17 +107,25 @@ use triomphe::{Arc, UniqueArc};
 /// selections pointing to the same data.
 /// Can't be sent to other threads.
 /// Normally this type should not be used directly by the user.
-pub struct SharedSerial<T, K> {
+pub struct Holder<T, K, U=()> {
     arc: Arc<T>,
-    _no_send: PhantomData<*const ()>,
+    used: U,
     _kind: PhantomData<K>,
 }
 
-impl<T, K: SerialSel> SharedSerial<T, K> {
-    pub(crate) fn new(arc: Arc<T>) -> Self {
+impl<T, K: SerialSel> Holder<T, K> {
+    pub(crate) fn new(data: T) -> Self {
+        Self {
+            arc: Arc::new(data),
+            used: (),
+            _kind: Default::default(),
+        }
+    }
+
+    pub(crate) fn from_arc(arc: Arc<T>) -> Self {
         Self {
             arc,
-            _no_send: Default::default(),
+            used: (),
             _kind: Default::default(),
         }
     }
@@ -127,18 +135,77 @@ impl<T, K: SerialSel> SharedSerial<T, K> {
     }
 }
 
-impl<T, K: SerialSel> Clone for SharedSerial<T, K> {
+type UsedType = Arc<RwLock<rustc_hash::FxHashSet<usize>>>;
+
+impl<T, K: ParallelSel> Holder<T, K, UsedType> {
+    pub(crate) fn new(data: T, used: UsedType) -> Self {
+        Self {
+            arc: Arc::new(data),
+            used,
+            _kind: Default::default(),
+        }
+    }
+
+    fn add_to_used(&self, ind: &impl IndexProvider) -> Result<(),SelectionError> {
+        let mut g = self.used.write().unwrap();
+        for i in ind.iter_index() {
+            if g.contains(&i) {
+                return Err(SelectionError::OverlapCheck(i));
+            }
+        }
+        for i in ind.iter_index() {
+            g.insert(i);
+        }
+        Ok(())
+    }
+
+    fn remove_from_used(&self, ind: &impl IndexProvider) {
+        let mut g = self.used.write().unwrap();
+        for i in ind.iter_index() {
+            g.remove(&i);
+        }
+    }
+
+    pub(crate) fn clone_with_index(&self, ind: &impl IndexProvider) -> Result<Self,SelectionError> {
+        self.add_to_used(ind)?;
+        Ok(Self {
+            arc: self.arc.clone(),
+            used: self.used.clone(),
+            _kind: Default::default(),
+        })
+    }
+    // pub(crate) fn new(arc: Arc<T>) -> Self {
+    //     Self {
+    //         arc,
+    //         used: Default::default(),
+    //         _kind: Default::default(),
+    //     }
+    // }
+
+    // pub fn into_arc(self) -> Arc<T> {
+    //     self.arc
+    // }
+}
+
+
+impl<T, K> Clone for Holder<T, K, ()> {
     fn clone(&self) -> Self {
-        Self::new(self.arc.clone())
+        Self {
+            arc: self.arc.clone(),
+            used: self.used.clone(),
+            _kind: Default::default(),
+        }
     }
 }
 
-impl<T, K: SerialSel> Deref for SharedSerial<T, K> {
+impl<T, K, U> Deref for Holder<T, K, U> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.arc
     }
 }
+
+//------------------------------------------------------------------
 
 pub struct Source<K> {
     topology: Arc<Topology>,
@@ -384,17 +451,17 @@ impl<K: SerialSel> Source<K> {
         Ok(topology)
     }
 
-    pub fn get_shared_topology(&self) -> SharedSerial<Topology, K> {
-        SharedSerial::new(Arc::clone(&self.topology))
+    pub fn get_shared_topology(&self) -> Holder<Topology, K> {
+        Holder::from_arc(Arc::clone(&self.topology))
     }
 
-    pub fn get_shared_state(&self) -> SharedSerial<State, K> {
-        SharedSerial::new(Arc::clone(&self.state))
+    pub fn get_shared_state(&self) -> Holder<State, K> {
+        Holder::from_arc(Arc::clone(&self.state))
     }
 
     pub fn new_from_shared(
-        topology: SharedSerial<Topology, K>,
-        state: SharedSerial<State, K>,
+        topology: Holder<Topology, K>,
+        state: Holder<State, K>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
@@ -408,12 +475,12 @@ impl<K: SerialSel> Source<K> {
 
     pub fn set_shared_topology(
         &mut self,
-        topology: SharedSerial<Topology, K>,
-    ) -> Result<SharedSerial<Topology, K>, SelectionError> {
+        topology: Holder<Topology, K>,
+    ) -> Result<Holder<Topology, K>, SelectionError> {
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
-        Ok(SharedSerial::new(std::mem::replace(
+        Ok(Holder::from_arc(std::mem::replace(
             &mut self.topology,
             topology.into_arc(),
         )))
@@ -421,12 +488,12 @@ impl<K: SerialSel> Source<K> {
 
     pub fn set_shared_state(
         &mut self,
-        state: SharedSerial<State, K>,
-    ) -> Result<SharedSerial<State, K>, SelectionError> {
+        state: Holder<State, K>,
+    ) -> Result<Holder<State, K>, SelectionError> {
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
-        Ok(SharedSerial::new(std::mem::replace(
+        Ok(Holder::from_arc(std::mem::replace(
             &mut self.state,
             state.into_arc(),
         )))
