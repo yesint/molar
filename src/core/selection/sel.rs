@@ -403,6 +403,15 @@ impl<K: AllowsSubselect> Sel<K> {
     {
         self.split_gen(|p| Some(p.atom.resid))
     }
+
+    /// Helper method that splits selection into the parts with distinct resindexes.
+    /// Parent selection is left alive.
+    pub fn split_resindex<C>(&self) -> C
+    where
+        C: FromIterator<Sel<K>> + Default,
+    {
+        self.split_gen(|p| Some(p.atom.resindex))
+    }
 }
 
 impl<K: SerialSel> Sel<K> {

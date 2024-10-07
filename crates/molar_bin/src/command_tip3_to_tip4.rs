@@ -32,10 +32,8 @@ pub(crate) fn command_tip3_to_tip4(
     // Add before selection
     out.append(&sel_before);
 
-    // Now go over water molecules one by one
-    let mols: Vec<_> = water.split_resid();
-    
-    for mol in mols {
+    // Now go over water molecules one by one                   
+    for mol in water.into_split_contig_resindex() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, aotms 1 and 2 are H
 	    // Get cooridnates
@@ -49,12 +47,12 @@ pub(crate) fn command_tip3_to_tip4(
 	    // Position of the M dummy particle in TIP4
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
-        let m_at = Atom {
-            resid: mol.first_particle().atom.resid,
+        let m_at = Atom {   
             resname: "TIP4".into(),
             name: "M".into(),
-            ..Default::default()
+            ..mol.first_particle().atom.clone()
         };
+        println!("{:?}",m_at);
 
         // Change resname for existing atoms
         for a in mol.iter_atoms_mut() {

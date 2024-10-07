@@ -1,7 +1,7 @@
 use super::utils::*;
 use crate::prelude::*;
 use sorted_vec::SortedSet;
-use std::{marker::PhantomData, ops::Deref, sync::RwLock};
+use std::{marker::PhantomData, ops::Deref, sync::{Mutex, RwLock}};
 use triomphe::{Arc, UniqueArc};
 
 //----------------------------------------
@@ -101,6 +101,8 @@ use triomphe::{Arc, UniqueArc};
 /// thread::spawn( move || sel.translate(&Vector3f::new(10.0, 10.0, 10.0)));
 /// #  Ok::<(), anyhow::Error>(())
 /// ```
+
+//-------------------------------------------------------------------------
 
 /// Smart pointer wrapper for sharing [Topology] and [State] between serial selections.
 /// Acts like Rc parameterized by selection kind, so the user can't accidentally mix incompatible
