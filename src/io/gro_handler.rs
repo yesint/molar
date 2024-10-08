@@ -6,7 +6,6 @@ use std::{
     num::{ParseFloatError, ParseIntError},
 };
 use thiserror::Error;
-use triomphe::UniqueHolder;
 use thiserror_string_context::*;
 
 pub struct GroFileHandler {
@@ -118,7 +117,7 @@ impl GroFileHandler {
     //     &self.file_name
     // }
 
-    pub fn read(&mut self) -> Result<(UniqueHolder<Topology>, UniqueHolder<State>), GroHandlerError> {
+    pub fn read(&mut self) -> Result<(Topology, State), GroHandlerError> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 
@@ -220,9 +219,9 @@ impl GroFileHandler {
         }
         state.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| GroHandlerError::Pbc(e))?);
 
-        let state: UniqueHolder<State> = state.into();
+        let state: State = state.into();
 
-        let top: UniqueHolder<Topology> = top.into();
+        let top: Topology = top.into();
         // Assign resindex
         top.assign_resindex();
 

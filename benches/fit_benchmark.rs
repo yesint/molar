@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use molar::prelude::*;
 use nalgebra::Unit;
 
-fn read_test_pdb() -> (triomphe::UniqueHolder<Topology>, triomphe::UniqueHolder<State>) {
+fn read_test_pdb() -> (Topology, State) {
     let mut h = FileHandler::open("tests/colored.pdb").unwrap();
     let top = h.read_topology().unwrap();
     let state = h.read_state().unwrap().unwrap();
@@ -12,7 +12,7 @@ fn read_test_pdb() -> (triomphe::UniqueHolder<Topology>, triomphe::UniqueHolder<
 
 fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
     let (top,st) = read_test_pdb();
-    let mut b = Source::new_serial(top, st).unwrap();
+    let mut b = Source::new_serial(top.into(), st.into()).unwrap();
     //let sel = b.select_str("not resname TIP3 POT CLA").unwrap();
     let sel = b.select_all().unwrap();
     Ok(sel)
