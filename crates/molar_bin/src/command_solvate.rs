@@ -79,7 +79,7 @@ pub(crate) fn command_solvate(
     'outer: for res in all.into_split_contig_resindex() {
         for p in res.iter_pos() {
             if !b.is_inside(p) {
-                // Break out without adding this residue to good list
+                // Break without adding this residue to good list
                 continue 'outer;
             }
         }
@@ -98,10 +98,10 @@ pub(crate) fn command_solvate(
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
     let to_remove_ind: Vec<usize> = distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, &PBC_FULL);
     
-    let to_remove_sel = solvent.select_vec(to_remove_ind)?;
-    solvent.remove(&to_remove_sel)?;
+    //let to_remove_sel = solvent.select_vec(to_remove_ind)?;
+    solvent.remove(&to_remove_ind)?;
 
-    // Add solute
+    // Add solvent
     solute.append(&solvent);
 
     // If exclude selection is provided remove it

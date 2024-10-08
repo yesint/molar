@@ -35,7 +35,7 @@ pub(crate) fn command_tip3_to_tip4(
     // Now go over water molecules one by one                   
     for mol in water.into_split_contig_resindex() {
         // TIP3 is arranged as O->H->H
-        // so atom 0 is O, aotms 1 and 2 are H
+        // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
         let o_pos = *mol.nth_pos(0).unwrap();
         let h1_pos = *mol.nth_pos(1).unwrap();
