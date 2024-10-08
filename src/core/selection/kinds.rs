@@ -6,7 +6,7 @@ use super::SelectionError;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
-    type UsedIndexType: Clone;
+    type UsedIndexesType: Clone;
 
     #[inline(always)]
     #[allow(unused_variables)]
@@ -16,13 +16,13 @@ pub trait SelectionKind {
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexType) -> Result<(), SelectionError> {
+    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) -> Result<(), SelectionError> {
         Ok(())
     }
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn remove_used(index: &impl IndexProvider, used: &Self::UsedIndexType) {
+    fn remove_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) {
         ()
     }
 }
@@ -40,7 +40,7 @@ pub trait AllowsSubselect: SelectionKind {}
 /// Marker type for possibly overlapping mutable selection (single-threaded)
 pub struct MutableSerial(PhantomData<*const ()>);
 impl SelectionKind for MutableSerial {
-    type UsedIndexType = ();
+    type UsedIndexesType = ();
 }
 impl MutableSel for MutableSerial {}
 impl SerialSel for MutableSerial {}
@@ -49,7 +49,7 @@ impl AllowsSubselect for MutableSerial {}
 /// Marker type for possibly overlapping builder selection (single-threaded)
 pub struct BuilderSerial(PhantomData<*const ()>);
 impl SelectionKind for BuilderSerial {
-    type UsedIndexType = ();
+    type UsedIndexesType = ();
 
     #[inline(always)]
     fn check_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
@@ -72,10 +72,10 @@ impl AllowsSubselect for BuilderSerial {}
 pub struct MutableParallel {}
 
 impl SelectionKind for MutableParallel {
-    type UsedIndexType = triomphe::Arc<Mutex<rustc_hash::FxHashSet<usize>>>;
+    type UsedIndexesType = triomphe::Arc<Mutex<rustc_hash::FxHashSet<usize>>>;
 
     #[inline(always)]
-    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexType) -> Result<(), SelectionError> {
+    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) -> Result<(), SelectionError> {
         let mut g = used.lock().unwrap();
         for i in index.iter_index() {
             if g.contains(&i) {
@@ -89,7 +89,7 @@ impl SelectionKind for MutableParallel {
         Ok(())
     }
 
-    fn remove_used(index: &impl IndexProvider, used: &Self::UsedIndexType) {
+    fn remove_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) {
         // Obtain a lock for used
         let mut g = used.lock().unwrap();
         for i in index.iter_index() {
@@ -104,7 +104,7 @@ impl ParallelSel for MutableParallel {}
 /// Marker type for possibly overlapping immutable selection (multi-threaded)
 pub struct ImmutableParallel {}
 impl SelectionKind for ImmutableParallel {
-    type UsedIndexType = ();
+    type UsedIndexesType = ();
 }
 impl ParallelSel for ImmutableParallel {}
 impl AllowsSubselect for ImmutableParallel {}

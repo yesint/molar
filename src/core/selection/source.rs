@@ -113,7 +113,7 @@ use std::{
 /// Normally this type should not be used directly by the user.
 pub struct Holder<T, K: SelectionKind> {
     pub(crate) arc: triomphe::Arc<T>,
-    pub(crate) used: K::UsedIndexType,
+    pub(crate) used: K::UsedIndexesType,
     _kind: PhantomData<K>,
 }
 
@@ -142,7 +142,7 @@ impl_from_t_for_holder!(ImmutableParallel);
 // All holders except MutableParallel allow cloning
 impl<T,K> Clone for Holder<T,K> 
 where 
-    K: SelectionKind<UsedIndexType = ()>
+    K: SelectionKind<UsedIndexesType = ()>
 {
     fn clone(&self) -> Self {
         Self {
@@ -361,7 +361,7 @@ impl<K: SelectionKind> Source<K> {
 // Specific methods for all sources except MutableParallel
 impl<K> Source<K> 
 where
-    K: SelectionKind<UsedIndexType = ()>,
+    K: SelectionKind<UsedIndexesType = ()>,
 {
     /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state.
