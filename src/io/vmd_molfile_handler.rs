@@ -6,8 +6,6 @@ use std::default::Default;
 use std::ffi::{c_void, CStr, CString, NulError};
 use std::ptr::{self, null_mut};
 use std::str::Utf8Error;
-use thiserror::Error;
-use triomphe::UniqueHolder;
 
 enum OpenMode {
     Read,
@@ -181,7 +179,7 @@ impl VmdMolFileHandler {
         Ok(instance)
     }
 
-    pub fn read_topology(&mut self) -> Result<UniqueHolder<Topology>, VmdHandlerError> {
+    pub fn read_topology(&mut self) -> Result<Topology, VmdHandlerError> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -228,7 +226,7 @@ impl VmdMolFileHandler {
         }
 
         // Assign resindexes
-        let top: UniqueHolder<Topology> = top.into();
+        let mut top: Topology = top.into();
         top.assign_resindex();
 
         Ok(top)
@@ -270,7 +268,7 @@ impl VmdMolFileHandler {
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<UniqueHolder<State>>, VmdHandlerError> {
+    pub fn read_state(&mut self) -> Result<Option<State>, VmdHandlerError> {
         let mut state: StateStorage = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
