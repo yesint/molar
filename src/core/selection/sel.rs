@@ -75,8 +75,12 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone_with_index(&index)?,
-                state: self.state.clone_with_index(&index)?,
+                // We intentionally skipping the overlap check here
+                // by passing empty vectors. This allows for into_split
+                // iterators to work because they temporarrily hold
+                // a selection from which they yeld pieces.
+                topology: self.topology.clone_with_index(&vec![])?,
+                state: self.state.clone_with_index(&vec![])?,
                 index_storage: unsafe { SortedSet::from_sorted(index) },
             })
         } else {
