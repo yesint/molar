@@ -1,6 +1,6 @@
 use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
-use triomphe::{Arc, UniqueArc};
+use triomphe::{Arc, UniqueHolder};
 use crate::io::TopologyProvider;
 use crate::prelude::*;
 
@@ -79,9 +79,9 @@ impl Clone for Topology {
     }
 }
 
-impl From<TopologyStorage> for UniqueArc<Topology> {
+impl From<TopologyStorage> for UniqueHolder<Topology> {
     fn from(value: TopologyStorage) -> Self {
-        UniqueArc::new(Topology(SyncUnsafeCell::new(value)))
+        UniqueHolder::new(Topology(SyncUnsafeCell::new(value)))
     }
 }
 
@@ -191,4 +191,4 @@ macro_rules! impl_topology_traits {
 impl_topology_traits!(Topology);
 // Impls for smart pointers
 impl_topology_traits!(Arc<Topology>);
-impl_topology_traits!(UniqueArc<Topology>);
+impl_topology_traits!(UniqueHolder<Topology>);

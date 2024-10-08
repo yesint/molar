@@ -1,8 +1,11 @@
 use super::utils::*;
 use crate::prelude::*;
 use sorted_vec::SortedSet;
-use std::{marker::PhantomData, ops::Deref, sync::{Mutex, RwLock}};
-use triomphe::{Arc, UniqueArc};
+use std::{
+    marker::PhantomData,
+    ops::Deref,
+    sync::Mutex,
+};
 
 //----------------------------------------
 // Source of parallel selections
@@ -11,7 +14,7 @@ use triomphe::{Arc, UniqueArc};
 /// Source for selections, which are processed in parallel.
 ///
 /// Selections are stored inside the source and the user can only access them directly by reference form
-/// the same thread where [SourceParallel] was created (an attempt to send them to other thread won't compile).
+/// the same thread where [SourceParaltopologylel] was created (an attempt to send them to other thread won't compile).
 /// In order to process selections in parallel user calls `map_par` method to run an arbitrary closure on each stored
 /// selection in separate threads.
 ///
@@ -35,7 +38,7 @@ use triomphe::{Arc, UniqueArc};
 /// let res = sels.par_iter().map(|sel| {
 ///    sel.translate(&v);
 ///    Ok(sel.center_of_mass()?)
-/// }).collect::<Result<Vec<_>>>()?;
+/// }).collect::<Result<Vec<_>>>()?;topology
 /// println!("{:?}",res);
 /// #  Ok::<(), anyhow::Error>(())
 /// ```
@@ -45,7 +48,7 @@ use triomphe::{Arc, UniqueArc};
 /// # use anyhow::Result;
 /// # use rayon::prelude::*;
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-/// let mut src = Source::new_parallel(top, st)?;
+/// let mut src = Source::new_parallel(top, st)?;topology
 /// // Overlapping selections
 /// let mut sels = vec![];
 /// sels.push( src.select_iter(0..10)? );
@@ -62,7 +65,7 @@ use triomphe::{Arc, UniqueArc};
 /// # use molar::prelude::*;
 /// # use anyhow::Result;
 /// # use rayon::prelude::*;
-/// use itertools::Itertools;
+/// use itertools::Itertools;topology
 /// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
 /// let mut src = Source::new_parallel_mut(top, st)?;
 /// // Add a bunch of non-overlapping selections for residues
@@ -109,139 +112,136 @@ use triomphe::{Arc, UniqueArc};
 /// selections pointing to the same data.
 /// Can't be sent to other threads.
 /// Normally this type should not be used directly by the user.
-pub struct Holder<T, K, U=()> {
-    arc: Arc<T>,
+pub(crate) struct BaseHolder<T, K, U> {
+    pub(crate) arc: triomphe::Arc<T>,
     used: U,
     _kind: PhantomData<K>,
 }
 
-impl<T, K: SerialSel> Holder<T, K> {
-    pub(crate) fn new(data: T) -> Self {
+pub type UniqueHolder<T> = BaseHolder<T,(),()>;
+pub type Holder<T,K: SelectionKind> = BaseHolder<T,K,K::UsedIndexType>;
+
+impl<T> UniqueHolder<T> {
+    // This is equivalent to construction of normal smart pointer
+    // and creates an "untyped" holder
+    pub fn new(data: T) -> Self {
         Self {
-            arc: Arc::new(data),
+            arc: triomphe::Arc::new(data),
             used: (),
             _kind: Default::default(),
         }
-    }
-
-    pub(crate) fn from_arc(arc: Arc<T>) -> Self {
-        Self {
-            arc,
-            used: (),
-            _kind: Default::default(),
-        }
-    }
-
-    pub fn into_arc(self) -> Arc<T> {
-        self.arc
     }
 }
 
-type UsedType = Arc<RwLock<rustc_hash::FxHashSet<usize>>>;
+// Conversions from "untyped" holder.
+// This should not fail because there is no legal way to make
+// non-unique untyped holder.
+// Just in case we check this and pinic if this is violated.
+macro_rules! impl_from_untyped_holder {
+    ( $t:ty ) => {
+        impl<T> From<UniqueHolder<T>> for Holder<T, $t> {
+            fn from(value: UniqueHolder<T>) -> Self {
+                if !value.arc.is_unique() {
+                    panic!("Untyped Holder is not uniquesly owned!")
+                }
+                Self {
+                    arc: value.arc,
+                    used: Default::default(),
+                    _kind: Default::default(),
+                }
+            }
+        }
+    };
+}
 
-impl<T, K: ParallelSel> Holder<T, K, UsedType> {
-    pub(crate) fn new(data: T, used: UsedType) -> Self {
+impl_from_untyped_holder!(MutableSerial);
+impl_from_untyped_holder!(BuilderSerial);
+impl_from_untyped_holder!(MutableParallel);
+impl_from_untyped_holder!(ImmutableParallel);
+
+// All holders except MutableParallel allow cloning
+impl<T,K> Clone for BaseHolder<T,K,()> {
+    fn clone(&self) -> Self {
         Self {
-            arc: Arc::new(data),
-            used,
+            arc: self.arc.clone(),
+            used: (),
             _kind: Default::default(),
         }
     }
+}
 
-    fn add_to_used(&self, ind: &impl IndexProvider) -> Result<(),SelectionError> {
-        let mut g = self.used.write().unwrap();
-        for i in ind.iter_index() {
-            if g.contains(&i) {
-                return Err(SelectionError::OverlapCheck(i));
-            }
-        }
-        for i in ind.iter_index() {
-            g.insert(i);
-        }
-        Ok(())
-    }
+pub(crate) type UsedHashMap = triomphe::Arc<Mutex<rustc_hash::FxHashSet<usize>>>;
 
-    fn remove_from_used(&self, ind: &impl IndexProvider) {
-        let mut g = self.used.write().unwrap();
-        for i in ind.iter_index() {
-            g.remove(&i);
-        }
-    }
-
-    pub(crate) fn clone_with_index(&self, ind: &impl IndexProvider) -> Result<Self,SelectionError> {
-        self.add_to_used(ind)?;
+impl<T,K: SelectionKind> Holder<T, K> {
+    pub(crate) fn clone_with_index(
+        &self,
+        ind: &impl IndexProvider,
+    ) -> Result<Self, SelectionError> {
+        K::try_add_used(ind, &self.used)?;
         Ok(Self {
             arc: self.arc.clone(),
             used: self.used.clone(),
             _kind: Default::default(),
         })
-    }
-    // pub(crate) fn new(arc: Arc<T>) -> Self {
-    //     Self {
-    //         arc,
-    //         used: Default::default(),
-    //         _kind: Default::default(),
-    //     }
-    // }
-
-    // pub fn into_arc(self) -> Arc<T> {
-    //     self.arc
-    // }
+    }    
 }
 
-
-impl<T, K> Clone for Holder<T, K, ()> {
-    fn clone(&self) -> Self {
-        Self {
-            arc: self.arc.clone(),
-            used: self.used.clone(),
-            _kind: Default::default(),
-        }
-    }
-}
-
-impl<T, K, U> Deref for Holder<T, K, U> {
+// All holders are dereferenced as usual smart pointers
+impl<T, K, U> Deref for BaseHolder<T, K, U> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.arc
     }
 }
 
+// All holders can release a UniqueHolder if
+// they are uniquesly owned
+impl<T, K: SelectionKind> Holder<T, K> {
+    pub fn release(self) -> Result<UniqueHolder<T>, SelectionError> {
+        if self.arc.is_unique() {
+            Ok(UniqueHolder {
+                arc: self.arc,
+                _kind: Default::default(),
+                used: (),
+            })
+        } else {
+            Err(SelectionError::Release)
+        }
+    }
+}
+
 //------------------------------------------------------------------
 
-pub struct Source<K> {
-    topology: Arc<Topology>,
-    state: Arc<State>,
-    used: rustc_hash::FxHashSet<usize>,
+pub struct Source<K: SelectionKind> {
+    topology: Holder<Topology,K>,
+    state: Holder<State,K>,
     _no_send: PhantomData<*const ()>,
     _kind: PhantomData<K>,
 }
 
-impl Source<()> {
+impl Source<MutableSerial> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
     pub fn new_serial(
-        topology: UniqueArc<Topology>,
-        state: UniqueArc<State>,
+        topology: UniqueHolder<Topology>,
+        state: UniqueHolder<State>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
-            used: Default::default(),
+            topology: topology.into(),
+            state: state.into(),            
             _no_send: Default::default(),
             _kind: Default::default(),
         })
     }
 
     pub fn new_builder(
-        topology: UniqueArc<Topology>,
-        state: UniqueArc<State>,
+        topology: UniqueHolder<Topology>,
+        state: UniqueHolder<State>,
     ) -> Result<Source<BuilderSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
-            used: Default::default(),
+            topology: topology.into(),
+            state: state.into(),            
             _no_send: Default::default(),
             _kind: Default::default(),
         })
@@ -249,9 +249,8 @@ impl Source<()> {
 
     pub fn empty_builder() -> Source<BuilderSerial> {
         Source {
-            topology: Arc::new(Topology::default()),
-            state: Arc::new(State::default()),
-            used: Default::default(),
+            topology: BaseHolder::new(Topology::default()).into(),
+            state: BaseHolder::new(State::default()).into(),            
             _no_send: Default::default(),
             _kind: Default::default(),
         }
@@ -259,14 +258,13 @@ impl Source<()> {
 
     /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_parallel_mut(
-        topology: UniqueArc<Topology>,
-        state: UniqueArc<State>,
+        topology: UniqueHolder<Topology>,
+        state: UniqueHolder<State>,
     ) -> Result<Source<MutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
-            used: Default::default(),
+            topology: topology.into(),
+            state: state.into(),            
             _no_send: Default::default(),
             _kind: Default::default(),
         })
@@ -274,14 +272,13 @@ impl Source<()> {
 
     /// Creates a source of immutable parallel selections that _may_ overlap.
     pub fn new_parallel(
-        topology: UniqueArc<Topology>,
-        state: UniqueArc<State>,
+        topology: UniqueHolder<Topology>,
+        state: UniqueHolder<State>,
     ) -> Result<Source<ImmutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
-            topology: topology.shareable(),
-            state: state.shareable(),
-            used: Default::default(),
+            topology: topology.into(),
+            state: state.into(),            
             _no_send: Default::default(),
             _kind: Default::default(),
         })
@@ -314,10 +311,10 @@ impl Source<()> {
 
 impl<K: SelectionKind> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
-    pub fn release(self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), SelectionError> {
+    pub fn release(self) -> Result<(UniqueHolder<Topology>, UniqueHolder<State>), SelectionError> {
         Ok((
-            Arc::try_unique(self.topology).map_err(|_| SelectionError::Release)?,
-            Arc::try_unique(self.state).map_err(|_| SelectionError::Release)?,
+            self.topology.release()?,
+            self.state.release()?,
         ))
     }
 
@@ -327,18 +324,17 @@ impl<K: SelectionKind> Source<K> {
         &mut self,
         iter: impl Iterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_iter(iter, self.topology.num_atoms())?;
-        K::check_overlap(&vec, &mut self.used)?;
-        Ok(Sel::new_internal(
-            Arc::clone(&self.topology),
+        let vec = index_from_iter(iter, self.topology.num_atoms())?;        
+        Ok(Sel{
+            topology: &self.topology.clone_with_index(&vec)?,
             Arc::clone(&self.state),
             vec,
-        ))
+    })
     }
 
     pub fn select_vec(&mut self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_vec(vec, self.topology.num_atoms())?;
-        K::check_overlap(&vec, &mut self.used)?;
+        K::try_add_used(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -351,7 +347,7 @@ impl<K: SelectionKind> Source<K> {
         vec: Vec<usize>,
     ) -> Result<Sel<K>, SelectionError> {
         let vec = SortedSet::from_sorted(vec);
-        K::check_overlap(&vec, &mut self.used)?;
+        K::try_add_used(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -362,7 +358,7 @@ impl<K: SelectionKind> Source<K> {
     /// Creates selection of all
     pub fn select_all(&mut self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
-        K::check_overlap(&vec, &mut self.used)?;
+        K::try_add_used(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -374,7 +370,7 @@ impl<K: SelectionKind> Source<K> {
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn select_str(&mut self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
-        K::check_overlap(&vec, &mut self.used)?;
+        K::try_add_used(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -385,7 +381,7 @@ impl<K: SelectionKind> Source<K> {
     /// Creates new selection from an existing selection expression.
     pub fn select_expr(&mut self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
-        K::check_overlap(&vec, &mut self.used)?;
+        K::try_add_used(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -400,7 +396,7 @@ impl<K: SelectionKind> Source<K> {
         range: &std::ops::Range<usize>,
     ) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
-        K::check_overlap(&vec, &mut self.used)?;
+        K::try_add_used(&vec, &mut self.used)?;
         Ok(Sel::new_internal(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -453,17 +449,17 @@ impl<K: SerialSel> Source<K> {
         Ok(topology)
     }
 
-    pub fn get_shared_topology(&self) -> Holder<Topology, K> {
-        Holder::from_arc(Arc::clone(&self.topology))
+    pub fn get_shared_topology(&self) -> BaseHolder<Topology, K> {
+        BaseHolder::from_arc(Arc::clone(&self.topology))
     }
 
-    pub fn get_shared_state(&self) -> Holder<State, K> {
-        Holder::from_arc(Arc::clone(&self.state))
+    pub fn get_shared_state(&self) -> BaseHolder<State, K> {
+        BaseHolder::from_arc(Arc::clone(&self.state))
     }
 
     pub fn new_from_shared(
-        topology: Holder<Topology, K>,
-        state: Holder<State, K>,
+        topology: BaseHolder<Topology, K>,
+        state: BaseHolder<State, K>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
@@ -477,12 +473,12 @@ impl<K: SerialSel> Source<K> {
 
     pub fn set_shared_topology(
         &mut self,
-        topology: Holder<Topology, K>,
-    ) -> Result<Holder<Topology, K>, SelectionError> {
+        topology: BaseHolder<Topology, K>,
+    ) -> Result<BaseHolder<Topology, K>, SelectionError> {
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
         }
-        Ok(Holder::from_arc(std::mem::replace(
+        Ok(BaseHolder::from_arc(std::mem::replace(
             &mut self.topology,
             topology.into_arc(),
         )))
@@ -490,12 +486,12 @@ impl<K: SerialSel> Source<K> {
 
     pub fn set_shared_state(
         &mut self,
-        state: Holder<State, K>,
-    ) -> Result<Holder<State, K>, SelectionError> {
+        state: BaseHolder<State, K>,
+    ) -> Result<BaseHolder<State, K>, SelectionError> {
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
-        Ok(Holder::from_arc(std::mem::replace(
+        Ok(BaseHolder::from_arc(std::mem::replace(
             &mut self.state,
             state.into_arc(),
         )))

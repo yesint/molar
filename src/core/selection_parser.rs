@@ -1089,7 +1089,7 @@ impl SelectionExpr {
 
 #[cfg(test)]
 mod tests {
-    use triomphe::UniqueArc;
+    use triomphe::UniqueHolder;
 
     use super::{SelectionExpr, State, Topology};
     use crate::io::*;
@@ -1099,14 +1099,14 @@ mod tests {
         let _ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
     }
 
-    fn read_test_pdb() -> (UniqueArc<Topology>, UniqueArc<State>) {
+    fn read_test_pdb() -> (UniqueHolder<Topology>, UniqueHolder<State>) {
         let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
         let structure = h.read_topology().unwrap();
         let state = h.read_state().unwrap().unwrap();
         (structure, state)
     }
 
-    fn read_test_pdb2() -> (UniqueArc<Topology>, UniqueArc<State>) {
+    fn read_test_pdb2() -> (UniqueHolder<Topology>, UniqueHolder<State>) {
         let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
         let structure = h.read_topology().unwrap();
         let state = h.read_state().unwrap().unwrap();
