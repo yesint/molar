@@ -1,6 +1,6 @@
 use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
-
+use triomphe::{Arc, UniqueHolder};
 use crate::io::TopologyProvider;
 
 use super::{providers::{AtomsMutProvider, AtomsProvider, MassesProvider}, Atom};
@@ -84,11 +84,9 @@ impl Clone for Topology {
     }
 }
 
-impl From<TopologyStorage> for Topology {
+impl From<TopologyStorage> for UniqueHolder<Topology> {
     fn from(value: TopologyStorage) -> Self {
-        Topology{
-            arc: triomphe::Arc::new(SyncUnsafeCell::new(value))
-        }
+        UniqueHolder::new(Topology(SyncUnsafeCell::new(value)))
     }
 }
 
@@ -168,29 +166,32 @@ impl MassesProvider for Topology {
     }
 }
 
-//--------------------------
+        impl LenProvider for $t {            
+            fn len(&self) -> usize {
+                self.get_storage_mut().atoms.len()
+            }
+        }
+
+        impl RandomAtom for $t {            
+            unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+                self.get_storage().atoms.get_unchecked(i)
+            }
+        }
+
+        impl RandomAtomMut for $t {
+            fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+                self.get_storage_mut().atoms.get_mut(i)
+            }
+
+            unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+                self.get_storage_mut().atoms.get_unchecked_mut(i)
+            }
+        }  
+    }
+}
+
+// Impls for Topology itself
+impl_topology_traits!(Topology);
 // Impls for smart pointers
-//--------------------------
-impl TopologyProvider for triomphe::Arc<Topology> {
-    fn num_atoms(&self) -> usize {
-        self.get_storage().atoms.len()
-    }
-}
-
-impl AtomsProvider for triomphe::Arc<Topology> {
-    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
-        self.get_storage().atoms.iter()
-    }
-}
-
-impl AtomsMutProvider for triomphe::Arc<Topology> {
-    fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
-        self.get_storage_mut().atoms.iter_mut()
-    }
-}
-
-impl MassesProvider for triomphe::Arc<Topology> {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
-        self.get_storage().atoms.iter().map(|at| at.mass)
-    }
-}
+impl_topology_traits!(Arc<Topology>);
+impl_topology_traits!(UniqueHolder<Topology>);

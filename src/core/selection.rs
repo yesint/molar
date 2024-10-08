@@ -97,9 +97,10 @@ pub enum SelectionIndexError {
 mod tests {    
     use crate::prelude::*;    
     pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+    use triomphe::UniqueHolder;
     use super::*;
 
-    pub fn read_test_pdb() -> (Topology, State) {
+    pub fn read_test_pdb() -> (UniqueHolder<Topology>, UniqueHolder<State>) {
         FileHandler::open("tests/protein.pdb").unwrap().read().unwrap()
     }
 

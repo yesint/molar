@@ -1,9 +1,12 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
-use std::path::Path;
+use log::debug;
+use sorted_vec::SortedSet;
+use std::{fmt::Display, path::Path};
 use thiserror::Error;
 #[cfg(feature = "gromacs")]
 use tpr_handler::TprHandlerError;
+use triomphe::{Arc, UniqueHolder};
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
 
@@ -131,6 +134,18 @@ where
     }
 }
 
+impl IndexProvider for SortedSet<usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        self.iter().cloned()
+    }
+}
+
+impl IndexProvider for Vec<usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        self.iter().cloned()
+    }
+}
+
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
@@ -139,7 +154,7 @@ pub struct IoStateIterator {
 }
 
 impl Iterator for IoStateIterator {
-    type Item = State;
+    type Item = UniqueHolder<State>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.read_state()
         .map_err(|e| panic!("error reading next state: {}",e)).unwrap()
@@ -218,8 +233,10 @@ impl FileHandler {
         }
     }
 
-    pub fn read(&mut self) -> Result<(Topology, State), FileIoError> {
-        let (top, st) = match self {
+    pub fn read(&mut self) -> Result<(BaseHolder<Topology,()>, BaseHolder<State,()>), FileIoError> {
+        let t = std::time::Instant::now();
+
+        let (top, st) = match self.format_handler {
             #[cfg(feature = "gromacs")]
             Self::Tpr(ref mut h) => h.read().with_file(|| h.get_file_name())?,
             Self::Gro(ref mut h) => h.read().with_file(|| h.get_file_name())?,
@@ -257,13 +274,14 @@ impl FileHandler {
         }
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology, FileIoError> {
-        let top = match self {
-              Self::Pdb(ref mut h) 
-            | Self::Xyz(ref mut h) => {
-                h.read_topology().with_file(|| h.get_file_name())?
-            },
-            _ => return Err(FileIoError::NotTopologyReadFormat),
+    pub fn read_topology(&mut self) -> Result<UniqueHolder<Topology>, FileIoError> {
+        let t = std::time::Instant::now();
+
+        let top = match self.format_handler {
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
+                h.read_topology().with_context(|| &self.file_name)?
+            }
+            _ => return Err(FileIoError::NotTopologyReadFormat).with_context(|| &self.file_name),
         };
         Ok(top)
     }
@@ -281,15 +299,15 @@ impl FileHandler {
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>, FileIoError> {
-        let st = match self {
-              Self::Pdb(ref mut h) 
-            | Self::Xyz(ref mut h) 
-            | Self::Dcd(ref mut h) => {
-                h.read_state().with_file(|| h.get_file_name())?
-            },
-            Self::Xtc(ref mut h) => h.read_state().with_file(|| h.get_file_name())?,
-            _ => return Err(FileIoError::NotTrajectoryReadFormat),
+    pub fn read_state(&mut self) -> Result<Option<UniqueHolder<State>>, FileIoError> {
+        let t = std::time::Instant::now();
+
+        let st = match self.format_handler {
+            FileFormat::Pdb(ref mut h)
+            | FileFormat::Xyz(ref mut h)
+            | FileFormat::Dcd(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
+            FileFormat::Xtc(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
+            _ => return Err(FileIoError::NotTrajectoryReadFormat).with_context(|| &self.file_name),
         };
         Ok(st)
     }
@@ -346,7 +364,7 @@ impl FileHandler {
 }
 
 impl IntoIterator for FileHandler {
-    type Item = State;
+    type Item = UniqueHolder<State>;
     type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -354,11 +372,51 @@ impl IntoIterator for FileHandler {
     }
 }
 
+//----------------------------------------
+// Implementation of IO traits for tuples
+
+impl TopologyProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+    fn num_atoms(&self) -> usize {
+        self.0.num_atoms()
+    }
+}
+
+impl AtomsProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        self.0.iter_atoms()
+    }
+}
+
+impl StateProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+    fn num_coords(&self) -> usize {
+        self.1.num_coords()
+    }
+
+    fn get_time(&self) -> f32 {
+        self.1.get_time()
+    }
+}
+
+impl BoxProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.1.get_box()
+    }
+}
+
+impl PosProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.1.iter_pos()
+    }
+}
+
+//----------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::FileHandler;
     use crate::prelude::*;
     use anyhow::Result;
+    use triomphe::UniqueHolder;
 
     #[test]
     fn test_read() -> Result<()> {
@@ -392,7 +450,7 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = st1.clone();
+        let st2 = UniqueHolder::new(st1.clone());
         println!("#1: {}", top1.num_atoms());
 
         let b = Source::new(top1, st2)?;

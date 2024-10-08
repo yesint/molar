@@ -1,4 +1,5 @@
 use sync_unsafe_cell::SyncUnsafeCell;
+use triomphe::{Arc, UniqueHolder};
 use crate::io::StateProvider;
 use super::{providers::{BoxProvider, PosProvider}, BuilderError, PeriodicBox, Pos};
 
@@ -53,11 +54,9 @@ impl Clone for State {
     }
 }
 
-impl From<StateStorage> for State {
+impl From<StateStorage> for UniqueHolder<State> {
     fn from(value: StateStorage) -> Self {
-        State{
-            arc: triomphe::Arc::new(SyncUnsafeCell::new(value))
-        }
+        UniqueHolder::new(State(SyncUnsafeCell::new(value)))
     }
 }
 
@@ -108,48 +107,63 @@ impl State {
     }
 }
 
-// Impls for smart pointers
-impl StateProvider for triomphe::Arc<State> {
-    fn get_time(&self) -> f32 {
-        self.get_storage().time
-    }
+//------------------------
+macro_rules! impl_state_traits {
+    ( $t:ty ) => {
+        impl StateProvider for $t {
+            fn get_time(&self) -> f32 {
+                self.get_storage().time
+            }
+        
+            fn num_coords(&self) -> usize {
+                self.get_storage().coords.len()
+            }
+        }
+        
+        impl PosProvider for $t {
+            fn iter_pos(&self) -> impl super::PosIterator<'_> {
+                self.get_storage().coords.iter()
+            }
+        }
+        
+        impl BoxProvider for $t {
+            fn get_box(&self) -> Option<&PeriodicBox> {
+                self.get_storage().pbox.as_ref()
+            }
+        }
+        
+        impl PosMutProvider for $t {
+            fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
+                self.get_storage_mut().coords.iter_mut()
+            }
+        }
 
-    fn num_coords(&self) -> usize {
-        self.get_storage().coords.len()
-    }
-}
+        impl LenProvider for $t {
+            fn len(&self) -> usize {
+                self.get_storage().coords.len()
+            }
+        }
 
-impl PosProvider for triomphe::Arc<State> {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get_storage().coords.iter()
-    }
-}
+        impl RandomPos for $t {
+            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+                self.get_storage().coords.get_unchecked(i)
+            }
+        }
 
-impl BoxProvider for triomphe::Arc<State> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_storage().pbox.as_ref()
+        impl RandomPosMut for $t {
+            fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+                self.get_storage_mut().coords.get_mut(i)
+            }
+
+            unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+                self.get_storage_mut().coords.get_unchecked_mut(i)
+            }
+        }
     }
 }
 
 // Impls for State itself
-impl StateProvider for State {
-    fn get_time(&self) -> f32 {
-        self.get_storage().time
-    }
-
-    fn num_coords(&self) -> usize {
-        self.get_storage().coords.len()
-    }
-}
-
-impl PosProvider for State {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
-        self.get_storage().coords.iter()
-    }
-}
-
-impl BoxProvider for State {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_storage().pbox.as_ref()
-    }
-}
+impl_state_traits!(State);
+// Impls for smart pointers
+impl_state_traits!(Arc<State>);
+impl_state_traits!(UniqueHolder<State>);
