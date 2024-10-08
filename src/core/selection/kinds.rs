@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Mutex};
 use sorted_vec::SortedSet;
 use crate::{core::{State, Topology}, io::{IndexProvider, StateProvider, TopologyProvider}};
 
@@ -72,7 +72,7 @@ impl AllowsSubselect for BuilderSerial {}
 pub struct MutableParallel {}
 
 impl SelectionKind for MutableParallel {
-    type UsedIndexType = super::UsedHashMap;
+    type UsedIndexType = triomphe::Arc<Mutex<rustc_hash::FxHashSet<usize>>>;
 
     #[inline(always)]
     fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexType) -> Result<(), SelectionError> {

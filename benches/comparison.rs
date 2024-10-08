@@ -15,7 +15,7 @@ fn molar_benchmark(c: &mut Criterion) {
 
             let trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
             for st in trj {
-                cur_sel.set_state(st).unwrap();
+                cur_sel.set_state(st.into()).unwrap();
                 let tr = MeasureMasses::fit_transform(&cur_sel, &ref_sel).unwrap();
                 cur_sel.apply_transform(&tr);
                 rmsd.push( MeasurePos::rmsd(&cur_sel, &ref_sel).unwrap() );
@@ -31,7 +31,7 @@ fn molar_benchmark(c: &mut Criterion) {
             let mut cm = vec![];
             let trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
             for st in trj {
-                sel.set_state(st).unwrap();
+                sel.set_state(st.into()).unwrap();
                 cm.push( sel.center_of_mass().unwrap() );
             }
             //println!("{:?}",&cm[..10]);
@@ -46,7 +46,7 @@ fn molar_benchmark(c: &mut Criterion) {
             let in_trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
             let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();
             for st in in_trj {
-                sel.set_state(st).unwrap();
+                sel.set_state(st.into()).unwrap();
                 out_trj.write_state(&sel).unwrap();
             }
         }))

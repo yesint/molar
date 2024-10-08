@@ -15,13 +15,13 @@ struct SplitData<RT, F> {
 /// 
 /// This iterator keeps the parent selection alive and yelds selections of the same kind 
 /// as sub-selections of the parent [Sel].
-pub struct SelectionSplitIterator<'a, RT, F, S> {
-    sel: &'a Sel<S>,
+pub struct SelectionSplitIterator<'a, RT, F, K: SelectionKind> {
+    sel: &'a Sel<K>,
     data: SplitData<RT, F>,
 }
 
-impl<S> SelectionSplitIterator<'_, (), (), S> {
-    pub fn new<RT, F>(sel: &Sel<S>, func: F) -> SelectionSplitIterator<'_, RT, F, S>
+impl<K: SelectionKind> SelectionSplitIterator<'_, (), (), K> {
+    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> SelectionSplitIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -56,13 +56,13 @@ where
 /// 
 /// This iterator consumes the parent selection and yelds selections of the same kind 
 /// as the parent [Sel].
-pub struct IntoSelectionSplitIterator<RT, F, S> {
-    sel: Sel<S>,
+pub struct IntoSelectionSplitIterator<RT, F, K: SelectionKind> {
+    sel: Sel<K>,
     data: SplitData<RT, F>,
 }
 
-impl<S> IntoSelectionSplitIterator<(), (), S> {
-    pub fn new<RT, F>(sel: Sel<S>, func: F) -> IntoSelectionSplitIterator<RT, F, S>
+impl<K: SelectionKind> IntoSelectionSplitIterator<(), (), K> {
+    pub fn new<RT, F>(sel: Sel<K>, func: F) -> IntoSelectionSplitIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -93,12 +93,11 @@ where
 }
 
 // Actual function that does the splitting
-fn next_split<RT, F, S, SR>(data: &mut SplitData<RT, F>, sel: &Sel<S>) -> Option<Sel<SR>>
+fn next_split<RT, F, K>(data: &mut SplitData<RT, F>, sel: &Sel<K>) -> Option<Sel<K>>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(Particle) -> Option<RT>,
-    S: SelectionKind,
-    SR: SelectionKind,
+    K: SelectionKind,
 {
     let mut index = Vec::<usize>::new();
     while data.counter < sel.len() {

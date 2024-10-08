@@ -37,7 +37,7 @@ pub(super) fn command_rearrange(
     }
 
     // Make selections
-    let mut in_source = Source::new_serial(top, st)?;
+    let mut in_source = Source::new_serial(top.into(), st.into())?;
     let begin_sels = begin
         .iter()
         .map(|s| in_source.select_str(s).map_err(|e| anyhow!(e)))

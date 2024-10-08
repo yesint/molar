@@ -6,7 +6,6 @@ use std::{fmt::Display, path::Path};
 use thiserror::Error;
 #[cfg(feature = "gromacs")]
 use tpr_handler::TprHandlerError;
-use triomphe::{Arc, UniqueHolder};
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
 
@@ -145,7 +144,7 @@ pub struct IoStateIterator {
 }
 
 impl Iterator for IoStateIterator {
-    type Item = UniqueHolder<State>;
+    type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader
             .read_state()
@@ -288,7 +287,7 @@ impl FileHandler {
         }
     }
 
-    pub fn read(&mut self) -> Result<(BaseHolder<Topology,()>, BaseHolder<State,()>), FileIoError> {
+    pub fn read(&mut self) -> Result<(Topology, State), FileIoError> {
         let t = std::time::Instant::now();
 
         let (top, st) = match self.format_handler {
@@ -313,11 +312,6 @@ impl FileHandler {
         Ok((top, st))
     }
 
-    pub fn read_shareable(&mut self) -> Result<(Arc<Topology>, Arc<State>), FileIoError> {
-        let (top, st) = self.read()?;
-        Ok((top.shareable(), st.shareable()))
-    }
-
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyProvider + StateProvider,
@@ -339,7 +333,7 @@ impl FileHandler {
         Ok(())
     }
 
-    pub fn read_topology(&mut self) -> Result<UniqueHolder<Topology>, FileIoError> {
+    pub fn read_topology(&mut self) -> Result<Topology, FileIoError> {
         let t = std::time::Instant::now();
 
         let top = match self.format_handler {
@@ -353,10 +347,6 @@ impl FileHandler {
         self.stats.frames_processed += 1;
 
         Ok(top)
-    }
-
-    pub fn read_topology_shareable(&mut self) -> Result<Arc<Topology>, FileIoError> {
-        Ok(self.read_topology()?.shareable())
     }
 
     pub fn write_topology<T>(&mut self, data: &T) -> Result<(), FileIoError>
@@ -378,7 +368,7 @@ impl FileHandler {
         Ok(())
     }
 
-    pub fn read_state(&mut self) -> Result<Option<UniqueHolder<State>>, FileIoError> {
+    pub fn read_state(&mut self) -> Result<Option<State>, FileIoError> {
         let t = std::time::Instant::now();
 
         let st = match self.format_handler {
@@ -397,10 +387,6 @@ impl FileHandler {
         }
 
         Ok(st)
-    }
-
-    pub fn read_state_shareable(&mut self) -> Result<Option<Arc<State>>, FileIoError> {
-        Ok(self.read_state()?.map(|v| v.shareable()))
     }
 
     pub fn write_state<T>(&mut self, data: &T) -> Result<(), FileIoError>
@@ -514,7 +500,7 @@ impl Drop for FileHandler {
 }
 
 impl IntoIterator for FileHandler {
-    type Item = UniqueHolder<State>;
+    type Item = State;
     type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -525,19 +511,19 @@ impl IntoIterator for FileHandler {
 //----------------------------------------
 // Implementation of IO traits for tuples
 
-impl TopologyProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+impl TopologyProvider for (Topology, State) {
     fn num_atoms(&self) -> usize {
         self.0.num_atoms()
     }
 }
 
-impl AtomsProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+impl AtomsProvider for (Topology, State) {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.0.iter_atoms()
     }
 }
 
-impl StateProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+impl StateProvider for (Topology, State) {
     fn num_coords(&self) -> usize {
         self.1.num_coords()
     }
@@ -547,13 +533,13 @@ impl StateProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
     }
 }
 
-impl BoxProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+impl BoxProvider for (Topology, State) {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.1.get_box()
     }
 }
 
-impl PosProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
+impl PosProvider for (Topology, State) {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.1.iter_pos()
     }
@@ -566,7 +552,6 @@ mod tests {
     use super::FileHandler;
     use crate::prelude::*;
     use anyhow::Result;
-    use triomphe::UniqueHolder;
 
     #[test]
     fn test_read() -> Result<()> {
@@ -600,10 +585,10 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = UniqueHolder::new(st1.clone());
+        let st2 = st1.clone();
         println!("#1: {}", top1.num_atoms());
 
-        let mut b = Source::new_serial(top1, st2)?;
+        let mut b = Source::new_serial(top1.into(), st2.into())?;
         let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 

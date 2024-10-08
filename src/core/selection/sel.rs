@@ -48,8 +48,8 @@ use super::utils::*;
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
 pub struct Sel<K: SelectionKind> {
-    pub(crate) topology: BaseHolder<Topology, K, K::UsedIndexType>,
-    pub(crate) state: BaseHolder<State, K, K::UsedIndexType>,
+    pub(crate) topology: Holder<Topology, K>,
+    pub(crate) state: Holder<State, K>,
     pub(crate) index_storage: SortedSet<usize>,
 }
 
@@ -428,10 +428,6 @@ where
         Ok(std::mem::replace(&mut self.state, state))
     }
 
-    //---------------------------------------------------------------
-    // For serial selections direct creation is available
-    //---------------------------------------------------------------
-
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
     pub fn from_iter(
@@ -449,7 +445,10 @@ where
     }
 
     /// Selects all
-    pub fn all(topology: &Holder<Topology,K>, state: &Holder<State,K>) -> Result<Self, SelectionError> {
+    pub fn all(
+        topology: &Holder<Topology, K>,
+        state: &Holder<State, K>,
+    ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_all(topology.num_atoms());
         Ok(Self {
@@ -462,8 +461,8 @@ where
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
     pub fn from_str(
-        topology: &Holder<Topology,K>,
-        state: &Holder<State,K>,
+        topology: &Holder<Topology, K>,
+        state: &Holder<State, K>,
         selstr: &str,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
@@ -477,8 +476,8 @@ where
 
     /// Creates new selection from an existing selection expression.
     pub fn from_expr(
-        topology: &Holder<Topology,K>,
-        state: &Holder<State,K>,
+        topology: &Holder<Topology, K>,
+        state: &Holder<State, K>,
         expr: &SelectionExpr,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
@@ -493,8 +492,8 @@ where
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
     pub fn from_range(
-        topology: &Holder<Topology,K>,
-        state: &Holder<State,K>,
+        topology: &Holder<Topology, K>,
+        state: &Holder<State, K>,
         range: &std::ops::Range<usize>,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
@@ -508,7 +507,7 @@ where
 }
 //---------------------------------------------
 /// Iterator over the [Particle]s from selection.
-pub struct SelectionIterator<'a, K> {
+pub struct SelectionIterator<'a, K: SelectionKind> {
     sel: &'a Sel<K>,
     cur: usize,
 }
@@ -540,7 +539,7 @@ impl<K: SelectionKind> ParticleProvider for Sel<K> {
 
 //---------------------------------------------
 /// Mutable iterator over the [Particle]s from selection.
-pub struct SelectionIteratorMut<'a, K> {
+pub struct SelectionIteratorMut<'a, K: SelectionKind> {
     sel: &'a Sel<K>,
     cur: usize,
 }
@@ -570,6 +569,12 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
     }
 }
 
+impl<K: SelectionKind> Drop for Sel<K> {
+    fn drop(&mut self) {
+        K::remove_used(&self.index_storage, &self.topology.used);
+        K::remove_used(&self.index_storage, &self.state.used);
+    }
+}
 //---------------------------------------------
 // Implement traits for IO
 

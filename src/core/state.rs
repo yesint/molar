@@ -1,5 +1,4 @@
 use sync_unsafe_cell::SyncUnsafeCell;
-use triomphe::{Arc, UniqueHolder};
 use crate::io::StateProvider;
 use crate::prelude::*;
 //use super::handle::{SharedHandle, Handle};
@@ -52,9 +51,9 @@ impl Clone for State {
     }
 }
 
-impl From<StateStorage> for UniqueHolder<State> {
+impl From<StateStorage> for State {
     fn from(value: StateStorage) -> Self {
-        UniqueHolder::new(State(SyncUnsafeCell::new(value)))
+        State(SyncUnsafeCell::new(value))
     }
 }
 
@@ -163,5 +162,7 @@ macro_rules! impl_state_traits {
 // Impls for State itself
 impl_state_traits!(State);
 // Impls for smart pointers
-impl_state_traits!(Arc<State>);
-impl_state_traits!(UniqueHolder<State>);
+impl_state_traits!(Holder<State,MutableSerial>);
+impl_state_traits!(Holder<State,BuilderSerial>);
+impl_state_traits!(Holder<State,MutableParallel>);
+impl_state_traits!(Holder<State,ImmutableParallel>);
