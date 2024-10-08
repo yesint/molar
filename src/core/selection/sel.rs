@@ -75,7 +75,7 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
             Ok(Sel {
-                // We intentionally skipping the overlap check here
+                // We intentionally skip an overlap check here
                 // by passing empty vectors. This allows for into_split
                 // iterators to work because they temporarrily hold
                 // a selection from which they yeld pieces.
@@ -400,9 +400,10 @@ impl<K: AllowsSubselect> Sel<K> {
     }
 }
 
+// For all selections except MutableParallel
 impl<K> Sel<K>
 where
-    K: SelectionKind<UsedIndexType = ()>,
+    K: SelectionKind<UsedIndexesType = ()>,
 {
     pub fn get_topology(&self) -> Holder<Topology, K> {
         self.topology.clone()
