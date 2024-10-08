@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 use sorted_vec::SortedSet;
-use crate::{core::{State, Topology}, io::{StateProvider, TopologyProvider}};
+use crate::{core::{State, Topology}, io::{IndexProvider, StateProvider, TopologyProvider}};
 
 use super::SelectionError;
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
+    type UsedIndexType: Clone;
+
     #[inline(always)]
     #[allow(unused_variables)]
     fn check_index(index: &SortedSet<usize>, system: &Topology, state: &State) -> Result<(), SelectionError> {
@@ -14,8 +16,14 @@ pub trait SelectionKind {
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> Result<(), SelectionError> {
+    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexType) -> Result<(), SelectionError> {
         Ok(())
+    }
+
+    #[inline(always)]
+    #[allow(unused_variables)]
+    fn remove_used(index: &impl IndexProvider, used: &Self::UsedIndexType) {
+        ()
     }
 }
 
@@ -31,7 +39,9 @@ pub trait AllowsSubselect: SelectionKind {}
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
 pub struct MutableSerial(PhantomData<*const ()>);
-impl SelectionKind for MutableSerial {}
+impl SelectionKind for MutableSerial {
+    type UsedIndexType = ();
+}
 impl MutableSel for MutableSerial {}
 impl SerialSel for MutableSerial {}
 impl AllowsSubselect for MutableSerial {}
@@ -39,6 +49,8 @@ impl AllowsSubselect for MutableSerial {}
 /// Marker type for possibly overlapping builder selection (single-threaded)
 pub struct BuilderSerial(PhantomData<*const ()>);
 impl SelectionKind for BuilderSerial {
+    type UsedIndexType = ();
+
     #[inline(always)]
     fn check_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
         let first = index[0];
@@ -60,14 +72,29 @@ impl AllowsSubselect for BuilderSerial {}
 pub struct MutableParallel {}
 
 impl SelectionKind for MutableParallel {
+    type UsedIndexType = super::UsedHashMap;
+
     #[inline(always)]
-    fn check_overlap(index: &SortedSet<usize>, used: &mut rustc_hash::FxHashSet<usize>) -> Result<(), SelectionError> {
-        for i in index.iter() {
-            if !used.insert(*i) {
-                return Err(SelectionError::OverlapCheck(*i));
+    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexType) -> Result<(), SelectionError> {
+        let mut g = used.lock().unwrap();
+        for i in index.iter_index() {
+            if g.contains(&i) {
+                return Err(SelectionError::OverlapCheck(i));
             }
         }
+        // If all indexes are clear and not used add them
+        for i in index.iter_index() {
+            g.insert(i);
+        }
         Ok(())
+    }
+
+    fn remove_used(index: &impl IndexProvider, used: &Self::UsedIndexType) {
+        // Obtain a lock for used
+        let mut g = used.lock().unwrap();
+        for i in index.iter_index() {
+            g.remove(&i);
+        }
     }
 }
 impl MutableSel for MutableParallel {}
@@ -76,6 +103,8 @@ impl ParallelSel for MutableParallel {}
 
 /// Marker type for possibly overlapping immutable selection (multi-threaded)
 pub struct ImmutableParallel {}
-impl SelectionKind for ImmutableParallel {}
+impl SelectionKind for ImmutableParallel {
+    type UsedIndexType = ();
+}
 impl ParallelSel for ImmutableParallel {}
 impl AllowsSubselect for ImmutableParallel {}

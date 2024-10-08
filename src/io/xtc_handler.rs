@@ -2,7 +2,7 @@ use super::{PeriodicBoxError, State, StateProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 use thiserror::Error;
-use triomphe::UniqueArc;
+use triomphe::UniqueHolder;
 
 use crate::core::{PeriodicBox, StateStorage};
 
@@ -207,7 +207,7 @@ impl XtcFileHandler {
     }
 
     #[allow(non_upper_case_globals)]
-    pub fn read_state(&mut self) -> Result<Option<UniqueArc<State>>, XtcHandlerError> {
+    pub fn read_state(&mut self) -> Result<Option<UniqueHolder<State>>, XtcHandlerError> {
         let mut st: StateStorage = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;

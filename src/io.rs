@@ -1,11 +1,12 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use log::debug;
+use sorted_vec::SortedSet;
 use std::{fmt::Display, path::Path};
 use thiserror::Error;
 #[cfg(feature = "gromacs")]
 use tpr_handler::TprHandlerError;
-use triomphe::{Arc, UniqueArc};
+use triomphe::{Arc, UniqueHolder};
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
 
@@ -124,6 +125,18 @@ where
     }
 }
 
+impl IndexProvider for SortedSet<usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        self.iter().cloned()
+    }
+}
+
+impl IndexProvider for Vec<usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        self.iter().cloned()
+    }
+}
+
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
@@ -132,7 +145,7 @@ pub struct IoStateIterator {
 }
 
 impl Iterator for IoStateIterator {
-    type Item = UniqueArc<State>;
+    type Item = UniqueHolder<State>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader
             .read_state()
@@ -275,7 +288,7 @@ impl FileHandler {
         }
     }
 
-    pub fn read(&mut self) -> Result<(UniqueArc<Topology>, UniqueArc<State>), FileIoError> {
+    pub fn read(&mut self) -> Result<(BaseHolder<Topology,()>, BaseHolder<State,()>), FileIoError> {
         let t = std::time::Instant::now();
 
         let (top, st) = match self.format_handler {
@@ -326,7 +339,7 @@ impl FileHandler {
         Ok(())
     }
 
-    pub fn read_topology(&mut self) -> Result<UniqueArc<Topology>, FileIoError> {
+    pub fn read_topology(&mut self) -> Result<UniqueHolder<Topology>, FileIoError> {
         let t = std::time::Instant::now();
 
         let top = match self.format_handler {
@@ -365,7 +378,7 @@ impl FileHandler {
         Ok(())
     }
 
-    pub fn read_state(&mut self) -> Result<Option<UniqueArc<State>>, FileIoError> {
+    pub fn read_state(&mut self) -> Result<Option<UniqueHolder<State>>, FileIoError> {
         let t = std::time::Instant::now();
 
         let st = match self.format_handler {
@@ -501,7 +514,7 @@ impl Drop for FileHandler {
 }
 
 impl IntoIterator for FileHandler {
-    type Item = UniqueArc<State>;
+    type Item = UniqueHolder<State>;
     type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -512,19 +525,19 @@ impl IntoIterator for FileHandler {
 //----------------------------------------
 // Implementation of IO traits for tuples
 
-impl TopologyProvider for (UniqueArc<Topology>, UniqueArc<State>) {
+impl TopologyProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
     fn num_atoms(&self) -> usize {
         self.0.num_atoms()
     }
 }
 
-impl AtomsProvider for (UniqueArc<Topology>, UniqueArc<State>) {
+impl AtomsProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.0.iter_atoms()
     }
 }
 
-impl StateProvider for (UniqueArc<Topology>, UniqueArc<State>) {
+impl StateProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
     fn num_coords(&self) -> usize {
         self.1.num_coords()
     }
@@ -534,13 +547,13 @@ impl StateProvider for (UniqueArc<Topology>, UniqueArc<State>) {
     }
 }
 
-impl BoxProvider for (UniqueArc<Topology>, UniqueArc<State>) {
+impl BoxProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.1.get_box()
     }
 }
 
-impl PosProvider for (UniqueArc<Topology>, UniqueArc<State>) {
+impl PosProvider for (UniqueHolder<Topology>, UniqueHolder<State>) {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.1.iter_pos()
     }
@@ -553,7 +566,7 @@ mod tests {
     use super::FileHandler;
     use crate::prelude::*;
     use anyhow::Result;
-    use triomphe::UniqueArc;
+    use triomphe::UniqueHolder;
 
     #[test]
     fn test_read() -> Result<()> {
@@ -587,7 +600,7 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
-        let st2 = UniqueArc::new(st1.clone());
+        let st2 = UniqueHolder::new(st1.clone());
         println!("#1: {}", top1.num_atoms());
 
         let mut b = Source::new_serial(top1, st2)?;
