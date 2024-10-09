@@ -3,18 +3,22 @@ mod utils;
 mod source;
 mod sel;
 mod sel_split;
+mod holder;
 
 pub use kinds::*;
 pub use source::*;
 pub use sel::*;
 pub use sel_split::*;
 pub(crate) use utils::*;
+pub use holder::*;
 
 use thiserror::Error;
-
 use crate::io::FileIoError;
-
 use super::{selection_parser::SelectionParserError, BuilderError};
+
+//############################################################
+//#  Error enums
+//############################################################
 
 #[derive(Error,Debug)]
 #[error("topology and state have different sizes ({0},{1})")]
@@ -51,7 +55,7 @@ pub enum SelectionError {
         size: usize,
         source: SelectionIndexError
     },
-
+    
     #[error("pbc operation on selection withon periodic box")]
     NoPbc,
 
@@ -60,9 +64,6 @@ pub enum SelectionError {
 
     #[error("selection index {0}:{1} is outside the source range: 0:{2}")]
     IndexCheck(usize, usize, usize),
-
-    #[error("index {0} is already used by other selection")]
-    OverlapCheck(usize),
 
     #[error(transparent)]
     FileIo(#[from] FileIoError),
@@ -78,6 +79,9 @@ pub enum SelectionError {
 
     #[error("can't release source: multiple references are active")]
     Release,
+
+    #[error(transparent)]
+    Holder(#[from] HolderOverlapCheckError),
 }
 
 #[derive(Error,Debug)]

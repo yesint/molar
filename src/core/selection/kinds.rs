@@ -2,7 +2,7 @@ use std::{marker::PhantomData, sync::Mutex};
 use sorted_vec::SortedSet;
 use crate::{core::{State, Topology}, io::{IndexProvider, StateProvider, TopologyProvider}};
 
-use super::SelectionError;
+use super::{holder::HolderOverlapCheckError, SelectionError};
 
 /// Trait for kinds of selections
 pub trait SelectionKind {
@@ -16,7 +16,7 @@ pub trait SelectionKind {
 
     #[inline(always)]
     #[allow(unused_variables)]
-    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) -> Result<(), SelectionError> {
+    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) -> Result<(), HolderOverlapCheckError> {
         Ok(())
     }
 
@@ -75,11 +75,11 @@ impl SelectionKind for MutableParallel {
     type UsedIndexesType = triomphe::Arc<Mutex<rustc_hash::FxHashSet<usize>>>;
 
     #[inline(always)]
-    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) -> Result<(), SelectionError> {
+    fn try_add_used(index: &impl IndexProvider, used: &Self::UsedIndexesType) -> Result<(), HolderOverlapCheckError> {
         let mut g = used.lock().unwrap();
         for i in index.iter_index() {
             if g.contains(&i) {
-                return Err(SelectionError::OverlapCheck(i));
+                return Err(HolderOverlapCheckError(i));
             }
         }
         // If all indexes are clear and not used add them
