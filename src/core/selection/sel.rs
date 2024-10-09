@@ -48,13 +48,31 @@ use super::utils::*;
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
 pub struct Sel<K: SelectionKind> {
-    pub(crate) topology: Holder<Topology, K>,
-    pub(crate) state: Holder<State, K>,
-    pub(crate) index_storage: SortedSet<usize>,
+    topology: Holder<Topology, K>,
+    state: Holder<State, K>,
+    index_storage: SortedSet<usize>,
 }
 
 //-------------------------------------------
 impl<K: SelectionKind> Sel<K> {
+    pub(crate) fn from_holders_and_index(
+        top_holder: Holder<Topology,K>,
+        st_holder: Holder<State,K>,
+        index: SortedSet<usize>,
+    ) -> Sel<K> {
+        Sel {
+            topology: top_holder,
+            state: st_holder,
+            index_storage: index,
+        }
+    }
+
+    // Marked unfase because change index directly is not safe 
+    // for mutable parallel selections
+    pub(crate) unsafe fn get_index_storage_mut(&mut self) -> &mut SortedSet<usize> {
+        &mut self.index_storage
+    }
+
     #[inline(always)]
     fn index(&self) -> &SortedSet<usize> {
         K::check_index(&self.index_storage, &self.topology, &self.state).unwrap();
@@ -272,8 +290,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Tests if two selections are from the same source
     pub fn same_source(&self, other: &Sel<K>) -> bool {
-        triomphe::Arc::ptr_eq(&self.topology.arc, &other.topology.arc)
-            && triomphe::Arc::ptr_eq(&self.state.arc, &other.state.arc)
+        self.topology.same_data(&other.topology) && self.state.same_data(&other.state)
     }
 
     fn new_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
@@ -576,8 +593,10 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
 
 impl<K: SelectionKind> Drop for Sel<K> {
     fn drop(&mut self) {
-        K::remove_used(&self.index_storage, &self.topology.used);
-        K::remove_used(&self.index_storage, &self.state.used);
+        unsafe {
+            K::remove_used(&self.index_storage, &self.topology.get_used());
+            K::remove_used(&self.index_storage, &self.state.get_used());
+        }
     }
 }
 //---------------------------------------------

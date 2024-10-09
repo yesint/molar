@@ -70,7 +70,9 @@ impl<RT,F,K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
         // used by the fragments created by iterator.
         // To avoid this we swap the index of stored selection with an empty array
         // so that nothing is cleared upon dropping selection.
-        std::mem::swap(&mut self.sel.index_storage, &mut SortedSet::new());
+        unsafe {
+            std::mem::swap(self.sel.get_index_storage_mut(), &mut SortedSet::new());
+        }
         // self.sel is now Ok to drop
     }
 }
