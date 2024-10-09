@@ -67,8 +67,7 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    // Marked unfase because change index directly is not safe 
-    // for mutable parallel selections
+    // Marked unfase because change index directly is not safe for mutable parallel selections
     pub(crate) unsafe fn get_index_storage_mut(&mut self) -> &mut SortedSet<usize> {
         &mut self.index_storage
     }
