@@ -33,7 +33,7 @@ pub(crate) fn command_tip3_to_tip4(
     out.append(&sel_before);
 
     // Now go over water molecules one by one                   
-    for mol in water.into_split_contig_resindex() {
+    for mol in water.into_fragments_resindex() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
