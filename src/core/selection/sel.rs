@@ -54,6 +54,9 @@ pub struct Sel<K: SelectionKind> {
 }
 
 //-------------------------------------------
+// Functions shared by all selection kinds
+//-------------------------------------------
+
 impl<K: SelectionKind> Sel<K> {
     pub(crate) fn from_holders_and_index(
         top_holder: Holder<Topology,K>,
@@ -73,7 +76,7 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     #[inline(always)]
-    fn index(&self) -> &SortedSet<usize> {
+    pub(crate) fn index(&self) -> &SortedSet<usize> {
         K::check_index(&self.index_storage, &self.topology, &self.state).unwrap();
         &self.index_storage
     }
@@ -85,8 +88,8 @@ impl<K: SelectionKind> Sel<K> {
         self.num_atoms()
     }
 
-    // This method doesn't check if the vector has duplicates and thus unsafe
-    pub(super) unsafe fn subsel_from_vec_unchecked(
+    // This method doesn't check if the vector is sorted and has duplicates and thus unsafe
+    pub(super) unsafe fn subsel_from_sorted_vec_unchecked(
         &self,
         index: Vec<usize>,
     ) -> Result<Self, SelectionError> {
@@ -110,12 +113,28 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    pub fn subsel_from_vec(&self, index: Vec<usize>) -> Result<Self, SelectionError> {
-        Ok(Sel {
-            topology: self.topology.clone_with_index(&index)?,
-            state: self.state.clone_with_index(&index)?,
-            index_storage: index_from_vec(index, self.len())?,
-        })
+    pub(super) unsafe fn subsel_from_unsorted_vec_unchecked(
+        &self,
+        index: Vec<usize>,
+    ) -> Result<Self, SelectionError> {
+        if index.len() > 0 {
+            Ok(Sel {
+                // We intentionally skip an overlap check here
+                // by passing empty vectors. This allows for into_split
+                // iterators to work because they temporarrily hold
+                // a selection from which they yeld pieces.
+                topology: self.topology.clone_with_index(&vec![])?,
+                state: self.state.clone_with_index(&vec![])?,
+                index_storage: SortedSet::from_unsorted(index),
+            })
+        } else {
+            Err(SelectionError::FromVec {
+                first: index[0],
+                last: index[index.len() - 1],
+                size: index.len(),
+                source: SelectionIndexError::IndexEmpty,
+            })
+        }
     }
 
     /// Get a Particle for i-th selection index.
@@ -156,7 +175,7 @@ impl<K: SelectionKind> Sel<K> {
     // Splitting
     //============================
 
-    // Helper splitting function generic over returned selections kind
+    // Helper splitting function doing actual work
     fn split_gen<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -175,16 +194,16 @@ impl<K: SelectionKind> Sel<K> {
                 }
             }
         }
-
+        
         C::from_iter(
             ids.into_values()
-                .map(|ind| unsafe { self.subsel_from_vec_unchecked(ind).unwrap() }),
-            // This should never fail because `ind` can't be empty
+                .map(|ind| unsafe { self.subsel_from_unsorted_vec_unchecked(ind).unwrap() }),
+            // This should never fail because `ind` can't be empty. It and can't contain duplicates
         )
     }
 
     /// Splits selection to pieces that could be disjoint
-    /// according to the value of function. Parent selection is consumed.
+    /// according to the value of function. Parent selection is consumed.    
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.

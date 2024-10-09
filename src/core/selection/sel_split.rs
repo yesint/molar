@@ -133,7 +133,7 @@ where
             } else {
                 // The end of current selection
                 data.id = id; // Update self.id for the next selection
-                return unsafe { Some(sel.subsel_from_vec_unchecked(index).unwrap()) };
+                return unsafe { Some(sel.subsel_from_sorted_vec_unchecked(index).unwrap()) };
             }
         }
         // Next element
@@ -142,7 +142,7 @@ where
 
     // Return any remaining index as last selection
     if !index.is_empty() {
-        return unsafe { Some(sel.subsel_from_vec_unchecked(index).unwrap()) };
+        return unsafe { Some(sel.subsel_from_sorted_vec_unchecked(index).unwrap()) };
     }
 
     // If we are here stop iterating
