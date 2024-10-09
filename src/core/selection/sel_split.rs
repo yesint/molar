@@ -68,10 +68,9 @@ impl<RT,F,K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
         // If stored selection is MutableParallel it will clear used indexes
         // when dropped. This will invalidate used indexes because they are already
         // used by the fragments created by iterator.
-        // To avoid this we swap the index of stored selection with an empty array
-        // so that nothing is cleared upon dropping selection.
+        // To avoid this we clear index so that nothing is cleared upon dropping selection.
         unsafe {
-            std::mem::swap(self.sel.get_index_storage_mut(), &mut SortedSet::new());
+            self.sel.clear_index_before_drop();
         }
         // self.sel is now Ok to drop
     }
