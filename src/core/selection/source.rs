@@ -112,8 +112,8 @@ use std::{
 /// Can't be sent to other threads.
 /// Normally this type should not be used directly by the user.
 pub struct Holder<T, K: SelectionKind> {
-    pub(crate) arc: triomphe::Arc<T>,
-    pub(crate) used: K::UsedIndexesType,
+    arc: triomphe::Arc<T>,
+    used: K::UsedIndexesType,
     _kind: PhantomData<K>,
 }
 
@@ -166,7 +166,16 @@ impl<T,K: SelectionKind> Holder<T, K> {
             used: self.used.clone(),
             _kind: Default::default(),
         })
-    }    
+    }
+
+    // Unsafe access to used indexes
+    pub(crate) unsafe fn get_used(&self) -> &K::UsedIndexesType {
+        &self.used
+    }
+
+    pub fn same_data(&self,other: &Self) -> bool {
+        triomphe::Arc::ptr_eq(&self.arc, &other.arc)
+    }
 }
 
 // All holders are dereferenced as usual smart pointers
@@ -298,11 +307,11 @@ impl<K: SelectionKind> Source<K> {
     }
 
     fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
-        Ok(Sel {
-            topology: self.topology.clone_with_index(&index)?,
-            state: self.state.clone_with_index(&index)?,
-            index_storage: index,
-        })
+        Ok(Sel::from_holders_and_index(
+            self.topology.clone_with_index(&index)?,
+            self.state.clone_with_index(&index)?,
+            index,
+        ))
     }
 
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
