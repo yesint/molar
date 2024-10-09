@@ -1,7 +1,9 @@
+use sorted_vec::SortedSet;
+
 use crate::prelude::*;
 
 //-------------------------------------------------------
-// Splitting iterator
+// Splitting iterators
 //-------------------------------------------------------
 
 struct SplitData<RT, F> {
@@ -56,18 +58,30 @@ where
 /// 
 /// This iterator consumes the parent selection and yelds selections of the same kind 
 /// as the parent [Sel].
-pub struct IntoSelectionSplitIterator<RT, F, K: SelectionKind> {
+pub struct IntoFragmentsIterator<RT, F, K: SelectionKind> {
     sel: Sel<K>,
     data: SplitData<RT, F>,
 }
 
-impl<K: SelectionKind> IntoSelectionSplitIterator<(), (), K> {
-    pub fn new<RT, F>(sel: Sel<K>, func: F) -> IntoSelectionSplitIterator<RT, F, K>
+impl<RT,F,K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
+    fn drop(&mut self) {
+        // If stored selection is MutableParallel it will clear used indexes
+        // when dropped. This will invalidate used indexes because they are already
+        // used by the fragments created by iterator.
+        // To avoid this we swap the index of stored selection with an empty array
+        // so that nothing is cleared upon dropping selection.
+        std::mem::swap(&mut self.sel.index_storage, &mut SortedSet::new());
+        // self.sel is now Ok to drop
+    }
+}
+
+impl<K: SelectionKind> IntoFragmentsIterator<(), (), K> {
+    pub fn new<RT, F>(sel: Sel<K>, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
     {
-        IntoSelectionSplitIterator {
+        IntoFragmentsIterator {
             sel,
             data: SplitData {
                 func,
@@ -78,7 +92,7 @@ impl<K: SelectionKind> IntoSelectionSplitIterator<(), (), K> {
     }
 }
 
-impl<RT, F, S> Iterator for IntoSelectionSplitIterator<RT, F, S>
+impl<RT, F, S> Iterator for IntoFragmentsIterator<RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(Particle) -> Option<RT>,

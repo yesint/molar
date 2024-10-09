@@ -254,42 +254,20 @@ impl<K: SelectionKind> Sel<K> {
     ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn into_split_contig<RT, F>(self, func: F) -> IntoSelectionSplitIterator<RT, F, K>
+    pub fn into_fragments<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
     {
-        IntoSelectionSplitIterator::new(self, func)
+        IntoFragmentsIterator::new(self, func)
     }
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn into_split_contig_resindex(
+    pub fn into_fragments_resindex(
         self,
-    ) -> IntoSelectionSplitIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
-        self.into_split_contig(|p| Some(p.atom.resindex))
-    }
-
-    /// Return iterator that splits selection into contigous pieces according to the value of function.
-    /// Selection is not consumed. Returned selections are of subselection kind.
-    ///
-    /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
-    /// If `func` returns `None` the atom is skipped and do not added to new selection.
-    /// Selections are computed lazily when iterating.
-    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
-    where
-        RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> Option<RT>,
-    {
-        SelectionSplitIterator::new(self, func)
-    }
-
-    /// Return iterator over contigous pieces of selection with distinct contigous resids.
-    /// Parent selection is left alive.
-    pub fn split_contig_resindex(
-        &self,
-    ) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
-        self.split_contig(|p| Some(p.atom.resindex))
+    ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
+        self.into_fragments(|p| Some(p.atom.resindex))
     }
 
     /// Tests if two selections are from the same source
@@ -397,6 +375,28 @@ impl<K: AllowsSubselect> Sel<K> {
         C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(|p| Some(p.atom.resindex))
+    }
+
+    /// Return iterator that splits selection into contigous pieces according to the value of function.
+    /// Selection is not consumed. Returned selections are of subselection kind.
+    ///
+    /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
+    /// If `func` returns `None` the atom is skipped and do not added to new selection.
+    /// Selections are computed lazily when iterating.
+    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
+    where
+        RT: Default + std::cmp::PartialEq,
+        F: Fn(Particle) -> Option<RT>,
+    {
+        SelectionSplitIterator::new(self, func)
+    }
+
+    /// Return iterator over contigous pieces of selection with distinct contigous resids.
+    /// Parent selection is left alive.
+    pub fn split_contig_resindex(
+        &self,
+    ) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
+        self.split_contig(|p| Some(p.atom.resindex))
     }
 }
 
