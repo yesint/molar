@@ -70,9 +70,13 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    // Marked unfase because change index directly is not safe for mutable parallel selections
-    pub(crate) unsafe fn get_index_storage_mut(&mut self) -> &mut SortedSet<usize> {
-        &mut self.index_storage
+    // If stored selection is MutableParallel it will clear used indexes
+    // when dropped. This invalidates used indexes in certan situations 
+    // like splitting and combining selections because indexes are already
+    // used by the split fragments or combined selection respectively.
+    // To avoid this we clear index so that nothing is cleared upon dropping selection.
+    pub(crate) unsafe fn clear_index_before_drop(&mut self) {
+        self.index_storage.clear();
     }
 
     #[inline(always)]
@@ -304,14 +308,21 @@ impl<K: SelectionKind> Sel<K> {
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
         self.into_fragments(|p| Some(p.atom.resindex))
-    }
+    }}
+
+
+    impl<K> Sel<K>
+    where
+        K: SelectionKind<UsedIndexesType = ()>,
+    {
+    
 
     /// Tests if two selections are from the same source
     pub fn same_source(&self, other: &Sel<K>) -> bool {
         self.topology.same_data(&other.topology) && self.state.same_data(&other.state)
     }
 
-    fn new_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
+    fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
         Ok(Sel {
             topology: self.topology.clone_with_index(&index)?,
             state: self.state.clone_with_index(&index)?,
@@ -320,7 +331,14 @@ impl<K: SelectionKind> Sel<K> {
     }
 }
 
-impl<K: AllowsSubselect> Sel<K> {
+//-------------------------------------------
+// For all selections except MutableParallel
+//-------------------------------------------
+
+impl<K> Sel<K>
+where
+    K: SelectionKind<UsedIndexesType = ()>,
+{
     //===================
     // Subselections
     //===================
@@ -363,7 +381,7 @@ impl<K: AllowsSubselect> Sel<K> {
             .take(range.len())
             .collect();
 
-        self.new_internal(unsafe { SortedSet::from_sorted(index) })
+        self.subselect_internal(unsafe { SortedSet::from_sorted(index) })
     }
 
     /// Subselection from iterator that provides local selection indexes
@@ -373,7 +391,7 @@ impl<K: AllowsSubselect> Sel<K> {
     ) -> Result<Sel<K>, SelectionError> {
         let ind = self.index();
         let global_vec: Vec<_> = iter.map(|i| ind[i]).collect();
-        self.new_internal(index_from_vec(global_vec, self.len())?)
+        self.subselect_internal(index_from_vec(global_vec, self.len())?)
     }
 
     //==============================================
@@ -433,13 +451,7 @@ impl<K: AllowsSubselect> Sel<K> {
     ) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
         self.split_contig(|p| Some(p.atom.resindex))
     }
-}
 
-// For all selections except MutableParallel
-impl<K> Sel<K>
-where
-    K: SelectionKind<UsedIndexesType = ()>,
-{
     pub fn get_topology(&self) -> Holder<Topology, K> {
         self.topology.clone()
     }
@@ -467,6 +479,10 @@ where
         }
         Ok(std::mem::replace(&mut self.state, state))
     }
+
+    //-----------------------------------------------------------
+    // Direct creation of selections without Source
+    //-----------------------------------------------------------
 
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
@@ -530,7 +546,7 @@ where
     }
 
     /// Creates new selection from a range of indexes.
-    /// If rangeis out of bounds the error is returned.
+    /// If range is out of bounds the error is returned.
     pub fn from_range(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
@@ -544,7 +560,20 @@ where
             index_storage: vec,
         })
     }
+
+    //-----------------------------------------------------
+    // Logic on selections that modify existing ones
+    //-----------------------------------------------------
+    pub fn append(&mut self, other: &Self) {
+        self.index_storage.extend(other.iter_index());
+    }
+
+    pub fn exclude(&mut self, other: &Self) {
+        todo!();
+    }
+
 }
+
 //---------------------------------------------
 /// Iterator over the [Particle]s from selection.
 pub struct SelectionIterator<'a, K: SelectionKind> {
