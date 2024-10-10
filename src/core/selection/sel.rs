@@ -47,6 +47,7 @@ use super::utils::*;
 /// The parts follow the rules of subselections.
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
+
 pub struct Sel<K: SelectionKind> {
     topology: Holder<Topology, K>,
     state: Holder<State, K>,
@@ -58,16 +59,24 @@ pub struct Sel<K: SelectionKind> {
 //-------------------------------------------
 
 impl<K: SelectionKind> Sel<K> {
+
+    #[inline(always)]
+    fn check_index(&self) -> Result<(),SelectionError> {
+        K::check_index(&self.index_storage, &self.topology, &self.state)
+    }
+
     pub(crate) fn from_holders_and_index(
         top_holder: Holder<Topology,K>,
         st_holder: Holder<State,K>,
         index: SortedSet<usize>,
-    ) -> Sel<K> {
-        Sel {
+    ) -> Result<Self, SelectionError> {
+        let sel = Sel {
             topology: top_holder,
             state: st_holder,
             index_storage: index,
-        }
+        };
+        sel.check_index()?;
+        Ok(sel)
     }
 
     // If stored selection is MutableParallel it will clear used indexes
@@ -81,14 +90,14 @@ impl<K: SelectionKind> Sel<K> {
 
     #[inline(always)]
     pub(crate) fn index(&self) -> &SortedSet<usize> {
-        K::check_index(&self.index_storage, &self.topology, &self.state).unwrap();
+        self.check_index().unwrap();
         &self.index_storage
     }
 
     #[inline(always)]
     pub fn len(&self) -> usize {
         // We need to check index here manually
-        K::check_index(&self.index_storage, &self.topology, &self.state).unwrap();
+        self.check_index().unwrap();
         self.num_atoms()
     }
 
@@ -98,15 +107,15 @@ impl<K: SelectionKind> Sel<K> {
         index: Vec<usize>,
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
-            Ok(Sel {
-                // We intentionally skip an overlap check here
+            // We intentionally skip an overlap check here
                 // by passing empty vectors. This allows for into_split
                 // iterators to work because they temporarrily hold
                 // a selection from which they yeld pieces.
-                topology: self.topology.clone_with_index(&vec![])?,
-                state: self.state.clone_with_index(&vec![])?,
-                index_storage: unsafe { SortedSet::from_sorted(index) },
-            })
+            Self::from_holders_and_index(
+                self.topology.clone_with_index(&vec![])?,
+                self.state.clone_with_index(&vec![])?,
+                unsafe { SortedSet::from_sorted(index) },
+            )
         } else {
             Err(SelectionError::FromVec {
                 first: index[0],
@@ -122,15 +131,15 @@ impl<K: SelectionKind> Sel<K> {
         index: Vec<usize>,
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
-            Ok(Sel {
-                // We intentionally skip an overlap check here
-                // by passing empty vectors. This allows for into_split
-                // iterators to work because they temporarrily hold
-                // a selection from which they yeld pieces.
-                topology: self.topology.clone_with_index(&vec![])?,
-                state: self.state.clone_with_index(&vec![])?,
-                index_storage: SortedSet::from_unsorted(index),
-            })
+            // We intentionally skip an overlap check here
+            // by passing empty vectors. This allows for into_split
+            // iterators to work because they temporarrily hold
+            // a selection from which they yeld pieces.
+            Self::from_holders_and_index(
+                self.topology.clone_with_index(&vec![])?,
+                self.state.clone_with_index(&vec![])?,
+                SortedSet::from_unsorted(index),
+            )
         } else {
             Err(SelectionError::FromVec {
                 first: index[0],
@@ -276,7 +285,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Get a Particle for the last selection index.
     pub fn last_particle(&self) -> Particle {
-        unsafe { self.nth_particle_unchecked(self.index_storage.len() - 1) }
+        unsafe { self.nth_particle_unchecked(self.index().len() - 1) }
     }
 
     /// Get a Particle for the first selection index.
@@ -308,28 +317,20 @@ impl<K: SelectionKind> Sel<K> {
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
         self.into_fragments(|p| Some(p.atom.resindex))
-    }}
-
-
-    impl<K> Sel<K>
-    where
-        K: SelectionKind<UsedIndexesType = ()>,
-    {
-    
-
-    /// Tests if two selections are from the same source
-    pub fn same_source(&self, other: &Sel<K>) -> bool {
-        self.topology.same_data(&other.topology) && self.state.same_data(&other.state)
     }
 
-    fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
-        Ok(Sel {
-            topology: self.topology.clone_with_index(&index)?,
-            state: self.state.clone_with_index(&index)?,
-            index_storage: index,
-        })
+}
+
+
+impl<K: SelectionKind> Drop for Sel<K> {
+    fn drop(&mut self) {
+        unsafe {
+            K::remove_used(&self.index_storage, &self.topology.get_used());
+            K::remove_used(&self.index_storage, &self.state.get_used());
+        }
     }
 }
+
 
 //-------------------------------------------
 // For all selections except MutableParallel
@@ -339,18 +340,31 @@ impl<K> Sel<K>
 where
     K: SelectionKind<UsedIndexesType = ()>,
 {
+    /// Tests if two selections are from the same source
+    pub fn same_source(&self, other: &Sel<K>) -> bool {
+        self.topology.same_data(&other.topology) && self.state.same_data(&other.state)
+    }
+
     //===================
     // Subselections
     //===================
-
+        
+    fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
+        Self::from_holders_and_index(
+            self.topology.clone_with_index(&index)?,
+            self.state.clone_with_index(&index)?,
+            index,
+        )
+    }
+    
     /// Subselection from expression
     pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
-        Ok(Sel {
-            topology: self.topology.clone_with_index(&index)?,
-            state: self.state.clone_with_index(&index)?,
-            index_storage: index,
-        })
+        Self::from_holders_and_index(
+            self.topology.clone_with_index(&index)?,
+            self.state.clone_with_index(&index)?,
+            index,
+        )
     }
 
     /// Subselection from string
@@ -493,11 +507,11 @@ where
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_iter(iter, topology.num_atoms())?;
-        Ok(Self {
-            topology: topology.clone_with_index(&vec)?,
-            state: state.clone_with_index(&vec)?,
-            index_storage: vec,
-        })
+        Self::from_holders_and_index(
+            topology.clone_with_index(&vec)?,
+            state.clone_with_index(&vec)?,
+            vec,
+        )
     }
 
     /// Selects all
@@ -507,11 +521,11 @@ where
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_all(topology.num_atoms());
-        Ok(Self {
-            topology: topology.clone_with_index(&vec)?,
-            state: state.clone_with_index(&vec)?,
-            index_storage: vec,
-        })
+        Self::from_holders_and_index(
+            topology.clone_with_index(&vec)?,
+            state.clone_with_index(&vec)?,
+            vec,
+        )
     }
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
@@ -523,11 +537,11 @@ where
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_str(selstr, &topology, &state)?;
-        Ok(Self {
-            topology: topology.clone_with_index(&vec)?,
-            state: state.clone_with_index(&vec)?,
-            index_storage: vec,
-        })
+        Self::from_holders_and_index(
+            topology.clone_with_index(&vec)?,
+            state.clone_with_index(&vec)?,
+            vec,
+        )
     }
 
     /// Creates new selection from an existing selection expression.
@@ -538,11 +552,11 @@ where
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_expr(expr, &topology, &state)?;
-        Ok(Self {
-            topology: topology.clone_with_index(&vec)?,
-            state: state.clone_with_index(&vec)?,
-            index_storage: vec,
-        })
+        Self::from_holders_and_index(
+            topology.clone_with_index(&vec)?,
+            state.clone_with_index(&vec)?,
+            vec,
+        )
     }
 
     /// Creates new selection from a range of indexes.
@@ -554,25 +568,37 @@ where
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_range(range, topology.num_atoms())?;
-        Ok(Self {
-            topology: topology.clone_with_index(&vec)?,
-            state: state.clone_with_index(&vec)?,
-            index_storage: vec,
-        })
+        Self::from_holders_and_index(
+            topology.clone_with_index(&vec)?,
+            state.clone_with_index(&vec)?,
+            vec,
+        )
     }
 
     //-----------------------------------------------------
     // Logic on selections that modify existing ones
     //-----------------------------------------------------
-    pub fn append(&mut self, other: &Self) {
+    pub fn append(&mut self, other: &impl IndexProvider) -> Result<(),SelectionError>{
         self.index_storage.extend(other.iter_index());
+        self.check_index()?;
+        Ok(())
     }
 
-    pub fn exclude(&mut self, other: &Self) {
-        todo!();
+    pub fn exclude(&mut self, other: &impl IndexProvider) {
+        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
+        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other.iter_index());
+        let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
+        self.index_storage = SortedSet::from_unsorted(v);
     }
 
+    pub fn invert(&mut self) {
+        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.num_atoms());
+        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
+        let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
+        self.index_storage = SortedSet::from_unsorted(v);
+    }
 }
+
 
 //---------------------------------------------
 /// Iterator over the [Particle]s from selection.
@@ -638,16 +664,9 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
     }
 }
 
-impl<K: SelectionKind> Drop for Sel<K> {
-    fn drop(&mut self) {
-        unsafe {
-            K::remove_used(&self.index_storage, &self.topology.get_used());
-            K::remove_used(&self.index_storage, &self.state.get_used());
-        }
-    }
-}
 //---------------------------------------------
-// Implement traits for IO
+// IO traots
+//---------------------------------------------
 
 impl<K: SelectionKind> WritableToFile for Sel<K> {}
 
@@ -674,7 +693,8 @@ impl<K: SelectionKind> StateProvider for Sel<K> {
 }
 
 //==================================================================
-// Implement analysis traits
+// Immutable analysis traits
+//==================================================================
 
 impl<K: SelectionKind> BoxProvider for Sel<K> {
     fn get_box(&self) -> Option<&PeriodicBox> {
@@ -746,6 +766,7 @@ impl<K: SelectionKind> RandomAtom for Sel<K> {
 
 //-------------------------------------------------------
 // Mutable analysis traits only for mutable selections
+//-------------------------------------------------------
 
 impl<K: MutableSel> PosMutProvider for Sel<K> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
@@ -796,3 +817,5 @@ impl<K: MutableSel> RandomAtomMut for Sel<K> {
 impl<K: MutableSel> ModifyPos for Sel<K> {}
 impl<K: MutableSel> ModifyPeriodic for Sel<K> {}
 impl<K: MutableSel> ModifyRandomAccess for Sel<K> {}
+
+//----------------------------------------------
