@@ -8,7 +8,7 @@
 #include "gromacs/topology/idef.h"
 
 // Helper class which incapsulates Gromacs internals
-// that can't be translated to rust
+// that can't be translated to rust directly
 class TprHelper {
 public:
     TprHelper(const char* fname);
