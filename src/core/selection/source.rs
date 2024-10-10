@@ -1,10 +1,7 @@
 use super::utils::*;
 use crate::prelude::*;
 use sorted_vec::SortedSet;
-use std::{
-    marker::PhantomData,
-    ops::Deref,
-};
+use std::marker::PhantomData;
 
 //----------------------------------------
 // Source of parallel selections
@@ -213,11 +210,11 @@ impl<K: SelectionKind> Source<K> {
     }
 
     fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
-        Ok(Sel::from_holders_and_index(
+        Sel::from_holders_and_index(
             self.topology.clone_with_index(&index)?,
             self.state.clone_with_index(&index)?,
             index,
-        ))
+        )
     }
 
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
