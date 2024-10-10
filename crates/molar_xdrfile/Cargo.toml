@@ -14,4 +14,4 @@ keywords.workspace = true
 categories.workspace = true
 
 [build-dependencies]
-cmake.workspace = true
+cc.workspace = true

@@ -14,9 +14,6 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 
-[features]
-build_gromacs = []
-
 [build-dependencies]
-cmake.workspace = true
-bindgen = "0.69"
+bindgen = "0.70.1"
+cc.workspace = true
