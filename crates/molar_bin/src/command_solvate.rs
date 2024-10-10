@@ -32,7 +32,7 @@ pub(crate) fn command_solvate(
     info!("Loading solvent from file '{solvent_file}'...");
     let mut solvent = Source::builder_from_file(&solvent_file)?;
     if solvent.get_box().is_none() {
-        bail!("solvent file lacks a periodic box");
+        bail!("solvent lacks a periodic box");
     }
     if solvent.get_box().unwrap().is_triclinic() {
         bail!("triclinic solvent boxes are not supported yet");
@@ -45,30 +45,32 @@ pub(crate) fn command_solvate(
     // even if the actual box is triclinic and then we will
     // remove molecules outside the box
     let solvent_ext = solvent.get_box().unwrap().get_box_extents();
-    let mut nbox = nalgebra::Vector3::<u32>::zeros();
+    let mut nbox = [0;3];
     for i in 0..=2 {
-        nbox[i] = (solute_max_ext[i]/solvent_ext[i]).ceil() as u32;
+        nbox[i] = (solute_max_ext[i]/solvent_ext[i]).ceil() as usize;
     }
     info!("Solute box extents [{},{},{}]",solute_max_ext[0],solute_max_ext[1],solute_max_ext[2]);
     info!("Solvent box extents [{},{},{}]",solvent_ext[0],solvent_ext[1],solvent_ext[2]);
     info!("Duplicating solvent box [{},{},{}]...",nbox[0],nbox[1],nbox[2]);
 
     // Duplicating the solvent
-    let solvent_sel = solvent.select_all()?;
-    for x in 0..=nbox[0] {
-        for y in 0..=nbox[1] {
-            for z in 0..=nbox[2] {
-                if x==0 && y==0 && z==0 {continue}
-                let added = solvent.append(&solvent_sel);
-                let shift = Vector3f::new(
-                    solvent_ext[0]*x as f32,
-                    solvent_ext[1]*y as f32,
-                    solvent_ext[2]*z as f32,
-                );
-                added.translate(&shift);
-            }
-        }    
-    }
+    solvent.multiply_periodically(nbox)?;
+    // let solvent_sel = solvent.select_all()?;
+    // for x in 0..=nbox[0] {
+    //     for y in 0..=nbox[1] {
+    //         for z in 0..=nbox[2] {
+    //             if x==0 && y==0 && z==0 {continue}
+    //             let added = solvent.append(&solvent_sel);
+    //             let shift = Vector3f::new(
+    //                 solvent_ext[0]*x as f32,
+    //                 solvent_ext[1]*y as f32,
+    //                 solvent_ext[2]*z as f32,
+    //             );
+    //             added.translate(&shift);
+    //         }
+    //     }    
+    // }
+    
 
     //solvent.save("./target/duplicated_solvent.gro")?;
 
@@ -98,7 +100,7 @@ pub(crate) fn command_solvate(
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
     let to_remove_ind: Vec<usize> = distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, &PBC_FULL);
     
-    //let to_remove_sel = solvent.select_vec(to_remove_ind)?;
+    // Remove overlapping
     solvent.remove(&to_remove_ind)?;
 
     // Add solvent
