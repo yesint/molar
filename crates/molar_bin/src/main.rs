@@ -76,9 +76,9 @@ enum Commands {
         #[arg(long)]
         exclude: Option<String>,
 
-        /// Distance search mode
-        #[arg(long,value_enum,default_value_t=SolvateMode::Distance)]
-        mode: SolvateMode,
+        // Distance search mode
+        //#[arg(long,value_enum,default_value_t=SolvateMode::Distance)]
+        //mode: SolvateMode,
     },
 
     /// Converts TIP3 water to TIP4 water
@@ -126,10 +126,9 @@ fn main() -> Result<()> {
             outfile,
             solvent,
             exclude,
-            mode
         } => {
             println!("▶ Action: solvate");
-            command_solvate(file, outfile, solvent, exclude ,mode)?;
+            command_solvate(file, outfile, solvent, exclude)?;
         },
 
         Commands::Tip3to4 { file, outfile } => {
