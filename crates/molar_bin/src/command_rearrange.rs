@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use log::info;
 use molar::{
     core::{MutableSerial, Sel, Source},
-    io::{FileHandler, IndexProvider, TopologyProvider, WritableToFile},
+    io::{IndexProvider, TopologyProvider, WritableToFile},
 };
 
 pub(super) fn command_rearrange(
@@ -18,26 +18,23 @@ pub(super) fn command_rearrange(
         bail!("Provide at least one selection for rearranging!");
     }
 
-    info!("Rearranging atoms from file '{infile}'...");
-    let mut data = FileHandler::open(infile)?;
-    let (top, st) = data.read()?;
-
     if !begin.is_empty() {
         info!("Selections to put in the beginning:");
+        for s in begin.iter() {
+            info!("\t{s}");
+        }
     }
-    for s in begin.iter() {
-        info!("\t{s}");
-    }
-
+    
     if !end.is_empty() {
         info!("Selections to put at the end:");
+        for s in end.iter() {
+            info!("\t{s}");
+        }
     }
-    for s in end.iter() {
-        info!("\t{s}");
-    }
-
+    
     // Make selections
-    let mut in_source = Source::new_serial(top.into(), st.into())?;
+    info!("Rearranging file '{infile}'...");
+    let mut in_source = Source::serial_from_file(infile)?;
     let begin_sels = begin
         .iter()
         .map(|s| in_source.select_str(s).map_err(|e| anyhow!(e)))
