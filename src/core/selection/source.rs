@@ -104,8 +104,8 @@ use std::marker::PhantomData;
 //------------------------------------------------------------------
 
 pub struct Source<K: SelectionKind> {
-    topology: Holder<Topology,K>,
-    state: Holder<State,K>,
+    topology: Holder<Topology, K>,
+    state: Holder<State, K>,
     _no_send: PhantomData<*const ()>,
     _kind: PhantomData<K>,
 }
@@ -113,26 +113,26 @@ pub struct Source<K: SelectionKind> {
 impl Source<MutableSerial> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
     pub fn new_serial(
-        topology: Holder<Topology,MutableSerial>,
-        state: Holder<State,MutableSerial>,
+        topology: Holder<Topology, MutableSerial>,
+        state: Holder<State, MutableSerial>,
     ) -> Result<Source<MutableSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             topology: topology.into(),
-            state: state.into(),            
+            state: state.into(),
             _no_send: Default::default(),
             _kind: Default::default(),
         })
     }
 
     pub fn new_builder(
-        topology: Holder<Topology,BuilderSerial>,
-        state: Holder<State,BuilderSerial>,
+        topology: Holder<Topology, BuilderSerial>,
+        state: Holder<State, BuilderSerial>,
     ) -> Result<Source<BuilderSerial>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             topology: topology.into(),
-            state: state.into(),            
+            state: state.into(),
             _no_send: Default::default(),
             _kind: Default::default(),
         })
@@ -141,7 +141,7 @@ impl Source<MutableSerial> {
     pub fn empty_builder() -> Source<BuilderSerial> {
         Source {
             topology: Topology::default().into(),
-            state: State::default().into(),            
+            state: State::default().into(),
             _no_send: Default::default(),
             _kind: Default::default(),
         }
@@ -149,13 +149,13 @@ impl Source<MutableSerial> {
 
     /// Creates a source of mutable parallel selections that _can't_ overlap.
     pub fn new_parallel_mut(
-        topology: Holder<Topology,MutableParallel>,
-        state: Holder<State,MutableParallel>,
+        topology: Holder<Topology, MutableParallel>,
+        state: Holder<State, MutableParallel>,
     ) -> Result<Source<MutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             topology: topology.into(),
-            state: state.into(),            
+            state: state.into(),
             _no_send: Default::default(),
             _kind: Default::default(),
         })
@@ -163,13 +163,13 @@ impl Source<MutableSerial> {
 
     /// Creates a source of immutable parallel selections that _may_ overlap.
     pub fn new_parallel(
-        topology: Holder<Topology,ImmutableParallel>,
-        state: Holder<State,ImmutableParallel>,
+        topology: Holder<Topology, ImmutableParallel>,
+        state: Holder<State, ImmutableParallel>,
     ) -> Result<Source<ImmutableParallel>, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Ok(Source {
             topology: topology.into(),
-            state: state.into(),            
+            state: state.into(),
             _no_send: Default::default(),
             _kind: Default::default(),
         })
@@ -203,10 +203,7 @@ impl Source<MutableSerial> {
 impl<K: SelectionKind> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
     pub fn release(self) -> Result<(Topology, State), SelectionError> {
-        Ok((
-            self.topology.release()?,
-            self.state.release()?,
-        ))
+        Ok((self.topology.release()?, self.state.release()?))
     }
 
     fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
@@ -223,7 +220,7 @@ impl<K: SelectionKind> Source<K> {
         &mut self,
         iter: impl Iterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_iter(iter, self.topology.num_atoms())?;        
+        let vec = index_from_iter(iter, self.topology.num_atoms())?;
         self.new_sel(vec)
     }
 
@@ -270,8 +267,8 @@ impl<K: SelectionKind> Source<K> {
     }
 }
 
-// Specific methods for all sources except MutableParallel
-impl<K> Source<K> 
+// Methods for all sources except MutableParallel
+impl<K> Source<K>
 where
     K: SelectionKind<UsedIndexesType = ()>,
 {
@@ -282,7 +279,10 @@ where
     ///
     /// Returns unique pointer to the old state, so it could be reused if needed.
     ///
-    pub fn set_state(&mut self, state: Holder<State,K>) -> Result<Holder<State,K>, SelectionError> {
+    pub fn set_state(
+        &mut self,
+        state: Holder<State, K>,
+    ) -> Result<Holder<State, K>, SelectionError> {
         // Check if the states are compatible
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
@@ -300,7 +300,10 @@ where
     /// # Safety
     /// If such change happens when selections from different threads are accessing the data
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
-    pub fn set_topology(&mut self, topology: Holder<Topology,K>) -> Result<Holder<Topology,K>, SelectionError> {
+    pub fn set_topology(
+        &mut self,
+        topology: Holder<Topology, K>,
+    ) -> Result<Holder<Topology, K>, SelectionError> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetTopology);
@@ -359,6 +362,30 @@ impl Source<BuilderSerial> {
 
     pub fn set_box(&mut self, new_box: Option<PeriodicBox>) {
         self.state.get_storage_mut().pbox = new_box;
+    }
+
+    pub fn multiply_periodically(&mut self, nbox: [usize; 3]) -> Result<(), SelectionError> {
+        if self.get_box().is_none() {
+            return Err(SelectionError::NoPbc);
+        }
+        let m = self.get_box().unwrap().get_matrix();
+        let all = self.select_all()?;
+        for x in 0..=nbox[0] {
+            for y in 0..=nbox[1] {
+                for z in 0..=nbox[2] {
+                    if x == 0 && y == 0 && z == 0 {
+                        continue;
+                    }
+                    let added = self.append(&all);
+                    let shift = 
+                        m.column(0) * x as f32 +
+                        m.column(1) * y as f32 +
+                        m.column(2) * z as f32;
+                    added.translate(&shift);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
