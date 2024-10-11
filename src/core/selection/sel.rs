@@ -476,8 +476,9 @@ where
 
     pub fn set_topology(
         &mut self,
-        topology: Holder<Topology, K>,
+        topology: impl Into<Holder<Topology, K>>,
     ) -> Result<Holder<Topology, K>, SelectionError> {
+        let topology = topology.into();
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::SetState);
         }
@@ -486,8 +487,9 @@ where
 
     pub fn set_state(
         &mut self,
-        state: Holder<State, K>,
+        state: impl Into<Holder<State, K>>,
     ) -> Result<Holder<State, K>, SelectionError> {
+        let state = state.into();
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }

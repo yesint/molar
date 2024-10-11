@@ -27,7 +27,7 @@ pub(crate) fn command_solvate(
         }
     };
     info!("Loading solvent from file '{solvent_file}'...");
-    let mut solvent = Source::builder_from_file(&solvent_file)?;
+    let solvent = Source::builder_from_file(&solvent_file)?;
     if solvent.get_box().is_none() {
         bail!("solvent lacks a periodic box");
     }

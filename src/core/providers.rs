@@ -76,3 +76,7 @@ pub trait RandomAtomMut {
     fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom>;
     unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom;
 }
+
+pub trait BoxMutProvider {
+    fn get_box_mut(&self) -> Option<&mut PeriodicBox>;
+}

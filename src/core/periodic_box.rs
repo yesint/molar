@@ -204,6 +204,12 @@ impl PeriodicBox {
         self.matrix[(1,0)]!=0.0 || self.matrix[(1,2)]!=0.0 ||
         self.matrix[(2,0)]!=0.0 || self.matrix[(2,1)]!=0.0
     }
+    
+    pub(crate) fn scale_vectors(&mut self, scale_factors: [f32; 3]) {
+        for c in 0..3 {
+            self.matrix.column_mut(c).scale(scale_factors[c]);
+        }
+    }
 }
 
 #[cfg(test)]
