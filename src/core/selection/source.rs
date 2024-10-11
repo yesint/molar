@@ -216,52 +216,43 @@ impl<K: SelectionKind> Source<K> {
 
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
-    pub fn select_iter(
-        &mut self,
-        iter: impl Iterator<Item = usize>,
-    ) -> Result<Sel<K>, SelectionError> {
+    pub fn select_iter(&self, iter: impl Iterator<Item = usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_iter(iter, self.topology.num_atoms())?;
         self.new_sel(vec)
     }
 
-    pub fn select_vec(&mut self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
+    pub fn select_vec(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_vec(vec, self.topology.num_atoms())?;
         self.new_sel(vec)
     }
 
-    pub unsafe fn select_vec_unchecked(
-        &mut self,
-        vec: Vec<usize>,
-    ) -> Result<Sel<K>, SelectionError> {
+    pub unsafe fn select_vec_unchecked(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = SortedSet::from_sorted(vec);
         self.new_sel(vec)
     }
 
     /// Creates selection of all
-    pub fn select_all(&mut self) -> Result<Sel<K>, SelectionError> {
+    pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
         self.new_sel(vec)
     }
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
-    pub fn select_str(&mut self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
+    pub fn select_str(&self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
         self.new_sel(vec)
     }
 
     /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&mut self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
+    pub fn select_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         self.new_sel(vec)
     }
 
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(
-        &mut self,
-        range: &std::ops::Range<usize>,
-    ) -> Result<Sel<K>, SelectionError> {
+    pub fn select_range(&self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         self.new_sel(vec)
     }
@@ -323,7 +314,7 @@ where
 
 // Specific methods of builder source
 impl Source<BuilderSerial> {
-    pub fn append(&mut self, data: &(impl PosProvider + AtomsProvider)) -> Sel<BuilderSerial> {
+    pub fn append(&self, data: &(impl PosProvider + AtomsProvider)) -> Sel<BuilderSerial> {
         let first_added_index = self.num_atoms();
         self.topology
             .get_storage_mut()
@@ -337,7 +328,7 @@ impl Source<BuilderSerial> {
     }
 
     pub fn append_atoms(
-        &mut self,
+        &self,
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
     ) -> Sel<BuilderSerial> {
@@ -349,7 +340,7 @@ impl Source<BuilderSerial> {
             .unwrap()
     }
 
-    pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
+    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
         // We are checking index validity inside remove methods
         self.topology
             .get_storage_mut()
@@ -360,15 +351,16 @@ impl Source<BuilderSerial> {
         Ok(())
     }
 
-    pub fn set_box(&mut self, new_box: Option<PeriodicBox>) {
+    pub fn set_box(&self, new_box: Option<PeriodicBox>) {
         self.state.get_storage_mut().pbox = new_box;
     }
 
-    pub fn multiply_periodically(&mut self, nbox: [usize; 3]) -> Result<(), SelectionError> {
+    pub fn multiply_periodically(&self, nbox: [usize; 3]) -> Result<(), SelectionError> {
         if self.get_box().is_none() {
             return Err(SelectionError::NoPbc);
         }
-        let m = self.get_box().unwrap().get_matrix();
+        let b = self.get_box_mut().unwrap();
+        let m = b.get_matrix();
         let all = self.select_all()?;
         for x in 0..=nbox[0] {
             for y in 0..=nbox[1] {
@@ -377,14 +369,14 @@ impl Source<BuilderSerial> {
                         continue;
                     }
                     let added = self.append(&all);
-                    let shift = 
-                        m.column(0) * x as f32 +
-                        m.column(1) * y as f32 +
-                        m.column(2) * z as f32;
+                    let shift =
+                        m.column(0) * x as f32 + m.column(1) * y as f32 + m.column(2) * z as f32;
                     added.translate(&shift);
                 }
             }
         }
+        // Scale the box
+        b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32]);
         Ok(())
     }
 }
@@ -404,6 +396,13 @@ impl_read_write_source_traits!(Source<BuilderSerial>);
 impl_read_only_source_traits!(Source<ImmutableParallel>);
 // For mutable parallel source no traits are implemented!
 
+// Bor Builder also BoxMut is implemnted
+impl BoxMutProvider for Source<BuilderSerial> {
+    fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
+        self.state.get_box_mut()
+    }
+}
+
 //--------------------------------------------------
 #[cfg(test)]
 mod tests {
@@ -413,7 +412,7 @@ mod tests {
     #[test]
     fn par_iter2() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-        let mut src = Source::new_parallel_mut(top.into(), st.into())?;
+        let src = Source::new_parallel_mut(top.into(), st.into())?;
         let mut sels = vec![];
         sels.push(src.select_str("resid 545")?);
         sels.push(src.select_str("resid 546")?);
