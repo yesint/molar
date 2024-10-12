@@ -76,7 +76,7 @@ use std::marker::PhantomData;
 ///     res.unwrap_simple()?;
 ///     // Consume residue selection and convert it
 ///     // into two selections for Ca and N atoms
-///     let (ca,n) = res.into_fragments(|p| {
+///     let (ca,n) = res.into_iter_fragments(|p| {
 ///         match p.atom.name.as_str() {
 ///             "CA" => Some(0),
 ///             "N" => Some(1),
