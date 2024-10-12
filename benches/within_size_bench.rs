@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn within_size_benchmark() -> anyhow::Result<()> {
-        let mut src = Source::serial_from_file("tests/albumin.pdb")?;
+        let src = Source::serial_from_file("tests/albumin.pdb")?;
 
         for pbc in vec!["",] {
         //for pbc in vec!["","pbc"] {

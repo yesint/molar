@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+
 
 fn main() {
     let src_env = env!("GROMACS_SOURCE_DIR");
@@ -27,36 +27,39 @@ fn main() {
     println!("cargo:rustc-link-lib=gromacs");
     println!("cargo:rustc-link-lib=muparser");
 
-    // Generate the bindings
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let bindings = bindgen::Builder::default()
-        .header("gromacs/wrapper.hpp")
-        // Tell cargo to invalidate the built crate whenever any of the
-        // included header files changed.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .allowlist_type("t_topology")
-        .allowlist_type("TprHelper")
-        .allowlist_var("F_.*")
-        .opaque_type("std::.*")
-        .opaque_type("t_state")
-        .opaque_type("t_inputrec")
-        .opaque_type("gmx_mtop_t")
-        .clang_args(["-x", "c++"])
-        .clang_arg("-std=c++20")
-        .clang_arg(format!("-I{src_env}/src"))
-        .clang_arg(format!("-I{src_env}/src/gromacs/utility/include"))
-        .clang_arg(format!("-I{src_env}/src/gromacs/math/include"))
-        .clang_arg(format!("-I{src_env}/src/gromacs/topology/include"))
-        .clang_arg(format!("-I{src_env}/api/legacy/include"))
-        .clang_arg(format!("-I{src_env}/src/external"))
-        .clang_arg(format!("-I{bin_env}/api/legacy/include"))
-        .layout_tests(false)
-        // Finish the builder and generate the bindings.
-        .generate()
-        .expect("able to generate bindings");
+    #[cfg(feature = "gen_bindings")]
+    {
+        // Generate the bindings
+        let out_path = std::path::PathBuf::from(env::var("OUT_DIR").unwrap());
+        let bindings = bindgen::Builder::default()
+            .header("gromacs/wrapper.hpp")
+            // Tell cargo to invalidate the built crate whenever any of the
+            // included header files changed.
+            .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+            .allowlist_type("t_topology")
+            .allowlist_type("TprHelper")
+            .allowlist_var("F_.*")
+            .opaque_type("std::.*")
+            .opaque_type("t_state")
+            .opaque_type("t_inputrec")
+            .opaque_type("gmx_mtop_t")
+            .clang_args(["-x", "c++"])
+            .clang_arg("-std=c++20")
+            .clang_arg(format!("-I{src_env}/src"))
+            .clang_arg(format!("-I{src_env}/src/gromacs/utility/include"))
+            .clang_arg(format!("-I{src_env}/src/gromacs/math/include"))
+            .clang_arg(format!("-I{src_env}/src/gromacs/topology/include"))
+            .clang_arg(format!("-I{src_env}/api/legacy/include"))
+            .clang_arg(format!("-I{src_env}/src/external"))
+            .clang_arg(format!("-I{bin_env}/api/legacy/include"))
+            .layout_tests(false)
+            // Finish the builder and generate the bindings.
+            .generate()
+            .expect("able to generate bindings");
 
-    // Write the bindings to the $OUT_DIR/bindings.rs file.
-    bindings
-        .write_to_file(out_path.join("gromacs_bindings.rs"))
-        .expect("able to write bindings!");
+        // Write the bindings to the $OUT_DIR/bindings.rs file.
+        bindings
+            .write_to_file(out_path.join("gromacs_bindings.rs"))
+            .expect("should be able to write bindings!");
+    }
 }

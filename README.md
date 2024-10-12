@@ -10,26 +10,49 @@
 - [Design decisions](#design-decisions)
 
 # What is molar?
-Molar is a rust library for molecular analysis and modeling. It is started as a successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies. Eventually molar may become a "Pteros 3.0".
+Molar is a rust library for molecular analysis and modeling. It is started as a successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies. Eventually molar will become a "Pteros 3.0".
 
 Molar is designed to simplify the analysis of molecular dynamics trajectories and to implement new analysis algorithms. Molar is intended to provide facilities, which are routinely used in all molecular analysis programs, namely input/output of popular file formats, powerful and flexible atom selections, geometry transformations, RMSD fitting and alignment, etc.
 
 # Features
-* Reading and writing PDB, GRO, XTC files.
-* Reading Gromacs TPR files.
-* Selections using the syntaxis similar to VMD and Pteros.
-* Subselections and splitting selections.
+* Reading and writing PDB, GRO, XYZ, XTC files
+    * Recognizes any VMD molfile plugins. 
+    * Reading and writing Gromacs XTC format with random access.
+    * Reading Gromacs TPR files in Gromacs is installed.
+* Selections using the syntax similar to VMD and Pteros.
+    * Memory-safe selections for serial and parallel analysis tasks.
+    * Powerful subselections and selection splitting.
 * SASA calculations with the fastest PowerSasa method.
-* RMSD fitting and alignment
-* Basic algorithm (center of mass, center of geometry, etc.)
-* PBC unwrapping
-* Automatic seamless compiling and linking with VMD molfile and xdrfile libraries and the git version of Gromacs.
+* RMSD fitting and alignment.
+* Basic algorithm (center of mass, center of geometry, etc.).
+* Seamless PBC treatment.
 
 # Current status
-Molar is currently close to be usable in useful projects. Documentation is still missing.
+Molar is close to be feature complete and usable in useful projects. Documentation is still rudimentary.
 
 # Installation
-Molar depends on C/C++ compiler and CMake for compiling third-party libraries.
+Molar requires Rust 1.80 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
+
+## Linking to Gromacs
+In order to be able to read Gromacs TPR files MolAR should link to locally installed Gromacs. Unfortunately, modern versions of Gromacs do not expose all needed functionality in the public API, so MolAR has to hack into the internals and thus requires an access to the whole Gromacs source and build directories. This means that you have to _compile_ Gromacs on your local machine from source.
+
+In order to link with Gromacs create a `.cargo/config.toml` file in the root directory of your project with the following content:
+```toml
+[env]
+# Location of Gromacs source tree
+GROMACS_SOURCE_DIR = "<path-to-gromacs-source>/gromacs-2023"
+# Location of Gromacs *build* directory (for generated headers)
+GROMACS_BINARY_DIR = "<path-to-gromacs-source>/gromacs-2023>/build"
+# Location of installed gromacs libraries (where libgromacs.so is located)
+GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
+```
+You may use a template: `mv config.toml.template config.toml`.
+
+When configuring you project set the `gromacs` feature in Cargo.toml:
+```toml
+[dependencies]
+molar = {version="0.5", features=["gromacs"]}
+```
 
 # Tutorial
 TODO
@@ -60,21 +83,3 @@ while still being able to invoke selection methods that mutate underlying arrays
 of atoms and coordinates, such as `sel.translate()` or `sel.rotate()`. Changes
 made by one selection are immediately visible to all other selections that
 point to the same atoms.
-
-### Safety guarantees
-For each distinc pair of [Topology](crate::core::Topology) and [State](crate::core::State) _exactly one_
-access mode for selection may exists at any point in program runtime:
-1. Overlapping mutable sequential
-    * Overlapping selections may only mutate atoms and coordinates sequentially
-    from the same thread where they are created.
-1. Non-overlapping mutable parallel
-    * Non-overlapping selections can mutate atoms and coordinates in parallel 
-    from multiple threads. 
-    * All parallel processing threads are guaranteed to be joined 
-    and synchronized before the next processing block starts.
-    * Any sub-selection made from such selection can only leave in the same
-    thread as a parent selection.
-    * Data races are not possible.
-1. Overlapping immutable parallel
-    * Read-only access to atoms and coordinates is possible in parallel from
-    multiple threads.

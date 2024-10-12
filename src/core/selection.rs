@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_serial(top.into(), st.into())?;
+        let b = Source::new_serial(top.into(), st.into())?;
         // Create two overlapping selections
         let _sel1 = b.select_iter(0..10)?;
         let _sel2 = b.select_iter(5..15)?;
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn builder_par_no_overlap() {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_serial(top.into(), st.into()).unwrap();
+        let b = Source::new_serial(top.into(), st.into()).unwrap();
         // Create two non-overlapping selections.
         let _sel1 = b.select_iter(0..10).unwrap();
         let _sel2 = b.select_iter(11..15).unwrap();
@@ -129,7 +129,7 @@ mod tests {
     #[should_panic]
     fn builder_par_overlap() {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_parallel_mut(top.into(), st.into()).unwrap();
+        let b = Source::new_parallel_mut(top.into(), st.into()).unwrap();
         // Create two overlapping selections. This must fail!
         let _sel1 = b.select_iter(0..10).unwrap();
         let _sel2 = b.select_iter(5..15).unwrap();
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn builder_par_test() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_parallel_mut(top.into(), st.into())?;
+        let b = Source::new_parallel_mut(top.into(), st.into())?;
         let mut sels = vec![];
         // Create valid non-overlapping selections.
         sels.push( b.select_iter(0..10).unwrap() );
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn builder_par2() -> anyhow::Result<()> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_parallel_mut(top.into(), st.into())?;
+        let b = Source::new_parallel_mut(top.into(), st.into())?;
         // Create non-overlapping selections.
         let mut sels = vec![];
         for i in 0..30 {
@@ -179,14 +179,14 @@ mod tests {
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_serial(top.into(), st.into())?;
+        let b = Source::new_serial(top.into(), st.into())?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
         let (top, st) = read_test_pdb();
-        let mut b = Source::new_serial(top.into(), st.into())?;
+        let b = Source::new_serial(top.into(), st.into())?;
         let sel = b.select_str("not resname TIP3 POT CLA")?;
         Ok(sel)
     }
@@ -330,7 +330,7 @@ mod tests {
     #[should_panic]
     fn fail_on_empty_selection() {
         let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
-        let mut src = Source::new_parallel_mut(top.into(), st.into()).unwrap();
+        let src = Source::new_parallel_mut(top.into(), st.into()).unwrap();
         src.select_str("resid 5").unwrap();        
     }
 
@@ -338,7 +338,7 @@ mod tests {
     fn test_builder_append_from_self() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.num_atoms();
-        let mut builder = Source::new_builder(top.into(), st.into())?;
+        let builder = Source::new_builder(top.into(), st.into())?;
         let sel = builder.select_str("resid 550:560")?;
         let added = sel.len();
         builder.append(&sel);
@@ -351,7 +351,7 @@ mod tests {
     fn test_builder_remove_from_self() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.num_atoms();
-        let mut builder = Source::new_builder(top.into(), st.into())?;
+        let builder = Source::new_builder(top.into(), st.into())?;
         let sel = builder.select_str("resid 550:560")?;
         let removed = sel.len();
         builder.remove(&sel)?;
@@ -364,7 +364,7 @@ mod tests {
     #[should_panic]
     fn test_builder_fail_invalid_selection() {
         let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
-        let mut builder = Source::new_builder(top.into(), st.into()).unwrap();
+        let builder = Source::new_builder(top.into(), st.into()).unwrap();
         let sel = builder.select_str("resid 809").unwrap(); // last residue
         builder.remove(&sel).unwrap();
         // Trying to call method on invalid selection

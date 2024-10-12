@@ -588,7 +588,7 @@ mod tests {
         let st2 = st1.clone();
         println!("#1: {}", top1.num_atoms());
 
-        let mut b = Source::new_serial(top1.into(), st2.into())?;
+        let b = Source::new_serial(top1.into(), st2.into())?;
         let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
