@@ -65,10 +65,10 @@ pub(crate) enum MathNode {
 // Computes a vector value in various ways
 #[derive(Debug)]
 pub(crate) enum VectorNode {
-    Const(Vector3f),
-    NthOf(LogicalNode),
-    Com(LogicalNode),
-    Cog(LogicalNode),
+    Const(Pos),
+    //NthOf(LogicalNode),
+    Com(bool,LogicalNode),
+    Cog(bool,LogicalNode),
 }
 
 #[derive(Debug, PartialEq)]
@@ -143,8 +143,9 @@ pub(crate) enum LogicalNode {
     Comparison(ComparisonNode),
     Same(SameProp, Box<Self>),
     Within(WithinProp, Box<Self>),
+    WithinPoint(WithinProp, Pos),
     All,
-    Compound(CompoundNode)
+    Compound(CompoundNode),
 }
 
 enum Keyword {
@@ -343,6 +344,24 @@ impl RandomAtom for ActiveSubset<'_> {
     }
 }
 
+impl MassesProvider for ActiveSubset<'_> {
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+        self.subset
+            .iter()
+            .map(|i| unsafe { self.topology.nth_atom_unchecked(*i).mass })
+    }
+}
+
+impl BoxProvider for ActiveSubset<'_> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state.get_box()
+    }
+}
+
+impl MeasurePos for ActiveSubset<'_> {}
+impl MeasureMasses for ActiveSubset<'_> {}
+impl MeasurePeriodic for ActiveSubset<'_> {}
+
 //###################################
 //#  AST nodes logic implementation
 //###################################
@@ -440,7 +459,25 @@ impl LogicalNode {
                     res.extend(inner);
                 }
                 Ok(res)
-            }
+            },
+
+            Self::WithinPoint(prop, point) => {
+                let sub1 = data.global_subset();
+                let pvec = vec![point.clone()];
+                // Perform distance search
+                let res: SubsetType = if prop.pbc == PBC_NONE {
+                    // Non-periodic variant
+                    // Find extents
+                    let lower = point.coords.add_scalar(-prop.cutoff - f32::EPSILON);
+                    let upper = point.coords.add_scalar(prop.cutoff + f32::EPSILON);
+                    
+                    distance_search_within(prop.cutoff, &sub1, &pvec, &lower, &upper)
+                } else {
+                    // Periodic variant
+                    distance_search_within_pbc(prop.cutoff, &sub1, &pvec, data.state.get_box().unwrap(), &prop.pbc)
+                };
+                Ok(res)
+            },
 
             // All always works for global subset
             Self::All => Ok(data.global_subset.iter().cloned().collect()),
@@ -449,6 +486,34 @@ impl LogicalNode {
         }
     }
 }
+
+// impl VectorNode {
+//     pub fn eval(&self, data: &ApplyData) -> Result<Pos, SelectionParserError> {
+//         match self {
+//             Self::Const(p) => Ok(*p),
+
+//             Self::Com(pbc,node) => {
+//                 let inner = node.apply(data)?;
+//                 let c = if *pbc {
+//                     data.custom_subset(&inner).center_of_mass().unwrap()
+//                 } else {
+//                     data.custom_subset(&inner).center_of_mass_pbc().unwrap()
+//                 };
+//                 Ok(c)
+//             },
+
+//             Self::Cog(pbc,node) => {
+//                 let inner = node.apply(data)?;
+//                 let c = if *pbc {
+//                     data.custom_subset(&inner).center_of_geometry()
+//                 } else {
+//                     data.custom_subset(&inner).center_of_geometry_pbc()
+//                 };
+//                 Ok(c)
+//             }
+//         }
+//     }
+// }
 
 impl CompoundNode {
     fn is_protein(atom: &Atom) -> bool {
@@ -952,6 +1017,11 @@ peg::parser! {
             Pos::new(x, y, z)
         }
 
+        // rule vec3_com() -> Pos
+        // = "com" __ "pbc"? __ "of" ___ v:logical_expr() {
+
+        // }
+
         //rule nth_of() -> Pos
         //= logical_expr()
 
@@ -1125,16 +1195,30 @@ peg::parser! {
 
         // Within
         rule within_expr() -> WithinProp
-        = "within" __ d:float() __ p:pbc_expr()? s:$(("self" __)?) "of" {
-            if let MathNode::Float(cutoff) = d {
-                let pbc = match p {
-                    Some(dims) => dims,
-                    None => PBC_NONE,
-                };
-                let include_inner = !s.is_empty();
-                WithinProp {cutoff, pbc, include_inner}
-            } else {
-                unreachable!()
+        = "within" __ d:float_val() __ p:pbc_expr()? s:$(("self" __)?) "of" {
+            let pbc = match p {
+                Some(dims) => dims,
+                None => PBC_NONE,
+            };
+            let include_inner = !s.is_empty();
+            WithinProp {cutoff: d, pbc, include_inner}
+        }
+
+        // COM
+        rule com_expr() -> PbcDims
+        = "com" __ p:pbc_expr()? "of" {
+            match p {
+                Some(dims) => dims,
+                None => PBC_NONE,
+            }
+        }
+
+        // COG
+        rule cog_expr() -> PbcDims
+        = ("cog" / "center") __ p:pbc_expr()? "of" {
+            match p {
+                Some(dims) => dims,
+                None => PBC_NONE,
             }
         }
 
@@ -1159,12 +1243,15 @@ peg::parser! {
             // Unary prefixes
             "not" ___ v:@ { LogicalNode::Not(Box::new(v)) }
             t:same_expr() ___ v:@ { LogicalNode::Same(t,Box::new(v)) }
+            // Within from inner selection
             p:within_expr() ___ v:@ {LogicalNode::Within(p,Box::new(v))}
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
             v:comparison_expr_chained() { LogicalNode::Comparison(v) }
             v:compound() {LogicalNode::Compound(v)}
+            // Within from point
+            p:within_expr() ___ v:vec3()  {LogicalNode::WithinPoint(p,v)}
             "all" _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
         }

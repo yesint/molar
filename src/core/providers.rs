@@ -80,3 +80,10 @@ pub trait RandomAtomMut {
 pub trait BoxMutProvider {
     fn get_box_mut(&self) -> Option<&mut PeriodicBox>;
 }
+
+//----------------------------------------------------
+impl PosProvider for Vec<Pos> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        self.iter()
+    }
+}

@@ -162,7 +162,7 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
 }
 
 /// Trait for analysis requiring positions, masses and pbc
-pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider {
+pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvider {
     fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError> {
         let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
         let mut pos_iter = self.iter_pos();
@@ -183,6 +183,20 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider {
         } else {
             Ok(Pos::from(cm / mass))
         }
+    }
+
+    fn center_of_geometry_pbc(&self) -> Result<Pos, MeasureError> {
+        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let mut pos_iter = self.iter_pos();
+
+        let p0 = pos_iter.next().unwrap();
+        let mut cm = p0.coords;
+
+        for c in pos_iter {
+            cm += b.closest_image(c, p0).coords;
+        }
+
+        Ok(Pos::from(cm / self.len() as f32))
     }
 
     fn gyration_pbc(&self) -> Result<f32, MeasureError> {
