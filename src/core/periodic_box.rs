@@ -207,7 +207,7 @@ impl PeriodicBox {
     
     pub(crate) fn scale_vectors(&mut self, scale_factors: [f32; 3]) {
         for c in 0..3 {
-            self.matrix.column_mut(c).scale(scale_factors[c]);
+            self.matrix.column_mut(c).iter_mut().for_each(|el| *el *= scale_factors[c]);
         }
     }
 }
