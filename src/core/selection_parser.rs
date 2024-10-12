@@ -50,6 +50,9 @@ pub(crate) enum MathNode {
     Z,
     Bfactor,
     Occupancy,
+    Vdw,
+    Mass,
+    Charge,
     Plus(Box<Self>, Box<Self>),
     Minus(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
@@ -141,6 +144,7 @@ pub(crate) enum LogicalNode {
     Same(SameProp, Box<Self>),
     Within(WithinProp, Box<Self>),
     All,
+    Compound(CompoundNode)
 }
 
 enum Keyword {
@@ -161,6 +165,17 @@ pub(crate) enum MathFunctionName {
     Sqrt,
     Sin,
     Cos,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum CompoundNode {
+    Protein,
+    Backbone,
+    Sidechain,
+    Water,
+    NotWater,
+    Hydrogen,
+    NotHydrogen,
 }
 
 //##############################
@@ -429,6 +444,128 @@ impl LogicalNode {
 
             // All always works for global subset
             Self::All => Ok(data.global_subset.iter().cloned().collect()),
+
+            Self::Compound(comp) => comp.apply(data),
+        }
+    }
+}
+
+impl CompoundNode {
+    fn is_protein(atom: &Atom) -> bool {
+        match atom.resname.as_str() {
+            "GLY" | "ALA" | "VAL" | "PHE" | "PRO" | "MET" | "ILE" | "LEU" | 
+            "ASP" | "GLU" | "LYS" | "ARG" | "SER" | "THR" | "TYR" | "HIS" |
+            "CYS" | "ASN" | "GLN" | "TRP" | "HSE" | "HSD" | "HSP" | "CYX" 
+            => true,
+            _ => false,
+        }
+    }
+
+    fn is_backbone(atom: &Atom) -> bool {
+        if !Self::is_protein(atom) {
+            return false;
+        }
+        match atom.name.as_str() {
+            "C" | "N" | "O" | "CA" => true,
+            _ => false, 
+        }
+    }
+
+    fn is_sidechain(atom: &Atom) -> bool {
+        if !Self::is_protein(atom) {
+            return false;
+        }
+        !Self::is_backbone(atom)
+    }
+
+    fn is_water(atom: &Atom) -> bool {
+        match atom.resname.as_str() {
+            "SOL" | "HOH" | "TIP3" | "TIP4" | "TIP5"
+            => true,
+            _ => false,
+        }
+    }
+
+    fn is_hydrogen(atom: &Atom) -> bool {
+        // Find first letter in file name
+        if let Some(c) = atom.name.chars().find(|c| c.is_ascii_alphabetic()) {
+            c == 'H'
+        } else {
+            false
+        }
+    }
+
+    pub fn apply(&self, data: &ApplyData) -> Result<SubsetType, SelectionParserError> {
+        match self {
+            Self::Protein => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if Self::is_protein(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            },
+
+            Self::Backbone => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if Self::is_backbone(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            },
+
+            Self::Sidechain => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if Self::is_sidechain(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            },
+
+            Self::Water => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if Self::is_water(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            },
+
+            Self::NotWater => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if !Self::is_water(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            }
+            
+            Self::Hydrogen => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if Self::is_hydrogen(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            },
+
+            Self::NotHydrogen => {
+                let mut res = SubsetType::new();
+                for (i,at) in data.iter_ind_atom() {
+                    if !Self::is_hydrogen(at) {
+                        res.push(i)
+                    }
+                }
+                Ok(res)
+            },
         }
     }
 }
@@ -451,10 +588,6 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
 }
 
 impl KeywordNode {
-    pub fn is_coord_dependent(&self) -> bool {
-        false
-    }
-
     fn map_str_values(
         &self,
         data: &ApplyData,
@@ -571,6 +704,9 @@ impl MathNode {
             Self::Z => Ok(pos[2]),
             Self::Bfactor => Ok(atom.bfactor),
             Self::Occupancy => Ok(atom.occupancy),
+            Self::Vdw => Ok(atom.vdw()),
+            Self::Mass => Ok(atom.mass),
+            Self::Charge => Ok(atom.charge),
             Self::Plus(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
             Self::Minus(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
             Self::Mul(a, b) => Ok(a.eval(atom, pos)? * b.eval(atom, pos)?),
@@ -873,6 +1009,9 @@ peg::parser! {
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
+            "vdw" {MathNode::Vdw}
+            "mass" {MathNode::Mass}
+            "charge" {MathNode::Charge}
             d:distance() {MathNode::Dist(d)}
             keyword_occupancy() { MathNode::Occupancy }
             keyword_bfactor() { MathNode::Bfactor }
@@ -999,6 +1138,18 @@ peg::parser! {
             }
         }
 
+        pub rule compound() -> CompoundNode 
+        = protein() / backbone() / sidechain() / 
+          water() / not_water() / hydrogen() / not_hydrogen ();
+
+        pub rule protein() -> CompoundNode = "protein" _ { CompoundNode::Protein };
+        pub rule sidechain() -> CompoundNode = "sidechain" _ { CompoundNode::Sidechain };
+        pub rule backbone() -> CompoundNode = "backbone" _ { CompoundNode::Backbone };
+        pub rule water() -> CompoundNode = "water" _ { CompoundNode::Water };
+        pub rule not_water() -> CompoundNode = "now" _ { CompoundNode::NotWater };
+        pub rule hydrogen() -> CompoundNode = "hydrogen" _ { CompoundNode::Hydrogen };
+        pub rule not_hydrogen() -> CompoundNode = "noh" _ { CompoundNode::NotHydrogen };
+
         // Logic
         pub rule logical_expr() -> LogicalNode
         = precedence!{
@@ -1013,6 +1164,7 @@ peg::parser! {
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
             v:comparison_expr_chained() { LogicalNode::Comparison(v) }
+            v:compound() {LogicalNode::Compound(v)}
             "all" _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
         }
@@ -1039,39 +1191,10 @@ impl SelectionExpr {
 // const PROTEIN_RES: &[&str] = &["firefox", "chrome"];
 
 // PDB names
-// "GLY",
-// "ALA",
-// "VAL",
-// "PHE",
-// "PRO",
-// "MET",
-// "ILE",
-// "LEU",
-// "ASP",
-// "GLU",
-// "LYS",
-// "ARG",
-// "SER",
-// "THR",
-// "TYR",
-// "HIS",
-// "CYS",
-// "ASN",
-// "GLN",
-// "TRP",
-// // CHARMM names
-// "HSE",
-// "HSD",
-// "HSP",
-// // AMBER names
-// "CYX",
-
+ 
 impl TryFrom<&str> for SelectionExpr {
     type Error = SelectionParserError;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
-        // Expanding macro expressions
-        //let expanded = value.replace("protein", "(resname ) ");
-
         Ok(Self {
             ast: selection_parser::logical_expr(value).map_err(|e| {
                 let s = format!(
