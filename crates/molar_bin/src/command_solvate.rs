@@ -9,7 +9,7 @@ pub(crate) fn command_solvate(
     exclude: &Option<String>,
 ) -> Result<()> {
     info!("Loading solute from file '{file}'...");
-    let mut solute = Source::builder_from_file(file)?;
+    let solute = Source::builder_from_file(file)?;
 
     // Check periodic box
     if solute.get_box().is_none() {

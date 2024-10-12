@@ -13,10 +13,10 @@ pub(crate) fn command_tip3_to_tip4(
     outfile: &str
 ) -> Result<()> {
     info!("Loading file '{file}'...");
-    let mut inp = Source::serial_from_file(file)?;
+    let inp = Source::serial_from_file(file)?;
 
     // Make output system
-    let mut out = Source::empty_builder();
+    let out = Source::empty_builder();
 
     // Select water
     let water = inp.select_str("resname TIP3")?;

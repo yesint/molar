@@ -34,7 +34,7 @@ pub(super) fn command_rearrange(
     
     // Make selections
     info!("Rearranging file '{infile}'...");
-    let mut in_source = Source::serial_from_file(infile)?;
+    let in_source = Source::serial_from_file(infile)?;
     let begin_sels = begin
         .iter()
         .map(|s| in_source.select_str(s).map_err(|e| anyhow!(e)))
@@ -64,7 +64,7 @@ pub(super) fn command_rearrange(
     info!("There are {} untouched atoms",rest_sel.len());
 
     // Create output builder
-    let mut out = Source::empty_builder();
+    let out = Source::empty_builder();
     // Add beginning selections
     for sel in begin_sels {
         out.append(&sel);

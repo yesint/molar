@@ -849,7 +849,6 @@ peg::parser! {
             DistanceNode::PlaneNormal(p,Unit::new_normalize(n.coords),b.unwrap_or(PBC_NONE))
         }
 
-
         rule abs_function() -> MathFunctionName = "abs" {MathFunctionName::Abs}
         rule sqrt_function() -> MathFunctionName = "sqrt" {MathFunctionName::Sqrt}
         rule sin_function() -> MathFunctionName = "sin" {MathFunctionName::Sin}
@@ -1036,9 +1035,43 @@ impl SelectionExpr {
     }
 }
 
+// Protein residues
+// const PROTEIN_RES: &[&str] = &["firefox", "chrome"];
+
+// PDB names
+// "GLY",
+// "ALA",
+// "VAL",
+// "PHE",
+// "PRO",
+// "MET",
+// "ILE",
+// "LEU",
+// "ASP",
+// "GLU",
+// "LYS",
+// "ARG",
+// "SER",
+// "THR",
+// "TYR",
+// "HIS",
+// "CYS",
+// "ASN",
+// "GLN",
+// "TRP",
+// // CHARMM names
+// "HSE",
+// "HSD",
+// "HSP",
+// // AMBER names
+// "CYX",
+
 impl TryFrom<&str> for SelectionExpr {
     type Error = SelectionParserError;
     fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
+        // Expanding macro expressions
+        //let expanded = value.replace("protein", "(resname ) ");
+
         Ok(Self {
             ast: selection_parser::logical_expr(value).map_err(|e| {
                 let s = format!(
