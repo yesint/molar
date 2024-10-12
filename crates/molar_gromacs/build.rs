@@ -1,6 +1,5 @@
 use std::env;
 
-
 fn main() {
     let src_env = env!("GROMACS_SOURCE_DIR");
     let bin_env = env!("GROMACS_BINARY_DIR");

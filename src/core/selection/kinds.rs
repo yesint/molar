@@ -27,15 +27,10 @@ pub trait SelectionKind {
     }
 }
 
-/// Trait marking non-overlapping selections
+/// Trait marking mutable selections
 pub trait MutableSel: SelectionKind {}
-/// Trait marking parallel selections
-pub trait ParallelSel: SelectionKind + Send + Sync {}
-/// Trait marking serial selections
-pub trait SerialSel: SelectionKind {}
-/// Trait marking selections that allow subselections
-pub trait AllowsSubselect: SelectionKind {}
 
+//------------------------------------------------------
 
 /// Marker type for possibly overlapping mutable selection (single-threaded)
 pub struct MutableSerial(PhantomData<*const ()>);
@@ -43,8 +38,6 @@ impl SelectionKind for MutableSerial {
     type UsedIndexesType = ();
 }
 impl MutableSel for MutableSerial {}
-impl SerialSel for MutableSerial {}
-impl AllowsSubselect for MutableSerial {}
 
 /// Marker type for possibly overlapping builder selection (single-threaded)
 pub struct BuilderSerial(PhantomData<*const ()>);
@@ -65,8 +58,6 @@ impl SelectionKind for BuilderSerial {
     }    
 }
 impl MutableSel for BuilderSerial {}
-impl SerialSel for BuilderSerial {}
-impl AllowsSubselect for BuilderSerial {}
 
 /// Marker type for non-overlapping mutable selection (multi-threaded)
 pub struct MutableParallel {}
@@ -98,7 +89,6 @@ impl SelectionKind for MutableParallel {
     }
 }
 impl MutableSel for MutableParallel {}
-impl ParallelSel for MutableParallel {}
 // Doesn't allow subselecting!
 
 /// Marker type for possibly overlapping immutable selection (multi-threaded)
@@ -106,5 +96,3 @@ pub struct ImmutableParallel {}
 impl SelectionKind for ImmutableParallel {
     type UsedIndexesType = ();
 }
-impl ParallelSel for ImmutableParallel {}
-impl AllowsSubselect for ImmutableParallel {}

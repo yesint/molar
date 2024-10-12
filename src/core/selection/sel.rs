@@ -278,6 +278,10 @@ impl<K: SelectionKind> Sel<K> {
         self.index()[self.index().len() - 1]
     }
 
+    pub fn nth_index(&self, i: usize) -> Option<usize> {
+        self.index().get(i).cloned()
+    }
+
     /// Get a Particle for the first selection index.
     pub fn first_particle(&self) -> Particle {
         unsafe { self.nth_particle_unchecked(0) }
@@ -290,11 +294,11 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Get a Particle for the first selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth_particle(&self, i: usize) -> Result<Particle, SelectionError> {
+    pub fn nth_particle(&self, i: usize) -> Option<Particle> {
         if i >= self.len() {
-            Err(SelectionError::OutOfBounds(i, self.len()))
+            None
         } else {
-            Ok(unsafe { self.nth_particle_unchecked(i) })
+            Some(unsafe { self.nth_particle_unchecked(i) })
         }
     }
 
@@ -303,7 +307,7 @@ impl<K: SelectionKind> Sel<K> {
     ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn into_fragments<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
+    pub fn into_iter_fragments<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -313,10 +317,16 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn into_fragments_resindex(
+    pub fn into_iter_fragments_resindex(
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
-        self.into_fragments(|p| Some(p.atom.resindex))
+        self.into_iter_fragments(|p| Some(p.atom.resindex))
+    }
+
+    pub fn into_iter_fragments_chain(
+        self,
+    ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
+        self.into_iter_fragments(|p| Some(p.atom.chain))
     }
 
 }
@@ -341,7 +351,7 @@ where
     K: SelectionKind<UsedIndexesType = ()>,
 {
     /// Tests if two selections are from the same source
-    pub fn same_source(&self, other: &Sel<K>) -> bool {
+    pub fn is_same_source(&self, other: &Sel<K>) -> bool {
         self.topology.same_data(&other.topology) && self.state.same_data(&other.state)
     }
 
@@ -358,7 +368,7 @@ where
     }
     
     /// Subselection from expression
-    pub fn subsel_from_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
+    pub fn subsel_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
         Self::from_holders_and_index(
             self.topology.clone_with_index(&index)?,
@@ -368,13 +378,13 @@ where
     }
 
     /// Subselection from string
-    pub fn subsel_from_str(&self, sel_str: &str) -> Result<Sel<K>, SelectionError> {
+    pub fn subsel_str(&self, sel_str: &str) -> Result<Sel<K>, SelectionError> {
         let expr = SelectionExpr::try_from(sel_str)?;
-        self.subsel_from_expr(&expr)
+        self.subsel_expr(&expr)
     }
 
     /// Subselection from the range of local selection indexes
-    pub fn subsel_from_local_range(
+    pub fn subsel_local_range(
         &self,
         range: std::ops::Range<usize>,
     ) -> Result<Sel<K>, SelectionError> {
@@ -399,7 +409,7 @@ where
     }
 
     /// Subselection from iterator that provides local selection indexes
-    pub fn subsel_from_iter(
+    pub fn subsel_iter(
         &self,
         iter: impl ExactSizeIterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
@@ -417,7 +427,7 @@ where
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn split<RT, F, C>(&self, func: F) -> C
+    pub fn split_unordered<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -428,7 +438,7 @@ where
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is left alive.
-    pub fn split_resid<C>(&self) -> C
+    pub fn split_unordered_resid<C>(&self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -437,7 +447,7 @@ where
 
     /// Helper method that splits selection into the parts with distinct resindexes.
     /// Parent selection is left alive.
-    pub fn split_resindex<C>(&self) -> C
+    pub fn split_unordered_resindex<C>(&self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -450,20 +460,20 @@ where
     /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
     /// If `func` returns `None` the atom is skipped and do not added to new selection.
     /// Selections are computed lazily when iterating.
-    pub fn split_contig<RT, F>(&self, func: F) -> SelectionSplitIterator<'_, RT, F, K>
+    pub fn iter_fragments<RT, F>(&self, func: F) -> SelectionFragmentsIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
     {
-        SelectionSplitIterator::new(self, func)
+        SelectionFragmentsIterator::new(self, func)
     }
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn split_contig_resindex(
+    pub fn iter_fragments_resindex(
         &self,
-    ) -> SelectionSplitIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
-        self.split_contig(|p| Some(p.atom.resindex))
+    ) -> SelectionFragmentsIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
+        self.iter_fragments(|p| Some(p.atom.resindex))
     }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
@@ -496,6 +506,30 @@ where
         Ok(std::mem::replace(&mut self.state, state))
     }
 
+    pub fn set_same_name(&self, val: &str) {
+        for a in self.topology.iter_atoms_mut() {
+            a.name = val.into();
+        }
+    }
+
+    pub fn set_same_resname(&self, val: &str) {
+        for a in self.topology.iter_atoms_mut() {
+            a.resname = val.into();
+        }
+    }
+
+    pub fn set_same_resid(&self, val: i32) {
+        for a in self.topology.iter_atoms_mut() {
+            a.resid = val;
+        }
+    }
+
+    pub fn set_same_chain(&self, val: char) {
+        for a in self.topology.iter_atoms_mut() {
+            a.chain = val;
+        }
+    }
+
     //-----------------------------------------------------------
     // Direct creation of selections without Source
     //-----------------------------------------------------------
@@ -517,7 +551,7 @@ where
     }
 
     /// Selects all
-    pub fn all(
+    pub fn from_all(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
     ) -> Result<Self, SelectionError> {

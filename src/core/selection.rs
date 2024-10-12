@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn split_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        for res in sel1.split_contig(|p| Some(p.atom.resid)) {
+        for res in sel1.iter_fragments(|p| Some(p.atom.resid)) {
             println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
         Ok(())

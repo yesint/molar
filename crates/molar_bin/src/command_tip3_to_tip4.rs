@@ -4,7 +4,7 @@ use std::iter;
 use anyhow::Result;
 use log::info;
 use molar::{
-    core::{Atom, AtomsMutProvider, AtomsProvider, BoxProvider, PosProvider, Source},
+    core::{Atom, AtomsProvider, BoxProvider, PosProvider, Source},
     io::{TopologyProvider, WritableToFile},
 };
 
@@ -33,7 +33,7 @@ pub(crate) fn command_tip3_to_tip4(
     out.append(&sel_before);
 
     // Now go over water molecules one by one                   
-    for mol in water.into_fragments_resindex() {
+    for mol in water.into_iter_fragments_resindex() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
@@ -55,9 +55,7 @@ pub(crate) fn command_tip3_to_tip4(
         println!("{:?}",m_at);
 
         // Change resname for existing atoms
-        for a in mol.iter_atoms_mut() {
-            a.resname = "TIP4".into();
-        }
+        mol.set_same_resname("TIP4");
         
         // Add new converted water molecule
         // We assume that the dummy is the last atom.

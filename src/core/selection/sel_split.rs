@@ -15,18 +15,18 @@ struct SplitData<RT, F> {
 /// 
 /// This iterator keeps the parent selection alive and yelds selections of the same kind 
 /// as sub-selections of the parent [Sel].
-pub struct SelectionSplitIterator<'a, RT, F, K: SelectionKind> {
+pub struct SelectionFragmentsIterator<'a, RT, F, K: SelectionKind> {
     sel: &'a Sel<K>,
     data: SplitData<RT, F>,
 }
 
-impl<K: SelectionKind> SelectionSplitIterator<'_, (), (), K> {
-    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> SelectionSplitIterator<'_, RT, F, K>
+impl<K: SelectionKind> SelectionFragmentsIterator<'_, (), (), K> {
+    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> SelectionFragmentsIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
     {
-        SelectionSplitIterator {
+        SelectionFragmentsIterator {
             sel,
             data: SplitData {
                 func,
@@ -37,7 +37,7 @@ impl<K: SelectionKind> SelectionSplitIterator<'_, (), (), K> {
     }
 }
 
-impl<RT, F, S> Iterator for SelectionSplitIterator<'_, RT, F, S>
+impl<RT, F, S> Iterator for SelectionFragmentsIterator<'_, RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(Particle) -> Option<RT>,
