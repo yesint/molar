@@ -15,5 +15,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [build-dependencies]
-bindgen = "0.70.1"
+bindgen = {version = "0.70.1", optional = true}
 cc.workspace = true
+
+[features]
+gen_bindings = ["dep:bindgen"]

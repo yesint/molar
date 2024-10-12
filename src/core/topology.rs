@@ -22,14 +22,14 @@ impl TopologyStorage {
         self.atoms.extend(atoms);
     }
 
-    pub(crate) fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-        todo!("Check if bond already exists");
-        self.bonds.extend(added);
-    }
+    // pub(crate) fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+    //     todo!("Check if bond already exists");
+    //     self.bonds.extend(added);
+    // }
 
-    pub(crate) fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-        self.molecules.extend(added);
-    }
+    // pub(crate) fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
+    //     self.molecules.extend(added);
+    // }
 
     pub(crate) fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> Result<(),BuilderError> {
         let mut ind = removed.collect::<Vec<_>>();
