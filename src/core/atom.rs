@@ -1,3 +1,5 @@
+use super::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_VDW};
+
 /// Information about the atom except its coordinates.
 #[allow(dead_code)]
 #[derive(Debug, Default, Clone)]
@@ -34,34 +36,75 @@ impl Atom {
         Default::default()
     }
 
-    /// Naive guessing of the mass and element from the atom name. 
     pub fn guess_element_and_mass_from_name(&mut self) {
-        (self.atomic_number, self.mass) = match
-            self.name.as_str()
-            .trim_start_matches(char::is_numeric)
-            .chars().next().unwrap()
-        {
-            'C' => (6, 12.0),
-            'O' => (8, 16.0),
-            'N' => (7, 14.0),
-            'S' => (16, 32.0),
-            'H' => (1, 1.0),
-            'P' => (15, 31.0),
-            'F' => (9, 19.0),
-            'B' => (5, 11.0),
-            _ => (0, 1.0), // Unknown atom
+        self.atomic_number = 0;
+        // Index of the first letter in atom name
+        if let Some(i) = self.name.find(|c: char| c.is_ascii_alphabetic()) {
+            // Find matching element name in periodic table
+            // Attempt 2-letter matching if possible
+            if self.name.len() >= 2 {
+                let c2 = self.name[i..=i + 1].to_ascii_uppercase();
+                for an in 1..ELEMENT_NAME.len() {
+                    let el = ELEMENT_NAME[an];
+                    if el.len() == 2 && el.to_ascii_uppercase() == c2 {
+                        // If the first letters are C,N,O,H,P be extra careful
+                        // and only match to two-letter elements if the resname is the 
+                        // same as name (like in ions CA and CL).
+                        // Otherwise skip to single-letter matching
+                        match el.chars().next().unwrap() {
+                            'C'|'N'|'O'|'H'|'P' => {
+                                if self.name == self.resname {
+                                    self.atomic_number = an as u8;
+                                }
+                            },
+                            _ => {
+                                self.atomic_number = an as u8;
+                            },
+                        }
+                    }
+                }
+            }
+
+            // If atomic_number is still 0 try 1-letter matching
+            if self.atomic_number ==0 {
+                for an in 1..ELEMENT_NAME.len() {
+                    let el = ELEMENT_NAME[an];
+                    if el.len() == 1 && el == &self.name[i..=i] {
+                        self.atomic_number = an as u8;
+                    }
+                }
+            }
         }
+
+        // Fill mass field
+        self.mass = ELEMENT_MASS[self.atomic_number as usize];
     }
+
+    /// Naive guessing of the mass and element from the atom name.
+    // pub fn guess_element_and_mass_from_name(&mut self) {
+    //     (self.atomic_number, self.mass) = match self
+    //         .name
+    //         .as_str()
+    //         .trim_start_matches(char::is_numeric)
+    //         .chars()
+    //         .next()
+    //         .unwrap()
+    //     {
+    //         'C' => (6, ELEMENT_MASS[6]),
+    //         'O' => (8, ELEMENT_MASS[8]),
+    //         'N' => (7, ELEMENT_MASS[7]),
+    //         'S' => (16, ELEMENT_MASS[16]),
+    //         'H' => (1, ELEMENT_MASS[1]),
+    //         'P' => (15, ELEMENT_MASS[15]),
+    //         'F' => (9, ELEMENT_MASS[9]),
+    //         'B' => (5, ELEMENT_MASS[5]),
+    //         _ => (0, 1.0), // Unknown atom
+    //     }
+    // }
 
     /// Returns atom's Van der Waals radius based on its atomic number.
     /// If the element is not recognized returns a default value of 0.15 nm.
     pub fn vdw(&self) -> f32 {
-        use super::periodic_table::*;
-
-        if self.atomic_number<=0 {
-            get_vdw_from_atom_name(&self.name)
-        } else {
-            ELEMENT_VDW[self.atomic_number as usize] * 0.1
-        }
+        ELEMENT_VDW[self.atomic_number as usize] * 0.1
     }
 }

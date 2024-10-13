@@ -1,4 +1,4 @@
-const NUM_ELEMENTS: usize = 112;
+pub const NUM_ELEMENTS: usize = 112;
 
 /// Periodic table of elements for translation from atomic number to element name
 #[allow(dead_code)]

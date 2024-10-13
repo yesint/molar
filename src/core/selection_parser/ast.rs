@@ -521,7 +521,7 @@ impl CompoundNode {
 
     fn is_hydrogen(atom: &Atom) -> bool {
         // Find first letter in file name
-        if let Some(c) = atom.name.chars().find(|c| c.is_ascii_alphabetic()) {
+        if let Some(c) = atom.name.chars().find(char::is_ascii_alphabetic) {
             c == 'H'
         } else {
             false
