@@ -1,4 +1,4 @@
-pub const NUM_ELEMENTS: usize = 112;
+const NUM_ELEMENTS: usize = 112;
 
 /// Periodic table of elements for translation from atomic number to element name
 #[allow(dead_code)]
@@ -14,6 +14,21 @@ pub const ELEMENT_NAME: [&'static str; NUM_ELEMENTS] = [
     "Ra", "Ac", "Th", "Pa", "U",  "Np", "Pu", "Am", "Cm", "Bk", "Cf",
     "Es", "Fm", "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt",
     "Ds", "Rg"
+];
+
+#[allow(dead_code)]
+pub const ELEMENT_NAME_UPPER: [&'static str; NUM_ELEMENTS] = [ 
+    "X",  "H",  "HE", "LI", "BE", "B",  "C",  "N",  "O",  "F",  "NE",
+    "NA", "MG", "AL", "SI", "P" , "S",  "CL", "AR", "K",  "CA", "SC",
+    "TI", "V",  "CR", "MN", "FE", "CO", "NI", "CU", "ZN", "GA", "GE", 
+    "AS", "SE", "BR", "KR", "RB", "SR", "Y",  "ZR", "NB", "MO", "TC",
+    "RU", "RH", "PD", "AG", "CD", "IN", "SN", "SB", "TE", "I",  "XE",
+    "CS", "BA", "LA", "CE", "PR", "ND", "PM", "SM", "EU", "GD", "TB",
+    "DY", "HO", "ER", "TM", "YB", "LU", "HF", "TA", "W",  "RE", "OS",
+    "IR", "PT", "AU", "HG", "TL", "PB", "BI", "PO", "AT", "RN", "FR",
+    "RA", "AC", "TH", "PA", "U",  "NP", "PU", "AM", "CM", "BK", "CF",
+    "ES", "FM", "MD", "NO", "LR", "RF", "DB", "SG", "BH", "HS", "MT",
+    "DS", "RG"
 ];
 
 /// Translation from atomic number to element mass
@@ -69,17 +84,3 @@ pub const ELEMENT_VDW: [f32; NUM_ELEMENTS] = [
     /* Md */ 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
     /* Mt */ 2.0, 2.0, 2.0
 ];
-
-/// Gets a VdW for given atom name
-pub fn get_vdw_from_atom_name(name: &str) -> f32 {
-    match name.chars().next().unwrap() {    
-        'H' => 0.12,
-        'C' => 0.17,
-        'N' => 0.155,
-        'O' => 0.152,
-        'S' => 0.18,
-        'P' => 0.18,
-        'F' => 0.147,
-        _ => 0.15,
-    }
-}

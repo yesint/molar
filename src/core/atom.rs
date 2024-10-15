@@ -1,4 +1,4 @@
-use super::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_VDW};
+use super::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEMENT_VDW};
 
 /// Information about the atom except its coordinates.
 #[allow(dead_code)]
@@ -40,13 +40,21 @@ impl Atom {
         self.atomic_number = 0;
         // Index of the first letter in atom name
         if let Some(i) = self.name.find(|c: char| c.is_ascii_alphabetic()) {
+            // Match special cases when atom name doesn't 
+            // start with the element name at all
+            match self.name.as_str() {
+                "SOD" => self.atomic_number = 11, //Sodium
+                "POT" => self.atomic_number = 19, //Potassium
+                _ => (),
+            } 
+
             // Find matching element name in periodic table
             // Attempt 2-letter matching if possible
-            if self.name.len() >= 2 {
+            if self.atomic_number ==0 && self.name.len() >= 2 {
                 let c2 = self.name[i..=i + 1].to_ascii_uppercase();
-                for an in 1..ELEMENT_NAME.len() {
-                    let el = ELEMENT_NAME[an];
-                    if el.len() == 2 && el.to_ascii_uppercase() == c2 {
+                for an in 1..ELEMENT_NAME_UPPER.len() {
+                    let el = ELEMENT_NAME_UPPER[an];
+                    if el.len() == 2 && el == c2 {
                         // If the first letters are C,N,O,H,P be extra careful
                         // and only match to two-letter elements if the resname is the 
                         // same as name (like in ions CA and CL).
@@ -103,7 +111,7 @@ impl Atom {
     // }
 
     /// Returns atom's Van der Waals radius based on its atomic number.
-    /// If the element is not recognized returns a default value of 0.15 nm.
+    /// If the element is not recognized returns a default value of 0.15 nm (atomnum '0').
     pub fn vdw(&self) -> f32 {
         ELEMENT_VDW[self.atomic_number as usize] * 0.1
     }
