@@ -205,7 +205,7 @@ impl<'a> Grid<'a> {
             for d in 0..3 {
                 // If dimension in not periodic and
                 // out of bounds - skip the point
-                if !pbc_dims[d] && (rel[d] >= 1.0 || rel[d] < 0.0) {
+                if !pbc_dims.get_dim(d) && (rel[d] >= 1.0 || rel[d] < 0.0) {
                     continue 'outer;
                 }
                 loc[d] = (rel[d] * self.dims[d] as f32)
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {
-        let mut src = Source::serial_from_file("tests/albumin.pdb")?;
+        let src = Source::serial_from_file("tests/albumin.pdb")?;
         let t = std::time::Instant::now();
         src.select_str("within 4.0 of resid 10:300")?;
         println!("elapsed {}", t.elapsed().as_secs_f32());
@@ -913,7 +913,7 @@ mod tests {
 
     #[test]
     fn within_pbc() -> anyhow::Result<()> {
-        let mut src = Source::serial_from_file("tests/albumin.pdb")?;
+        let src = Source::serial_from_file("tests/albumin.pdb")?;
         let sel = src.select_str("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
         sel.save("target/pbc_sel.pdb")?;
         Ok(())

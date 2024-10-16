@@ -719,7 +719,7 @@ impl MathNode {
                 | DistanceNode::LineDir(target, _, dims)
                 | DistanceNode::Plane(target, _, _, dims)
                 | DistanceNode::PlaneNormal(target, _, dims) => {
-                    if dims[0] || dims[1] || dims[2] {
+                    if dims.any() {
                         Ok(Some(
                             pbox.ok_or_else(|| SelectionParserError::PbcUnwrap)?
                                 .closest_image_dims(point, target, dims),
