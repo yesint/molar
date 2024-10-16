@@ -7,9 +7,47 @@ pub struct PeriodicBox {
     inv: Matrix3f,
 }
 
-pub type PbcDims = [bool; 3];
-pub const PBC_FULL: PbcDims = [true,true,true];
-pub const PBC_NONE: PbcDims = [false,false,false];
+#[derive(Debug,PartialEq,Clone)]
+pub struct PbcDims(u8);
+
+impl PbcDims {
+    pub fn set_dim(&mut self, n: usize, val: bool) {
+        if n>2 {
+            panic!("pbc has only 3 dimentions")
+        }
+        if val {
+            self.0 |= 1 << n;
+        } else {
+            self.0 &= !(1 << n);
+        }
+    }
+
+    pub fn new(x: bool, y: bool, z: bool) -> Self {
+        let mut ret = Self(0);
+        ret.set_dim(0, x);
+        ret.set_dim(1, y);
+        ret.set_dim(2, z);
+        ret
+    }
+
+    pub fn get_dim(&self, n: usize) -> bool {
+        if n>2 {
+            panic!("pbc has only 3 dimentions")
+        }
+        (self.0 & (1 << n)) != 0
+    }
+    
+    pub fn any(&self) -> bool {
+        (self.0 & (1 << 0)) != 0
+        ||
+        (self.0 & (1 << 1)) != 0
+        ||
+        (self.0 & (1 << 2)) != 0
+    }
+}
+
+pub const PBC_FULL: PbcDims = PbcDims(0b0000_0111);
+pub const PBC_NONE: PbcDims = PbcDims(0b0000_0000);
 
 #[derive(Error,Debug)]
 pub enum PeriodicBoxError {
@@ -137,7 +175,7 @@ impl PeriodicBox {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
         for i in 0..3 {
-            if pbc_dims[i] {
+            if pbc_dims.get_dim(i) {
                 box_vec[i] -= box_vec[i].round();
             }
         }

@@ -266,20 +266,20 @@ peg::parser! {
         }
 
         // PBC for within
-        rule pbc_expr() -> [bool;3]
+        rule pbc_expr() -> PbcDims
         = pbc_with_dims() / pbc_full_no_dims() / pbc_none_no_dims()
 
-        rule pbc_full_no_dims() -> [bool;3]
+        rule pbc_full_no_dims() -> PbcDims
         = "pbc" __
         {PBC_FULL}
 
-        rule pbc_none_no_dims() -> [bool;3]
+        rule pbc_none_no_dims() -> PbcDims
         = "nopbc" __
         {PBC_NONE}
 
-        rule pbc_with_dims() -> [bool;3]
+        rule pbc_with_dims() -> PbcDims
         = "pbc" __ p:(pbc_dim()*<3>) __ {
-            [p[0],p[1],p[2]]
+            PbcDims::new(p[0],p[1],p[2])
         }
 
         // Within
