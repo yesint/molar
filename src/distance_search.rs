@@ -157,9 +157,13 @@ impl<'a> Grid<'a> {
     //     &mut self.cells[i]
     // }
 
-    pub fn push_loc(&mut self, loc: [usize; 3], data: (usize,&'a Pos)) {
+    fn push_loc(&mut self, loc: [usize; 3], data: (usize,&'a Pos)) {
         let i = self.loc_to_ind(loc);
         self.cells[i].push(data);
+    }
+
+    fn push_ind(&mut self, ind: usize, data: (usize,&'a Pos)) {
+        self.cells[ind].push(data);
     }
 
     fn from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> Self {
@@ -197,22 +201,56 @@ impl<'a> Grid<'a> {
         }
     }
 
-    pub fn populate_pbc(&mut self, data: impl PosIterator<'a>, box_: &PeriodicBox, pbc_dims: &PbcDims) {
+    pub fn populate_pbc(&mut self, data: impl PosIterator<'a>, box_: &PeriodicBox, pbc_dims: &PbcDims, wrapped_pos: &'a mut Vec<(usize,Pos)>) {
+        let mut wrapped_ind = vec![];
+        wrapped_pos.clear();
+
         'outer: for (id,pos) in data.enumerate() {
             // Relative coordinates
-            let rel = box_.to_box_coords(&pos.coords);
+            let mut rel = box_.to_box_coords(&pos.coords);
             let mut loc = [0usize, 0, 0];
+            
+            // Check if point is correctly wrapped
+            let mut correct = true;
             for d in 0..3 {
-                // If dimension in not periodic and
-                // out of bounds - skip the point
-                if !pbc_dims.get_dim(d) && (rel[d] >= 1.0 || rel[d] < 0.0) {
-                    continue 'outer;
+                if rel[d] < 0.0 || rel[d] >= 1.0 {
+                    if !pbc_dims.get_dim(d) {
+                        continue 'outer;
+                    } else {
+                        correct = false;
+                    }
                 }
-                loc[d] = (rel[d] * self.dims[d] as f32)
-                    .floor()
-                    .rem_euclid(self.dims[d] as f32) as usize;
             }
-            self.push_loc(loc,(id,pos));
+
+            if correct {
+                // Wrapped correctly
+                for d in 0..3 {
+                    loc[d] = (rel[d] * self.dims[d] as f32).floor()as usize;
+                }
+                self.push_loc(loc,(id,pos));
+            } else {
+                // Need to wrap the point
+                for d in 0..3 {
+                    if pbc_dims.get_dim(d) { // For each periodic dim
+                        rel[d] = rel[d].fract();
+                        if rel[d] < 0.0 {
+                            rel[d] = 1.0-rel[d]
+                        }
+                    }
+                    loc[d] = (rel[d] * self.dims[d] as f32).floor() as usize;
+                }
+                let wp = Pos::from(box_.to_lab_coords(&rel));
+                wrapped_pos.push((id,wp));
+                wrapped_ind.push(self.loc_to_ind(loc));                      
+            }
+        }
+        
+        // Add wrapped points to the grid
+        for i in 0..wrapped_ind.len() {
+            self.push_ind(
+                wrapped_ind[i],
+                (wrapped_pos[i].0, &wrapped_pos[i].1)
+            );
         }
     }
 
@@ -584,8 +622,11 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims);
-    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims);
+    let mut buf1 = vec![];
+    let mut buf2 = vec![];
+
+    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), true);
 
