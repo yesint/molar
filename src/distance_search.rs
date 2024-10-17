@@ -157,12 +157,12 @@ impl<'a> Grid<'a> {
     //     &mut self.cells[i]
     // }
 
-    fn push_loc(&mut self, loc: [usize; 3], data: (usize,&'a Pos)) {
+    fn push_loc(&mut self, loc: [usize; 3], data: (usize, &'a Pos)) {
         let i = self.loc_to_ind(loc);
         self.cells[i].push(data);
     }
 
-    fn push_ind(&mut self, ind: usize, data: (usize,&'a Pos)) {
+    fn push_ind(&mut self, ind: usize, data: (usize, &'a Pos)) {
         self.cells[ind].push(data);
     }
 
@@ -187,7 +187,7 @@ impl<'a> Grid<'a> {
         // Data points are numbered sequentially from zero
         // So grid always stores the local index within the data
         let dim_sz = upper - lower;
-        'outer: for (id,pos) in data.enumerate() {
+        'outer: for (id, pos) in data.enumerate() {
             let mut loc = [0usize, 0, 0];
             for d in 0..3 {
                 let n = (self.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
@@ -197,19 +197,25 @@ impl<'a> Grid<'a> {
                     loc[d] = n as usize;
                 }
             }
-            self.push_loc(loc,(id,pos));
+            self.push_loc(loc, (id, pos));
         }
     }
 
-    pub fn populate_pbc(&mut self, data: impl PosIterator<'a>, box_: &PeriodicBox, pbc_dims: &PbcDims, wrapped_pos: &'a mut Vec<(usize,Pos)>) {
+    pub fn populate_pbc(
+        &mut self,
+        data: impl PosIterator<'a>,
+        box_: &PeriodicBox,
+        pbc_dims: &PbcDims,
+        wrapped_pos: &'a mut Vec<(usize, Pos)>,
+    ) {
         let mut wrapped_ind = vec![];
         wrapped_pos.clear();
 
-        'outer: for (id,pos) in data.enumerate() {
+        'outer: for (id, pos) in data.enumerate() {
             // Relative coordinates
             let mut rel = box_.to_box_coords(&pos.coords);
             let mut loc = [0usize, 0, 0];
-            
+
             // Check if point is correctly wrapped
             let mut correct = true;
             for d in 0..3 {
@@ -225,32 +231,34 @@ impl<'a> Grid<'a> {
             if correct {
                 // Wrapped correctly
                 for d in 0..3 {
-                    loc[d] = (rel[d] * self.dims[d] as f32).floor()as usize;
+                    loc[d] = ((rel[d] * self.dims[d] as f32).floor() as usize)
+                        .clamp(0, self.dims[d] - 1);
+                    // Accounts for float point errors when loc[d] could be 1.00001
                 }
-                self.push_loc(loc,(id,pos));
+                self.push_loc(loc, (id, pos));
             } else {
                 // Need to wrap the point
                 for d in 0..3 {
-                    if pbc_dims.get_dim(d) { // For each periodic dim
+                    if pbc_dims.get_dim(d) {
+                        // For each periodic dim
                         rel[d] = rel[d].fract();
                         if rel[d] < 0.0 {
-                            rel[d] = 1.0-rel[d]
+                            rel[d] = 1.0 - rel[d]
                         }
                     }
-                    loc[d] = (rel[d] * self.dims[d] as f32).floor() as usize;
+                    loc[d] = ((rel[d] * self.dims[d] as f32).floor() as usize)
+                        .clamp(0, self.dims[d] - 1);
+                    // Accounts for float point errors when loc[d] could be 1.00001
                 }
                 let wp = Pos::from(box_.to_lab_coords(&rel));
-                wrapped_pos.push((id,wp));
-                wrapped_ind.push(self.loc_to_ind(loc));                      
+                wrapped_pos.push((id, wp));
+                wrapped_ind.push(self.loc_to_ind(loc));
             }
         }
-        
+
         // Add wrapped points to the grid
         for i in 0..wrapped_ind.len() {
-            self.push_ind(
-                wrapped_ind[i],
-                (wrapped_pos[i].0, &wrapped_pos[i].1)
-            );
+            self.push_ind(wrapped_ind[i], (wrapped_pos[i].0, &wrapped_pos[i].1));
         }
     }
 
@@ -259,11 +267,7 @@ impl<'a> Grid<'a> {
     }
 }
 
-fn search_plan(
-    grid1: &Grid,
-    grid2: Option<&Grid>,
-    periodic: bool,
-) -> Vec<(usize, usize, bool)> {
+fn search_plan(grid1: &Grid, grid2: Option<&Grid>, periodic: bool) -> Vec<(usize, usize, bool)> {
     let mut plan = Vec::with_capacity(14 * grid1.dims[0] * grid1.dims[1] * grid1.dims[2]);
     // Cycle over whole grid
     for x in 0..grid1.dims[0] {
@@ -323,10 +327,10 @@ fn search_cell_pair_within(
     let n2 = grid2.cells[pair.1].len();
 
     for i in 0..n1 {
-        let (ind1, pos1) = grid1.cells[pair.0][i];        
+        let (ind1, pos1) = grid1.cells[pair.0][i];
         for j in 0..n2 {
             let (_, pos2) = grid2.cells[pair.1][j];
-            
+
             let d2 = (pos2 - pos1).norm_squared();
             if d2 <= cutoff2 {
                 found.push(ind1);
@@ -349,7 +353,7 @@ fn search_cell_pair_within_pbc(
     let n2 = grid2.cells[pair.1].len();
 
     for i in 0..n1 {
-        let (ind1, pos1) = grid1.cells[pair.0][i];        
+        let (ind1, pos1) = grid1.cells[pair.0][i];
         for j in 0..n2 {
             let (_, pos2) = grid2.cells[pair.1][j];
 
@@ -377,7 +381,7 @@ fn search_cell_pair_double<T: SearchOutputType>(
     let n2 = grid2.cells[pair.1].len();
 
     for i in 0..n1 {
-        let (ind1, pos1) = grid1.cells[pair.0][i];        
+        let (ind1, pos1) = grid1.cells[pair.0][i];
         for j in 0..n2 {
             let (ind2, pos2) = grid2.cells[pair.1][j];
 
@@ -517,11 +521,11 @@ fn search_cell_pair_single<T: SearchOutputType>(
 fn search_cell_pair_single_pbc<T: SearchOutputType>(
     cutoff2: f32,
     grid: &Grid,
-    pair: (usize, usize, bool),    
+    pair: (usize, usize, bool),
     pbox: &PeriodicBox,
     pbc_dims: &PbcDims,
 ) -> Vec<T> {
-    let mut found = Vec::<T>::new();    
+    let mut found = Vec::<T>::new();
 
     if pair.0 == pair.1 {
         let n = grid.cells[pair.0].len();
@@ -589,13 +593,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_within(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                pair,
-                &mut found,
-            );
+            search_cell_pair_within(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
             search_cell_pair_within(
                 cutoff * cutoff,
                 &grid1,
@@ -729,15 +727,11 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
+            search_cell_pair_double(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
             search_cell_pair_double(
                 cutoff * cutoff,
-                &grid1,&grid2,
-                pair,
-                &mut found,
-            );
-            search_cell_pair_double(
-                cutoff * cutoff,
-                &grid1,&grid2,
+                &grid1,
+                &grid2,
                 (pair.1, pair.0, pair.2),
                 &mut found,
             );
@@ -761,8 +755,11 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims);
-    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims);
+    let mut buf1 = vec![];
+    let mut buf2 = vec![];
+
+    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), true);
 
@@ -773,16 +770,20 @@ where
             let mut found = Vec::new();
             search_cell_pair_double_pbc(
                 cutoff * cutoff,
-                &grid1,&grid2,
+                &grid1,
+                &grid2,
                 pair,
-                pbox,pbc_dims,
+                pbox,
+                pbc_dims,
                 &mut found,
             );
             search_cell_pair_double_pbc(
                 cutoff * cutoff,
-                &grid1,&grid2,
+                &grid1,
+                &grid2,
                 (pair.1, pair.0, pair.2),
-                pbox,pbc_dims,
+                pbox,
+                pbc_dims,
                 &mut found,
             );
             found
@@ -822,15 +823,13 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
+            search_cell_pair_double_vdw(&grid1, &grid2, pair, vdw1, vdw2, &mut found);
             search_cell_pair_double_vdw(
-                &grid1, &grid2, 
-                pair,
-                vdw1, vdw2, 
-                &mut found);
-            search_cell_pair_double_vdw(
-                &grid1,&grid2,
+                &grid1,
+                &grid2,
                 (pair.1, pair.0, pair.2),
-                vdw1,vdw2,
+                vdw1,
+                vdw2,
                 &mut found,
             );
             found
@@ -859,8 +858,11 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims);
-    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims);
+    let mut buf1 = vec![];
+    let mut buf2 = vec![];
+
+    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), true);
 
@@ -870,17 +872,16 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw_pbc(
-                &grid1,&grid2,
-                pair,
-                vdw1,vdw2,              
-                pbox,pbc_dims,
-                &mut found,
+                &grid1, &grid2, pair, vdw1, vdw2, pbox, pbc_dims, &mut found,
             );
             search_cell_pair_double_vdw_pbc(
-                &grid1,&grid2,
+                &grid1,
+                &grid2,
                 (pair.1, pair.0, pair.2),
-                vdw1,vdw2,
-                pbox,pbc_dims,
+                vdw1,
+                vdw2,
+                pbox,
+                pbc_dims,
                 &mut found,
             );
             found
@@ -923,7 +924,10 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     let mut grid = Grid::from_cutoff_and_box(cutoff, pbox);
-    grid.populate_pbc(data.iter_pos(), pbox, pbc_dims);
+
+    let mut buf = vec![];
+
+    grid.populate_pbc(data.iter_pos(), pbox, pbc_dims, &mut buf);
 
     let plan = search_plan(&grid, None, true);
 
