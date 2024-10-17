@@ -206,7 +206,7 @@ impl<'a> Grid<'a> {
         data: impl PosIterator<'a>,
         box_: &PeriodicBox,
         pbc_dims: &PbcDims,
-        wrapped_pos: &'a mut Vec<(usize, Pos)>,
+        wrapped_pos: &'a mut Vec<Pos>,
     ) {
         let mut wrapped_ind = vec![];
         wrapped_pos.clear();
@@ -251,14 +251,14 @@ impl<'a> Grid<'a> {
                     // Accounts for float point errors when loc[d] could be 1.00001
                 }
                 let wp = Pos::from(box_.to_lab_coords(&rel));
-                wrapped_pos.push((id, wp));
-                wrapped_ind.push(self.loc_to_ind(loc));
+                wrapped_pos.push(wp);
+                wrapped_ind.push((self.loc_to_ind(loc),id));
             }
         }
 
         // Add wrapped points to the grid
         for i in 0..wrapped_ind.len() {
-            self.push_ind(wrapped_ind[i], (wrapped_pos[i].0, &wrapped_pos[i].1));
+            self.push_ind(wrapped_ind[i].0, (wrapped_ind[i].1, &wrapped_pos[i]));
         }
     }
 
