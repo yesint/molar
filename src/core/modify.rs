@@ -45,7 +45,7 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
         if self.len() > 0 {
             let p0 = iter.next().unwrap();
             for p in iter {
-                *p = b.closest_image_dims(p, p0, &dims);
+                *p = b.closest_image_dims(p, p0, dims);
             }
         }
         Ok(())
@@ -61,15 +61,15 @@ pub trait ModifyRandomAccess:
     PosMutProvider + PosProvider + BoxProvider + RandomPosMut
 {
     fn unwrap_connectivity(&self, cutoff: f32) -> Result<(), MeasureError> {
-        self.unwrap_connectivity_dim(cutoff, &PBC_FULL)
+        self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
 
-    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: &PbcDims) -> Result<(),MeasureError> {
+    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<(),MeasureError> {
         let b = self
             .get_box()
             .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
-        let conn: SearchConnectivity = distance_search_single_pbc(cutoff, self, &b, &dims);
+        let conn: SearchConnectivity = distance_search_single_pbc(cutoff, self, &b, dims);
         
         // used atoms
         let mut used = vec![false; conn.len()];
@@ -88,7 +88,7 @@ pub trait ModifyRandomAccess:
                 // Unwrap this point if it is not used yet
                 if !used[*ind] {
                     let p = unsafe { self.nth_pos_mut_unchecked(*ind) };
-                    *p = b.closest_image_dims(p, &p0, &dims);
+                    *p = b.closest_image_dims(p, &p0, dims);
                     // Add it to the stack
                     todo.push(*ind);
                     used[*ind] = true;

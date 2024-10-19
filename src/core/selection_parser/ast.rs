@@ -419,7 +419,7 @@ impl LogicalNode {
                     distance_search_within(prop.cutoff, &sub1, &sub2, &lower, &upper)
                 } else {
                     // Periodic variant
-                    distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), &prop.pbc)
+                    distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), prop.pbc)
                 };
 
                 // Add inner if asked
@@ -442,7 +442,7 @@ impl LogicalNode {
                     distance_search_within(prop.cutoff, &sub1, &pvec, &lower, &upper)
                 } else {
                     // Periodic variant
-                    distance_search_within_pbc(prop.cutoff, &sub1, &pvec, data.state.get_box().unwrap(), &prop.pbc)
+                    distance_search_within_pbc(prop.cutoff, &sub1, &pvec, data.state.get_box().unwrap(), prop.pbc)
                 };
                 Ok(res)
             },
@@ -722,7 +722,7 @@ impl MathNode {
                     if dims.any() {
                         Ok(Some(
                             pbox.ok_or_else(|| SelectionParserError::PbcUnwrap)?
-                                .closest_image_dims(point, target, dims),
+                                .closest_image_dims(point, target, *dims),
                         ))
                     } else {
                         Ok(None)

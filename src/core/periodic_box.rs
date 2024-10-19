@@ -7,7 +7,7 @@ pub struct PeriodicBox {
     inv: Matrix3f,
 }
 
-#[derive(Debug,PartialEq,Clone)]
+#[derive(Debug,PartialEq,Clone,Copy)]
 pub struct PbcDims(u8);
 
 impl PbcDims {
@@ -171,7 +171,7 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn shortest_vector_dims(&self, vec: &Vector3f, pbc_dims: &PbcDims) -> Vector3f {
+    pub fn shortest_vector_dims(&self, vec: &Vector3f, pbc_dims: PbcDims) -> Vector3f {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
         for i in 0..3 {
@@ -188,7 +188,7 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn closest_image_dims(&self, point: &Pos, target: &Pos, pbc_dims: &PbcDims) -> Pos {
+    pub fn closest_image_dims(&self, point: &Pos, target: &Pos, pbc_dims: PbcDims) -> Pos {
         target + self.shortest_vector_dims(&(point - target), pbc_dims)
     }
 
@@ -228,12 +228,12 @@ impl PeriodicBox {
     
 
     #[inline(always)]
-    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: &PbcDims) -> f32 {
+    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: PbcDims) -> f32 {
         self.shortest_vector_dims(&(p2 - p1), pbc_dims).norm_squared()
     }
 
     #[inline(always)]
-    pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: &PbcDims) -> f32 {
+    pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: PbcDims) -> f32 {
         self.distance_squared(p1, p2, pbc).sqrt()
     }
 
