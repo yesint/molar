@@ -225,7 +225,6 @@ impl PeriodicBox {
             self.matrix[(2, 0)] + self.matrix[(2, 1)] + self.matrix[(2, 2)],
         )
     }
-    
 
     #[inline(always)]
     pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: PbcDims) -> f32 {
@@ -245,8 +244,21 @@ impl PeriodicBox {
     
     pub(crate) fn scale_vectors(&mut self, scale_factors: [f32; 3]) {
         for c in 0..3 {
-            self.matrix.column_mut(c).iter_mut().for_each(|el| *el *= scale_factors[c]);
+            self.matrix.column_mut(c).apply(|el| *el *= scale_factors[c]);
         }
+    }
+
+    #[inline(always)]
+    pub fn wrap_point(&self, p: &Pos) -> Pos {
+        // Get vector in box fractional coordinates
+        let mut bv = self.inv * p;
+        for i in 0..3 {
+            bv[i] = bv[i].fract();
+            if bv[i] < 0.0 {
+                bv[i] = 1.0 - bv[i];
+            }
+        }
+        return self.matrix * bv;
     }
 }
 
