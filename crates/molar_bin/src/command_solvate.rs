@@ -103,7 +103,7 @@ pub(crate) fn command_solvate(
     let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
     let to_remove_ind: Vec<usize> =
-        distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, &PBC_FULL);
+        distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, PBC_FULL);
 
     // Remove overlapping
     solvent.remove(&to_remove_ind)?;

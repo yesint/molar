@@ -205,7 +205,7 @@ impl<'a> Grid<'a> {
         &mut self,
         data: impl PosIterator<'a>,
         box_: &PeriodicBox,
-        pbc_dims: &PbcDims,
+        pbc_dims: PbcDims,
         wrapped_pos: &'a mut Vec<Pos>,
     ) {
         let mut wrapped_ind = vec![];
@@ -267,7 +267,7 @@ impl<'a> Grid<'a> {
     }
 }
 
-fn search_plan(grid1: &Grid, grid2: Option<&Grid>, periodic: bool) -> Vec<(usize, usize, bool)> {
+fn search_plan(grid1: &Grid, grid2: Option<&Grid>, pbc_dims: PbcDims) -> Vec<(usize, usize, PbcDims)> {
     let mut plan = Vec::with_capacity(14 * grid1.dims[0] * grid1.dims[1] * grid1.dims[2]);
     // Cycle over whole grid
     for x in 0..grid1.dims[0] {
@@ -280,13 +280,13 @@ fn search_plan(grid1: &Grid, grid2: Option<&Grid>, periodic: bool) -> Vec<(usize
                         [x + v2[0], y + v2[1], z + v2[2]],
                     ];
                     // we only go to the right, so need to check the right edge
-                    let mut wrapped = false;
+                    let mut wrapped = PBC_NONE;
                     for i in 0..=1 {
                         for d in 0..3 {
                             if c[i][d] == grid1.dims[d] {
-                                if periodic {
+                                if pbc_dims.get_dim(d) {
                                     c[i][d] = 0;
-                                    wrapped = true;
+                                    wrapped.set_dim(d, true);
                                 } else {
                                     continue 'mask;
                                 }
@@ -320,7 +320,7 @@ fn search_cell_pair_within(
     cutoff2: f32,
     grid1: &Grid,
     grid2: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     found: &mut Vec<usize>,
 ) {
     let n1 = grid1.cells[pair.0].len();
@@ -344,9 +344,8 @@ fn search_cell_pair_within_pbc(
     cutoff2: f32,
     grid1: &Grid,
     grid2: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
     found: &mut Vec<usize>,
 ) {
     let n1 = grid1.cells[pair.0].len();
@@ -357,8 +356,8 @@ fn search_cell_pair_within_pbc(
         for j in 0..n2 {
             let (_, pos2) = grid2.cells[pair.1][j];
 
-            let d2 = if pair.2 {
-                pbox.distance_squared(&pos1, &pos2, pbc_dims)
+            let d2 = if pair.2.any() {
+                pbox.distance_squared(&pos1, &pos2, pair.2)
             } else {
                 (pos2 - pos1).norm_squared()
             };
@@ -374,7 +373,7 @@ fn search_cell_pair_double<T: SearchOutputType>(
     cutoff2: f32,
     grid1: &Grid,
     grid2: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     found: &mut Vec<T>,
 ) {
     let n1 = grid1.cells[pair.0].len();
@@ -397,9 +396,8 @@ fn search_cell_pair_double_pbc<T: SearchOutputType>(
     cutoff2: f32,
     grid1: &Grid,
     grid2: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
     found: &mut Vec<T>,
 ) {
     let n1 = grid1.cells[pair.0].len();
@@ -410,8 +408,8 @@ fn search_cell_pair_double_pbc<T: SearchOutputType>(
         for j in 0..n2 {
             let (ind2, pos2) = grid2.cells[pair.1][j];
 
-            let d2 = if pair.2 {
-                pbox.distance_squared(&pos1, &pos2, pbc_dims)
+            let d2 = if pair.2.any() {
+                pbox.distance_squared(&pos1, &pos2, pair.2)
             } else {
                 (pos2 - pos1).norm_squared()
             };
@@ -425,7 +423,7 @@ fn search_cell_pair_double_pbc<T: SearchOutputType>(
 fn search_cell_pair_double_vdw<T: SearchOutputType>(
     grid1: &Grid,
     grid2: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     found: &mut Vec<T>,
@@ -450,11 +448,10 @@ fn search_cell_pair_double_vdw<T: SearchOutputType>(
 fn search_cell_pair_double_vdw_pbc<T: SearchOutputType>(
     grid1: &Grid,
     grid2: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
     found: &mut Vec<T>,
 ) {
     let n1 = grid1.cells[pair.0].len();
@@ -465,8 +462,8 @@ fn search_cell_pair_double_vdw_pbc<T: SearchOutputType>(
         for j in 0..n2 {
             let (ind2, pos2) = grid2.cells[pair.1][j];
 
-            let d2 = if pair.2 {
-                pbox.distance_squared(&pos1, &pos2, pbc_dims)
+            let d2 = if pair.2.any() {
+                pbox.distance_squared(&pos1, &pos2, pair.2)
             } else {
                 (pos2 - pos1).norm_squared()
             };
@@ -483,7 +480,7 @@ fn search_cell_pair_double_vdw_pbc<T: SearchOutputType>(
 fn search_cell_pair_single<T: SearchOutputType>(
     cutoff2: f32,
     grid: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
 ) -> Vec<T> {
     let mut found = Vec::<T>::new();
 
@@ -521,9 +518,8 @@ fn search_cell_pair_single<T: SearchOutputType>(
 fn search_cell_pair_single_pbc<T: SearchOutputType>(
     cutoff2: f32,
     grid: &Grid,
-    pair: (usize, usize, bool),
+    pair: (usize, usize, PbcDims),
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
 ) -> Vec<T> {
     let mut found = Vec::<T>::new();
 
@@ -534,8 +530,8 @@ fn search_cell_pair_single_pbc<T: SearchOutputType>(
             for j in i + 1..n {
                 let (ind2, pos2) = grid.cells[pair.0][j];
 
-                let d2 = if pair.2 {
-                    pbox.distance_squared(&pos1, &pos2, pbc_dims)
+                let d2 = if pair.2.any() {
+                    pbox.distance_squared(&pos1, &pos2, pair.2)
                 } else {
                     (pos2 - pos1).norm_squared()
                 };
@@ -553,8 +549,8 @@ fn search_cell_pair_single_pbc<T: SearchOutputType>(
             for j in 0..n2 {
                 let (ind2, pos2) = grid.cells[pair.1][j];
 
-                let d2 = if pair.2 {
-                    pbox.distance_squared(&pos1, &pos2, pbc_dims)
+                let d2 = if pair.2.any() {
+                    pbox.distance_squared(&pos1, &pos2, pair.2)
                 } else {
                     (pos2 - pos1).norm_squared()
                 };
@@ -586,7 +582,7 @@ where
 
     //grid1.debug();
 
-    let plan = search_plan(&grid1, Some(&grid2), false);
+    let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -612,7 +608,7 @@ pub(crate) fn distance_search_within_pbc<C>(
     data1: &impl PosProvider,
     data2: &impl PosProvider,
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
+    pbc_dims: PbcDims,
 ) -> C
 where
     C: FromIterator<usize> + FromParallelIterator<usize>,
@@ -626,7 +622,7 @@ where
     grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
     grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
 
-    let plan = search_plan(&grid1, Some(&grid2), true);
+    let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -639,7 +635,6 @@ where
                 &grid2,
                 pair,
                 pbox,
-                pbc_dims,
                 &mut found,
             );
             search_cell_pair_within_pbc(
@@ -648,7 +643,6 @@ where
                 &grid2,
                 (pair.1, pair.0, pair.2),
                 pbox,
-                pbc_dims,
                 &mut found,
             );
             found
@@ -720,7 +714,7 @@ where
     grid1.populate(data1.iter_pos(), &lower, &upper);
     grid2.populate(data2.iter_pos(), &lower, &upper);
 
-    let plan = search_plan(&grid1, Some(&grid2), false);
+    let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -746,7 +740,7 @@ pub fn distance_search_double_pbc<T, C>(
     data1: &(impl PosProvider + BoxProvider),
     data2: &impl PosProvider,
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
+    pbc_dims: PbcDims,
 ) -> C
 where
     T: SearchOutputType + Send + Sync,
@@ -761,7 +755,7 @@ where
     grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
     grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
 
-    let plan = search_plan(&grid1, Some(&grid2), true);
+    let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -774,7 +768,6 @@ where
                 &grid2,
                 pair,
                 pbox,
-                pbc_dims,
                 &mut found,
             );
             search_cell_pair_double_pbc(
@@ -783,7 +776,6 @@ where
                 &grid2,
                 (pair.1, pair.0, pair.2),
                 pbox,
-                pbc_dims,
                 &mut found,
             );
             found
@@ -816,7 +808,7 @@ where
     grid1.populate(data1.iter_pos(), &lower, &upper);
     grid2.populate(data2.iter_pos(), &lower, &upper);
 
-    let plan = search_plan(&grid1, Some(&grid2), false);
+    let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -844,7 +836,7 @@ pub fn distance_search_double_vdw_pbc<T, C>(
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
+    pbc_dims: PbcDims,
 ) -> C
 where
     T: SearchOutputType + Send + Sync,
@@ -864,7 +856,7 @@ where
     grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
     grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
 
-    let plan = search_plan(&grid1, Some(&grid2), true);
+    let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -872,7 +864,7 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw_pbc(
-                &grid1, &grid2, pair, vdw1, vdw2, pbox, pbc_dims, &mut found,
+                &grid1, &grid2, pair, vdw1, vdw2, pbox, &mut found,
             );
             search_cell_pair_double_vdw_pbc(
                 &grid1,
@@ -881,7 +873,6 @@ where
                 vdw1,
                 vdw2,
                 pbox,
-                pbc_dims,
                 &mut found,
             );
             found
@@ -903,7 +894,7 @@ where
     let mut grid = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     grid.populate(data.iter_pos(), &lower, &upper);
 
-    let plan = search_plan(&grid, None, false);
+    let plan = search_plan(&grid, None, PBC_NONE);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
@@ -917,7 +908,7 @@ pub fn distance_search_single_pbc<T, C>(
     cutoff: f32,
     data: &(impl PosProvider + BoxProvider + ?Sized),
     pbox: &PeriodicBox,
-    pbc_dims: &PbcDims,
+    pbc_dims: PbcDims,
 ) -> C
 where
     T: SearchOutputType + Send + Sync,
@@ -929,12 +920,12 @@ where
 
     grid.populate_pbc(data.iter_pos(), pbox, pbc_dims, &mut buf);
 
-    let plan = search_plan(&grid, None, true);
+    let plan = search_plan(&grid, None, pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
     plan.into_par_iter()
         .with_min_len(3)
-        .map(|pair| search_cell_pair_single_pbc(cutoff * cutoff, &grid, pair, pbox, pbc_dims))
+        .map(|pair| search_cell_pair_single_pbc(cutoff * cutoff, &grid, pair, pbox))
         .flatten()
         .collect()
 }

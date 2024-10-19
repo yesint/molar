@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let sel = make_sel_prot()?;
-        sel.unwrap_connectivity_dim(0.2, &PBC_FULL)?;
+        sel.unwrap_connectivity_dim(0.2, PBC_FULL)?;
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"),"/unwrapped.pdb"))?;
         h.write_topology(&sel)?;
