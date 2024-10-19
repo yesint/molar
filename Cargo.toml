@@ -2,7 +2,7 @@
 members = ["crates/molar_bin"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 rust-version = "1.80" 
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
@@ -43,10 +43,10 @@ exclude = [
 
 [dependencies]
 # Workspace member crates
-molar_molfile = {path = "crates/molar_molfile", version="0.1"}
-molar_xdrfile = {path = "crates/molar_xdrfile", version="0.1"}
-molar_powersasa = {path = "crates/molar_powersasa", version="0.1"}
-molar_gromacs = {path = "crates/molar_gromacs", version="0.2.2", optional = true}
+molar_molfile = {path = "crates/molar_molfile", version="0.7.0"}
+molar_xdrfile = {path = "crates/molar_xdrfile", version="0.7.0"}
+molar_powersasa = {path = "crates/molar_powersasa", version="0.7.0"}
+molar_gromacs = {path = "crates/molar_gromacs", version="0.7.0", optional = true}
 
 # Normal dependencies
 thiserror.workspace = true
