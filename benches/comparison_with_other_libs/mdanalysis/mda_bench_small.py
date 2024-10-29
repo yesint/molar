@@ -6,6 +6,7 @@ import time
 import numpy as np
 
 
+
 def trjconv_bench():
     u = mda.Universe('tests/protein.pdb', 'tests/protein.xtc')
     selection = u.select_atoms("resid 560")

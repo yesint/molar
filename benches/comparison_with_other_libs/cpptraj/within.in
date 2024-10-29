@@ -1,0 +1,5 @@
+# cpptraj input script
+parm protein.pdb
+trajin protein.xtc
+vector com_task center :15<:10.0
+run

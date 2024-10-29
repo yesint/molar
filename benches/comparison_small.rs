@@ -54,8 +54,8 @@ fn molar_benchmark(c: &mut Criterion) {
 }
 
 criterion_group!{
-    name = comparison;
+    name = comparison_small;
     config = Criterion::default().sample_size(20).warm_up_time(Duration::from_secs(5));
     targets = molar_benchmark
 }
-criterion_main!(comparison);
+criterion_main!(comparison_small);

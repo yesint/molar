@@ -1,0 +1,6 @@
+# cpptraj input script
+parm protein.pdb
+trajin protein.xtc
+strip !(:560)
+trajout ../target/output_trajectory.dcd nobox
+run  
