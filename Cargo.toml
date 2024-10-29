@@ -79,7 +79,11 @@ name = "fit_benchmark"
 harness = false
 
 [[bench]]
-name = "comparison"
+name = "comparison_small"
+harness = false
+
+[[bench]]
+name = "comparison_large"
 harness = false
 
 [package.metadata.docs.rs]
