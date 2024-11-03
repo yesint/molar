@@ -1,12 +1,12 @@
 use std::fs::File;
 use std::io::Write;
 
-pub type Vector2 = nalgebra::Vector2<f32>;
+pub type Vector2f = nalgebra::Vector2<f32>;
 const TOL: f32 = 1e-10;
 
 #[derive(Debug)]
 pub struct Vertex {
-    pos: Vector2,
+    pos: Vector2f,
     // Index of neighbour in ccw direction
     ccw_neib: usize, 
     // ID of point that created the ccw edge
@@ -15,12 +15,12 @@ pub struct Vertex {
 }
 
 struct CuttingLine {
-    pos: Vector2,
+    pos: Vector2f,
     r2: f32,
 }
 
 impl CuttingLine {
-    fn new(point: &Vector2) -> Self {
+    fn new(point: &Vector2f) -> Self {
         let pos = 0.5*point;
         let r2 = pos.norm_squared();
         Self {pos, r2}
@@ -54,10 +54,10 @@ impl VoronoiCell {
         //  |                     |
         //(0)xmin,ymin-----------(1)xmax,ymin
         
-        ret.vert.push(Vertex{pos: Vector2::new(xmin, ymin), ccw_neib: 1, edge_id: -1});
-        ret.vert.push(Vertex{pos: Vector2::new(xmax, ymin), ccw_neib: 2, edge_id: -2});
-        ret.vert.push(Vertex{pos: Vector2::new(xmax, ymax), ccw_neib: 3, edge_id: -3});
-        ret.vert.push(Vertex{pos: Vector2::new(xmin, ymax), ccw_neib: 0, edge_id: -4});
+        ret.vert.push(Vertex{pos: Vector2f::new(xmin, ymin), ccw_neib: 1, edge_id: -1});
+        ret.vert.push(Vertex{pos: Vector2f::new(xmax, ymin), ccw_neib: 2, edge_id: -2});
+        ret.vert.push(Vertex{pos: Vector2f::new(xmax, ymax), ccw_neib: 3, edge_id: -3});
+        ret.vert.push(Vertex{pos: Vector2f::new(xmin, ymax), ccw_neib: 0, edge_id: -4});
 
         ret
     }
@@ -73,7 +73,7 @@ impl VoronoiCell {
     }
 
     #[inline(always)]
-    fn pos(&self, i: usize) -> &Vector2 {
+    fn pos(&self, i: usize) -> &Vector2f {
         unsafe{ &self.vert.get_unchecked(i).pos }
     }
 
@@ -87,7 +87,7 @@ impl VoronoiCell {
         unsafe{ self.vert.get_unchecked_mut(i) }
     }
 
-    pub fn add_point(&mut self,point: &Vector2, id: usize) -> bool {
+    pub fn add_point(&mut self,point: &Vector2f, id: usize) -> bool {
         let line = CuttingLine::new(point);
         let cut1;
         let cut2;
@@ -188,7 +188,7 @@ impl VoronoiCell {
     }
 
     #[inline(always)]
-    fn vertex_pos_from_cut(&self, cut: &EdgeCut) -> Vector2 {
+    fn vertex_pos_from_cut(&self, cut: &EdgeCut) -> Vector2f {
         let frac = cut.out_dist / (cut.in_dist.abs()+cut.out_dist);
         (1.0-frac)*self.pos(cut.out_ind)+frac*self.pos(cut.in_ind)
     }
@@ -260,17 +260,17 @@ impl<'a> Iterator for VoronoiCellVertexIter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Vector2, VoronoiCell};
+    use super::{Vector2f, VoronoiCell};
 
     #[test]
     fn cell_test() {
         let mut c = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
-        c.add_point(&Vector2::new(20.0,-17.5), 1);
-        c.add_point(&Vector2::new(10.0,0.0), 2);
-        c.add_point(&Vector2::new(10.0,10.0), 3);
-        c.add_point(&Vector2::new(-5.0*2.0,-2.0*2.0), 4);
-        c.add_point(&Vector2::new(-5.0*2.0,5.0*2.0), 5);
-        c.write_to_file("tests/out.dat");
+        c.add_point(&Vector2f::new(20.0,-17.5), 1);
+        c.add_point(&Vector2f::new(10.0,0.0), 2);
+        c.add_point(&Vector2f::new(10.0,10.0), 3);
+        c.add_point(&Vector2f::new(-5.0*2.0,-2.0*2.0), 4);
+        c.add_point(&Vector2f::new(-5.0*2.0,5.0*2.0), 5);
+        c.write_to_file("target/out.dat");
 
         for v in c.iter_vertex() {
             println!("{v:?}")
