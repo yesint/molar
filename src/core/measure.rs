@@ -1,5 +1,6 @@
 use super::providers::*;
 use super::Matrix3f;
+use super::PbcDims;
 use super::Pos;
 use super::Vector3f;
 use itertools::izip;
@@ -185,6 +186,28 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
         }
     }
 
+    fn center_of_mass_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError> {
+        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let mut pos_iter = self.iter_pos();
+        let mut mass_iter = self.iter_masses();
+
+        let mut mass = mass_iter.next().unwrap();
+        let p0 = pos_iter.next().unwrap();
+        let mut cm = p0.coords;
+
+        for (c, m) in zip(pos_iter, mass_iter) {
+            let im = b.closest_image_dims(c, p0, dims).coords;
+            cm += im * m;
+            mass += m;
+        }
+
+        if mass == 0.0 {
+            Err(MeasureError::ZeroMass)
+        } else {
+            Ok(Pos::from(cm / mass))
+        }
+    }
+
     fn center_of_geometry_pbc(&self) -> Result<Pos, MeasureError> {
         let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
         let mut pos_iter = self.iter_pos();
@@ -194,6 +217,20 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
 
         for c in pos_iter {
             cm += b.closest_image(c, p0).coords;
+        }
+
+        Ok(Pos::from(cm / self.len() as f32))
+    }
+
+    fn center_of_geometry_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError> {
+        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let mut pos_iter = self.iter_pos();
+
+        let p0 = pos_iter.next().unwrap();
+        let mut cm = p0.coords;
+
+        for c in pos_iter {
+            cm += b.closest_image_dims(c, p0, dims).coords;
         }
 
         Ok(Pos::from(cm / self.len() as f32))

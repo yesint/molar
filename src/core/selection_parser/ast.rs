@@ -28,7 +28,7 @@ pub enum SelectionParserError {
 //#  AST node types
 //##############################
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub(super) enum IntKeywordValue {
     Int(i32),
     IntRange(i32, i32),
@@ -40,7 +40,7 @@ pub(super) enum StrKeywordValue {
     Regex(Regex),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub(super) enum MathNode {
     Float(f32),
     Function(MathFunctionName, Box<Self>),
@@ -70,7 +70,7 @@ pub(super) enum VectorNode {
     Cog(bool,LogicalNode),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub(super) enum DistanceNode {
     Point(Pos, PbcDims),
     Line(Pos, Pos, PbcDims),
@@ -88,7 +88,7 @@ pub(super) enum ComparisonOp {
     Gt,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub(super) enum ComparisonNode {
     // Simple
     Eq(MathNode, MathNode),
