@@ -101,14 +101,19 @@ mod tests {
     use crate::prelude::*;    
     pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
     use super::*;
+    use lazy_static::lazy_static;
 
-    pub fn read_test_pdb() -> (Topology, State) {
-        FileHandler::open("tests/protein.pdb").unwrap().read().unwrap()
+    lazy_static! {
+        static ref TOPST: (Topology,State) = {
+            let mut h = FileHandler::open("tests/protein.pdb").unwrap();
+            h.read().unwrap()
+        };
     }
 
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into())?;
         // Create two overlapping selections
         let _sel1 = b.select_iter(0..10)?;
@@ -118,7 +123,8 @@ mod tests {
 
     #[test]
     fn builder_par_no_overlap() {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into()).unwrap();
         // Create two non-overlapping selections.
         let _sel1 = b.select_iter(0..10).unwrap();
@@ -128,7 +134,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn builder_par_overlap() {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_parallel_mut(top.into(), st.into()).unwrap();
         // Create two overlapping selections. This must fail!
         let _sel1 = b.select_iter(0..10).unwrap();
@@ -137,7 +144,8 @@ mod tests {
 
     #[test]
     fn builder_par_test() -> anyhow::Result<()> {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_parallel_mut(top.into(), st.into())?;
         let mut sels = vec![];
         // Create valid non-overlapping selections.
@@ -157,7 +165,8 @@ mod tests {
 
     #[test]
     fn builder_par2() -> anyhow::Result<()> {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_parallel_mut(top.into(), st.into())?;
         // Create non-overlapping selections.
         let mut sels = vec![];
@@ -178,14 +187,16 @@ mod tests {
     }
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into())?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
     fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
-        let (top, st) = read_test_pdb();
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into())?;
         let sel = b.select_str("not resname TIP3 POT CLA")?;
         Ok(sel)
