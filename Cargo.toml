@@ -69,6 +69,7 @@ thiserror_string_context = "0.1.5"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 anyhow = "1.0.89"
+lazy_static = "1.5"
 
 [features]
 #default = ["gromacs"]

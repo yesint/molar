@@ -78,38 +78,30 @@ impl SelectionExpr {
 mod tests {
     use super::{SelectionExpr, State, Topology};
     use crate::io::*;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref TOPST: (Topology,State) = {
+            let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
+            h.read().unwrap()
+        };
+    }
 
     #[test]
     fn within_syntax_test() {
         let _ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
     }
 
-    fn read_test_pdb() -> (Topology, State) {
-        let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
-        let structure = h.read_topology().unwrap();
-        let state = h.read_state().unwrap().unwrap();
-        (structure, state)
-    }
-
-    fn read_test_pdb2() -> (Topology, State) {
-        let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
-        let structure = h.read_topology().unwrap();
-        let state = h.read_state().unwrap().unwrap();
-        (structure, state)
-    }
-
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
-        let topst = read_test_pdb();
         let mut ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
-        ast.apply_whole(&topst.0, &topst.1)
+        ast.apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST")
             .to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let mut ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
-        let topst = read_test_pdb2();
-        ast.apply_whole(&topst.0, &topst.1)
+        ast.apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST")
             .to_vec()
     }
@@ -122,16 +114,14 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
-        let topst = read_test_pdb2();
-
         let mut ast: SelectionExpr = "sqrt (x^2)<5^2".try_into().expect("Error generating AST");
         let vec1 = ast
-            .apply_whole(&topst.0, &topst.1)
+            .apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST");
 
         let mut ast: SelectionExpr = "x<25".try_into().expect("Error generating AST");
         let vec2 = ast
-            .apply_whole(&topst.0, &topst.1)
+            .apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST");
 
         assert_eq!(vec1.len(), vec2.len());
@@ -140,6 +130,13 @@ mod tests {
     #[test]
     fn test_dist_syntax() {
         let _ast: SelectionExpr = "dist point 1.9 2.9 3.8 > 0.4"
+            .try_into()
+            .expect("Error generating AST");
+    }
+
+    #[test]
+    fn within_from_point() {
+        let _ast: SelectionExpr = "within 0.5 of com pbc 101 of protein"
             .try_into()
             .expect("Error generating AST");
     }

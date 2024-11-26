@@ -95,7 +95,7 @@ peg::parser! {
 
 
         // 3-vector value
-        rule vec3() -> VectorNode = vec3_spaces() / vec3_comas()
+        rule vec3() -> VectorNode = vec3_spaces() / vec3_comas() / vec3_com() / vec3_cog()
 
         rule vec3_spaces() -> VectorNode
         = x:float_val() __ y:float_val() __ z:float_val() {
@@ -107,10 +107,23 @@ peg::parser! {
             VectorNode::Const(Pos::new(x, y, z))
         }
 
-        // rule vec3_com() -> Pos
-        // = "com" __ "pbc"? __ "of" ___ v:logical_expr() {
+        rule vec3_com() -> VectorNode
+        = "com" __ p:pbc_expr()? "of" ___ v:logical_expr() {
+            let pbc = match p {
+                Some(dims) => dims,
+                None => PBC_NONE,
+            };
+            VectorNode::Com(Box::new(v),pbc)
+        }
 
-        // }
+        rule vec3_cog() -> VectorNode
+        = "com" __ p:pbc_expr()? "of" ___ v:logical_expr() {
+            let pbc = match p {
+                Some(dims) => dims,
+                None => PBC_NONE,
+            };
+            VectorNode::Cog(Box::new(v),pbc)
+        }
 
         //rule nth_of() -> Pos
         //= logical_expr()
