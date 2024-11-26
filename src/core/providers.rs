@@ -87,3 +87,9 @@ impl PosProvider for Vec<Pos> {
         self.iter()
     }
 }
+
+impl PosProvider for Pos {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        std::iter::once(self)
+    }
+}

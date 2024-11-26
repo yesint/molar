@@ -4,7 +4,6 @@
 
 use super::ast::*;
 use crate::prelude::*;
-use nalgebra::Unit;
 
 peg::parser! {
     pub(super) grammar selection_parser() for str {
@@ -96,14 +95,16 @@ peg::parser! {
 
 
         // 3-vector value
-        rule vec3() -> Pos = vec3_spaces() / vec3_comas()
+        rule vec3() -> VectorNode = vec3_spaces() / vec3_comas()
 
-        rule vec3_spaces() -> Pos
-        = x:float_val() __ y:float_val() __ z:float_val() {Pos::new(x, y, z)}
+        rule vec3_spaces() -> VectorNode
+        = x:float_val() __ y:float_val() __ z:float_val() {
+            VectorNode::Const(Pos::new(x, y, z))
+        }
 
-        rule vec3_comas() -> Pos
+        rule vec3_comas() -> VectorNode
         = "[" _ x:float_val() _ "," _ y:float_val() _ "," _ z:float_val() _ "]" {
-            Pos::new(x, y, z)
+            VectorNode::Const(Pos::new(x, y, z))
         }
 
         // rule vec3_com() -> Pos
@@ -131,7 +132,7 @@ peg::parser! {
 
         rule distance_line_point_dir() -> DistanceNode
         = "dist" __ b:pbc_expr()? "line" __ p:vec3() __ "dir" __ dir:vec3() {
-            DistanceNode::LineDir(p,Unit::new_normalize(dir.coords),b.unwrap_or(PBC_NONE))
+            DistanceNode::LineDir(p,dir,b.unwrap_or(PBC_NONE))
         }
 
         rule distance_plane_3points() -> DistanceNode
@@ -141,7 +142,7 @@ peg::parser! {
 
         rule distance_plane_point_normal() -> DistanceNode
         = "dist" __ b:pbc_expr()? "plane" __ p:vec3() __ "normal" __ n:vec3() {
-            DistanceNode::PlaneNormal(p,Unit::new_normalize(n.coords),b.unwrap_or(PBC_NONE))
+            DistanceNode::PlaneNormal(p,n,b.unwrap_or(PBC_NONE))
         }
 
         rule abs_function() -> MathFunctionName = "abs" {MathFunctionName::Abs}
@@ -246,11 +247,11 @@ peg::parser! {
         }
 
         // "Same" expressions
-        rule same_expr() -> SameProp
+        rule same_expr() -> SameAttr
         = "same" __ t:(keyword_residue() / keyword_chain()) __ "as" {
             match t {
-                Keyword::Residue => SameProp::Residue,
-                Keyword::Chain => SameProp::Chain,
+                Keyword::Residue => SameAttr::Residue,
+                Keyword::Chain => SameAttr::Chain,
                 _ => unreachable!(),
             }
         }
@@ -283,14 +284,14 @@ peg::parser! {
         }
 
         // Within
-        rule within_expr() -> WithinProp
+        rule within_expr() -> WithinParams
         = "within" __ d:float_val() __ p:pbc_expr()? s:$(("self" __)?) "of" {
             let pbc = match p {
                 Some(dims) => dims,
                 None => PBC_NONE,
             };
             let include_inner = !s.is_empty();
-            WithinProp {cutoff: d, pbc, include_inner}
+            WithinParams {cutoff: d, pbc, include_inner}
         }
 
         // COM

@@ -13,7 +13,7 @@ pub(super) fn index_from_all(n: usize) -> SortedSet<usize> {
     unsafe { SortedSet::from_sorted((0..n).collect()) }
 }
 
-pub(super) fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
+pub(super) fn index_from_expr(expr: &mut SelectionExpr, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
     let index = expr.apply_whole(&topology, &state)?;
     if index.len() > 0 {
         Ok(index)
@@ -25,7 +25,7 @@ pub(super) fn index_from_expr(expr: &SelectionExpr, topology: &Topology, state: 
     }
 }
 
-pub(super) fn index_from_expr_sub(expr: &SelectionExpr, topology: &Topology, state: &State, subset: &SortedSet<usize>) -> Result<SortedSet<usize>, SelectionError> {
+pub(super) fn index_from_expr_sub(expr: &mut SelectionExpr, topology: &Topology, state: &State, subset: &SortedSet<usize>) -> Result<SortedSet<usize>, SelectionError> {
     let index = expr.apply_subset(&topology, &state, subset.iter().cloned())?;
     if index.len() > 0 {
         Ok(index)
