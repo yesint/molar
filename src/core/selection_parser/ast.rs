@@ -1,4 +1,3 @@
-use nalgebra::Unit;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::collections::HashSet;
@@ -22,6 +21,12 @@ pub enum SelectionParserError {
 
     #[error("sqrt of negative number in math node eval")]
     NegativeSqrt,
+
+    #[error(transparent)]
+    Measure(#[from] MeasureError),
+    
+    #[error("asked for atom {0} while inner expression selects {1} atoms")]
+    OutOfBounds(usize,usize),
 }
 
 //##############################
@@ -65,18 +70,19 @@ pub(super) enum MathNode {
 #[derive(Debug)]
 pub(super) enum VectorNode {
     Const(Pos),
-    //NthOf(LogicalNode),
-    Com(bool,LogicalNode),
-    Cog(bool,LogicalNode),
+    UnitConst(Pos),
+    Com(Box<LogicalNode>,PbcDims),
+    Cog(Box<LogicalNode>,PbcDims),
+    NthAtomOf(Box<LogicalNode>,usize),
 }
 
 #[derive(Debug)]
 pub(super) enum DistanceNode {
-    Point(Pos, PbcDims),
-    Line(Pos, Pos, PbcDims),
-    LineDir(Pos, Unit<Vector3f>, PbcDims),
-    Plane(Pos, Pos, Pos, PbcDims),
-    PlaneNormal(Pos, Unit<Vector3f>, PbcDims),
+    Point(VectorNode, PbcDims),
+    Line(VectorNode, VectorNode, PbcDims),
+    LineDir(VectorNode, VectorNode, PbcDims),
+    Plane(VectorNode, VectorNode, VectorNode, PbcDims),
+    PlaneNormal(VectorNode, VectorNode, PbcDims),
 }
 
 pub(super) enum ComparisonOp {
@@ -121,13 +127,13 @@ pub(super) enum KeywordNode {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) enum SameProp {
+pub(super) enum SameAttr {
     Residue,
     Chain,
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) struct WithinProp {
+pub(super) struct WithinParams {
     pub(super) cutoff: f32,
     pub(super) pbc: PbcDims,
     pub(super) include_inner: bool,
@@ -140,9 +146,9 @@ pub(super) enum LogicalNode {
     And(Box<Self>, Box<Self>),
     Keyword(KeywordNode),
     Comparison(ComparisonNode),
-    Same(SameProp, Box<Self>),
-    Within(WithinProp, Box<Self>),
-    WithinPoint(WithinProp, Pos),
+    Same(SameAttr, Box<Self>),
+    Within(WithinParams, Box<Self>),
+    WithinPoint(WithinParams, VectorNode),
     All,
     Compound(CompoundNode),
 }
@@ -159,7 +165,7 @@ pub(super) enum Keyword {
     Residue,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(super) enum MathFunctionName {
     Abs,
     Sqrt,
@@ -331,6 +337,46 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //###################################
 //#  AST nodes logic implementation
 //###################################
+impl VectorNode {
+    fn get_vec(&mut self, data: &EvaluationContext) -> Result<&Pos,SelectionParserError> {
+        match self {
+            Self::Com(inner,dims) => {
+                let res = inner.apply(data)?;
+                let v = data.custom_subset(&res).center_of_mass_pbc_dims(*dims)?;
+                *self = Self::Const(v);
+                Ok(self.get_vec(data)?)
+            },
+            Self::Cog(inner,dims) => {
+                let res = inner.apply(data)?;
+                let v = data.custom_subset(&res).center_of_geometry_pbc_dims(*dims)?;
+                *self = Self::Const(v);
+                Ok(self.get_vec(data)?)
+            },
+            Self::NthAtomOf(inner,i) => {
+                let res = inner.apply(data)?;
+                let v = data.state.nth_pos(*i).ok_or_else(|| SelectionParserError::OutOfBounds(*i,res.len()))?;
+                *self = Self::Const(*v);
+                Ok(self.get_vec(data)?)
+            },
+            Self::Const(v) => Ok(v),
+            Self::UnitConst(v) => Ok(v),
+        }
+    }
+
+    fn get_vec_normalized(&mut self, data: &EvaluationContext) -> Result<&Pos,SelectionParserError> {
+        match self {
+            Self::Const(v) => {
+                *self = Self::Const(Pos::from(v.coords.normalize()));
+                Ok(self.get_vec(data)?)
+            },
+            Self::UnitConst(v) => Ok(v),
+            _ => {
+                self.get_vec(data)?;
+                self.get_vec_normalized(data)
+            },
+        }
+    }
+}
 
 impl LogicalNode {
     fn map_same_prop<T>(
@@ -363,7 +409,7 @@ impl LogicalNode {
         res
     }
 
-    pub fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    pub fn apply(&mut self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
         match self {
             Self::Not(node) => {
                 // Here we always use global subset!
@@ -378,7 +424,7 @@ impl LogicalNode {
                 Ok(set1.union(&set2).cloned().collect())
             },
 
-            Self::And(ref a, ref b) => {
+            Self::And(a, b) => {
                 let a_res = a.apply(data)?;
                 // Create new instance of data and set a context subset to
                 // the result of a
@@ -397,8 +443,8 @@ impl LogicalNode {
                 let inner = node.apply(data)?;
                 let res = match prop {
                     // Here we use the global subset!
-                    SameProp::Residue => self.map_same_prop(data, &inner, |at| &at.resindex),
-                    SameProp::Chain => self.map_same_prop(data, &inner, |at| &at.chain),
+                    SameAttr::Residue => self.map_same_prop(data, &inner, |at| &at.resindex),
+                    SameAttr::Chain => self.map_same_prop(data, &inner, |at| &at.chain),
                 };
                 Ok(res)
             }
@@ -431,18 +477,18 @@ impl LogicalNode {
 
             Self::WithinPoint(prop, point) => {
                 let sub1 = data.global_subset();
-                let pvec = vec![point.clone()];
+                let pvec = point.get_vec(data)?;
                 // Perform distance search
                 let res: SubsetType = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
-                    let lower = point.coords.add_scalar(-prop.cutoff - f32::EPSILON);
-                    let upper = point.coords.add_scalar(prop.cutoff + f32::EPSILON);
+                    let lower = pvec.coords.add_scalar(-prop.cutoff - f32::EPSILON);
+                    let upper = pvec.coords.add_scalar(prop.cutoff + f32::EPSILON);
                     
-                    distance_search_within(prop.cutoff, &sub1, &pvec, &lower, &upper)
+                    distance_search_within(prop.cutoff, &sub1, pvec, &lower, &upper)
                 } else {
                     // Periodic variant
-                    distance_search_within_pbc(prop.cutoff, &sub1, &pvec, data.state.get_box().unwrap(), prop.pbc)
+                    distance_search_within_pbc(prop.cutoff, &sub1, pvec, data.state.get_box().unwrap(), prop.pbc)
                 };
                 Ok(res)
             },
@@ -708,9 +754,10 @@ impl KeywordNode {
 
 impl MathNode {
     fn closest_image(
-        &self,
+        &mut self,
         point: &Pos,
         pbox: Option<&PeriodicBox>,
+        data: &EvaluationContext,
     ) -> Result<Option<Pos>, SelectionParserError> {
         match self {
             Self::Dist(d) => match d {
@@ -722,7 +769,7 @@ impl MathNode {
                     if dims.any() {
                         Ok(Some(
                             pbox.ok_or_else(|| SelectionParserError::PbcUnwrap)?
-                                .closest_image_dims(point, target, *dims),
+                                .closest_image_dims(point, target.get_vec(data)?, *dims),
                         ))
                     } else {
                         Ok(None)
@@ -733,7 +780,7 @@ impl MathNode {
         }
     }
 
-    fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32, SelectionParserError> {
+    fn eval(&mut self, atom: &Atom, pos: &Pos, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
         match self {
             Self::Float(v) => Ok(*v),
             Self::X => Ok(pos[0]),
@@ -744,20 +791,20 @@ impl MathNode {
             Self::Vdw => Ok(atom.vdw()),
             Self::Mass => Ok(atom.mass),
             Self::Charge => Ok(atom.charge),
-            Self::Plus(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
-            Self::Minus(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
-            Self::Mul(a, b) => Ok(a.eval(atom, pos)? * b.eval(atom, pos)?),
+            Self::Plus(a, b) => Ok(a.eval(atom, pos, data)? + b.eval(atom, pos, data)?),
+            Self::Minus(a, b) => Ok(a.eval(atom, pos, data)? - b.eval(atom, pos, data)?),
+            Self::Mul(a, b) => Ok(a.eval(atom, pos, data)? * b.eval(atom, pos, data)?),
             Self::Div(a, b) => {
-                let b_val = b.eval(atom, pos)?;
+                let b_val = b.eval(atom, pos, data)?;
                 if b_val == 0.0 {
                     return Err(SelectionParserError::DivisionByZero);
                 }
-                Ok(a.eval(atom, pos)? / b_val)
+                Ok(a.eval(atom, pos, data)? / b_val)
             }
-            Self::Pow(a, b) => Ok(a.eval(atom, pos)?.powf(b.eval(atom, pos)?)),
-            Self::Neg(v) => Ok(-v.eval(atom, pos)?),
+            Self::Pow(a, b) => Ok(a.eval(atom, pos, data)?.powf(b.eval(atom, pos, data)?)),
+            Self::Neg(v) => Ok(-v.eval(atom, pos, data)?),
             Self::Function(func, v) => {
-                let val = v.eval(atom, pos)?;
+                let val = v.eval(atom, pos, data)?;
                 match func {
                     MathFunctionName::Abs => Ok(val.abs()),
                     MathFunctionName::Sqrt => {
@@ -773,27 +820,32 @@ impl MathNode {
             Self::Dist(d) => {
                 // Points are considered correctly unwrapped!
                 match d {
-                    DistanceNode::Point(p, _) => Ok((pos - p).norm()),
+                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
                     DistanceNode::Line(p1, p2, _) => {
+                        let p1 = p1.get_vec(data)?;
+                        let p2 = p2.get_vec(data)?;
                         let v = p2 - p1;
                         let w = pos - p1;
                         Ok((w - v * (w.dot(&v) / v.norm_squared())).norm())
                     }
                     DistanceNode::LineDir(p, dir, _) => {
-                        let w = pos - p;
-                        // dir is already normalized
-                        Ok((w - dir.into_inner() * w.dot(dir)).norm())
+                        let w = pos - p.get_vec(data)?;
+                        let dir = dir.get_vec_normalized(data)?;
+                        Ok((w - dir.coords * w.dot(&dir.coords)).norm())
                     }
                     DistanceNode::Plane(p1, p2, p3, _) => {
+                        let p1 = p1.get_vec(data)?;
+                        let p2 = p2.get_vec(data)?;
+                        let p3 = p3.get_vec(data)?;
                         // Plane normal
                         let n = (p2 - p1).cross(&(p3 - p1));
                         let w = pos - p1;
                         Ok((n * (w.dot(&n) / n.norm_squared())).norm())
                     }
                     DistanceNode::PlaneNormal(p, n, _) => {
-                        // Plane normal is already normalized
-                        let w = pos - p;
-                        Ok((n.into_inner() * w.dot(&n)).norm())
+                        let w = pos - p.get_vec(data)?;
+                        let n = n.get_vec_normalized(data)?;
+                        Ok((n.coords * w.dot(&n.coords)).norm())
                     }
                 }
             }
@@ -804,8 +856,8 @@ impl MathNode {
 impl ComparisonNode {
     fn eval_op(
         data: &EvaluationContext,
-        v1: &MathNode,
-        v2: &MathNode,
+        v1: &mut MathNode,
+        v2: &mut MathNode,
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType, SelectionParserError> {
         let mut res = SubsetType::default();
@@ -813,10 +865,10 @@ impl ComparisonNode {
         let sub = data.active_subset();
 
         for p in sub.iter_particle() {
-            let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-            let pt2 = &v2.closest_image(p.pos, b)?.unwrap_or(*p.pos);
+            let pt1 = &v1.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
+            let pt2 = &v2.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
 
-            if op(v1.eval(p.atom, pt1)?, v2.eval(p.atom, pt2)?) {
+            if op(v1.eval(p.atom, pt1, data)?, v2.eval(p.atom, pt2, data)?) {
                 res.push(p.id);
             }
         }
@@ -825,9 +877,9 @@ impl ComparisonNode {
 
     fn eval_op_chained(
         data: &EvaluationContext,
-        v1: &MathNode,
-        v2: &MathNode,
-        v3: &MathNode,
+        v1: &mut MathNode,
+        v2: &mut MathNode,
+        v3: &mut MathNode,
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType, SelectionParserError> {
@@ -836,19 +888,20 @@ impl ComparisonNode {
         let sub = data.active_subset();
 
         for p in sub.iter_particle() {
-            let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-            let pt2 = &v2.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-            let pt3 = &v3.closest_image(p.pos, b)?.unwrap_or(*p.pos);
+            let pt1 = &v1.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
+            let pt2 = &v2.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
+            let pt3 = &v3.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
 
-            let mid = v2.eval(p.atom, pt2)?;
-            if op1(v1.eval(p.atom, pt1)?, mid) && op2(mid, v3.eval(p.atom, pt3)?) {
+            let mid = v2.eval(p.atom, pt2, data)?;
+            if op1(v1.eval(p.atom, pt1, data)?, mid) && op2(mid, v3.eval(p.atom, pt3, data)?) {
                 res.push(p.id);
             }
         }
         Ok(res)
     }
 
-    fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+
+    fn apply(&mut self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
         match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),

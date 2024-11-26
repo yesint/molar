@@ -11,7 +11,6 @@ pub use ast::SelectionParserError;
 //#  Public interface
 //##############################
 
-// Alias for top-level rule
 pub struct SelectionExpr {
     ast: LogicalNode,
     sel_str: String,
@@ -48,7 +47,7 @@ impl SelectionExpr {
     }
 
     pub fn apply_whole(
-        &self,
+        &mut self,
         topology: &Topology,
         state: &State,
     ) -> Result<SortedSet<usize>, SelectionParserError> {
@@ -59,7 +58,7 @@ impl SelectionExpr {
     }
 
     pub fn apply_subset(
-        &self,
+        &mut self,
         topology: &Topology,
         state: &State,
         subset: impl Iterator<Item = usize>,
@@ -101,14 +100,14 @@ mod tests {
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let topst = read_test_pdb();
-        let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        let mut ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         ast.apply_whole(&topst.0, &topst.1)
             .expect("Error applying AST")
             .to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
-        let ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        let mut ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
         let topst = read_test_pdb2();
         ast.apply_whole(&topst.0, &topst.1)
             .expect("Error applying AST")
@@ -125,12 +124,12 @@ mod tests {
     fn test_sqrt() {
         let topst = read_test_pdb2();
 
-        let ast: SelectionExpr = "sqrt (x^2)<5^2".try_into().expect("Error generating AST");
+        let mut ast: SelectionExpr = "sqrt (x^2)<5^2".try_into().expect("Error generating AST");
         let vec1 = ast
             .apply_whole(&topst.0, &topst.1)
             .expect("Error applying AST");
 
-        let ast: SelectionExpr = "x<25".try_into().expect("Error generating AST");
+        let mut ast: SelectionExpr = "x<25".try_into().expect("Error generating AST");
         let vec2 = ast
             .apply_whole(&topst.0, &topst.1)
             .expect("Error applying AST");

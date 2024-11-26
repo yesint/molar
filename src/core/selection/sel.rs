@@ -368,7 +368,7 @@ where
     }
     
     /// Subselection from expression
-    pub fn subsel_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
+    pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
         Self::from_holders_and_index(
             self.topology.clone_with_index(&index)?,
@@ -379,8 +379,8 @@ where
 
     /// Subselection from string
     pub fn subsel_str(&self, sel_str: &str) -> Result<Sel<K>, SelectionError> {
-        let expr = SelectionExpr::try_from(sel_str)?;
-        self.subsel_expr(&expr)
+        let mut expr = SelectionExpr::try_from(sel_str)?;
+        self.subsel_expr(&mut expr)
     }
 
     /// Subselection from the range of local selection indexes
@@ -584,7 +584,7 @@ where
     pub fn from_expr(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
-        expr: &SelectionExpr,
+        expr: &mut SelectionExpr,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_expr(expr, &topology, &state)?;

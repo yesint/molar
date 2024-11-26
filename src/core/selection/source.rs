@@ -245,7 +245,7 @@ impl<K: SelectionKind> Source<K> {
     }
 
     /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&self, expr: &SelectionExpr) -> Result<Sel<K>, SelectionError> {
+    pub fn select_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
         self.new_sel(vec)
     }
