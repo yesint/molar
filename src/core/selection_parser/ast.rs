@@ -192,6 +192,15 @@ pub(super) enum CompoundNode {
 //type SubsetType = rustc_hash::FxHashSet<usize>;
 pub(super) type SubsetType = Vec<usize>;
 
+enum NodePayload {}
+
+struct AstNode {
+    payload: NodePayload,
+    nodes: Vec<Box<AstNode>>,
+}
+
+
+
 #[derive(Clone)]
 pub(super) struct EvaluationContext<'a> {
     topology: &'a Topology,
@@ -338,45 +347,83 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //#  AST nodes logic implementation
 //###################################
 impl VectorNode {
-    fn get_vec(&mut self, data: &EvaluationContext) -> Result<&Pos,SelectionParserError> {
+    fn get_vec(&self) ->&Pos {
+        match self {
+            Self::Const(v) => v,
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_unit_vec(&self) ->&Pos {
+        match self {
+            Self::UnitConst(v) => v,
+            _ => unreachable!(),
+        }
+    }
+
+    fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
         match self {
             Self::Com(inner,dims) => {
                 let res = inner.apply(data)?;
                 let v = data.custom_subset(&res).center_of_mass_pbc_dims(*dims)?;
-                *self = Self::Const(v);
-                Ok(self.get_vec(data)?)
+                *self = Self::Const(v);                
             },
             Self::Cog(inner,dims) => {
                 let res = inner.apply(data)?;
                 let v = data.custom_subset(&res).center_of_geometry_pbc_dims(*dims)?;
                 *self = Self::Const(v);
-                Ok(self.get_vec(data)?)
             },
             Self::NthAtomOf(inner,i) => {
                 let res = inner.apply(data)?;
                 let v = data.state.nth_pos(*i).ok_or_else(|| SelectionParserError::OutOfBounds(*i,res.len()))?;
                 *self = Self::Const(*v);
-                Ok(self.get_vec(data)?)
             },
-            Self::Const(v) => Ok(v),
-            Self::UnitConst(v) => Ok(v),
+            _ => (),
         }
+        Ok(())
     }
 
-    fn get_vec_normalized(&mut self, data: &EvaluationContext) -> Result<&Pos,SelectionParserError> {
+    fn precompute_unit(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
         match self {
             Self::Const(v) => {
                 *self = Self::Const(Pos::from(v.coords.normalize()));
-                Ok(self.get_vec(data)?)
             },
-            Self::UnitConst(v) => Ok(v),
+            Self::UnitConst(_) => (),
             _ => {
-                self.get_vec(data)?;
-                self.get_vec_normalized(data)
+                self.precompute(data)?;
+                self.precompute_unit(data)?;
             },
         }
+        Ok(())
     }
 }
+
+impl DistanceNode {
+    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+        match self {
+            Self::Point(v1, _) => v1.precompute(data)?,
+            Self::Line(v1, v2, _) => {
+                v1.precompute(data)?;
+                v2.precompute(data)?;
+            }
+            Self::Plane(v1, v2, v3, _) => {
+                v1.precompute(data)?;
+                v2.precompute(data)?;
+                v3.precompute(data)?;
+            },
+            Self::LineDir(v, dir, _) => {
+                v.precompute(data)?;
+                dir.precompute_unit(data)?;
+            },
+            Self::PlaneNormal(v, n, _) => {
+                v.precompute(data)?;
+                n.precompute_unit(data)?;
+            },
+        }
+        Ok(())
+    }
+}
+
 
 impl LogicalNode {
     fn map_same_prop<T>(
@@ -390,7 +437,7 @@ impl LogicalNode {
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        let sub = data.custom_subset(inner);
+        let sub: ActiveSubset<'_> = data.custom_subset(inner);
         for at in sub.iter_atoms() {
             properties.insert(*prop_fn(at));
         }
@@ -409,18 +456,19 @@ impl LogicalNode {
         res
     }
 
-    pub fn apply(&mut self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    pub fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+        use rustc_hash::FxHashSet;
         match self {
             Self::Not(node) => {
                 // Here we always use global subset!
-                let set1 = rustc_hash::FxHashSet::<usize>::from_iter(data.global_subset.into_iter().cloned());
-                let set2 = rustc_hash::FxHashSet::<usize>::from_iter(node.apply(data)?.into_iter());
+                let set1 = FxHashSet::<usize>::from_iter(data.global_subset.into_iter().cloned());
+                let set2 = FxHashSet::<usize>::from_iter(node.apply(data)?.into_iter());
                 Ok(set1.difference(&set2).cloned().collect())
             }
 
             Self::Or(a, b) => {
-                let set1 = rustc_hash::FxHashSet::<usize>::from_iter(a.apply(data)?.into_iter());
-                let set2 = rustc_hash::FxHashSet::<usize>::from_iter(b.apply(data)?.into_iter());
+                let set1 = FxHashSet::<usize>::from_iter(a.apply(data)?.into_iter());
+                let set2 = FxHashSet::<usize>::from_iter(b.apply(data)?.into_iter());
                 Ok(set1.union(&set2).cloned().collect())
             },
 
@@ -430,8 +478,8 @@ impl LogicalNode {
                 // the result of a
                 let b_data = data.clone_with_local_subset(&a_res);
 
-                let set1 = rustc_hash::FxHashSet::<usize>::from_iter(a_res.iter().cloned());
-                let set2 = rustc_hash::FxHashSet::<usize>::from_iter(b.apply(&b_data)?.into_iter());
+                let set1 = FxHashSet::<usize>::from_iter(a_res.iter().cloned());
+                let set2 = FxHashSet::<usize>::from_iter(b.apply(&b_data)?.into_iter());
                 Ok(set1.intersection(&set2).cloned().collect())
             }
 
@@ -477,7 +525,7 @@ impl LogicalNode {
 
             Self::WithinPoint(prop, point) => {
                 let sub1 = data.global_subset();
-                let pvec = point.get_vec(data)?;
+                let pvec = point.get_vec();
                 // Perform distance search
                 let res: SubsetType = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
@@ -498,6 +546,15 @@ impl LogicalNode {
 
             Self::Compound(comp) => comp.apply(data),
         }
+    }
+
+    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+        match self {
+            Self::WithinPoint(_,p) => p.precompute(data)?,
+            Self::Comparison(c) => c.precompute(data)?,
+            _ => (),
+        }
+        Ok(())
     }
 }
 
@@ -754,10 +811,9 @@ impl KeywordNode {
 
 impl MathNode {
     fn closest_image(
-        &mut self,
+        &self,
         point: &Pos,
         pbox: Option<&PeriodicBox>,
-        data: &EvaluationContext,
     ) -> Result<Option<Pos>, SelectionParserError> {
         match self {
             Self::Dist(d) => match d {
@@ -769,7 +825,7 @@ impl MathNode {
                     if dims.any() {
                         Ok(Some(
                             pbox.ok_or_else(|| SelectionParserError::PbcUnwrap)?
-                                .closest_image_dims(point, target.get_vec(data)?, *dims),
+                                .closest_image_dims(point, target.get_vec(), *dims),
                         ))
                     } else {
                         Ok(None)
@@ -780,7 +836,7 @@ impl MathNode {
         }
     }
 
-    fn eval(&mut self, atom: &Atom, pos: &Pos, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
+    fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32, SelectionParserError> {
         match self {
             Self::Float(v) => Ok(*v),
             Self::X => Ok(pos[0]),
@@ -791,20 +847,20 @@ impl MathNode {
             Self::Vdw => Ok(atom.vdw()),
             Self::Mass => Ok(atom.mass),
             Self::Charge => Ok(atom.charge),
-            Self::Plus(a, b) => Ok(a.eval(atom, pos, data)? + b.eval(atom, pos, data)?),
-            Self::Minus(a, b) => Ok(a.eval(atom, pos, data)? - b.eval(atom, pos, data)?),
-            Self::Mul(a, b) => Ok(a.eval(atom, pos, data)? * b.eval(atom, pos, data)?),
+            Self::Plus(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
+            Self::Minus(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
+            Self::Mul(a, b) => Ok(a.eval(atom, pos)? * b.eval(atom, pos)?),
             Self::Div(a, b) => {
-                let b_val = b.eval(atom, pos, data)?;
+                let b_val = b.eval(atom, pos)?;
                 if b_val == 0.0 {
                     return Err(SelectionParserError::DivisionByZero);
                 }
-                Ok(a.eval(atom, pos, data)? / b_val)
+                Ok(a.eval(atom, pos)? / b_val)
             }
-            Self::Pow(a, b) => Ok(a.eval(atom, pos, data)?.powf(b.eval(atom, pos, data)?)),
-            Self::Neg(v) => Ok(-v.eval(atom, pos, data)?),
+            Self::Pow(a, b) => Ok(a.eval(atom, pos)?.powf(b.eval(atom, pos)?)),
+            Self::Neg(v) => Ok(-v.eval(atom, pos)?),
             Self::Function(func, v) => {
-                let val = v.eval(atom, pos, data)?;
+                let val = v.eval(atom, pos)?;
                 match func {
                     MathFunctionName::Abs => Ok(val.abs()),
                     MathFunctionName::Sqrt => {
@@ -820,44 +876,52 @@ impl MathNode {
             Self::Dist(d) => {
                 // Points are considered correctly unwrapped!
                 match d {
-                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
+                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec()).norm()),
                     DistanceNode::Line(p1, p2, _) => {
-                        let p1 = p1.get_vec(data)?;
-                        let p2 = p2.get_vec(data)?;
+                        let p1 = p1.get_vec();
+                        let p2 = p2.get_vec();
                         let v = p2 - p1;
                         let w = pos - p1;
                         Ok((w - v * (w.dot(&v) / v.norm_squared())).norm())
                     }
                     DistanceNode::LineDir(p, dir, _) => {
-                        let w = pos - p.get_vec(data)?;
-                        let dir = dir.get_vec_normalized(data)?;
+                        let w = pos - p.get_vec();
+                        let dir = dir.get_unit_vec();
                         Ok((w - dir.coords * w.dot(&dir.coords)).norm())
                     }
                     DistanceNode::Plane(p1, p2, p3, _) => {
-                        let p1 = p1.get_vec(data)?;
-                        let p2 = p2.get_vec(data)?;
-                        let p3 = p3.get_vec(data)?;
+                        let p1 = p1.get_vec();
+                        let p2 = p2.get_vec();
+                        let p3 = p3.get_vec();
                         // Plane normal
                         let n = (p2 - p1).cross(&(p3 - p1));
                         let w = pos - p1;
                         Ok((n * (w.dot(&n) / n.norm_squared())).norm())
                     }
                     DistanceNode::PlaneNormal(p, n, _) => {
-                        let w = pos - p.get_vec(data)?;
-                        let n = n.get_vec_normalized(data)?;
+                        let w = pos - p.get_vec();
+                        let n = n.get_unit_vec();
                         Ok((n.coords * w.dot(&n.coords)).norm())
                     }
                 }
             }
         }
     }
+    
+    fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+        match self {
+            Self::Dist(p) => p.precompute(data)?,
+            _ => (),
+        }
+        Ok(())
+    }
 }
 
 impl ComparisonNode {
     fn eval_op(
         data: &EvaluationContext,
-        v1: &mut MathNode,
-        v2: &mut MathNode,
+        v1: &MathNode,
+        v2: &MathNode,
         op: fn(f32, f32) -> bool,
     ) -> Result<SubsetType, SelectionParserError> {
         let mut res = SubsetType::default();
@@ -865,10 +929,10 @@ impl ComparisonNode {
         let sub = data.active_subset();
 
         for p in sub.iter_particle() {
-            let pt1 = &v1.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
-            let pt2 = &v2.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
+            let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
+            let pt2 = &v2.closest_image(p.pos, b)?.unwrap_or(*p.pos);
 
-            if op(v1.eval(p.atom, pt1, data)?, v2.eval(p.atom, pt2, data)?) {
+            if op(v1.eval(p.atom, pt1)?, v2.eval(p.atom, pt2)?) {
                 res.push(p.id);
             }
         }
@@ -877,9 +941,9 @@ impl ComparisonNode {
 
     fn eval_op_chained(
         data: &EvaluationContext,
-        v1: &mut MathNode,
-        v2: &mut MathNode,
-        v3: &mut MathNode,
+        v1: &MathNode,
+        v2: &MathNode,
+        v3: &MathNode,
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
     ) -> Result<SubsetType, SelectionParserError> {
@@ -888,12 +952,12 @@ impl ComparisonNode {
         let sub = data.active_subset();
 
         for p in sub.iter_particle() {
-            let pt1 = &v1.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
-            let pt2 = &v2.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
-            let pt3 = &v3.closest_image(p.pos, b, data)?.unwrap_or(*p.pos);
+            let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
+            let pt2 = &v2.closest_image(p.pos, b)?.unwrap_or(*p.pos);
+            let pt3 = &v3.closest_image(p.pos, b)?.unwrap_or(*p.pos);
 
-            let mid = v2.eval(p.atom, pt2, data)?;
-            if op1(v1.eval(p.atom, pt1, data)?, mid) && op2(mid, v3.eval(p.atom, pt3, data)?) {
+            let mid = v2.eval(p.atom, pt2)?;
+            if op1(v1.eval(p.atom, pt1)?, mid) && op2(mid, v3.eval(p.atom, pt3)?) {
                 res.push(p.id);
             }
         }
@@ -901,7 +965,7 @@ impl ComparisonNode {
     }
 
 
-    fn apply(&mut self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
         match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
@@ -937,5 +1001,34 @@ impl ComparisonNode {
                 Self::eval_op_chained(data, v1, v2, v3, |a, b| a >= b, |a, b| a >= b)
             }
         }
+    }
+    
+    fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+        match self {
+            // Simple
+            Self::Eq(v1, v2) |
+            Self::Neq(v1, v2) |
+            Self::Gt(v1, v2) |
+            Self::Geq(v1, v2) |
+            Self::Lt(v1, v2) |
+            Self::Leq(v1, v2) => {
+                v1.precompute(data)?;
+                v2.precompute(data)?;
+            },
+            // Chained
+            Self::LtLt(v1, v2, v3) |
+            Self::LtLeq(v1, v2, v3) |
+            Self::LeqLt(v1, v2, v3) |
+            Self::LeqLeq(v1, v2, v3) |
+            Self::GtGt(v1, v2, v3) |
+            Self::GtGeq(v1, v2, v3) |
+            Self::GeqGt(v1, v2, v3) |
+            Self::GeqGeq(v1, v2, v3) => {
+                v1.precompute(data)?;
+                v2.precompute(data)?;
+                v3.precompute(data)?;
+            }
+        }
+        Ok(())
     }
 }
