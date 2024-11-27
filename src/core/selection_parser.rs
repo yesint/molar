@@ -11,6 +11,7 @@ pub use ast::SelectionParserError;
 //#  Public interface
 //##############################
 
+#[derive(Debug)]
 pub struct SelectionExpr {
     ast: LogicalNode,
     sel_str: String,
@@ -53,6 +54,7 @@ impl SelectionExpr {
     ) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(0..topology.num_atoms());
         let data = EvaluationContext::new(topology, state, &subset)?;
+        self.ast.precompute(&data)?;
         let index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
         Ok(index.into())
     }
@@ -139,6 +141,14 @@ mod tests {
         let _ast: SelectionExpr = "within 0.5 of com pbc 101 of protein"
             .try_into()
             .expect("Error generating AST");
+    }
+
+    #[test]
+    fn debug_print() {
+        let ast: SelectionExpr = "within 0.5 of com pbc 101 of protein"
+            .try_into()
+            .expect("Error generating AST");
+        println!("{:?}",ast);
     }
 
     include!(concat!(
