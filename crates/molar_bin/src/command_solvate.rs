@@ -60,25 +60,25 @@ pub(crate) fn command_solvate(
     );
 
     // Duplicating the solvent
-    //solvent.multiply_periodically(nbox)?;
+    solvent.multiply_periodically(nbox)?;
 
-    let solvent_sel = solvent.select_all()?;
-    for x in 0..=nbox[0] {
-        for y in 0..=nbox[1] {
-            for z in 0..=nbox[2] {
-                if x == 0 && y == 0 && z == 0 {
-                    continue;
-                }
-                let added = solvent.append(&solvent_sel);
-                let shift = Vector3f::new(
-                    solvent_ext[0] * x as f32,
-                    solvent_ext[1] * y as f32,
-                    solvent_ext[2] * z as f32,
-                );
-                added.translate(&shift);
-            }
-        }
-    }
+    // let solvent_sel = solvent.select_all()?;
+    // for x in 0..=nbox[0] {
+    //     for y in 0..=nbox[1] {
+    //         for z in 0..=nbox[2] {
+    //             if x == 0 && y == 0 && z == 0 {
+    //                 continue;
+    //             }
+    //             let added = solvent.append(&solvent_sel);
+    //             let shift = Vector3f::new(
+    //                 solvent_ext[0] * x as f32,
+    //                 solvent_ext[1] * y as f32,
+    //                 solvent_ext[2] * z as f32,
+    //             );
+    //             added.translate(&shift);
+    //         }
+    //     }
+    // }
 
     info!("Removing solvent molecules outside the box...");
     //solvent.save("./target/duplicated_solvent.gro")?;
@@ -98,7 +98,7 @@ pub(crate) fn command_solvate(
         inside_ind.extend(res.iter_index());
     }
     // It is safe to call here since indexes are guaranteed to be properly sorted
-    let inside_sel = unsafe { solvent.select_vec_unchecked(inside_ind)? };
+    let mut inside_sel = unsafe { solvent.select_vec_unchecked(inside_ind)? };
 
     //inside_sel.save("target/inside.gro")?;
 
@@ -106,14 +106,22 @@ pub(crate) fn command_solvate(
     // Do the distance search
     let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
-    let to_remove_ind: Vec<usize> =
+    let local: Vec<usize> =
         distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, PBC_FULL);
         //distance_search_double_pbc(0.3,&inside_sel, &solute, b, PBC_FULL);
 
+    // Local selection indexes in 'inside_sel' are returned, 
+    // need to convert to global indexes
+    let to_remove_ind = local.iter().map(|i| inside_sel.nth_index(*i).unwrap()).collect::<Vec<_>>();
+
+    inside_sel.exclude(&to_remove_ind);
+    
     // Remove overlapping
-    solvent.remove(&to_remove_ind)?;
+    //solvent.remove(&to_remove_ind)?;
+    
     // Add solvent
-    solute.append(&solvent);
+    solute.append(&inside_sel);
+    
     // If exclude selection is provided remove it
     if exclude.is_some() {
         let sel_str = exclude.as_ref().unwrap();
