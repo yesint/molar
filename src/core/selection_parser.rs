@@ -67,6 +67,7 @@ impl SelectionExpr {
     ) -> Result<SortedSet<usize>, SelectionParserError> {
         let subset = SubsetType::from_iter(subset);
         let data = EvaluationContext::new(topology, state, &subset)?;
+        self.ast.precompute(&data)?;
         let index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
         Ok(index.into())
     }
