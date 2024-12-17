@@ -28,9 +28,22 @@ impl StateStorage {
             return Err(BuilderError::RemoveIndexes(ind[0],ind[ind.len()-1],self.coords.len()));
         }
 
-        for i in ind.iter().rev().cloned() {
-            self.coords.remove(i);
-        }
+        // for i in ind.iter().rev().cloned() {
+        //     self.coords.remove(i);
+        // }
+
+        let mut it = ind.iter().cloned();
+        let mut to_remove = it.next().unwrap_or(usize::MAX);
+        let mut i = 0;
+        self.coords.retain(|_| {
+            let ok = i != to_remove;
+            i += 1;
+            if !ok {
+                to_remove = it.next().unwrap_or(usize::MAX);
+            }
+            ok
+        });
+
         Ok(())
     }
 }
