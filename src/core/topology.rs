@@ -1,7 +1,7 @@
-use sync_unsafe_cell::SyncUnsafeCell;
-use thiserror::Error;
 use crate::io::TopologyProvider;
 use crate::prelude::*;
+use sync_unsafe_cell::SyncUnsafeCell;
+use thiserror::Error;
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
@@ -11,10 +11,21 @@ pub(crate) struct TopologyStorage {
     pub molecules: Vec<[usize; 2]>,
 }
 
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 pub enum BuilderError {
     #[error("indexes to remove {0}:{1} are out of allowed range 0:{2}")]
-    RemoveIndexes(usize,usize,usize)
+    RemoveIndexes(usize, usize, usize),
+}
+
+fn remove_elements(v: &mut Vec<usize>, rem: &mut impl Iterator<Item = usize>) {
+    let mut to_remove = rem.next().unwrap_or(usize::MAX);
+    v.retain(|el| {
+        let ok = *el != to_remove;
+        if !ok {
+            to_remove = rem.next().unwrap_or(usize::MAX);
+        }
+        ok
+    });
 }
 
 impl TopologyStorage {
@@ -31,42 +42,61 @@ impl TopologyStorage {
     //     self.molecules.extend(added);
     // }
 
-    pub(crate) fn remove_atoms(&mut self, removed: impl Iterator<Item = usize>) -> Result<(),BuilderError> {
+    pub(crate) fn remove_atoms(
+        &mut self,
+        removed: impl Iterator<Item = usize>,
+    ) -> Result<(), BuilderError> {
         let mut ind = removed.collect::<Vec<_>>();
-        if ind.len()==0 {
+        if ind.len() == 0 {
             return Ok(());
         }
         ind.sort_unstable();
         ind.dedup();
-        if ind[0] >= self.atoms.len() || ind[ind.len()-1] >= self.atoms.len() {
-            return Err(BuilderError::RemoveIndexes(ind[0],ind[ind.len()-1],self.atoms.len()));
+        if ind[0] >= self.atoms.len() || ind[ind.len() - 1] >= self.atoms.len() {
+            return Err(BuilderError::RemoveIndexes(
+                ind[0],
+                ind[ind.len() - 1],
+                self.atoms.len(),
+            ));
         }
-        for i in ind.iter().rev().cloned() {
-            self.atoms.remove(i);
-            // Remove affected bonds
-            self.bonds.retain(|b| b[0] != i && b[1] != i);
-            // Modify molecules and remove those, which become invalid
-            self.molecules.retain_mut(|m| {
-                if m[0]==i {m[0] += 1}
-                if m[1]==i {
-                    if m[1]>0 {
-                        m[0] -= 1
-                    } else {
-                        // Remove whole molecule
-                        return false
-                    }
-                }
-                m[1]>=m[0]
-            });
-        }
+        // for i in ind.iter().rev().cloned() {
+        //     self.atoms.remove(i);
+        //     // Remove affected bonds
+        //     self.bonds.retain(|b| b[0] != i && b[1] != i);
+        //     // Modify molecules and remove those, which become invalid
+        //     self.molecules.retain_mut(|m| {
+        //         if m[0]==i {m[0] += 1}
+        //         if m[1]==i {
+        //             if m[1]>0 {
+        //                 m[0] -= 1
+        //             } else {
+        //                 // Remove whole molecule
+        //                 return false
+        //             }
+        //         }
+        //         m[1]>=m[0]
+        //     });
+        // }
+        let mut it = ind.iter().cloned();
+        let mut to_remove = it.next().unwrap_or(usize::MAX);
+        let mut i = 0;
+        self.atoms.retain(|_| {
+            let ok = i != to_remove;
+            i += 1;
+            if !ok {
+                to_remove = it.next().unwrap_or(usize::MAX);
+            }
+            ok
+        });
+        
         Ok(())
     }
 }
 
 /// Topology of the molecular system: atoms, bonds, molecules, etc.
-/// 
+///
 /// [Topology] is typically read from structure of trajectory file and is not intended
-/// to be manipulated directly by the user. Insead [State](super::State) and [Topology] 
+/// to be manipulated directly by the user. Insead [State](super::State) and [Topology]
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
@@ -88,12 +118,12 @@ impl Topology {
     // Private convenience accessors
     #[inline(always)]
     pub(super) fn get_storage(&self) -> &TopologyStorage {
-        unsafe {&*self.0.get()}
+        unsafe { &*self.0.get() }
     }
 
     #[inline(always)]
     pub(super) fn get_storage_mut(&self) -> &mut TopologyStorage {
-        unsafe {&mut *self.0.get()}
+        unsafe { &mut *self.0.get() }
     }
 
     #[inline(always)]
@@ -118,7 +148,7 @@ impl Topology {
 
     pub fn assign_resindex(&self) {
         let mut resindex = 0usize;
-        let mut cur_resid = unsafe{self.nth_atom_unchecked(0)}.resid;
+        let mut cur_resid = unsafe { self.nth_atom_unchecked(0) }.resid;
         for at in self.iter_atoms_mut() {
             if at.resid != cur_resid {
                 cur_resid = at.resid;
@@ -129,9 +159,9 @@ impl Topology {
     }
 
     pub fn interchangeable(&self, other: &Topology) -> bool {
-            self.get_storage().atoms.len() == other.get_storage().atoms.len()
-        &&  self.get_storage().bonds.len() == other.get_storage().bonds.len()
-        &&  self.get_storage().molecules.len() == other.get_storage().molecules.len()
+        self.get_storage().atoms.len() == other.get_storage().atoms.len()
+            && self.get_storage().bonds.len() == other.get_storage().bonds.len()
+            && self.get_storage().molecules.len() == other.get_storage().molecules.len()
     }
 }
 
@@ -143,32 +173,32 @@ macro_rules! impl_topology_traits {
                 self.get_storage().atoms.len()
             }
         }
-        
+
         impl AtomsProvider for $t {
             fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
                 self.get_storage().atoms.iter()
             }
         }
-        
+
         impl AtomsMutProvider for $t {
             fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
                 self.get_storage_mut().atoms.iter_mut()
             }
         }
-        
+
         impl MassesProvider for $t {
             fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
                 self.get_storage().atoms.iter().map(|at| at.mass)
             }
         }
 
-        impl LenProvider for $t {            
+        impl LenProvider for $t {
             fn len(&self) -> usize {
                 self.get_storage_mut().atoms.len()
             }
         }
 
-        impl RandomAtom for $t {            
+        impl RandomAtom for $t {
             unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
                 self.get_storage().atoms.get_unchecked(i)
             }
@@ -182,8 +212,8 @@ macro_rules! impl_topology_traits {
             unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
                 self.get_storage_mut().atoms.get_unchecked_mut(i)
             }
-        }  
-    }
+        }
+    };
 }
 
 // Impls for Topology itself
