@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use log::{debug, info};
+use log::info;
 use molar::prelude::*;
 
 pub(crate) fn command_solvate(
@@ -88,13 +88,13 @@ pub(crate) fn command_solvate(
     // Do the distance search
     let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
-    let local: Vec<usize> =
+    let local_overlap_ind: Vec<usize> =
         distance_search_double_vdw_pbc(&inside_sel, &solute, &vdw1, &vdw2, b, PBC_FULL);
     //distance_search_double_pbc(0.3,&inside_sel, &solute, b, PBC_FULL);
 
     // Local selection indexes in 'inside_sel' are returned
     // Remove overlapping
-    inside_sel.exclude_local(local);
+    inside_sel.exclude_local(local_overlap_ind);
 
     // Add solvent
     solute.append(&inside_sel);
