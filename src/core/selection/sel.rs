@@ -627,6 +627,13 @@ where
         self.index_storage = SortedSet::from_unsorted(v);
     }
 
+    pub fn exclude_local(&mut self, other: impl IntoIterator<Item = usize>) {
+        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
+        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other);
+        let v: Vec<usize> = lhs.difference(&rhs).map(|i| self.index_storage[*i]).collect();
+        self.index_storage = SortedSet::from_unsorted(v);
+    }
+
     pub fn invert(&mut self) {
         let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.num_atoms());
         let rhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
