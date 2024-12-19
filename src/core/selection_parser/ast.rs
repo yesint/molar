@@ -516,6 +516,11 @@ impl LogicalNode {
                     distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), prop.pbc)
                 };
 
+                // Search returns local indexes, convert them to global
+                for i in res.iter_mut() {
+                    *i = unsafe {*sub1.subset.get_unchecked(*i) };
+                }
+
                 // Add inner if asked
                 if prop.include_inner {
                     res.extend(inner);
