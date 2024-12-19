@@ -24,9 +24,9 @@ pub enum SelectionParserError {
 
     #[error(transparent)]
     Measure(#[from] MeasureError),
-    
+
     #[error("asked for atom {0} while inner expression selects {1} atoms")]
-    OutOfBounds(usize,usize),
+    OutOfBounds(usize, usize),
 }
 
 //##############################
@@ -71,9 +71,9 @@ pub(super) enum MathNode {
 pub(super) enum VectorNode {
     Const(Pos),
     UnitConst(Pos),
-    Com(Box<LogicalNode>,PbcDims),
-    Cog(Box<LogicalNode>,PbcDims),
-    NthAtomOf(Box<LogicalNode>,usize),
+    Com(Box<LogicalNode>, PbcDims),
+    Cog(Box<LogicalNode>, PbcDims),
+    NthAtomOf(Box<LogicalNode>, usize),
 }
 
 #[derive(Debug)]
@@ -199,8 +199,6 @@ struct AstNode {
     nodes: Vec<Box<AstNode>>,
 }
 
-
-
 #[derive(Clone)]
 pub(super) struct EvaluationContext<'a> {
     topology: &'a Topology,
@@ -284,7 +282,9 @@ impl ActiveSubset<'_> {
     }
 
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.subset.iter().cloned()
+        self.subset
+            .iter()
+            .cloned()
             .map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
     }
 }
@@ -347,59 +347,64 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //#  AST nodes logic implementation
 //###################################
 impl VectorNode {
-    fn get_vec(&self) ->&Pos {
+    fn get_vec(&self) -> &Pos {
         match self {
             Self::Const(v) => v,
             _ => unreachable!(),
         }
     }
 
-    fn get_unit_vec(&self) ->&Pos {
+    fn get_unit_vec(&self) -> &Pos {
         match self {
             Self::UnitConst(v) => v,
             _ => unreachable!(),
         }
     }
 
-    fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+    fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
-            Self::Com(inner,dims) => {
+            Self::Com(inner, dims) => {
                 let res = inner.apply(data)?;
                 let v = data.custom_subset(&res).center_of_mass_pbc_dims(*dims)?;
-                *self = Self::Const(v);                
-            },
-            Self::Cog(inner,dims) => {
-                let res = inner.apply(data)?;
-                let v = data.custom_subset(&res).center_of_geometry_pbc_dims(*dims)?;
                 *self = Self::Const(v);
-            },
-            Self::NthAtomOf(inner,i) => {
+            }
+            Self::Cog(inner, dims) => {
                 let res = inner.apply(data)?;
-                let v = data.state.nth_pos(*i).ok_or_else(|| SelectionParserError::OutOfBounds(*i,res.len()))?;
+                let v = data
+                    .custom_subset(&res)
+                    .center_of_geometry_pbc_dims(*dims)?;
+                *self = Self::Const(v);
+            }
+            Self::NthAtomOf(inner, i) => {
+                let res = inner.apply(data)?;
+                let v = data
+                    .state
+                    .nth_pos(*i)
+                    .ok_or_else(|| SelectionParserError::OutOfBounds(*i, res.len()))?;
                 *self = Self::Const(*v);
-            },
+            }
             _ => (),
         }
         Ok(())
     }
 
-    fn precompute_unit(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+    fn precompute_unit(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
             Self::Const(v) => {
                 *self = Self::Const(Pos::from(v.coords.normalize()));
-            },
+            }
             Self::UnitConst(_) => (),
             _ => {
                 self.precompute(data)?;
                 self.precompute_unit(data)?;
-            },
+            }
         }
         Ok(())
     }
 }
 
 impl DistanceNode {
-    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
             Self::Point(v1, _) => v1.precompute(data)?,
             Self::Line(v1, v2, _) => {
@@ -410,20 +415,19 @@ impl DistanceNode {
                 v1.precompute(data)?;
                 v2.precompute(data)?;
                 v3.precompute(data)?;
-            },
+            }
             Self::LineDir(v, dir, _) => {
                 v.precompute(data)?;
                 dir.precompute_unit(data)?;
-            },
+            }
             Self::PlaneNormal(v, n, _) => {
                 v.precompute(data)?;
                 n.precompute_unit(data)?;
-            },
+            }
         }
         Ok(())
     }
 }
-
 
 impl LogicalNode {
     fn map_same_prop<T>(
@@ -470,7 +474,7 @@ impl LogicalNode {
                 let set1 = FxHashSet::<usize>::from_iter(a.apply(data)?.into_iter());
                 let set2 = FxHashSet::<usize>::from_iter(b.apply(data)?.into_iter());
                 Ok(set1.union(&set2).cloned().collect())
-            },
+            }
 
             Self::And(a, b) => {
                 let a_res = a.apply(data)?;
@@ -509,24 +513,40 @@ impl LogicalNode {
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
                     lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
-                    
-                    distance_search_within(prop.cutoff, &sub1, &sub2, &lower, &upper)
+
+                    distance_search_within(
+                        prop.cutoff, 
+                        &sub1,
+                        &sub2,
+                        sub1.subset.iter().cloned(),
+                        sub2.subset.iter().cloned(),
+                        &lower,
+                        &upper
+                    )
                 } else {
                     // Periodic variant
-                    distance_search_within_pbc(prop.cutoff, &sub1, &sub2, data.state.get_box().unwrap(), prop.pbc)
+                    distance_search_within_pbc(
+                        prop.cutoff,
+                        &sub1,
+                        &sub2,
+                        sub1.subset.iter().cloned(),
+                        sub2.subset.iter().cloned(),
+                        data.state.get_box().unwrap(),
+                        prop.pbc,
+                    )
                 };
 
-                // Search returns local indexes, convert them to global
-                for i in res.iter_mut() {
-                    *i = unsafe {*sub1.subset.get_unchecked(*i) };
-                }
+                // // Search returns local indexes, convert them to global
+                // for i in res.iter_mut() {
+                //     *i = unsafe { *sub1.subset.get_unchecked(*i) };
+                // }
 
                 // Add inner if asked
                 if prop.include_inner {
                     res.extend(inner);
                 }
                 Ok(res)
-            },
+            }
 
             Self::WithinPoint(prop, point) => {
                 let sub1 = data.global_subset();
@@ -537,14 +557,30 @@ impl LogicalNode {
                     // Find extents
                     let lower = pvec.coords.add_scalar(-prop.cutoff - f32::EPSILON);
                     let upper = pvec.coords.add_scalar(prop.cutoff + f32::EPSILON);
-                    
-                    distance_search_within(prop.cutoff, &sub1, pvec, &lower, &upper)
+
+                    distance_search_within(
+                        prop.cutoff, 
+                        &sub1, 
+                        pvec, 
+                        sub1.subset.iter().cloned(),
+                        0..1,
+                        &lower, 
+                        &upper
+                    )
                 } else {
                     // Periodic variant
-                    distance_search_within_pbc(prop.cutoff, &sub1, pvec, data.state.get_box().unwrap(), prop.pbc)
+                    distance_search_within_pbc(
+                        prop.cutoff,
+                        &sub1,
+                        pvec,
+                        sub1.subset.iter().cloned(),
+                        0..1,
+                        data.state.get_box().unwrap(),
+                        prop.pbc,
+                    )
                 };
                 Ok(res)
-            },
+            }
 
             // All always works for global subset
             Self::All => Ok(data.global_subset.iter().cloned().collect()),
@@ -553,9 +589,9 @@ impl LogicalNode {
         }
     }
 
-    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
-            Self::WithinPoint(_,p) => p.precompute(data)?,
+            Self::WithinPoint(_, p) => p.precompute(data)?,
             Self::Comparison(c) => c.precompute(data)?,
             _ => (),
         }
@@ -594,10 +630,9 @@ impl LogicalNode {
 impl CompoundNode {
     fn is_protein(atom: &Atom) -> bool {
         match atom.resname.as_str() {
-            "GLY" | "ALA" | "VAL" | "PHE" | "PRO" | "MET" | "ILE" | "LEU" | 
-            "ASP" | "GLU" | "LYS" | "ARG" | "SER" | "THR" | "TYR" | "HIS" |
-            "CYS" | "ASN" | "GLN" | "TRP" | "HSE" | "HSD" | "HSP" | "CYX" 
-            => true,
+            "GLY" | "ALA" | "VAL" | "PHE" | "PRO" | "MET" | "ILE" | "LEU" | "ASP" | "GLU"
+            | "LYS" | "ARG" | "SER" | "THR" | "TYR" | "HIS" | "CYS" | "ASN" | "GLN" | "TRP"
+            | "HSE" | "HSD" | "HSP" | "CYX" => true,
             _ => false,
         }
     }
@@ -608,7 +643,7 @@ impl CompoundNode {
         }
         match atom.name.as_str() {
             "C" | "N" | "O" | "CA" => true,
-            _ => false, 
+            _ => false,
         }
     }
 
@@ -621,8 +656,7 @@ impl CompoundNode {
 
     fn is_water(atom: &Atom) -> bool {
         match atom.resname.as_str() {
-            "SOL" | "HOH" | "TIP3" | "TIP4" | "TIP5"
-            => true,
+            "SOL" | "HOH" | "TIP3" | "TIP4" | "TIP5" => true,
             _ => false,
         }
     }
@@ -641,73 +675,73 @@ impl CompoundNode {
         match self {
             Self::Protein => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if Self::is_protein(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
-            },
+            }
 
             Self::Backbone => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if Self::is_backbone(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
-            },
+            }
 
             Self::Sidechain => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if Self::is_sidechain(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
-            },
+            }
 
             Self::Water => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if Self::is_water(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
-            },
+            }
 
             Self::NotWater => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_water(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
             }
-            
+
             Self::Hydrogen => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if Self::is_hydrogen(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
-            },
+            }
 
             Self::NotHydrogen => {
                 let mut res = SubsetType::new();
-                for (i,at) in sub.iter_ind_atom() {
+                for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_hydrogen(at) {
                         res.push(i)
                     }
                 }
                 Ok(res)
-            },
+            }
         }
     }
 }
@@ -912,8 +946,8 @@ impl MathNode {
             }
         }
     }
-    
-    fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+
+    fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
             Self::Dist(p) => p.precompute(data)?,
             _ => (),
@@ -969,7 +1003,6 @@ impl ComparisonNode {
         Ok(res)
     }
 
-
     fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
         match self {
             // Simple
@@ -1007,28 +1040,28 @@ impl ComparisonNode {
             }
         }
     }
-    
-    fn precompute(&mut self, data: &EvaluationContext) -> Result<(),SelectionParserError> {
+
+    fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
             // Simple
-            Self::Eq(v1, v2) |
-            Self::Neq(v1, v2) |
-            Self::Gt(v1, v2) |
-            Self::Geq(v1, v2) |
-            Self::Lt(v1, v2) |
-            Self::Leq(v1, v2) => {
+            Self::Eq(v1, v2)
+            | Self::Neq(v1, v2)
+            | Self::Gt(v1, v2)
+            | Self::Geq(v1, v2)
+            | Self::Lt(v1, v2)
+            | Self::Leq(v1, v2) => {
                 v1.precompute(data)?;
                 v2.precompute(data)?;
-            },
+            }
             // Chained
-            Self::LtLt(v1, v2, v3) |
-            Self::LtLeq(v1, v2, v3) |
-            Self::LeqLt(v1, v2, v3) |
-            Self::LeqLeq(v1, v2, v3) |
-            Self::GtGt(v1, v2, v3) |
-            Self::GtGeq(v1, v2, v3) |
-            Self::GeqGt(v1, v2, v3) |
-            Self::GeqGeq(v1, v2, v3) => {
+            Self::LtLt(v1, v2, v3)
+            | Self::LtLeq(v1, v2, v3)
+            | Self::LeqLt(v1, v2, v3)
+            | Self::LeqLeq(v1, v2, v3)
+            | Self::GtGt(v1, v2, v3)
+            | Self::GtGeq(v1, v2, v3)
+            | Self::GeqGt(v1, v2, v3)
+            | Self::GeqGeq(v1, v2, v3) => {
                 v1.precompute(data)?;
                 v2.precompute(data)?;
                 v3.precompute(data)?;
