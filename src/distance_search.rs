@@ -183,11 +183,11 @@ impl<'a> Grid<'a> {
         Self::from_cutoff_and_extents(cutoff, &box_.get_lab_extents())
     }
 
-    pub fn populate(&mut self, data: impl PosIterator<'a>, lower: &Vector3f, upper: &Vector3f) {
+    pub fn populate(&mut self, data: impl PosIterator<'a>, ids: impl Iterator<Item = usize>, lower: &Vector3f, upper: &Vector3f) {
         // Data points are numbered sequentially from zero
         // So grid always stores the local index within the data
         let dim_sz = upper - lower;
-        'outer: for (id, pos) in data.enumerate() {
+        'outer: for (id, pos) in ids.zip(data) {
             let mut loc = [0usize, 0, 0];
             for d in 0..3 {
                 let n = (self.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
@@ -204,6 +204,7 @@ impl<'a> Grid<'a> {
     pub fn populate_pbc(
         &mut self,
         data: impl PosIterator<'a>,
+        ids: impl Iterator<Item = usize>,
         box_: &PeriodicBox,
         pbc_dims: PbcDims,
         wrapped_pos: &'a mut Vec<Pos>,
@@ -211,7 +212,7 @@ impl<'a> Grid<'a> {
         let mut wrapped_ind = vec![];
         wrapped_pos.clear();
 
-        'outer: for (id, pos) in data.enumerate() {
+        'outer: for (id, pos) in ids.zip(data) {
             // Relative coordinates
             let mut rel = box_.to_box_coords(&pos.coords);
             let mut loc = [0usize, 0, 0];
@@ -564,10 +565,12 @@ fn search_cell_pair_single_pbc<T: SearchOutputType>(
     found
 }
 
-pub(crate) fn distance_search_within<C>(
+pub(crate) fn distance_search_within<'a,C>(
     cutoff: f32,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
+    ids1: impl Iterator<Item = usize>,
+    ids2: impl Iterator<Item = usize>,
     lower: &Vector3f,
     upper: &Vector3f,
 ) -> C
@@ -577,8 +580,8 @@ where
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, lower, upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1.iter_pos(), lower, upper);
-    grid2.populate(data2.iter_pos(), lower, upper);
+    grid1.populate(data1.iter_pos(), ids1, lower, upper);
+    grid2.populate(data2.iter_pos(), ids2, lower, upper);
 
     //grid1.debug();
 
@@ -607,6 +610,8 @@ pub(crate) fn distance_search_within_pbc<C>(
     cutoff: f32,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
+    ids1: impl Iterator<Item = usize>,
+    ids2: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
     pbc_dims: PbcDims,
 ) -> C
@@ -619,8 +624,8 @@ where
     let mut buf1 = vec![];
     let mut buf2 = vec![];
 
-    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
@@ -700,6 +705,8 @@ pub fn distance_search_double<T, C>(
     cutoff: f32,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
+    ids1: impl Iterator<Item = usize>,
+    ids2: impl Iterator<Item = usize>,
 ) -> C
 where
     T: SearchOutputType + Send + Sync,
@@ -711,8 +718,8 @@ where
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1.iter_pos(), &lower, &upper);
-    grid2.populate(data2.iter_pos(), &lower, &upper);
+    grid1.populate(data1.iter_pos(), ids1, &lower, &upper);
+    grid2.populate(data2.iter_pos(), ids2, &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -739,6 +746,8 @@ pub fn distance_search_double_pbc<T, C>(
     cutoff: f32,
     data1: &(impl PosProvider + BoxProvider),
     data2: &impl PosProvider,
+    ids1: impl Iterator<Item = usize>,
+    ids2: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
     pbc_dims: PbcDims,
 ) -> C
@@ -752,8 +761,8 @@ where
     let mut buf1 = vec![];
     let mut buf2 = vec![];
 
-    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
@@ -787,6 +796,8 @@ where
 pub fn distance_search_double_vdw<T, C>(
     data1: &impl PosProvider,
     data2: &impl PosProvider,
+    ids1: impl Iterator<Item = usize>,
+    ids2: impl Iterator<Item = usize>,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
 ) -> C
@@ -805,8 +816,8 @@ where
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1.iter_pos(), &lower, &upper);
-    grid2.populate(data2.iter_pos(), &lower, &upper);
+    grid1.populate(data1.iter_pos(), ids1, &lower, &upper);
+    grid2.populate(data2.iter_pos(), ids2, &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -833,6 +844,8 @@ where
 pub fn distance_search_double_vdw_pbc<T, C>(
     data1: &(impl PosProvider + BoxProvider),
     data2: &impl PosProvider,
+    ids1: impl Iterator<Item = usize>,
+    ids2: impl Iterator<Item = usize>,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     pbox: &PeriodicBox,
@@ -853,8 +866,8 @@ where
     let mut buf1 = vec![];
     let mut buf2 = vec![];
 
-    grid1.populate_pbc(data1.iter_pos(), pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
@@ -883,7 +896,7 @@ where
 
 //-------------------------------------------------------------------------
 
-pub fn distance_search_single<T, C>(cutoff: f32, data: &impl PosProvider) -> C
+pub fn distance_search_single<T, C>(cutoff: f32, data: &impl PosProvider, ids: impl Iterator<Item = usize>) -> C
 where
     T: SearchOutputType + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
@@ -892,7 +905,7 @@ where
     let (lower, upper) = compute_bounding_box_single(cutoff, data);
 
     let mut grid = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
-    grid.populate(data.iter_pos(), &lower, &upper);
+    grid.populate(data.iter_pos(), ids, &lower, &upper);
 
     let plan = search_plan(&grid, None, PBC_NONE);
 
@@ -907,6 +920,7 @@ where
 pub fn distance_search_single_pbc<T, C>(
     cutoff: f32,
     data: &(impl PosProvider + BoxProvider + ?Sized),
+    ids: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
     pbc_dims: PbcDims,
 ) -> C
@@ -918,7 +932,7 @@ where
 
     let mut buf = vec![];
 
-    grid.populate_pbc(data.iter_pos(), pbox, pbc_dims, &mut buf);
+    grid.populate_pbc(data.iter_pos(), ids, pbox, pbc_dims, &mut buf);
 
     let plan = search_plan(&grid, None, pbc_dims);
 

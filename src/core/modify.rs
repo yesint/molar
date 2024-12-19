@@ -69,7 +69,7 @@ pub trait ModifyRandomAccess:
             .get_box()
             .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
-        let conn: SearchConnectivity = distance_search_single_pbc(cutoff, self, &b, dims);
+        let conn: SearchConnectivity = distance_search_single_pbc(cutoff, self, 0..self.len(), &b, dims);
         
         // used atoms
         let mut used = vec![false; conn.len()];
