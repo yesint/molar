@@ -17,17 +17,6 @@ pub enum BuilderError {
     RemoveIndexes(usize, usize, usize),
 }
 
-fn remove_elements(v: &mut Vec<usize>, rem: &mut impl Iterator<Item = usize>) {
-    let mut to_remove = rem.next().unwrap_or(usize::MAX);
-    v.retain(|el| {
-        let ok = *el != to_remove;
-        if !ok {
-            to_remove = rem.next().unwrap_or(usize::MAX);
-        }
-        ok
-    });
-}
-
 impl TopologyStorage {
     pub(crate) fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
         self.atoms.extend(atoms);
