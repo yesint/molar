@@ -59,9 +59,8 @@ pub(super) fn command_rearrange(
 
     // Get the rest of indexes, which are not used
     let all_ind = (0..in_source.num_atoms()).collect::<HashSet<usize>>();
-    let rest_sel = in_source.select_iter(all_ind.difference(&used).cloned())?;
-
-    info!("There are {} untouched atoms",rest_sel.len());
+    
+    let rest_sel = in_source.select_iter(all_ind.difference(&used).cloned()).ok();
 
     // Create output builder
     let out = Source::empty_builder();
@@ -69,8 +68,13 @@ pub(super) fn command_rearrange(
     for sel in begin_sels {
         out.append(&sel);
     }
-    // Add the rest
-    out.append(&rest_sel);
+
+    // Add the rest if any
+    if let Some(rest) = rest_sel {
+        info!("There are {} untouched atoms",rest.len());
+        out.append(&rest);
+    }
+
     // Add ending selections
     for sel in end_sels {
         out.append(&sel);
