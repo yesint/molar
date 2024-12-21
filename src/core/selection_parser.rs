@@ -79,16 +79,15 @@ impl SelectionExpr {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
     use super::{SelectionExpr, State, Topology};
     use crate::io::*;
-    use lazy_static::lazy_static;
-
-    lazy_static! {
-        static ref TOPST: (Topology,State) = {
-            let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
-            h.read().unwrap()
-        };
-    }
+    
+    static TOPST: LazyLock<(Topology,State)> = LazyLock::new(|| {
+        let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
+        h.read().unwrap()
+    });
+    
 
     #[test]
     fn within_syntax_test() {

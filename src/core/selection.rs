@@ -98,17 +98,16 @@ pub enum SelectionIndexError {
 
 #[cfg(test)]
 mod tests {    
+    use std::sync::LazyLock;
     use crate::prelude::*;    
     pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
     use super::*;
-    use lazy_static::lazy_static;
 
-    lazy_static! {
-        static ref TOPST: (Topology,State) = {
-            let mut h = FileHandler::open("tests/protein.pdb").unwrap();
-            h.read().unwrap()
-        };
-    }
+    static TOPST: LazyLock<(Topology,State)> = LazyLock::new(|| {
+        let mut h = FileHandler::open("tests/protein.pdb").unwrap();
+        h.read().unwrap()
+    });
+    
 
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
