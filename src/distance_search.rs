@@ -183,7 +183,13 @@ impl<'a> Grid<'a> {
         Self::from_cutoff_and_extents(cutoff, &box_.get_lab_extents())
     }
 
-    pub fn populate(&mut self, data: impl PosIterator<'a>, ids: impl Iterator<Item = usize>, lower: &Vector3f, upper: &Vector3f) {
+    pub fn populate(
+        &mut self,
+        data: impl PosIterator<'a>,
+        ids: impl Iterator<Item = usize>,
+        lower: &Vector3f,
+        upper: &Vector3f,
+    ) {
         // Data points are numbered sequentially from zero
         // So grid always stores the local index within the data
         let dim_sz = upper - lower;
@@ -225,6 +231,7 @@ impl<'a> Grid<'a> {
                         continue 'outer;
                     } else {
                         correct = false;
+                        break;
                     }
                 }
             }
@@ -253,11 +260,11 @@ impl<'a> Grid<'a> {
                 }
                 let wp = Pos::from(box_.to_lab_coords(&rel));
                 wrapped_pos.push(wp);
-                wrapped_ind.push((self.loc_to_ind(loc),id));
+                wrapped_ind.push((self.loc_to_ind(loc), id));
             }
         }
 
-        // Add wrapped points to the grid
+        // Add wrapped points to the grid if any
         for i in 0..wrapped_ind.len() {
             self.push_ind(wrapped_ind[i].0, (wrapped_ind[i].1, &wrapped_pos[i]));
         }
@@ -268,7 +275,11 @@ impl<'a> Grid<'a> {
     }
 }
 
-fn search_plan(grid1: &Grid, grid2: Option<&Grid>, pbc_dims: PbcDims) -> Vec<(usize, usize, PbcDims)> {
+fn search_plan(
+    grid1: &Grid,
+    grid2: Option<&Grid>,
+    pbc_dims: PbcDims,
+) -> Vec<(usize, usize, PbcDims)> {
     let mut plan = Vec::with_capacity(14 * grid1.dims[0] * grid1.dims[1] * grid1.dims[2]);
     // Cycle over whole grid
     for x in 0..grid1.dims[0] {
@@ -289,12 +300,13 @@ fn search_plan(grid1: &Grid, grid2: Option<&Grid>, pbc_dims: PbcDims) -> Vec<(us
                                     c[i][d] = 0;
                                     wrapped.set_dim(d, true);
                                 } else {
+                                    // Drop point for non-periodic dimension
                                     continue 'mask;
                                 }
                             }
                         }
                     }
-                    // If we are here we need to add te cell pair to then plan
+                    // If we are here we need to add the cell pair to then plan
                     let i1 = grid1.loc_to_ind(c[0]);
                     let i2 = grid1.loc_to_ind(c[1]);
 
@@ -565,7 +577,7 @@ fn search_cell_pair_single_pbc<T: SearchOutputType>(
     found
 }
 
-pub(crate) fn distance_search_within<'a,C>(
+pub(crate) fn distance_search_within<'a, C>(
     cutoff: f32,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
@@ -592,7 +604,13 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_within(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
+            search_cell_pair_within(
+                cutoff * cutoff,
+                &grid1,
+                &grid2,
+                pair,
+                &mut found
+            );
             search_cell_pair_within(
                 cutoff * cutoff,
                 &grid1,
@@ -640,7 +658,7 @@ where
                 &grid2,
                 pair,
                 pbox,
-                &mut found,
+                &mut found
             );
             search_cell_pair_within_pbc(
                 cutoff * cutoff,
@@ -728,7 +746,13 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_double(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
+            search_cell_pair_double(
+                cutoff * cutoff,
+                &grid1,
+                &grid2,
+                pair,
+                &mut found
+            );
             search_cell_pair_double(
                 cutoff * cutoff,
                 &grid1,
@@ -777,7 +801,7 @@ where
                 &grid2,
                 pair,
                 pbox,
-                &mut found,
+                &mut found
             );
             search_cell_pair_double_pbc(
                 cutoff * cutoff,
@@ -826,7 +850,14 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_double_vdw(&grid1, &grid2, pair, vdw1, vdw2, &mut found);
+            search_cell_pair_double_vdw(
+                &grid1,
+                &grid2,
+                pair,
+                vdw1,
+                vdw2,
+                &mut found
+            );
             search_cell_pair_double_vdw(
                 &grid1,
                 &grid2,
@@ -877,7 +908,13 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw_pbc(
-                &grid1, &grid2, pair, vdw1, vdw2, pbox, &mut found,
+                &grid1,
+                &grid2,
+                pair,
+                vdw1,
+                vdw2,
+                pbox,
+                &mut found
             );
             search_cell_pair_double_vdw_pbc(
                 &grid1,
@@ -896,7 +933,11 @@ where
 
 //-------------------------------------------------------------------------
 
-pub fn distance_search_single<T, C>(cutoff: f32, data: &impl PosProvider, ids: impl Iterator<Item = usize>) -> C
+pub fn distance_search_single<T, C>(
+    cutoff: f32,
+    data: &impl PosProvider,
+    ids: impl Iterator<Item = usize>,
+) -> C
 where
     T: SearchOutputType + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
