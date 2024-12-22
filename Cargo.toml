@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/molar_bin"]
+members = ["crates/molar_bin", "crates/molar_python"]
 
 [workspace.package]
 version = "0.7.0"

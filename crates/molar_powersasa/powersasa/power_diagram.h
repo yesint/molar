@@ -32,6 +32,7 @@ If you have no license please contact SASA-support@kit.edu
 #include <algorithm>
 #include <limits>
 #include <ctime>
+#include <optional>
 // #include "basic_vector_calc.h"
 
 namespace POWER_DIAGRAM
@@ -349,13 +350,13 @@ namespace POWER_DIAGRAM
 			{
 				if (params.radiiGiven)
 				{
-					points.push_back(cell(*pos_it - center, *strength_it, NULL));
+					points.push_back(cell(*pos_it - center, *strength_it, nullptr));
 					for (unsigned int i = 1; i < _params.size; i++)
 						points.push_back(cell(*(++pos_it) - center, *(++strength_it), &points[*(++bondTo_it)]));
 				}
 				else
 				{
-					points.push_back(cell(*pos_it - center, sqrt(*strength_it), *strength_it, NULL));
+					points.push_back(cell(*pos_it - center, sqrt(*strength_it), *strength_it, nullptr));
 					for (unsigned int i = 1; i < _params.size; i++)
 						points.push_back(cell(*(++pos_it) - center, sqrt(*(++strength_it)), *(strength_it), &points[*(++bondTo_it)]));
 				}
@@ -513,7 +514,7 @@ namespace POWER_DIAGRAM
 			{
 				for (unsigned int i = 0; i < newSize - nRevertPoints; i++)
 				{
-					points.push_back(cell((*(pos_it + i)) - center, (*(strength_it + i)), NULL));
+					points.push_back(cell((*(pos_it + i)) - center, (*(strength_it + i)), nullptr));
 					points.back().bondTo = (&points.back()) - gap;
 				}
 			}
@@ -621,7 +622,7 @@ namespace POWER_DIAGRAM
 			_nVertices = 1 << dimension;
 			sideGenerators.clear();
 			for (int i = 0; i < 2 * dimension; i++)
-				sideGenerators.push_back(cell(PDCoord(0, 0, 0), 0, NULL));
+				sideGenerators.push_back(cell(PDCoord(0, 0, 0), 0, nullptr));
 			PDCoord lhc = lowest;
 			vertices[0].setTo(lowest);
 			for (int j = dimension - 1; j >= 0; j--)
@@ -703,7 +704,7 @@ namespace POWER_DIAGRAM
 									t4 += clock();
 								}
 
-								cellPtr identicalPoint = NULL;
+								cellPtr identicalPoint = nullptr;
 								done++;
 								if (done > 100)
 									throw MyException();
@@ -777,7 +778,7 @@ namespace POWER_DIAGRAM
 								}
 
 								Replaced.clear();
-								if (identicalPoint != NULL)
+								if (identicalPoint != nullptr)
 								{
 									Involved.front()->myVertices.push_back(identicalPoint->myVertices.front());
 									break;
@@ -921,7 +922,7 @@ namespace POWER_DIAGRAM
 			if (params.with_warnings)
 				std::cout << "warning : program slowed down because of too small accuracy" << std::endl;
 			//...so the numerical problem wants to be tough? A fat lot we care!
-			vertexPtr result = NULL;
+			vertexPtr result = nullptr;
 			for (typename std::vector<vertex>::iterator it = vertices.begin(); it != vertices.begin() + nVertices(); ++it)
 				if (it->isConnected())
 				{
@@ -931,7 +932,7 @@ namespace POWER_DIAGRAM
 						This = &(*it);
 					}
 				}
-			if (result != NULL)
+			if (result != nullptr)
 				This = result;
 		}
 
@@ -1020,9 +1021,9 @@ namespace POWER_DIAGRAM
 				return 0;
 		}
 		
-		cell const *findCellInsideCube(const PDCoord &pos, cell const *hint = NULL)
+		cell const *findCellInsideCube(const PDCoord &pos, cell const *hint = nullptr)
 		{
-			if (hint == NULL)
+			if (hint == nullptr)
 				hint = &points[points.size() / 2];
 			for (typename std::vector<cellPtr>::const_iterator it = hint->neighbours.begin(); it != hint->neighbours.end(); ++it)
 			{
@@ -1053,7 +1054,7 @@ namespace POWER_DIAGRAM
 				return &vertices[0];
 			}
 		}
-		vertexPtr prepareInsertion(cell &This, vertexPtr hint = NULL)
+		vertexPtr prepareInsertion(cell &This, vertexPtr hint = nullptr)
 		{
 			// try
 			if (__power_diagram_internal_timing__)
@@ -1151,7 +1152,7 @@ namespace POWER_DIAGRAM
 
 		void doInsertion(const vertexPtr &hint)
 		{
-			//			if(hint!=NULL)
+			//			if(hint!=nullptr)
 			{
 				if (__power_diagram_internal_timing__)
 				{
@@ -1377,25 +1378,24 @@ namespace POWER_DIAGRAM
 			}
 		}
 
-		inline void tryToBuildVertexOnEdge(const const_vertexPtr &This, const int &here) //,const cellPtr s1, const cellPtr s2,const cellPtr s3,const PDCoord& direction);
+		inline std::optional<int> tryToBuildVertexOnEdge(const const_vertexPtr &This, const int &here) //,const cellPtr s1, const cellPtr s2,const cellPtr s3,const PDCoord& direction);
 		{
 			// edge between This (replaced and finite) and that defined by generators s1,s2,s3 will get a vertex (of newest,s1,s2,s3)
+			if (_nUnused == 0)
 			{
-				if (_nUnused == 0)
+				if (nVertices() == vertices.capacity())
 				{
-					if (nVertices() == vertices.capacity())
-					{
-						throw here;
-					}
-					vertices[_nVertices].endPointsAndPositionOverwrite(This->endPoints[here], This->getPowerPointOnLine2(This->endPoints[here]));
-					vertices[++_nVertices - 1].Init(This, here, *this);
+					return here;
 				}
-				else
-				{
-					unused[_nUnused - 1]->endPointsAndPositionOverwrite(This->endPoints[here], This->getPowerPointOnLine2(This->endPoints[here]));
-					unused[--_nUnused]->Init(This, here, *this);
-				}
+				vertices[_nVertices].endPointsAndPositionOverwrite(This->endPoints[here], This->getPowerPointOnLine2(This->endPoints[here]));
+				vertices[++_nVertices - 1].Init(This, here, *this);
 			}
+			else
+			{
+				unused[_nUnused - 1]->endPointsAndPositionOverwrite(This->endPoints[here], This->getPowerPointOnLine2(This->endPoints[here]));
+				unused[--_nUnused]->Init(This, here, *this);
+			}
+			return {};
 		}
 
 		//  void replace_a_vertex(vertex& old_vertex,const Cell& newGenerator);
@@ -1415,30 +1415,19 @@ namespace POWER_DIAGRAM
 					start->finiteToReplacedAndGo(*this);
 			}
 		}
-		void CreateFiniteVerticesFromReplaced()
-		{
+
+		void CreateFiniteVerticesFromReplaced() {
 			// best procedure for new vertices : knowledge : each new (finite) vertex MUST lie on
 			// exactly one old EXISTING edge which is NOT disappearing totally
 			// all possible edges are the ones coming out our "replaced" vertices
 			// so we only try to create if an endPoint of a replaced vertex is not replaced (visitedAs ==-1)
-			for (typename std::vector<vertexPtr>::const_iterator it = Replaced.begin(); it != Replaced.end(); ++it)
-			{
-				try
-				{
-					if (!(*it)->isCorner())
-						(*it)->template buildIn<0>(this);
-					else
-						(*it)->template buildIn<1>(this);
-				}
-				catch (const int g)
-				{
+			for (auto& it: Replaced) {
+				auto g = (!it->isCorner()) ? it->buildIn(this,0) : it->buildIn(this,1);
+				if(g) {
 					this->ReserveNewVertices(); // at least 2^dim+1 new vertices and at most dim+1 vertices to do, so one realloc is enough, no further try/catch
-					for (int g2 = g; g2 >= (*it)->isCorner(); g2--)
-					{
-						if ((*it)->endPoints[g2]->rrv <= 0)
-						{
-							// this->template tryToBuildVertexOnEdge(*it,g2);
-							this->tryToBuildVertexOnEdge(*it, g2);
+					for (int g2 = g.value(); g2 >= it->isCorner(); g2--) {
+						if (it->endPoints[g2]->rrv <= 0) {
+							this->tryToBuildVertexOnEdge(it, g2);
 						}
 					}
 				}
@@ -1612,23 +1601,25 @@ namespace POWER_DIAGRAM
 			int branch;
 			std::array<cellPtr, dimension> generators;
 
-			zeroPoint(const cellPtr &a, const cellPtr &b, const cellPtr &c, const PDFloat &position, const vertexPtr &origin, const int &way) : pos(position), from(origin), branch(way)
+			zeroPoint(const cellPtr &a, const cellPtr &b, const cellPtr &c, 
+					  const PDFloat &position, const vertexPtr &origin, const int &way)
+			: pos(position), from(origin), branch(way) 
 			{
 				generators[0] = a;
-				//		generators[0]->myZeroPoints.push_back(this);
 				generators[1] = b;
-				//		generators[1]->myZeroPoints.push_back(this);
 				generators[2] = c;
-				//		generators[2]->myZeroPoints.push_back(this);
 			}
-			PDCoord getPos() const
-			{
+			
+			PDCoord getPos() const {
 				return (from->endPoints[branch]->position) * pos - from->position * (pos - 1);
 			}
-			bool isValid() const { return ((!from->invalid) && (!from->endPoints[branch]->invalid)); }
+			
+			bool isValid() const { 
+				return ((!from->invalid) && (!from->endPoints[branch]->invalid)); 
+			}
 		};
-		struct vertex
-		{
+
+		struct vertex {
 			PDFloat rrv; // relative replace value (power difference)
 			bool invalid;
 			std::array<cellPtr, dimension + 1> generators;
@@ -1637,42 +1628,42 @@ namespace POWER_DIAGRAM
 			std::array<vertexPtr, dimension + 1> endPoints;
 
 			friend class PowerDiagram<PDFloat, PDCoord, dimension>;
-			inline bool isCorner() const { return endPoints[0] == NULL; }
-			inline bool isOnEdge(const PowerDiagram<PDFloat, PDCoord, dimension> &This)
-			{
+			
+			inline bool isCorner() const { return endPoints[0] == nullptr; }
+			
+			inline bool isOnEdge(const PowerDiagram<PDFloat, PDCoord, dimension> &This) {
 				return (!this->generators[dimension - 2]->isReal(This));
 			}
-			inline bool isOnSurface(const PowerDiagram<PDFloat, PDCoord, dimension> &This)
-			{
+
+			inline bool isOnSurface(const PowerDiagram<PDFloat, PDCoord, dimension> &This){
 				return (!this->generators[dimension - 1]->isReal(This));
 			}
-			//	inline int hasVirtualGenerators()const {return (generators[dimension]->id<0);}
+			
 			inline int hasGenerator(const const_cellPtr &that) const { return (generators[0] == that || generators[1] == that || generators[2] == that || generators[3] == that); }
-			//	inline int isFinite() const { return generators[0]!=NULL; }
+			
 			inline void disconnect() { invalid = 1; }
+			
 			inline int isConnected() const { return !invalid; }
 
 			//  vertex(const vertex& copy);
-			inline vertex() : invalid(1) /*,generators(dimension+1,NULL),endPoints(dimension+1,NULL)*/ {}
+			inline vertex() : invalid(1) /*,generators(dimension+1,nullptr),endPoints(dimension+1,nullptr)*/ {}
 
-			inline void Init(const const_vertexPtr &This, const int &keep, const PowerDiagram<PDFloat, PDCoord, dimension> &owner)
-			{
+			inline void Init(const const_vertexPtr &This, const int &keep, const PowerDiagram<PDFloat, PDCoord, dimension> &owner) {
 				this->setPowerData(owner.Involved.front());
 
-				for (int g = dimension; g > 0; g--)
+				for (int g = dimension; g > 0; g--) {
 					generators[g] = This->generators[g - (g <= keep)];
+				}
 				generators[0] = owner.Involved.front();
 				owner.Involved.front()->myVertices.push_back(this);
 				endPoints[0]->fastWhichis(This) = this;
 
-				if (std::abs(powerValue) < owner.powerErr)
-				{
+				if (std::abs(powerValue) < owner.powerErr) {
 					throw owner.powerErr;
 				}
 			}
 
-			inline PDCoord getPowerPointOnLine2(vertex const *const &persist) const
-			{
+			inline PDCoord getPowerPointOnLine2(vertex const *const &persist) const {
 				//	const PDCoord PlaneNormal=(b->position-a->position)/*/(a->position-b->position).norm()*/;
 				//	const PDFloat PlaneValue=0.5*(PlaneNormal.squaredNorm()+(a->r2-b->r2)/*(a->position-b->position).norm()*/);
 				// PlaneNormal and PlaneValue are a factor of (a->position-b->position).norm() too big but they cancel each other out
@@ -1681,8 +1672,7 @@ namespace POWER_DIAGRAM
 				return ((rrv) / ((rrv) - (persist->rrv))) * (persist->position - position) + position;
 			}
 
-			void operator=(const vertex &that)
-			{
+			void operator=(const vertex &that) {
 				generators = that.generators;
 				position = that.position;
 				powerValue = that.powerValue;
@@ -1692,17 +1682,15 @@ namespace POWER_DIAGRAM
 			}
 
 		private:
-			inline void setPowerData(const const_cellPtr &aCell)
-			{
+			inline void setPowerData(const const_cellPtr &aCell) {
 				powerValue = (aCell->position - position).squaredNorm() - aCell->r2;
 			}
-			inline void setTo(const PDCoord pos)
-			{
+
+			inline void setTo(const PDCoord pos) {
 				position = pos;
-				for (int g = dimension; g >= 0; g--)
-				{
-					endPoints[g] = NULL;
-					generators[g] = NULL;
+				for (int g = dimension; g >= 0; g--) {
+					endPoints[g] = nullptr;
+					generators[g] = nullptr;
 				}
 			}
 
@@ -1714,8 +1702,7 @@ namespace POWER_DIAGRAM
 			}
 
 			template <class PDCalc>
-			inline void endPointsAndPositionOverwrite(const vertexPtr &endPoint, const PDCalc &pos)
-			{
+			inline void endPointsAndPositionOverwrite(const vertexPtr &endPoint, const PDCalc &pos) {
 				endPoints[0] = endPoint;
 				rrv = 0;
 				invalid = 0;
@@ -1725,33 +1712,32 @@ namespace POWER_DIAGRAM
 			void refreshAfterRealloc(const vertex *const &copy)
 			{
 				for (int g = dimension; g >= 0; g--)
-					if (this->generators[g] != NULL && (!this->generators[g]->myVertices.empty()) && this->generators[g]->myVertices.front() == copy)
+					if (this->generators[g] != nullptr && (!this->generators[g]->myVertices.empty()) && this->generators[g]->myVertices.front() == copy)
 						this->generators[g]->myVertices.front() = this;
 				for (typename std::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin(); it != endPoints.end(); ++it)
 				{
-					if ((*it) != NULL)
+					if ((*it) != nullptr)
 						*it = this + (*it - copy);
 				}
 			}
 
-			inline void moveAddressNetworkUpdateOnly(const vertexPtr &whereTo)
-			{
-				if (this->endPoints[dimension] != NULL)
+			inline void moveAddressNetworkUpdateOnly(const vertexPtr &whereTo) {
+				if (this->endPoints[dimension] != nullptr)
 					(this->endPoints[dimension]->fastWhichis(this)) = whereTo;
 				for (typename std::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin(); it != endPoints.begin() + dimension; ++it)
 					((*it)->fastWhichis(this)) = whereTo;
 
 				*whereTo = *this;
 			}
-			inline vertexPtr &fastWhichis(const const_vertexPtr &comp)
-			{
-				for (typename std::array<vertexPtr, dimension + 1>::iterator it = endPoints.begin() + dimension; it != endPoints.begin(); --it)
-					if (*it == comp)
-						return *it;
+
+			inline vertexPtr &fastWhichis(const const_vertexPtr &comp) {
+				for (auto it = endPoints.begin() + dimension; it != endPoints.begin(); --it) {
+					if (*it == comp) return *it;
+				}
 				return endPoints[0];
 			}
-			inline vertexPtr &persistingWhichis3D(const const_vertexPtr &newOne)
-			{
+
+			inline vertexPtr &persistingWhichis3D(const const_vertexPtr &newOne) {
 				if (generators[2] == newOne->generators[2])
 					if (generators[1] == newOne->generators[1])
 						return endPoints[0];
@@ -1763,106 +1749,87 @@ namespace POWER_DIAGRAM
 					return endPoints[3];
 			}
 
-			void cornerToReplacedAndGo(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
-			{
+			void cornerToReplacedAndGo(PowerDiagram<PDFloat, PDCoord, dimension> &owner) {
 				owner.Replaced.push_back(this);
-				for (typename std::array<cellPtr, dimension + 1>::const_iterator it = this->generators.begin(); it != this->generators.end(); ++it)
-					if ((*it)->visitedAs == 0)
-						owner.AddToInvolved(*(*it));
+				for (auto it: this->generators)
+					if (it->visitedAs == 0)
+						owner.AddToInvolved(*it);
 				owner.Involved.front()->myVertices.push_back(this); // although replaced it will be part of the new cell!its a corner!
 
-				for (typename std::array<vertexPtr, dimension + 1>::const_iterator it = this->endPoints.begin() + dimension; it != this->endPoints.begin(); --it)
-					if ((*it)->rrv == 0)
-					{
+				for (auto it = this->endPoints.begin() + dimension; it != this->endPoints.begin(); --it)
+					if ((*it)->rrv == 0) {
 						(*it)->replaceCheck(owner);
 					}
-					else
-					{
-					}
 			}
-			void finiteToReplacedAndGo(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
-			{
-				owner.Replaced.push_back(this);
-				for (typename std::array<cellPtr, dimension + 1>::const_iterator it = this->generators.begin(); it != this->generators.end(); ++it)
-					if ((*it)->visitedAs == 0)
-						owner.AddToInvolved(*(*it));
 
-				for (typename std::array<vertexPtr, dimension + 1>::const_iterator it = this->endPoints.begin(); it != this->endPoints.end(); ++it)
-					if ((*it)->rrv == 0)
-						(*it)->replaceCheck(owner);
+			void finiteToReplacedAndGo(PowerDiagram<PDFloat, PDCoord, dimension> &owner) {
+				owner.Replaced.push_back(this);
+				for (auto it: this->generators)
+					if (it->visitedAs == 0)
+						owner.AddToInvolved(*it);
+
+				for (auto it: this->endPoints)
+					if (it->rrv == 0)
+						it->replaceCheck(owner);
 			}
-			inline void replaceCheck(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
-			{
+
+			inline void replaceCheck(PowerDiagram<PDFloat, PDCoord, dimension> &owner) {
 				if (this->isCorner())
 					this->cornerReplaceCheck(owner);
 				else
 					this->finiteReplaceCheck(owner);
 			}
 
-			void finiteReplaceCheck(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
-			{
-				if (owner.finiteReplaced(*this, owner.Involved.front()))
+			void finiteReplaceCheck(PowerDiagram<PDFloat, PDCoord, dimension> &owner) {
+				if (owner.finiteReplaced(*this, owner.Involved.front())) {
 					this->finiteToReplacedAndGo(owner);
-				else
-				{
-					//	visitedAs=-1;
 				}
 			}
-			void cornerReplaceCheck(PowerDiagram<PDFloat, PDCoord, dimension> &owner)
-			{
-				if (owner.finiteReplaced(*this, owner.Involved.front()))
+			
+			void cornerReplaceCheck(PowerDiagram<PDFloat, PDCoord, dimension> &owner) {
+				if (owner.finiteReplaced(*this, owner.Involved.front())){
 					this->cornerToReplacedAndGo(owner);
-				else
-				{
-					//	visitedAs=-1;
-				}
-			}
-			template <const int cornerInfo>
-			void buildIn(PowerDiagram<PDFloat, PDCoord, dimension> *const &pd) const
-			{
-				for (int g = dimension; g >= cornerInfo; g--)
-				{
-					if (this->endPoints[g]->rrv <= 0)
-					{
-						{
-							pd->tryToBuildVertexOnEdge(this, g);
-						}
-					}
 				}
 			}
 
-			inline void registerForConnection3D(PowerDiagram<PDFloat, PDCoord, dimension> *const &owner)
-			{
+	
+			std::optional<int> buildIn(PowerDiagram<PDFloat, PDCoord, dimension> *const &pd, short cornerInfo) const {
+				for (int g = dimension; g >= cornerInfo; g--) {
+					if (this->endPoints[g]->rrv <= 0) {
+						auto opt = pd->tryToBuildVertexOnEdge(this, g);
+						if(opt) return opt;
+					}
+				}
+				return {};
+			}
+
+			inline void registerForConnection3D(PowerDiagram<PDFloat, PDCoord, dimension> *const &owner) {
 				owner->planes[generators[2]->visitedAs * owner->Involved.size() + generators[1]->visitedAs].storeOrConnect(this, endPoints[3]);
 				owner->planes[generators[3]->visitedAs * owner->Involved.size() + generators[1]->visitedAs].storeOrConnect(this, endPoints[2]);
 				owner->planes[generators[3]->visitedAs * owner->Involved.size() + generators[2]->visitedAs].storeOrConnect(this, endPoints[1]);
 			}
 		};
-		struct EdgeEnds
-		{
+
+		struct EdgeEnds {
 			vertexPtr a;
 			vertexPtr *b;
-			inline void storeOrConnect(const vertexPtr &pvertex, vertexPtr &itsEndPointStorage)
-			{
-				if (this->a == NULL)
-				{
+			
+			inline void storeOrConnect(const vertexPtr &pvertex, vertexPtr &itsEndPointStorage) {
+				if (this->a == nullptr) {
 					this->a = pvertex;			   // we store ourself
 					this->b = &itsEndPointStorage; // and where the other should write itself into
-				}
-				else
-				{
+				} else {
 					itsEndPointStorage = this->a; // we connect ourself to the other
 					*(this->b) = pvertex;		  // and the other to us
-					this->a = NULL;
+					this->a = nullptr;
 				}
 			}
-			inline void connect(const vertexPtr pvertex, vertexPtr &itsEndPointStorage)
-			{
-				if (this->a != NULL)
-				{
+			
+			inline void connect(const vertexPtr pvertex, vertexPtr &itsEndPointStorage) {
+				if (this->a != nullptr) {
 					itsEndPointStorage = this->a; // we connect ourself to the other
 					*(this->b) = pvertex;		  // and the other to us
-					this->a = NULL;
+					this->a = nullptr;
 				}
 			}
 		};
