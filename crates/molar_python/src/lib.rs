@@ -1,10 +1,9 @@
 use molar::prelude::*;
 use numpy::{
-    npyffi::{self},
-    PyArray1, PyArrayMethods, ToNpyDims, PY_ARRAY_API,
+    nalgebra, npyffi::{self}, PyArray1, PyArrayMethods, PyReadonlyArray1, ToNpyDims, PY_ARRAY_API
 };
-use pyo3::prelude::*;
-use std::ffi::c_void;
+use pyo3::{prelude::*, IntoPyObjectExt};
+use std::{borrow::Borrow, ffi::c_void};
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -15,14 +14,13 @@ fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
 #[pyclass]
 struct Atom(molar::core::Atom);
 
-#[pyclass]
+#[pyclass(unsendable)]
 struct Particle {
-    //atom:&'static Atom,
+    atom: &'static mut molar::core::Atom,
     pos: &'static mut molar::core::Pos,
-
-    // Index
+    // Index is readonly
     #[pyo3(get)]
-    index: usize,
+    id: usize,
 }
 
 #[pymethods]
@@ -32,19 +30,134 @@ impl Particle {
         map_pos_to_pyarray(py, self.pos)
     }
 
-    //pub resname: AsciiString,
-    //pub resid: i32, // Could be negative
-    //pub resindex: usize,
-    // Atom physical properties from topology
-    //pub atomic_number: u8,
-    //pub mass: f32,
-    //pub charge: f32,
-    //pub type_name: AsciiString,
-    //pub type_id: u32,
-    // Specific PDB fields
-    //pub chain: AsciiChar,
-    //pub bfactor: f32,
-    //pub occupancy: f32,
+    #[setter]
+    fn set_pos<'py>(&mut self, value: PyReadonlyArray1<'py,f32>) -> PyResult<()> {
+        unsafe {
+            std::ptr::copy_nonoverlapping(value.data(), self.pos.coords.as_mut_ptr(), 3);
+        }
+        Ok(())
+    }
+
+    // name
+    #[getter(name)]
+    fn get_name(&self, _py: Python) -> &str {
+        self.atom.name.as_str()
+    }
+
+    #[setter(name)]
+    fn set_name(&mut self, value: &str) {
+        self.atom.name = value.into();
+    }
+
+    // resname
+    #[getter(resname)]
+    fn get_resname(&self, _py: Python) -> &str {
+        self.atom.resname.as_str()
+    }
+
+    #[setter(resname)]
+    fn set_resname(&mut self, value: &str) {
+        self.atom.resname = value.into();
+    }
+
+    // resid
+    #[getter(resname)]
+    fn get_resid(&self, _py: Python) -> i32 {
+        self.atom.resid
+    }
+
+    #[setter(resname)]
+    fn set_resid(&mut self, value: i32) {
+        self.atom.resid = value;
+    }
+
+    // atomic_number
+    #[getter(atomic_number)]
+    fn get_atomic_number(&self, _py: Python) -> u8 {
+        self.atom.atomic_number
+    }
+
+    #[setter(atomic_number)]
+    fn set_atomic_number(&mut self, value: u8) {
+        self.atom.atomic_number = value;
+    }
+
+    // mass
+    #[getter(mass)]
+    fn get_mass(&self, _py: Python) -> f32 {
+        self.atom.mass
+    }
+
+    #[setter(mass)]
+    fn set_mass(&mut self, value: f32) {
+        self.atom.mass = value;
+    }
+
+    // charge
+    #[getter(charge)]
+    fn get_charge(&self, _py: Python) -> f32 {
+        self.atom.charge
+    }
+
+    #[setter(charge)]
+    fn set_charge(&mut self, value: f32) {
+        self.atom.charge = value;
+    }
+
+    // type_name
+    #[getter(type_name)]
+    fn get_type_name(&self, _py: Python) -> &str {
+        self.atom.type_name.as_str()
+    }
+
+    #[setter(type_name)]
+    fn set_type_name(&mut self, value: &str) {
+        self.atom.type_name = value.into();
+    }
+
+    // type_id
+    #[getter(type_id)]
+    fn get_type_id(&self, _py: Python) -> u32 {
+        self.atom.type_id
+    }
+
+    #[setter(type_id)]
+    fn set_type_id(&mut self, value: u32) {
+        self.atom.type_id = value;
+    }
+
+    // chain
+    #[getter(chain)]
+    fn get_chain(&self, _py: Python) -> char {
+        self.atom.chain
+    }
+
+    #[setter(chain)]
+    fn set_chain(&mut self, value: char) {
+        self.atom.chain = value;
+    }
+
+    // bfactor
+    #[getter(bfactor)]
+    fn get_bfactor(&self, _py: Python) -> f32 {
+        self.atom.bfactor
+    }
+
+    #[setter(bfactor)]
+    fn set_bfactor(&mut self, value: f32) {
+        self.atom.bfactor = value;
+    }
+
+    // occupancy
+    #[getter(occupancy)]
+    fn get_occupancy(&self, _py: Python) -> f32 {
+        self.atom.occupancy
+    }
+
+    #[setter(occupancy)]
+    fn set_occupancy(&mut self, value: f32) {
+        self.atom.occupancy = value;
+    }
 }
 
 #[pyclass]
@@ -107,6 +220,12 @@ impl Source {
 }
 
 //====================================
+#[derive(FromPyObject)]
+enum SliceOrInt{
+    Slice(Py<pyo3::types::PySlice>),
+    Int(isize),
+}
+
 #[pyclass(unsendable)]
 struct Sel(molar::core::Sel<MutableSerial>);
 
@@ -116,6 +235,29 @@ impl Sel {
         self.0.len()
     }
 
+    fn __len__(&self) -> usize {
+        self.0.len()
+    }
+
+    fn __getitem__(slf: Bound<Self>, ind: SliceOrInt) -> PyResult<Py<PyAny>> {
+        let s = slf.borrow();
+        match ind {
+            SliceOrInt::Int(i) => {
+                let ind = if i<0 {
+                    s.len() - i.unsigned_abs()
+                } else {
+                    i as usize
+                };
+                s.nth_particle(ind).map(|p| p.into_py_any(slf.py()).unwrap())
+            },
+            SliceOrInt::Slice(s) => {
+                todo!("subselect here");
+                Ok(s.into_py_any(slf.py()).unwrap())
+            }
+        }
+        
+    }
+
     fn com<'a>(&self, _py: Python<'a>) -> PyResult<Bound<'a, numpy::PyArray1<f32>>> {
         Ok(copy_pos_to_pyarray(
             _py,
@@ -123,36 +265,54 @@ impl Sel {
         )) //.into_py(_py))
     }
 
-    fn nth_pos<'a>(&self, _py: Python<'a>, i: usize) -> PyResult<Bound<'a, PyAny>> {
-        let pos = self.0.nth_pos_mut(i).ok_or_else(|| anyhow::anyhow!("Out of bounds"))?;
-        Ok(map_pos_to_pyarray(_py, pos))
+    fn nth_pos<'a>(slf: Bound<Self>, py: Python<'a>, i: usize) -> PyResult<Bound<'a, PyAny>> {
+        let s = slf.borrow();
+        let pos = s.0.nth_pos_mut(i).ok_or_else(|| anyhow::anyhow!("Out of bounds"))?;
+        Ok(map_pos_to_pyarray(py, pos))
     }
 
-    /*
-    fn __iter__(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
-        slf.0 = 0;
+    fn nth_particle(&self, i: usize) -> PyResult<Particle> {
+        let p = self.0.nth_particle_mut(i).ok_or_else(|| anyhow::anyhow!("Out of bounds"))?;
+        let arom_ptr = p.atom as *mut molar::core::Atom;
+        let pos_ptr = p.pos as *mut molar::core::Pos;
+        Ok(Particle{
+            atom: unsafe {&mut *arom_ptr},
+            pos: unsafe {&mut *pos_ptr},
+            id: p.id,
+        })
+    }
+
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, ParticleIterator> {
+        Bound::new(slf.py(),ParticleIterator{
+            sel: slf.into(),
+            cur: 0,
+        }).unwrap().borrow()
+    }
+}
+
+#[pyclass]
+struct ParticleIterator {
+    sel: Py<Sel>,
+    cur: usize,
+}
+
+#[pymethods]
+impl ParticleIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
-        let py = slf.py();
-        let cur = slf.0;
-        slf.0 += 1;
-        if slf.cur < slf.len() {
-            let (i,at,pos) = unsafe{slf.sel.nth_unchecked_mut(cur)};
-            //Some((i,map_pos_to_pyarray(py,pos)).into_py(py))
-            let p = Particle {
-                index: i,
-                atom: Py::new(py,Atom(at)).unwrap(),
-                pos: map_pos_to_pyarray(py,pos).into_py(py),
-            };
-            Some(p.into_py(py))
-        } else {
-            None
-        }
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
+        let ret = Python::with_gil(|py|{
+            slf.sel.borrow(py).nth_particle(slf.cur).ok().map(|p|{
+                p.into_py_any(py).unwrap()
+            })
+        });
+        slf.cur += 1;
+        ret
     }
-    */
 }
+
 
 // Constructs PyArray backed by existing Pos data.
 fn map_pos_to_pyarray<'py>(py: Python<'py>, data: &mut molar::core::Pos) -> Bound<'py, PyAny> {
@@ -168,13 +328,12 @@ fn map_pos_to_pyarray<'py>(py: Python<'py>, data: &mut molar::core::Pos) -> Boun
             f32::get_dtype(py).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
-            std::ptr::null_mut(),                    // no strides
+            std::ptr::null_mut(),                 // no strides
             data.coords.as_mut_ptr() as *mut c_void, // data
-            npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
-            std::ptr::null_mut(),                    // obj
+            //npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
+            npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
+            std::ptr::null_mut(),             // obj
         );
-
-        //PyArray1::<f32>::from_borrowed_ptr(py, ptr)
         Bound::from_borrowed_ptr(py, ptr)
     }
 }
@@ -188,6 +347,35 @@ fn copy_pos_to_pyarray<'py>(py: Python<'py>, data: &molar::core::Pos) -> Bound<'
     }
 }
 
+// unsafe fn pyarray_from_pos<'py>(
+//     py: Python<'py>,
+//     data: &mut Pos,
+//     container: *mut PyAny,
+// ) -> Bound<'py, Self>
+// where
+//     ID: IntoDimension<Dim = D>,
+// {
+//     let mut dims = dims.into_dimension();
+//     let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
+//         py,
+//         PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
+//         T::get_dtype(py).into_dtype_ptr(),
+//         dims.ndim_cint(),
+//         dims.as_dims_ptr(),
+//         strides as *mut npy_intp,    // strides
+//         data_ptr as *mut c_void,     // data
+//         npyffi::NPY_ARRAY_WRITEABLE, // flag
+//         ptr::null_mut(),             // obj
+//     );
+
+//     PY_ARRAY_API.PyArray_SetBaseObject(
+//         py,
+//         ptr as *mut npyffi::PyArrayObject,
+//         container as *mut ffi::PyObject,
+//     );
+
+//     Bound::from_owned_ptr(py, ptr).downcast_into_unchecked()
+// }
 //====================================
 
 /// A Python module implemented in Rust.

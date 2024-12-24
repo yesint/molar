@@ -302,6 +302,14 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
+    pub fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
+        if i >= self.len() {
+            None
+        } else {
+            Some(unsafe { self.nth_particle_unchecked_mut(i) })
+        }
+    }
+
     /// Return iterator that splits selection into contigous pieces according to the value of function.
     /// Consumes a selection and returns selections of the same kind.
     ///
