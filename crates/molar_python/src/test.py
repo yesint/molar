@@ -49,7 +49,8 @@ def test4():
 
 def test5():
     sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
-    print(sel[:].pos)
+    print(sel[100].pos, sel[0].name)
+    print(sel[-100].atom.name)
     
 
 #test1()
