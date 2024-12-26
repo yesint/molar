@@ -1,5 +1,6 @@
 from molar_python import *
 from sys import getrefcount
+import numpy as np
 
 sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
 
@@ -68,7 +69,9 @@ def test7():
     sel.set_coord(crd)
     print(sel[0].pos, crd[:,0])
 
-
+    arr = np.zeros((4, len(sel)), dtype=np.float32)
+    sel.set_coord(arr)
+    print(sel[0].pos, crd[:,0])
 
 #test3()
 #test2()
