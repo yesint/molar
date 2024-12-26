@@ -491,7 +491,7 @@ impl Sel {
     fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) {
         // Check if the shape is correct
         if arr.shape() != [3,self.__len__()] {
-            panic!("Array shape must be (3, {n}) where {n} is the size of selection",n=self.__len__());
+            panic!("Array shape must be [3, {}], not {:?}",self.__len__(),arr.shape());
         }
         let ptr = arr.data();
 
