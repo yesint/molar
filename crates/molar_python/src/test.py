@@ -27,8 +27,8 @@ def test2():
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
     del pos1
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del pos0
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
+    del sel
+    print(f"ref: {getrefcount(pos0)-1} pos0: {pos0}")
 
 
 def test3():
@@ -67,4 +67,4 @@ def test6():
 
 #test3()
 #test2()
-test5()
+test2()
