@@ -150,59 +150,57 @@ impl Atom {
 struct Particle {
     atom: &'static mut molar::core::Atom,
     // PyArray mapped to pos
-    pos: &'static mut molar::core::Pos,
+    pos: *mut npyffi::PyArrayObject,
     // Index is readonly
     #[pyo3(get)]
     id: usize,
-    // Parent object to keep alive
-    parent: Py<PyAny>,
 }
 
 #[pymethods]
 impl Particle {
     //pos
     #[getter]
-    fn get_pos<'py>(slf: Bound<'py,Self>, py: Python<'py>) -> Bound<'py, PyAny> {
-        let parent = slf.borrow().parent.clone_ref(slf.py());
-        map_pyarray_to_pos(py, slf.borrow_mut().pos, parent)
+    fn get_pos<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
+        //let parent = slf.borrow().parent.clone_ref(slf.py());
+        //map_pyarray_to_pos(py, slf.borrow_mut().pos, parent)
+        unsafe { Bound::from_owned_ptr(py, self.pos.cast()) }
     }
 
     #[setter]
-    fn set_pos<'py>(&mut self, value: PyReadonlyArray1<'py, f32>) -> PyResult<()> {
+    fn set_pos<'py>(&mut self, value: PyReadonlyArray1<'py, f32>) {
         unsafe {
-            std::ptr::copy_nonoverlapping(value.data(), self.pos.coords.as_mut_ptr(), 3);
+            std::ptr::copy_nonoverlapping(value.data(), (*self.pos).data.cast(), 3);
         }
-        Ok(())
     }
 
     #[getter(x)]
     fn get_x(&self) -> f32 {
-        self.pos.x
+        unsafe { *(*self.pos).data.cast() }
     }
 
     #[setter(x)]
     fn set_x(&mut self, value: f32) {
-        self.pos.x = value;
+        unsafe { *(*self.pos).data.cast() = value};
     }
 
     #[getter(y)]
     fn get_y(&self) -> f32 {
-        self.pos.y
+        unsafe { *(*self.pos).data.cast::<f32>().offset(1) }
     }
 
     #[setter(y)]
     fn set_y(&mut self, value: f32) {
-        self.pos.y = value;
+        unsafe { *(*self.pos).data.cast::<f32>().offset(1) = value};
     }
 
     #[getter(z)]
     fn get_z(&self) -> f32 {
-        self.pos.z
+        unsafe { *(*self.pos).data.cast::<f32>().offset(2) }
     }
 
     #[setter(z)]
     fn set_z(&mut self, value: f32) {
-        self.pos.z = value;
+        unsafe { *(*self.pos).data.cast::<f32>().offset(2) = value};
     }
 
     // atom
@@ -399,7 +397,7 @@ impl Source {
 
 //====================================
 
-#[pyclass(sequence,unsendable)]
+#[pyclass(sequence, unsendable)]
 struct Sel(molar::core::Sel<MutableSerial>);
 
 #[pymethods]
@@ -409,7 +407,10 @@ impl Sel {
     }
 
     fn __call__(&self, sel_str: &str) -> PyResult<Sel> {
-        Ok(Sel(self.0.subsel_str(sel_str).map_err(|e| anyhow::anyhow!(e))?))
+        Ok(Sel(self
+            .0
+            .subsel_str(sel_str)
+            .map_err(|e| anyhow::anyhow!(e))?))
     }
 
     // Indexing
@@ -432,14 +433,16 @@ impl Sel {
         let p =
             s.0.nth_particle_mut(ind)
                 .ok_or_else(|| anyhow::anyhow!("Index {} is out of bounds 0:{}", i, s.__len__()))?;
-        
+
         let atom_ptr = p.atom as *mut molar::core::Atom;
-        let pos_ptr = p.pos as *mut molar::core::Pos;
+
         Ok(Particle {
             atom: unsafe { &mut *atom_ptr },
-            pos: unsafe { &mut *pos_ptr },
+            pos: map_pyarray_to_pos(
+                slf.py(), p.pos, slf.clone().into_py_any(slf.py()).unwrap()
+            ),
             id: p.id,
-            parent: s.into_py_any(slf.py()).unwrap(),
+            //parent: s.into_py_any(slf.py()).unwrap(),
         }
         .into_py_any(slf.py())?)
     }
@@ -451,16 +454,16 @@ impl Sel {
         ))
     }
 
-    fn nth_pos<'a>(slf: Bound<Self>, py: Python<'a>, i: usize) -> PyResult<Bound<'a, PyAny>> {
-        let s = slf.borrow();
-        let pos =
-            s.0.nth_pos_mut(i)
-                .ok_or_else(|| anyhow::anyhow!("Out of bounds"))?;
-        Ok(
-            //map_pyarray_to_pos(py, pos)
-            map_pyarray_to_pos(py, pos, slf.into_py_any(py).unwrap())
-        )
-    }
+    // fn nth_pos<'a>(slf: Bound<Self>, py: Python<'a>, i: usize) -> PyResult<Bound<'a, PyAny>> {
+    //     let s = slf.borrow();
+    //     let pos =
+    //         s.0.nth_pos_mut(i)
+    //             .ok_or_else(|| anyhow::anyhow!("Out of bounds"))?;
+    //     Ok(
+    //         //map_pyarray_to_pos(py, pos)
+    //         map_pyarray_to_pos(py, pos, slf.into_py_any(py).unwrap())
+    //     )
+    // }
 
     // Iteration protocol
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, ParticleIterator> {
@@ -500,7 +503,11 @@ impl ParticleIterator {
 }
 
 // Constructs PyArray backed by existing Pos data.
-fn map_pyarray_to_pos<'py>(py: Python<'py>, data: &mut molar::core::Pos, parent: Py<PyAny>) -> Bound<'py, PyAny> {
+fn map_pyarray_to_pos<'py>(
+    py: Python<'py>,
+    data: &mut molar::core::Pos,
+    parent: Py<PyAny>,
+) -> *mut npyffi::PyArrayObject {
     use numpy::Element;
     use numpy::PyArrayDescrMethods;
 
@@ -517,7 +524,7 @@ fn map_pyarray_to_pos<'py>(py: Python<'py>, data: &mut molar::core::Pos, parent:
             data.coords.as_mut_ptr() as *mut c_void, // data
             npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
             //npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
-            std::ptr::null_mut(),           // obj
+            std::ptr::null_mut(), // obj
         );
 
         // The following mangling with the ref counting is deduced by
@@ -526,12 +533,13 @@ fn map_pyarray_to_pos<'py>(py: Python<'py>, data: &mut molar::core::Pos, parent:
 
         // We set the parent as a base object of the PyArray to link them together.
         PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), parent.as_ptr());
-        // Increase reference count of parent object since 
+        // Increase reference count of parent object since
         // our PyArray is now referencing it!
         pyo3::ffi::Py_IncRef(parent.as_ptr());
         // Return an owned ptr to avoid incorrect reference count.
         // I still don't quite understand why this is necessary.
-        Bound::from_owned_ptr(py, ptr)
+        //Bound::from_owned_ptr(py, ptr)
+        ptr.cast()
     }
 }
 

@@ -12,26 +12,12 @@ def test1():
     print("com1:",sel1.com())
     print("com2:",sel2.com())
 
-    print("py1:",sel2.nth_pos(0))
+    print("py1:",sel2[0].pos)
     sel2[0].pos[0] = 42
-    print("py2:",sel2.nth_pos(0))
+    print("py2:",sel2[0].pos)
 
 
 def test2():
-    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
-    pos0 = sel.nth_pos(0)
-    pos1 = sel.nth_pos(0)
-    pos2 = sel.nth_pos(0)
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del pos2
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del pos1
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del pos0
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-
-
-def test2_1():
     sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     pos0 = sel[0].pos
     pos1 = sel[1].pos
@@ -59,7 +45,7 @@ def test3():
 
 def test4():
     sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
-    print(f'Size: {sel.len()}')
+    print(f'Size: {len(sel)}')
     for p in sel:
         print(p.id, p.pos)
 
@@ -67,7 +53,10 @@ def test4():
 def test5():
     sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     print(sel[100].pos, sel[0].name)
-    print(sel[-1000].atom.name)
+    print(sel[-100].atom.name)
+    print("x=",sel[-100].x)
+    sel[-100].x = 42
+    print("x=",sel[-100].x)
     
 
 def test6():
@@ -78,4 +67,4 @@ def test6():
 
 #test3()
 #test2()
-test2_1()
+test5()
