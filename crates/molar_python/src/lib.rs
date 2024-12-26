@@ -1,8 +1,5 @@
 use molar::prelude::*;
-use numpy::{
-    npyffi::{self},
-    PyArray1, PyArrayMethods, PyReadonlyArray1, ToNpyDims, PY_ARRAY_API,
-};
+use numpy::{npyffi, PyArray1, PyArrayMethods, PyReadonlyArray1, ToNpyDims, PY_ARRAY_API};
 use pyo3::{prelude::*, IntoPyObjectExt};
 use std::ffi::c_void;
 
@@ -161,8 +158,8 @@ impl Particle {
     //pos
     #[getter]
     fn get_pos<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
-        //let parent = slf.borrow().parent.clone_ref(slf.py());
-        //map_pyarray_to_pos(py, slf.borrow_mut().pos, parent)
+        // Return an owned ptr to avoid incorrect reference count.
+        // I still don't quite understand why this is necessary.
         unsafe { Bound::from_owned_ptr(py, self.pos.cast()) }
     }
 
@@ -180,7 +177,7 @@ impl Particle {
 
     #[setter(x)]
     fn set_x(&mut self, value: f32) {
-        unsafe { *(*self.pos).data.cast() = value};
+        unsafe { *(*self.pos).data.cast() = value };
     }
 
     #[getter(y)]
@@ -190,7 +187,7 @@ impl Particle {
 
     #[setter(y)]
     fn set_y(&mut self, value: f32) {
-        unsafe { *(*self.pos).data.cast::<f32>().offset(1) = value};
+        unsafe { *(*self.pos).data.cast::<f32>().offset(1) = value };
     }
 
     #[getter(z)]
@@ -200,7 +197,7 @@ impl Particle {
 
     #[setter(z)]
     fn set_z(&mut self, value: f32) {
-        unsafe { *(*self.pos).data.cast::<f32>().offset(2) = value};
+        unsafe { *(*self.pos).data.cast::<f32>().offset(2) = value };
     }
 
     // atom
@@ -438,11 +435,8 @@ impl Sel {
 
         Ok(Particle {
             atom: unsafe { &mut *atom_ptr },
-            pos: map_pyarray_to_pos(
-                slf.py(), p.pos, slf.clone().into_py_any(slf.py()).unwrap()
-            ),
+            pos: map_pyarray_to_pos(slf.py(), p.pos, slf.clone().into_py_any(slf.py()).unwrap()),
             id: p.id,
-            //parent: s.into_py_any(slf.py()).unwrap(),
         }
         .into_py_any(slf.py())?)
     }
@@ -536,9 +530,6 @@ fn map_pyarray_to_pos<'py>(
         // Increase reference count of parent object since
         // our PyArray is now referencing it!
         pyo3::ffi::Py_IncRef(parent.as_ptr());
-        // Return an owned ptr to avoid incorrect reference count.
-        // I still don't quite understand why this is necessary.
-        //Bound::from_owned_ptr(py, ptr)
         ptr.cast()
     }
 }
