@@ -115,6 +115,10 @@ impl State {
     pub fn interchangeable(&self, other: &State) -> bool {
         self.get_storage().coords.len() == other.get_storage().coords.len()
     }
+
+    pub unsafe fn get_coords_ptr(&self) -> *mut Pos {
+        self.get_storage_mut().coords.as_mut_ptr()
+    }
 }
 
 //------------------------

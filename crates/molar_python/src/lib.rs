@@ -149,10 +149,13 @@ impl Atom {
 #[pyclass(unsendable)]
 struct Particle {
     atom: &'static mut molar::core::Atom,
+    // PyArray mapped to pos
     pos: &'static mut molar::core::Pos,
     // Index is readonly
     #[pyo3(get)]
     id: usize,
+    // Parent object to keep alive
+    parent: Py<PyAny>,
 }
 
 #[pymethods]
@@ -160,8 +163,8 @@ impl Particle {
     //pos
     #[getter]
     fn get_pos<'py>(slf: Bound<'py,Self>, py: Python<'py>) -> Bound<'py, PyAny> {
-        let mut s= slf.borrow_mut();
-        map_pyarray_to_pos(py, s.pos, slf.into_py_any(py).unwrap())
+        let parent = slf.borrow().parent.clone_ref(slf.py());
+        map_pyarray_to_pos(py, slf.borrow_mut().pos, parent)
     }
 
     #[setter]
@@ -436,6 +439,7 @@ impl Sel {
             atom: unsafe { &mut *atom_ptr },
             pos: unsafe { &mut *pos_ptr },
             id: p.id,
+            parent: s.into_py_any(slf.py()).unwrap(),
         }
         .into_py_any(slf.py())?)
     }
