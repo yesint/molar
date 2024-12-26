@@ -30,6 +30,21 @@ def test2():
     del pos0
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
 
+
+def test2_1():
+    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
+    pos0 = sel[0].pos
+    pos1 = sel[1].pos
+    pos2 = sel[2].pos
+    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
+    del pos2
+    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
+    del pos1
+    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
+    del pos0
+    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
+
+
 def test3():
     sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     print("[0] before:",sel[0].pos)
@@ -63,4 +78,4 @@ def test6():
 
 #test3()
 #test2()
-test2()
+test2_1()
