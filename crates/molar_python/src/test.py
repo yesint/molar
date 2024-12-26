@@ -1,8 +1,9 @@
 from molar_python import *
 from sys import getrefcount
 
+sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
+
 def test1():
-    f = FileHandler.open('/home/semen/work/Projects/molar/tests/protein.pdb')
     topst = f.read()
     src = Source(*topst)
 
@@ -18,7 +19,6 @@ def test1():
 
 
 def test2():
-    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     pos0 = sel[0].pos
     pos1 = sel[1].pos
     pos2 = sel[2].pos
@@ -32,7 +32,6 @@ def test2():
 
 
 def test3():
-    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     print("[0] before:",sel[0].pos)
     print("[1] before]:",sel[1].pos)
     sel[0].pos = sel[1].pos
@@ -44,14 +43,12 @@ def test3():
 
 
 def test4():
-    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     print(f'Size: {len(sel)}')
     for p in sel:
         print(p.id, p.pos)
 
 
 def test5():
-    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     print(sel[100].pos, sel[0].name)
     print(sel[-100].atom.name)
     print("x=",sel[-100].x)
@@ -60,11 +57,19 @@ def test5():
     
 
 def test6():
-    sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
     subsel = sel("name CA")
     print(len(sel), sel[0].name)
     print(len(subsel), subsel[0].name)
 
+def test7():
+    crd = sel.get_coord()
+    print(sel[0].pos, crd[:,0])
+    crd[0,0] = 42
+    sel.set_coord(crd)
+    print(sel[0].pos, crd[:,0])
+
+
+
 #test3()
 #test2()
-test2()
+test7()

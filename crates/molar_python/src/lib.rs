@@ -1,6 +1,7 @@
 use molar::prelude::*;
-use numpy::{npyffi, PyArray1, PyArrayMethods, PyReadonlyArray1, ToNpyDims, PY_ARRAY_API};
-use pyo3::{prelude::*, IntoPyObjectExt};
+use numpy::{npyffi, PyArray1, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, PY_ARRAY_API};
+use pyo3::{prelude::*, AsPyPointer, IntoPyObjectExt};
+use core::num;
 use std::ffi::c_void;
 
 /// Formats the sum of two numbers as string.
@@ -422,19 +423,16 @@ impl Sel {
                 .into());
             }
             s.__len__() - i.unsigned_abs()
+        } else if i >= s.__len__() as isize {
+            return Err(anyhow::anyhow!("Index {} is out of bounds 0:{}", i, s.__len__()).into());
         } else {
             i as usize
         };
 
         // Call Rust function
-        let p =
-            s.0.nth_particle_mut(ind)
-                .ok_or_else(|| anyhow::anyhow!("Index {} is out of bounds 0:{}", i, s.__len__()))?;
-
-        let atom_ptr = p.atom as *mut molar::core::Atom;
-
+        let p = s.0.nth_particle_mut(ind).unwrap();
         Ok(Particle {
-            atom: unsafe { &mut *atom_ptr },
+            atom: unsafe { &mut *(p.atom as *mut molar::core::Atom) },
             pos: map_pyarray_to_pos(slf.py(), p.pos, slf.clone().into_py_any(slf.py()).unwrap()),
             id: p.id,
         }
@@ -448,17 +446,6 @@ impl Sel {
         ))
     }
 
-    // fn nth_pos<'a>(slf: Bound<Self>, py: Python<'a>, i: usize) -> PyResult<Bound<'a, PyAny>> {
-    //     let s = slf.borrow();
-    //     let pos =
-    //         s.0.nth_pos_mut(i)
-    //             .ok_or_else(|| anyhow::anyhow!("Out of bounds"))?;
-    //     Ok(
-    //         //map_pyarray_to_pos(py, pos)
-    //         map_pyarray_to_pos(py, pos, slf.into_py_any(py).unwrap())
-    //     )
-    // }
-
     // Iteration protocol
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, ParticleIterator> {
         Bound::new(
@@ -470,6 +457,50 @@ impl Sel {
         )
         .unwrap()
         .borrow()
+    }
+
+    fn get_coord<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        use numpy::Element;
+        use numpy::PyArrayDescrMethods;
+
+        let mut dims = numpy::ndarray::Dim((3,self.__len__()));
+
+        unsafe {
+            let arr = PY_ARRAY_API.PyArray_NewFromDescr(
+                py,
+                PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
+                f32::get_dtype(py).into_dtype_ptr(),
+                dims.ndim_cint(),
+                dims.as_dims_ptr(),
+                std::ptr::null_mut(), // no strides
+                std::ptr::null_mut(), // no data, allocate new buffer
+                npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_OWNDATA, // flag
+                std::ptr::null_mut(), // obj
+            ) as *mut npyffi::PyArrayObject;
+
+            let ptr = (*arr).data.cast::<f32>();
+            for i in 0..self.__len__() {
+                let pos = self.0.nth_pos_unchecked(i);
+                std::ptr::copy_nonoverlapping(pos.coords.as_ptr(), ptr.offset(i as isize * 3), 3);
+            }
+
+            Py::from_owned_ptr(py, arr.cast())
+        }
+    }
+
+    fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) {
+        // Check if the shape is correct
+        if arr.shape() != [3,self.__len__()] {
+            panic!("Array shape must be (3, {n}) where {n} is the size of selection",n=self.__len__());
+        }
+        let ptr = arr.data();
+
+        unsafe {
+            for i in 0..self.__len__() {
+                let pos_ptr = self.0.nth_pos_mut_unchecked(i).coords.as_mut_ptr();
+                std::ptr::copy_nonoverlapping(ptr.offset(i as isize * 3), pos_ptr, 3);
+            }
+        }
     }
 }
 
@@ -516,8 +547,7 @@ fn map_pyarray_to_pos<'py>(
             dims.as_dims_ptr(),
             std::ptr::null_mut(),                    // no strides
             data.coords.as_mut_ptr() as *mut c_void, // data
-            npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
-            //npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
+            npyffi::NPY_ARRAY_WRITEABLE, // flag
             std::ptr::null_mut(), // obj
         );
 
