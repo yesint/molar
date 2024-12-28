@@ -69,9 +69,11 @@ def test7():
     sel.set_coord(crd)
     print(sel[0].pos, crd[:,0])
 
-    arr = np.zeros((4, len(sel)), dtype=np.float32)
+    arr = np.zeros((3, len(sel)), dtype=np.float32)
     sel.set_coord(arr)
     print(sel[0].pos, crd[:,0])
+
+    print(sel[5].atom.resname)
 
 #test3()
 #test2()
