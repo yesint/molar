@@ -75,6 +75,19 @@ def test7():
 
     print(sel[5].atom.resname)
 
+def test8():
+    src = Source.from_file('../../tests/protein.pdb')
+    sel = []
+    sel.append( src("resid 500:600") )
+    sel.append( src(None) )
+    sel.append( src() )
+    sel.append( src((0,199)) )
+    sel.append( src([1,3,4,5,6,7]) )
+    for s in sel:
+        print(len(s))
+
+
+
 #test3()
 #test2()
-test7()
+test8()

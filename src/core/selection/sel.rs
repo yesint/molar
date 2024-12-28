@@ -386,8 +386,8 @@ where
     }
 
     /// Subselection from string
-    pub fn subsel_str(&self, sel_str: &str) -> Result<Sel<K>, SelectionError> {
-        let mut expr = SelectionExpr::try_from(sel_str)?;
+    pub fn subsel_str(&self, sel_str: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
+        let mut expr = SelectionExpr::try_from(sel_str.as_ref())?;
         self.subsel_expr(&mut expr)
     }
 
@@ -608,7 +608,7 @@ where
     pub fn from_range(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
-        range: &std::ops::Range<usize>,
+        range: std::ops::Range<usize>,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_range(range, topology.num_atoms())?;
