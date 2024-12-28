@@ -252,7 +252,7 @@ impl<K: SelectionKind> Source<K> {
 
     /// Creates new selection from a range of indexes.
     /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&self, range: &std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
+    pub fn select_range(&self, range: std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_range(range, self.topology.num_atoms())?;
         self.new_sel(vec)
     }
@@ -323,7 +323,7 @@ impl Source<BuilderSerial> {
             .get_storage_mut()
             .add_coords(data.iter_pos().cloned());
         let last_added_index = self.num_atoms();
-        self.select_range(&(first_added_index..last_added_index))
+        self.select_range(first_added_index..last_added_index)
             .unwrap()
     }
 
@@ -336,7 +336,7 @@ impl Source<BuilderSerial> {
         self.topology.get_storage_mut().add_atoms(atoms);
         self.state.get_storage_mut().add_coords(coords);
         let last_added_index = self.num_atoms();
-        self.select_range(&(first_added_index..last_added_index))
+        self.select_range(first_added_index..last_added_index)
             .unwrap()
     }
 

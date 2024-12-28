@@ -1,6 +1,6 @@
 use molar::prelude::*;
 use numpy::{npyffi, PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, PY_ARRAY_API};
-use pyo3::{prelude::*, IntoPyObjectExt};
+use pyo3::{prelude::*, types::{PyList, PyString, PyTuple}, IntoPyObjectExt};
 use std::ffi::c_void;
 
 pub mod atom;
@@ -33,15 +33,15 @@ impl FileHandler {
     }
 }
 
-#[pyclass(unsendable)]
-struct Source(molar::core::Source<molar::core::MutableSerial>);
+#[pyclass(unsendable,sequence)]
+struct Source(molar::core::Source<molar::core::BuilderSerial>);
 
 #[pymethods]
 impl Source {
     #[new]
     fn new(topology: &mut Topology, state: &mut State) -> PyResult<Self> {
         Ok(Source(
-            molar::core::Source::new_serial(
+            molar::core::Source::new_builder(
                 topology.0.take().unwrap().into(),
                 state.0.take().unwrap().into(),
             )
@@ -49,10 +49,14 @@ impl Source {
         ))
     }
 
+    fn __len__(&self) -> usize {
+        self.0.len()
+    }
+
     #[staticmethod]
     fn from_file(fname: &str) -> PyResult<Self> {
         Ok(Source(
-            molar::core::Source::serial_from_file(fname).map_err(|e| anyhow::anyhow!(e))?,
+            molar::core::Source::builder_from_file(fname).map_err(|e| anyhow::anyhow!(e))?,
         ))
     }
 
@@ -66,12 +70,46 @@ impl Source {
             .select_str(sel_str)
             .map_err(|e| anyhow::anyhow!(e))?))
     }
+
+    #[pyo3(signature = (arg=None))]
+    fn __call__(&self, arg: Option<&Bound<'_, PyAny>>) -> PyResult<Sel> {
+        if let Some(arg) = arg {
+            if arg.is_instance_of::<PyString>() {
+                Ok(Sel(
+                    self.0
+                    .select_str(arg.extract::<String>()?)
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ))
+            } else if arg.is_instance_of::<PyTuple>() {
+                let (i1,i2) = arg.extract()?;
+                Ok(Sel(
+                    self.0
+                    .select_range(i1..i2)
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ))
+            } else if arg.is_instance_of::<PyList>() {
+                let ind = arg.extract()?;
+                Ok(Sel(
+                    self.0
+                    .select_vec(ind)
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ))
+            } else {
+                Err(anyhow::anyhow!("Invalid argument type {} when creating selection",arg.get_type()).into())
+            }
+        } else {
+            Ok(Sel(
+                self.0.select_all().map_err(|e| anyhow::anyhow!(e))?
+            ))
+        }
+    }
 }
+
 
 //====================================
 
 #[pyclass(sequence, unsendable)]
-struct Sel(molar::core::Sel<MutableSerial>);
+struct Sel(molar::core::Sel<BuilderSerial>);
 
 #[pymethods]
 impl Sel {
@@ -79,11 +117,38 @@ impl Sel {
         self.0.len()
     }
 
-    fn __call__(&self, sel_str: &str) -> PyResult<Sel> {
-        Ok(Sel(self
-            .0
-            .subsel_str(sel_str)
-            .map_err(|e| anyhow::anyhow!(e))?))
+    fn invert(&mut self) {
+        self.0.invert();
+    }
+
+    fn exclude(&mut self, other: &Sel) {
+        self.0.exclude(&other.0);
+    }
+
+    fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {
+        if arg.is_instance_of::<PyString>() {
+            Ok(Sel(
+                self.0
+                .subsel_str(arg.extract::<String>()?)
+                .map_err(|e| anyhow::anyhow!(e))?
+            ))
+        } else if arg.is_instance_of::<PyTuple>() {
+            let (i1,i2) = arg.extract()?;
+            Ok(Sel(
+                self.0
+                .subsel_local_range(i1..i2)
+                .map_err(|e| anyhow::anyhow!(e))?
+            ))
+        } else if arg.is_instance_of::<PyList>() {
+            let ind: Vec<usize> = arg.extract()?;
+            Ok(Sel(
+                self.0
+                .subsel_iter(ind.into_iter())
+                .map_err(|e| anyhow::anyhow!(e))?
+            ))
+        } else {
+            Err(anyhow::anyhow!("Invalid argument type {} when creating selection",arg.get_type()).into())
+        }
     }
 
     // Indexing
@@ -163,10 +228,10 @@ impl Sel {
         }
     }
 
-    fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) {
+    fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         // Check if the shape is correct
         if arr.shape() != [3,self.__len__()] {
-            panic!("Array shape must be [3, {}], not {:?}",self.__len__(),arr.shape());
+            return Err(anyhow::anyhow!("Array shape must be [3, {}], not {:?}",self.__len__(),arr.shape()))?;
         }
         let ptr = arr.data();
 
@@ -176,6 +241,8 @@ impl Sel {
                 std::ptr::copy_nonoverlapping(ptr.offset(i as isize * 3), pos_ptr, 3);
             }
         }
+
+        Ok(())
     }
 }
 

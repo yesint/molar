@@ -49,7 +49,7 @@ pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -
     }
 }
 
-pub(super) fn index_from_range(range: &Range<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
+pub(super) fn index_from_range(range: Range<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
     if range.start > n || range.end > n {
         Err(SelectionError::FromRange {
             first: range.start,
