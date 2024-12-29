@@ -1,4 +1,5 @@
 use crate::prelude::*;
+//use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
@@ -79,11 +80,12 @@ impl<K: SelectionKind> Sel<K> {
         Ok(sel)
     }
 
-    // If stored selection is MutableParallel it will clear used indexes
+    // If selection is MutableParallel it will clear used indexes
     // when dropped. This invalidates used indexes in certan situations 
     // like splitting and combining selections because indexes are already
     // used by the split fragments or combined selection respectively.
-    // To avoid this we clear index so that nothing is cleared upon dropping selection.
+    // To avoid this we can clear index manually so that nothing is cleared 
+    // upon dropping selection.
     pub(crate) unsafe fn clear_index_before_drop(&mut self) {
         self.index_storage.clear();
     }
@@ -292,7 +294,7 @@ impl<K: SelectionKind> Sel<K> {
         unsafe { self.nth_particle_unchecked(self.index().len() - 1) }
     }
 
-    /// Get a Particle for the first selection index.
+    /// Get a Particle for the n-th selection index.
     /// Index is bound-checked, an error is returned if it is out of bounds.
     pub fn nth_particle(&self, i: usize) -> Option<Particle> {
         if i >= self.len() {
@@ -649,6 +651,37 @@ where
         self.index_storage = SortedSet::from_unsorted(v);
     }
 }
+
+//-------------------------------------------
+// For serial selections only
+//-------------------------------------------
+// impl Sel<MutableSerial> {
+//     pub fn as_parallel<F,OP>(&self, split_fn: F, par_op: OP) -> Result<(),SelectionError> 
+//     where 
+//         F: Fn(Particle) -> Option<usize>,
+//         OP: FnMut(&mut Sel<MutableParallel>) + Sync + Send,
+//     {
+//         let mut sels = self.iter_fragments(split_fn).map(|sel|{
+//             unsafe{
+//                 // Create locally a MutableParallel selection
+//                 let top = self.topology.clone_arc();
+//                 let st = self.state.clone_arc();
+//                 Sel::<MutableParallel>::from_holders_and_index(
+//                     Holder::from_arc(top),
+//                     Holder::from_arc(st),
+//                     sel.index().clone(),
+//                 )
+//             }
+//         }).collect::<Result<Vec<_>,SelectionError>>()?;
+        
+//         // Apply op to all parallel selections
+//         sels.par_iter_mut().for_each(op); {
+
+//         }
+
+//         Ok(())
+//     }
+// }
 
 
 //---------------------------------------------

@@ -381,4 +381,48 @@ mod tests {
         let _cm = sel.center_of_mass();
     }
 
+    // #[test]
+    // fn as_parrallel_test() -> anyhow::Result<()> {
+    //     let top = TOPST.0.clone();
+    //     let st = TOPST.1.clone();
+    //     let ser = Source::new_serial(top.into(), st.into())?;
+    //     let ser_sel = ser.select_all()?;
+
+    //     let mut res = vec![];
+
+    //     ser_sel.as_parallel(|par_sel| {
+    //         let fragments = par_sel.into_iter_fragments_resindex();
+    //         res = fragments.par_iter().map(|sel| {
+    //             let cm = sel.center_of_mass().unwrap();
+    //             sel.translate(&cm.coords);
+    //             println!("thread: {}", rayon::current_thread_index().unwrap());
+    //             sel.center_of_mass().unwrap()
+    //         }).collect::<Vec<_>>();
+    //     })?;
+
+    //     println!("cm = {:?}",res);
+        
+    //     Ok(())
+    // }
+
+    // #[test]
+    // fn as_parrallel_test_leak() -> anyhow::Result<()> {
+    //     let top = TOPST.0.clone();
+    //     let st = TOPST.1.clone();
+    //     let ser = Source::new_serial(top.into(), st.into())?;
+    //     let ser_sel = ser.select_all()?;
+
+    //     let mut coms: Vec<_>;
+    //     ser_sel.as_parallel(
+    //         |p| Some(p.atom.resindex),
+    //         |par_sel| {
+    //             coms.push(par_sel.center_of_geometry())
+    //         }
+    //     )?;
+
+    //     println!("{:?}",coms.len());
+        
+    //     Ok(())
+    // }
+
 }
