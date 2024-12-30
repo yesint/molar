@@ -63,14 +63,6 @@ impl<T,K: SelectionKind> Holder<T, K> {
         })
     }
 
-    pub(crate) unsafe fn from_arc(value: triomphe::Arc<T>) -> Self {
-        Self {
-            arc: value,
-            used: Default::default(),
-            _kind: Default::default(),
-        }
-    }
-
     // Unsafe access to used indexes
     pub(crate) unsafe fn get_used(&self) -> &K::UsedIndexesType {
         &self.used
@@ -81,8 +73,12 @@ impl<T,K: SelectionKind> Holder<T, K> {
         triomphe::Arc::ptr_eq(&self.arc, &other.arc)
     }
     
-    pub(crate) unsafe fn clone_arc(&self) -> triomphe::Arc<T> {
-        self.arc.clone()
+    pub(crate) unsafe fn clone_into<K2: SelectionKind>(&self) -> Holder<T,K2> {
+        Holder {
+            arc: self.arc.clone(),
+            used: Default::default(),
+            _kind: Default::default(),
+        }
     }
 }
 
