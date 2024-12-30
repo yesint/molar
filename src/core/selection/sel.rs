@@ -111,8 +111,8 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
             Ok(Self {
-                topology: Holder::from_arc(self.topology.clone_arc()),
-                state: Holder::from_arc(self.state.clone_arc()),
+                topology: self.topology.clone_into(),
+                state: self.state.clone_into(),
                 index_storage: SortedSet::from_sorted(index),
             })
         } else {
@@ -131,8 +131,8 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
             Ok(Self {
-                topology: Holder::from_arc(self.topology.clone_arc()),
-                state: Holder::from_arc(self.state.clone_arc()),
+                topology: self.topology.clone_into(),
+                state: self.state.clone_into(),
                 index_storage: SortedSet::from_unsorted(index),
             })
         } else {
@@ -659,8 +659,8 @@ impl Sel<MutableSerial> {
             unsafe{
                 // Create locally a MutableParallel selection
                 Sel::<MutableParallel>::from_holders_and_index(
-                    Holder::from_arc(self.topology.clone_arc()),
-                    Holder::from_arc(self.state.clone_arc()),
+                    self.topology.clone_into(),
+                    self.state.clone_into(),
                     sel.index().clone(),
                 )
             }
