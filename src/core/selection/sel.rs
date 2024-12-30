@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use rayon::iter::{FromParallelIterator, IntoParallelRefMutIterator};
 //use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
@@ -109,15 +110,11 @@ impl<K: SelectionKind> Sel<K> {
         index: Vec<usize>,
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
-            // We intentionally skip an overlap check here
-                // by passing empty vectors. This allows for into_split
-                // iterators to work because they temporarrily hold
-                // a selection from which they yeld pieces.
-            Self::from_holders_and_index(
-                self.topology.clone_with_index(&vec![])?,
-                self.state.clone_with_index(&vec![])?,
-                unsafe { SortedSet::from_sorted(index) },
-            )
+            Ok(Self {
+                topology: Holder::from_arc(self.topology.clone_arc()),
+                state: Holder::from_arc(self.state.clone_arc()),
+                index_storage: SortedSet::from_sorted(index),
+            })
         } else {
             Err(SelectionError::FromVec {
                 first: index[0],
@@ -133,15 +130,11 @@ impl<K: SelectionKind> Sel<K> {
         index: Vec<usize>,
     ) -> Result<Self, SelectionError> {
         if index.len() > 0 {
-            // We intentionally skip an overlap check here
-            // by passing empty vectors. This allows for into_split
-            // iterators to work because they temporarrily hold
-            // a selection from which they yeld pieces.
-            Self::from_holders_and_index(
-                self.topology.clone_with_index(&vec![])?,
-                self.state.clone_with_index(&vec![])?,
-                SortedSet::from_unsorted(index),
-            )
+            Ok(Self {
+                topology: Holder::from_arc(self.topology.clone_arc()),
+                state: Holder::from_arc(self.state.clone_arc()),
+                index_storage: SortedSet::from_unsorted(index),
+            })
         } else {
             Err(SelectionError::FromVec {
                 first: index[0],
@@ -213,7 +206,7 @@ impl<K: SelectionKind> Sel<K> {
         C::from_iter(
             ids.into_values()
                 .map(|ind| unsafe { self.subsel_from_unsorted_vec_unchecked(ind).unwrap() }),
-            // This should never fail because `ind` can't be empty. It and can't contain duplicates
+            // This should never fail because `ind` can't be empty and can't contain duplicates
         )
     }
 
@@ -338,7 +331,6 @@ impl<K: SelectionKind> Sel<K> {
     ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
         self.into_iter_fragments(|p| Some(p.atom.chain))
     }
-
 }
 
 
@@ -655,33 +647,29 @@ where
 //-------------------------------------------
 // For serial selections only
 //-------------------------------------------
-// impl Sel<MutableSerial> {
-//     pub fn as_parallel<F,OP>(&self, split_fn: F, par_op: OP) -> Result<(),SelectionError> 
-//     where 
-//         F: Fn(Particle) -> Option<usize>,
-//         OP: FnMut(&mut Sel<MutableParallel>) + Sync + Send,
-//     {
-//         let mut sels = self.iter_fragments(split_fn).map(|sel|{
-//             unsafe{
-//                 // Create locally a MutableParallel selection
-//                 let top = self.topology.clone_arc();
-//                 let st = self.state.clone_arc();
-//                 Sel::<MutableParallel>::from_holders_and_index(
-//                     Holder::from_arc(top),
-//                     Holder::from_arc(st),
-//                     sel.index().clone(),
-//                 )
-//             }
-//         }).collect::<Result<Vec<_>,SelectionError>>()?;
+impl Sel<MutableSerial> {
+    pub fn for_each_fragment_par<F,OP,RT,C>(&self, split_fn: F, par_op: OP) -> Result<C,SelectionError> 
+    where 
+        F: Fn(Particle) -> Option<usize>,
+        OP: Fn(&mut Sel<MutableParallel>) -> RT + Sync + Send,
+        RT: Sync + Send,
+        C: FromParallelIterator<RT>,
+    {
+        let mut sels = self.iter_fragments(split_fn).map(|sel|{
+            unsafe{
+                // Create locally a MutableParallel selection
+                Sel::<MutableParallel>::from_holders_and_index(
+                    Holder::from_arc(self.topology.clone_arc()),
+                    Holder::from_arc(self.state.clone_arc()),
+                    sel.index().clone(),
+                )
+            }
+        }).collect::<Result<Vec<_>,SelectionError>>()?;
         
-//         // Apply op to all parallel selections
-//         sels.par_iter_mut().for_each(op); {
-
-//         }
-
-//         Ok(())
-//     }
-// }
+        // Apply op to all parallel selections
+        Ok(sels.par_iter_mut().map(par_op).collect::<C>())
+    }
+}
 
 
 //---------------------------------------------

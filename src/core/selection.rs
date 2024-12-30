@@ -405,24 +405,24 @@ mod tests {
     //     Ok(())
     // }
 
-    // #[test]
-    // fn as_parrallel_test_leak() -> anyhow::Result<()> {
-    //     let top = TOPST.0.clone();
-    //     let st = TOPST.1.clone();
-    //     let ser = Source::new_serial(top.into(), st.into())?;
-    //     let ser_sel = ser.select_all()?;
+    #[test]
+    fn as_parrallel_test() -> anyhow::Result<()> {
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
+        let ser = Source::new_serial(top.into(), st.into())?;
+        let ser_sel = ser.select_all()?;
 
-    //     let mut coms: Vec<_>;
-    //     ser_sel.as_parallel(
-    //         |p| Some(p.atom.resindex),
-    //         |par_sel| {
-    //             coms.push(par_sel.center_of_geometry())
-    //         }
-    //     )?;
+        let coms: Vec<_> =
+        ser_sel.for_each_fragment_par(
+            |p| Some(p.atom.resindex),
+            |sel| {
+                sel.center_of_mass()
+            }
+        )?;
 
-    //     println!("{:?}",coms.len());
+        println!("{:?}",coms);
         
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
 }
