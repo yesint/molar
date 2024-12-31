@@ -85,6 +85,15 @@ pub enum SelectionError {
 
     #[error("splitting produced no selections")]
     EmptySplit,
+
+    #[error("selection intersection is empy")]
+    EmptyIntersection,
+    
+    #[error("selection difference is empy")]
+    EmptyDifference,
+    
+    #[error("selection complement is empy")]
+    EmptyComplement,
 }
 
 #[derive(Error, Debug)]
@@ -450,7 +459,7 @@ mod tests {
         let ser = Source::new_serial(top.into(), st.into())?;
         let sel1 = ser.select_str("name CA")?;
         let sel2 = ser.select_str("name CB")?;
-        let sel3 = &sel1 | &sel2;
+        let sel3 = sel1.union(&sel2);
         assert_eq!(sel3.len(), sel1.len()+sel2.len());
         Ok(())
     }
