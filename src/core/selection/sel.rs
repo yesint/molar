@@ -1,8 +1,6 @@
 use crate::prelude::*;
 
 use rayon::iter::IntoParallelIterator;
-use rustc_hash::FxHashSet;
-//use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
@@ -741,59 +739,62 @@ where
         let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
         self.index_storage = SortedSet::from_unsorted(v);
     }
-}
 
-//======================================================
-// Overloaded operators for selections
-// Works for references to keep parent selections alive
-//======================================================
+    //==============================================
+    // Logic on selections that create new ones
+    //==============================================
 
-impl std::ops::BitOr for &Sel<MutableSerial> {
-    type Output = Sel<MutableSerial>;
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Sel::from_holders_and_index(
-            self.topology.clone(),
-            self.state.clone(),
-            SortedSet::from_unsorted(
-                self.index()
-                    .iter().cloned()
-                    .chain(rhs.index().iter().cloned())
-                    .collect()),
-        )
-        .unwrap()
+    pub fn union<KO: SelectionKind>(&self, other: &Sel<KO>) -> Self {
+        let ind = union_sorted(self.index(), other.index());
+        Self {
+            topology: self.topology.clone(),
+            state: self.state.clone(),
+            index_storage: ind,
+        }
+    }
+
+    pub fn intersection<KO: SelectionKind>(&self, other: &Sel<KO>) -> Result<Self, SelectionError> {
+        let ind = intersection_sorted(self.index(), other.index());
+        if ind.is_empty() {
+            return Err(SelectionError::EmptyIntersection);
+        }
+        Ok(Self {
+            topology: self.topology.clone(),
+            state: self.state.clone(),
+            index_storage: ind,
+        })
+    }
+
+    pub fn difference<KO: SelectionKind>(&self, other: &Sel<KO>) -> Result<Self, SelectionError> {
+        let ind = difference_sorted(self.index(), other.index());
+        if ind.is_empty() {
+            return Err(SelectionError::EmptyDifference);
+        }
+        Ok(Self {
+            topology: self.topology.clone(),
+            state: self.state.clone(),
+            index_storage: ind,
+        })
+    }
+
+    pub fn complement(&self) -> Result<Self, SelectionError> {
+        let ind = difference_sorted(
+            unsafe { &SortedSet::from_sorted((0..self.topology.num_atoms()).collect()) },
+            self.index(),
+        );
+        if ind.is_empty() {
+            return Err(SelectionError::EmptyComplement);
+        }
+        Ok(Self {
+            topology: self.topology.clone(),
+            state: self.state.clone(),
+            index_storage: ind,
+        })
     }
 }
 
-impl std::ops::BitAnd for &Sel<MutableSerial> {
-    type Output = Sel<MutableSerial>;
-    fn bitand(self, rhs: Self) -> Self::Output {
-        let set1: FxHashSet<usize> = self.index().iter().cloned().collect();
-        let set2: FxHashSet<usize> = rhs.index().iter().cloned().collect();
-        let ind: Vec<usize> = set1.intersection(&set2).cloned().collect();
-        Sel::from_holders_and_index(
-            self.topology.clone(),
-            self.state.clone(),
-            SortedSet::from_unsorted(ind),
-        )
-        .unwrap()
-    }
-}
-
-impl std::ops::Not for &Sel<MutableSerial> {
-    type Output = Sel<MutableSerial>;
-    fn not(self) -> Self::Output {
-        let all: FxHashSet<usize> = (0..self.topology.num_atoms()).collect();
-        let cur: FxHashSet<usize> = self.index().iter().cloned().collect();
-        let ind: Vec<usize> = all.difference(&cur).cloned().collect();
-        Sel::from_holders_and_index(
-            self.topology.clone(),
-            self.state.clone(),
-            SortedSet::from_unsorted(ind),
-        )
-        .unwrap()
-    }
-}
 //---------------------------------------------
+
 /// Iterator over the [Particle]s from selection.
 pub struct SelectionIterator<'a, K: SelectionKind> {
     sel: &'a Sel<K>,
