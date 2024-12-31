@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use rayon::iter::{FromParallelIterator, IntoParallelRefMutIterator};
+
 //use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
@@ -61,15 +61,14 @@ pub struct Sel<K: SelectionKind> {
 //-------------------------------------------
 
 impl<K: SelectionKind> Sel<K> {
-
     #[inline(always)]
-    fn check_index(&self) -> Result<(),SelectionError> {
+    fn check_index(&self) -> Result<(), SelectionError> {
         K::check_index(&self.index_storage, &self.topology, &self.state)
     }
 
     pub(crate) fn from_holders_and_index(
-        top_holder: Holder<Topology,K>,
-        st_holder: Holder<State,K>,
+        top_holder: Holder<Topology, K>,
+        st_holder: Holder<State, K>,
         index: SortedSet<usize>,
     ) -> Result<Self, SelectionError> {
         let sel = Sel {
@@ -82,10 +81,10 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     // If selection is MutableParallel it will clear used indexes
-    // when dropped. This invalidates used indexes in certan situations 
+    // when dropped. This invalidates used indexes in certan situations
     // like splitting and combining selections because indexes are already
     // used by the split fragments or combined selection respectively.
-    // To avoid this we can clear index manually so that nothing is cleared 
+    // To avoid this we can clear index manually so that nothing is cleared
     // upon dropping selection.
     pub(crate) unsafe fn clear_index_before_drop(&mut self) {
         self.index_storage.clear();
@@ -105,12 +104,12 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     // This method doesn't check if the vector is sorted and has duplicates and thus unsafe
-    pub(super) unsafe fn subsel_from_sorted_vec_unchecked(
+    pub(super) unsafe fn subsel_from_sorted_vec_unchecked<KO: SelectionKind>(
         &self,
         index: Vec<usize>,
-    ) -> Result<Self, SelectionError> {
+    ) -> Result<Sel<KO>, SelectionError> {
         if index.len() > 0 {
-            Ok(Self {
+            Ok(Sel {
                 topology: self.topology.clone_into(),
                 state: self.state.clone_into(),
                 index_storage: SortedSet::from_sorted(index),
@@ -125,12 +124,12 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
-    pub(super) unsafe fn subsel_from_unsorted_vec_unchecked(
+    pub(super) unsafe fn subsel_from_unsorted_vec_unchecked<KO: SelectionKind>(
         &self,
         index: Vec<usize>,
-    ) -> Result<Self, SelectionError> {
+    ) -> Result<Sel<KO>, SelectionError> {
         if index.len() > 0 {
-            Ok(Self {
+            Ok(Sel {
                 topology: self.topology.clone_into(),
                 state: self.state.clone_into(),
                 index_storage: SortedSet::from_unsorted(index),
@@ -184,11 +183,12 @@ impl<K: SelectionKind> Sel<K> {
     //============================
 
     // Helper splitting function doing actual work
-    fn split_gen<RT, F, C>(&self, func: F) -> C
+    fn split_gen<RT, F, C, KO>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
-        C: FromIterator<Self> + Default,
+        C: FromIterator<Sel<KO>> + Default,
+        KO: SelectionKind,
     {
         let mut ids = HashMap::<RT, Vec<usize>>::default();
 
@@ -202,7 +202,7 @@ impl<K: SelectionKind> Sel<K> {
                 }
             }
         }
-        
+
         C::from_iter(
             ids.into_values()
                 .map(|ind| unsafe { self.subsel_from_unsorted_vec_unchecked(ind).unwrap() }),
@@ -333,7 +333,6 @@ impl<K: SelectionKind> Sel<K> {
     }
 }
 
-
 impl<K: SelectionKind> Drop for Sel<K> {
     fn drop(&mut self) {
         unsafe {
@@ -342,7 +341,6 @@ impl<K: SelectionKind> Drop for Sel<K> {
         }
     }
 }
-
 
 //-------------------------------------------
 // For all selections except MutableParallel
@@ -360,7 +358,7 @@ where
     //===================
     // Subselections
     //===================
-        
+
     fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
         Self::from_holders_and_index(
             self.topology.clone_with_index(&index)?,
@@ -368,7 +366,7 @@ where
             index,
         )
     }
-    
+
     /// Subselection from expression
     pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
@@ -616,7 +614,7 @@ where
     //-----------------------------------------------------
     // Logic on selections that modify existing ones
     //-----------------------------------------------------
-    pub fn append(&mut self, other: &impl IndexProvider) -> Result<(),SelectionError>{
+    pub fn append(&mut self, other: &impl IndexProvider) -> Result<(), SelectionError> {
         self.index_storage.extend(other.iter_index());
         self.check_index()?;
         Ok(())
@@ -632,7 +630,10 @@ where
     pub fn exclude_local(&mut self, other: impl IntoIterator<Item = usize>) {
         let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
         let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other);
-        let v: Vec<usize> = lhs.difference(&rhs).map(|i| self.index_storage[*i]).collect();
+        let v: Vec<usize> = lhs
+            .difference(&rhs)
+            .map(|i| self.index_storage[*i])
+            .collect();
         self.index_storage = SortedSet::from_unsorted(v);
     }
 
@@ -648,29 +649,68 @@ where
 // For serial selections only
 //-------------------------------------------
 impl Sel<MutableSerial> {
-    pub fn for_each_fragment_par<F,OP,RT,C>(&self, split_fn: F, par_op: OP) -> Result<C,SelectionError> 
-    where 
-        F: Fn(Particle) -> Option<usize>,
-        OP: Fn(&mut Sel<MutableParallel>) -> RT + Sync + Send,
-        RT: Sync + Send,
-        C: FromParallelIterator<RT>,
+    pub fn split_par_unordered<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        let mut sels = self.iter_fragments(split_fn).map(|sel|{
-            unsafe{
-                // Create locally a MutableParallel selection
-                Sel::<MutableParallel>::from_holders_and_index(
-                    self.topology.clone_into(),
-                    self.state.clone_into(),
-                    sel.index().clone(),
-                )
+        Ok(ParallelSplit {
+            parts: self.split_gen(split_fn),
+            _marker: Default::default(),
+        })
+    }
+
+    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        // Iterator oved valid particles for which split_n returns Some
+        let mut piter = self.iter_particle().filter_map(|p| {
+            let i = p.id;
+            split_fn(p).map(|val| (i, val))
+        });
+
+        // Get find first valid value or bail with error
+        let (mut part_start, mut part_val) =
+            piter.next().ok_or_else(|| SelectionError::EmptySplit)?;
+
+        let mut parts = vec![];
+        let mut last_valid = part_start;
+
+        for (i, val) in piter {
+            if val != part_val {
+                // Create new part
+                parts.push(unsafe {
+                    Sel::from_holders_and_index(
+                        self.topology.clone_into(),
+                        self.state.clone_into(),
+                        SortedSet::from_sorted((part_start..i).collect()),
+                    )?
+                });
+                // Reset cur
+                part_val = val;
+                part_start = i;
             }
-        }).collect::<Result<Vec<_>,SelectionError>>()?;
-        
-        // Apply op to all parallel selections
-        Ok(sels.par_iter_mut().map(par_op).collect::<C>())
+            // Keep track of the last valid value
+            last_valid = i;
+        }
+
+        // Add last part
+        parts.push(unsafe {
+            Sel::from_holders_and_index(
+                self.topology.clone_into(),
+                self.state.clone_into(),
+                SortedSet::from_sorted((part_start..=last_valid).collect()),
+            )?
+        });
+
+        Ok(ParallelSplit {
+            parts,
+            _marker: Default::default(),
+        })
     }
 }
-
 
 //---------------------------------------------
 /// Iterator over the [Particle]s from selection.

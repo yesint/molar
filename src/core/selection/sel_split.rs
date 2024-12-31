@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+
+use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelRefMutIterator};
 use crate::prelude::*;
 
 //-------------------------------------------------------
@@ -10,10 +13,10 @@ struct SplitData<RT, F> {
     id: RT,
 }
 
-/// Iterator over contiguous pieces of selection returned by [Sel::split_contig] 
+/// Iterator over contiguous pieces of selection returned by [Sel::split_contig]
 /// and `various Sel::split_contig_*` convenience methods.
-/// 
-/// This iterator keeps the parent selection alive and yelds selections of the same kind 
+///
+/// This iterator keeps the parent selection alive and yelds selections of the same kind
 /// as sub-selections of the parent [Sel].
 pub struct SelectionFragmentsIterator<'a, RT, F, K: SelectionKind> {
     sel: &'a Sel<K>,
@@ -51,17 +54,17 @@ where
 }
 
 //--------------------------------------------
-/// Iterator over contiguous pieces of selection returned by [Sel::into_split_contig] 
+/// Iterator over contiguous pieces of selection returned by [Sel::into_split_contig]
 /// and `various Sel::into_split_contig_*` convenience methods.
-/// 
-/// This iterator consumes the parent selection and yelds selections of the same kind 
+///
+/// This iterator consumes the parent selection and yelds selections of the same kind
 /// as the parent [Sel].
 pub struct IntoFragmentsIterator<RT, F, K: SelectionKind> {
     sel: Sel<K>,
     data: SplitData<RT, F>,
 }
 
-impl<RT,F,K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
+impl<RT, F, K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
     fn drop(&mut self) {
         // If stored selection is MutableParallel it will clear used indexes
         // when dropped. This will invalidate used indexes because they are already
@@ -144,4 +147,15 @@ where
 
     // If we are here stop iterating
     None
+}
+
+pub struct ParallelSplit {
+    pub(super) parts: Vec<Sel<MutableParallel>>,
+    pub(super) _marker: PhantomData<*const ()>,
+}
+
+impl ParallelSplit {
+    pub fn par_iter(&mut self) -> rayon::slice::IterMut<'_, Sel<MutableParallel>>  {
+        self.parts.par_iter_mut()
+    }
 }
