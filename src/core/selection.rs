@@ -104,7 +104,7 @@ mod tests {
     use super::*;
     use crate::prelude::*;
     pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-    use rayon::{iter::IndexedParallelIterator, vec};
+    use rayon::iter::IndexedParallelIterator;
     use std::sync::LazyLock;
 
     static TOPST: LazyLock<(Topology, State)> = LazyLock::new(|| {
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn split_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        for res in sel1.iter_fragments(|p| Some(p.atom.resid)) {
+        for res in sel1.iter_contig_fragments(|p| Some(p.atom.resid)) {
             println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
         Ok(())
@@ -440,6 +440,18 @@ mod tests {
 
         println!("{:?}", coms);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_or() -> anyhow::Result<()> {
+        let top = TOPST.0.clone();
+        let st = TOPST.1.clone();
+        let ser = Source::new_serial(top.into(), st.into())?;
+        let sel1 = ser.select_str("name CA")?;
+        let sel2 = ser.select_str("name CB")?;
+        let sel3 = &sel1 | &sel2;
+        assert_eq!(sel3.len(), sel1.len()+sel2.len());
         Ok(())
     }
 }

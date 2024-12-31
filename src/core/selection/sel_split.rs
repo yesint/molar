@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelRefMutIterator};
+use rayon::iter::IntoParallelRefMutIterator;
 use crate::prelude::*;
 
 //-------------------------------------------------------
@@ -155,7 +155,7 @@ pub struct ParallelSplit {
 }
 
 impl ParallelSplit {
-    pub fn par_iter(&mut self) -> rayon::slice::IterMut<'_, Sel<MutableParallel>>  {
+    pub fn par_iter(&mut self) -> rayon::slice::IterMut<'_, Sel<MutableParallel>> {
         self.parts.par_iter_mut()
     }
 }

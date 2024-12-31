@@ -1,5 +1,7 @@
 use crate::prelude::*;
 
+use rayon::iter::IntoParallelIterator;
+use rustc_hash::FxHashSet;
 //use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
@@ -215,7 +217,7 @@ impl<K: SelectionKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.
-    pub fn split_into<RT, F, C>(self, func: F) -> C
+    pub fn into_split_disjoint<RT, F, C>(self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -226,7 +228,7 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is consumed.
-    pub fn split_resid_into<C>(self) -> C
+    pub fn into_split_resid<C>(self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -256,14 +258,6 @@ impl<K: SelectionKind> Sel<K> {
     pub fn get_index_vec(&self) -> SortedSet<usize> {
         self.index().clone()
     }
-
-    /// Saves selection to file. File type is deduced from extension.
-    /*
-    pub fn save(&self, fname: &str) -> Result<()> {
-        let mut h = FileHandler::create(fname)?;
-        h.write(self)
-    }
-    */
 
     pub fn first_index(&self) -> usize {
         self.index()[0]
@@ -310,7 +304,7 @@ impl<K: SelectionKind> Sel<K> {
     ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn into_iter_fragments<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
+    pub fn into_iter_contig_fragments<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -320,16 +314,16 @@ impl<K: SelectionKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn into_iter_fragments_resindex(
+    pub fn into_iter_contig_fragments_resindex(
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
-        self.into_iter_fragments(|p| Some(p.atom.resindex))
+        self.into_iter_contig_fragments(|p| Some(p.atom.resindex))
     }
 
-    pub fn into_iter_fragments_chain(
+    pub fn into_iter_contig_fragments_chain(
         self,
     ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
-        self.into_iter_fragments(|p| Some(p.atom.chain))
+        self.into_iter_contig_fragments(|p| Some(p.atom.chain))
     }
 }
 
@@ -427,7 +421,7 @@ where
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn split_unordered<RT, F, C>(&self, func: F) -> C
+    pub fn split_disjoint<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -438,7 +432,7 @@ where
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is left alive.
-    pub fn split_unordered_resid<C>(&self) -> C
+    pub fn split_disjoint_resid<C>(&self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -447,20 +441,20 @@ where
 
     /// Helper method that splits selection into the parts with distinct resindexes.
     /// Parent selection is left alive.
-    pub fn split_unordered_resindex<C>(&self) -> C
+    pub fn split_disjoint_resindex<C>(&self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
         self.split_gen(|p| Some(p.atom.resindex))
     }
 
-    /// Return iterator that splits selection into contigous pieces according to the value of function.
+    /// Return serial iterator that splits selection into contigous pieces according to the value of function.
     /// Selection is not consumed. Returned selections are of subselection kind.
     ///
     /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
     /// If `func` returns `None` the atom is skipped and do not added to new selection.
     /// Selections are computed lazily when iterating.
-    pub fn iter_fragments<RT, F>(&self, func: F) -> SelectionFragmentsIterator<'_, RT, F, K>
+    pub fn iter_contig_fragments<RT, F>(&self, func: F) -> SelectionFragmentsIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -468,13 +462,117 @@ where
         SelectionFragmentsIterator::new(self, func)
     }
 
-    /// Return iterator over contigous pieces of selection with distinct contigous resids.
+    /// Return serial iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn iter_fragments_resindex(
+    pub fn iter_contig_resindex(
         &self,
     ) -> SelectionFragmentsIterator<'_, usize, fn(Particle) -> Option<usize>, K> {
-        self.iter_fragments(|p| Some(p.atom.resindex))
+        self.iter_contig_fragments(|p| Some(p.atom.resindex))
     }
+
+    //=========================================================
+    // Splitting into parallel selections (keeps parent alive)
+    //=========================================================
+
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces may not be contigous and are arranged in random order.
+    /// Parent selection is kept intact.
+    ///
+    /// Each produced selection correspond to the distinct values returned by `split_fn`.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(ParallelSplit {
+            parts: self.split_gen(split_fn),
+            _marker: Default::default(),
+        })
+    }
+
+    fn split_par_contig_internal<F, RT>(
+        &self,
+        split_fn: F,
+    ) -> Result<Vec<Sel<MutableParallel>>, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        // Iterator oved valid particles for which split_n returns Some
+        let mut piter = self.iter_particle().filter_map(|p| {
+            let i = p.id;
+            split_fn(p).map(|val| (i, val))
+        });
+
+        // Get find first valid value or bail with error
+        let (mut part_start, mut part_val) =
+            piter.next().ok_or_else(|| SelectionError::EmptySplit)?;
+
+        let mut parts = vec![];
+        let mut last_valid = part_start;
+
+        for (i, val) in piter {
+            if val != part_val {
+                // Create new part
+                parts.push(unsafe {
+                    Sel::from_holders_and_index(
+                        self.topology.clone_into(),
+                        self.state.clone_into(),
+                        SortedSet::from_sorted((part_start..i).collect()),
+                    )?
+                });
+                // Reset cur
+                part_val = val;
+                part_start = i;
+            }
+            // Keep track of the last valid value
+            last_valid = i;
+        }
+
+        // Add last part
+        parts.push(unsafe {
+            Sel::from_holders_and_index(
+                self.topology.clone_into(),
+                self.state.clone_into(),
+                SortedSet::from_sorted((part_start..=last_valid).collect()),
+            )?
+        });
+
+        Ok(parts)
+    }
+
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces may not be contigous and are arranged in random order.
+    /// Parent selection is kept intact.
+    ///
+    /// Each produced selection correspond to the distinct values returned by `split_fn`.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(ParallelSplit {
+            parts: self.split_par_contig_internal(split_fn)?,
+            _marker: Default::default(),
+        })
+    }
+
+    pub fn par_iter_contig_fragments<F, RT>(
+        &self,
+        split_fn: F,
+    ) -> Result<rayon::vec::IntoIter<Sel<MutableParallel>>, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(self.split_par_contig_internal(split_fn)?.into_par_iter())
+    }
+
+    //==============================================
+    // Getters ans setters
+    //==============================================
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
         self.topology.clone()
@@ -530,9 +628,9 @@ where
         }
     }
 
-    //-----------------------------------------------------------
+    //==============================================
     // Direct creation of selections without Source
-    //-----------------------------------------------------------
+    //==============================================
 
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
@@ -611,9 +709,9 @@ where
         )
     }
 
-    //-----------------------------------------------------
+    //==============================================
     // Logic on selections that modify existing ones
-    //-----------------------------------------------------
+    //==============================================
     pub fn append(&mut self, other: &impl IndexProvider) -> Result<(), SelectionError> {
         self.index_storage.extend(other.iter_index());
         self.check_index()?;
@@ -645,73 +743,56 @@ where
     }
 }
 
-//-------------------------------------------
-// For serial selections only
-//-------------------------------------------
-impl Sel<MutableSerial> {
-    pub fn split_par_unordered<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_gen(split_fn),
-            _marker: Default::default(),
-        })
-    }
+//======================================================
+// Overloaded operators for selections
+// Works for references to keep parent selections alive
+//======================================================
 
-    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        // Iterator oved valid particles for which split_n returns Some
-        let mut piter = self.iter_particle().filter_map(|p| {
-            let i = p.id;
-            split_fn(p).map(|val| (i, val))
-        });
-
-        // Get find first valid value or bail with error
-        let (mut part_start, mut part_val) =
-            piter.next().ok_or_else(|| SelectionError::EmptySplit)?;
-
-        let mut parts = vec![];
-        let mut last_valid = part_start;
-
-        for (i, val) in piter {
-            if val != part_val {
-                // Create new part
-                parts.push(unsafe {
-                    Sel::from_holders_and_index(
-                        self.topology.clone_into(),
-                        self.state.clone_into(),
-                        SortedSet::from_sorted((part_start..i).collect()),
-                    )?
-                });
-                // Reset cur
-                part_val = val;
-                part_start = i;
-            }
-            // Keep track of the last valid value
-            last_valid = i;
-        }
-
-        // Add last part
-        parts.push(unsafe {
-            Sel::from_holders_and_index(
-                self.topology.clone_into(),
-                self.state.clone_into(),
-                SortedSet::from_sorted((part_start..=last_valid).collect()),
-            )?
-        });
-
-        Ok(ParallelSplit {
-            parts,
-            _marker: Default::default(),
-        })
+impl std::ops::BitOr for &Sel<MutableSerial> {
+    type Output = Sel<MutableSerial>;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Sel::from_holders_and_index(
+            self.topology.clone(),
+            self.state.clone(),
+            SortedSet::from_unsorted(
+                self.index()
+                    .iter().cloned()
+                    .chain(rhs.index().iter().cloned())
+                    .collect()),
+        )
+        .unwrap()
     }
 }
 
+impl std::ops::BitAnd for &Sel<MutableSerial> {
+    type Output = Sel<MutableSerial>;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let set1: FxHashSet<usize> = self.index().iter().cloned().collect();
+        let set2: FxHashSet<usize> = rhs.index().iter().cloned().collect();
+        let ind: Vec<usize> = set1.intersection(&set2).cloned().collect();
+        Sel::from_holders_and_index(
+            self.topology.clone(),
+            self.state.clone(),
+            SortedSet::from_unsorted(ind),
+        )
+        .unwrap()
+    }
+}
+
+impl std::ops::Not for &Sel<MutableSerial> {
+    type Output = Sel<MutableSerial>;
+    fn not(self) -> Self::Output {
+        let all: FxHashSet<usize> = (0..self.topology.num_atoms()).collect();
+        let cur: FxHashSet<usize> = self.index().iter().cloned().collect();
+        let ind: Vec<usize> = all.difference(&cur).cloned().collect();
+        Sel::from_holders_and_index(
+            self.topology.clone(),
+            self.state.clone(),
+            SortedSet::from_unsorted(ind),
+        )
+        .unwrap()
+    }
+}
 //---------------------------------------------
 /// Iterator over the [Particle]s from selection.
 pub struct SelectionIterator<'a, K: SelectionKind> {
