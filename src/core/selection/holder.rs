@@ -81,13 +81,13 @@ impl<T,K: SelectionKind> Holder<T, K> {
         }
     }
 
-    pub(crate) unsafe fn from_arc(arc: triomphe::Arc<T>) -> Self {
-        Holder {
-            arc: arc,
-            used: Default::default(),
-            _kind: Default::default(),
-        }
-    }
+    // pub(crate) unsafe fn from_arc(arc: triomphe::Arc<T>) -> Self {
+    //     Holder {
+    //         arc: arc,
+    //         used: Default::default(),
+    //         _kind: Default::default(),
+    //     }
+    // }
 }
 
 // All holders are dereferenced as usual smart pointers
