@@ -1,61 +1,61 @@
+mod holder;
 mod kinds;
-mod utils;
-mod source;
 mod sel;
 mod sel_split;
-mod holder;
+mod source;
+mod utils;
 
+pub use holder::*;
 pub use kinds::*;
-pub use source::*;
 pub use sel::*;
 pub use sel_split::*;
+pub use source::*;
 pub(crate) use utils::*;
-pub use holder::*;
 
-use thiserror::Error;
-use crate::io::FileIoError;
 use super::{selection_parser::SelectionParserError, BuilderError};
+use crate::io::FileIoError;
+use thiserror::Error;
 
 //############################################################
 //#  Error enums
 //############################################################
 
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 #[error("topology and state have different sizes ({0},{1})")]
-pub struct TopologyStateSizes(usize,usize);
+pub struct TopologyStateSizes(usize, usize);
 
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 pub enum SelectionError {
     #[error("selection parser failed")]
     Parser(#[from] SelectionParserError),
-    
+
     #[error(transparent)]
     DifferentSizes(#[from] TopologyStateSizes),
-    
+
     #[error("creating selection from expression {expr_str}")]
-    FromExpr{
+    FromExpr {
         expr_str: String,
         source: SelectionIndexError,
     },
-    
+
     #[error("creating selection from range {first}:{last}")]
-    FromRange{
+    FromRange {
         first: usize,
         last: usize,
         source: SelectionIndexError,
     },
 
     #[error("invalid local sub-range: {0}:{1}, valid range: 0:{2}")]
-    LocalRange(usize,usize,usize),
-    
+    LocalRange(usize, usize, usize),
+
     #[error("creating selection from vec {first}..{last} of size {size}")]
-    FromVec{
+    FromVec {
         first: usize,
         last: usize,
         size: usize,
-        source: SelectionIndexError
+        source: SelectionIndexError,
     },
-    
+
     #[error("pbc operation on selection withon periodic box")]
     NoPbc,
 
@@ -82,14 +82,17 @@ pub enum SelectionError {
 
     #[error(transparent)]
     Holder(#[from] HolderOverlapCheckError),
+
+    #[error("splitting produced no selections")]
+    EmptySplit,
 }
 
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 pub enum SelectionIndexError {
     #[error("selection index is empty")]
     IndexEmpty,
     #[error("selection indeces {0}:{1} are out of allowed range 0:{2}")]
-    IndexOutOfBounds(usize,usize,usize),
+    IndexOutOfBounds(usize, usize, usize),
 }
 
 //############################################################
@@ -97,17 +100,17 @@ pub enum SelectionIndexError {
 //############################################################
 
 #[cfg(test)]
-mod tests {    
-    use std::sync::LazyLock;
-    use crate::prelude::*;    
-    pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+mod tests {
     use super::*;
+    use crate::prelude::*;
+    pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+    use rayon::{iter::IndexedParallelIterator, vec};
+    use std::sync::LazyLock;
 
-    static TOPST: LazyLock<(Topology,State)> = LazyLock::new(|| {
+    static TOPST: LazyLock<(Topology, State)> = LazyLock::new(|| {
         let mut h = FileHandler::open("tests/protein.pdb").unwrap();
         h.read().unwrap()
     });
-    
 
     #[test]
     fn builder_overlap() -> anyhow::Result<()> {
@@ -148,17 +151,20 @@ mod tests {
         let b = Source::new_parallel_mut(top.into(), st.into())?;
         let mut sels = vec![];
         // Create valid non-overlapping selections.
-        sels.push( b.select_iter(0..10).unwrap() );
-        sels.push( b.select_iter(11..15).unwrap() );
-        sels.push( b.select_iter(15..25).unwrap() );
+        sels.push(b.select_iter(0..10).unwrap());
+        sels.push(b.select_iter(11..15).unwrap());
+        sels.push(b.select_iter(15..25).unwrap());
         // Process them
         let v = Vector3f::new(1.0, 2.0, 3.0);
-        let res = sels.par_iter().map(|sel| {
-            sel.translate(&v);
-            Ok(sel.center_of_mass()?)
-        }).collect::<anyhow::Result<Vec<_>>>()?;
-        
-        println!("cm1 = {:?}",res);
+        let res = sels
+            .par_iter()
+            .map(|sel| {
+                sel.translate(&v);
+                Ok(sel.center_of_mass()?)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        println!("cm1 = {:?}", res);
         Ok(())
     }
 
@@ -170,18 +176,21 @@ mod tests {
         // Create non-overlapping selections.
         let mut sels = vec![];
         for i in 0..30 {
-            sels.push( b.select_iter(10*i..10*(i+1)).unwrap() );
+            sels.push(b.select_iter(10 * i..10 * (i + 1)).unwrap());
         }
         // Process them
-        let res= sels.par_iter().map(|sel| {
-            let cm = sel.center_of_mass()?;
-            sel.translate(&cm.coords);
-            println!("thread: {}", rayon::current_thread_index().unwrap());
-            sel.center_of_mass()
-        }).collect::<Result<Vec<_>,MeasureError>>()?;
-        
-        println!("cm = {:?}",res);
-        
+        let res = sels
+            .par_iter()
+            .map(|sel| {
+                let cm = sel.center_of_mass()?;
+                sel.translate(&cm.coords);
+                println!("thread: {}", rayon::current_thread_index().unwrap());
+                sel.center_of_mass()
+            })
+            .collect::<Result<Vec<_>, MeasureError>>()?;
+
+        println!("cm = {:?}", res);
+
         Ok(())
     }
 
@@ -237,7 +246,7 @@ mod tests {
     #[test]
     fn test_write_to_file() -> anyhow::Result<()> {
         let sel = make_sel_all()?;
-        
+
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         h.write_topology(&sel)?;
         h.write_state(&sel)?;
@@ -249,7 +258,7 @@ mod tests {
         let sel = make_sel_prot()?;
         sel.unwrap_connectivity_dim(0.2, PBC_FULL)?;
 
-        let mut h = FileHandler::create(concat!(env!("OUT_DIR"),"/unwrapped.pdb"))?;
+        let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
         h.write_topology(&sel)?;
         h.write_state(&sel)?;
         Ok(())
@@ -271,7 +280,7 @@ mod tests {
 
         sel1.apply_transform(&m);
 
-        sel1.save(concat!(env!("OUT_DIR"),"/sel1_after.pdb"))?;
+        sel1.save(concat!(env!("OUT_DIR"), "/sel1_after.pdb"))?;
         println!("Final RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
         Ok(())
     }
@@ -331,17 +340,20 @@ mod tests {
         let (_, axes) = sel1.inertia()?;
         println!("Axes after: {axes}");
 
-        sel1.save(concat!(env!("OUT_DIR"),"/oriented.pdb"))?;
+        sel1.save(concat!(env!("OUT_DIR"), "/oriented.pdb"))?;
 
         Ok(())
-    }    
+    }
 
     #[test]
     #[should_panic]
     fn fail_on_empty_selection() {
-        let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
+        let (top, st) = FileHandler::open("tests/protein.pdb")
+            .unwrap()
+            .read()
+            .unwrap();
         let src = Source::new_parallel_mut(top.into(), st.into()).unwrap();
-        src.select_str("resid 5").unwrap();        
+        src.select_str("resid 5").unwrap();
     }
 
     #[test]
@@ -353,7 +365,7 @@ mod tests {
         let added = sel.len();
         builder.append(&sel);
         let all = builder.select_all()?;
-        assert_eq!(all.len(),n+added);
+        assert_eq!(all.len(), n + added);
         Ok(())
     }
 
@@ -366,14 +378,17 @@ mod tests {
         let removed = sel.len();
         builder.remove(&sel)?;
         let all = builder.select_all()?;
-        assert_eq!(all.len(),n-removed);
+        assert_eq!(all.len(), n - removed);
         Ok(())
     }
 
     #[test]
     #[should_panic]
     fn test_builder_fail_invalid_selection() {
-        let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
+        let (top, st) = FileHandler::open("tests/protein.pdb")
+            .unwrap()
+            .read()
+            .unwrap();
         let builder = Source::new_builder(top.into(), st.into()).unwrap();
         let sel = builder.select_str("resid 809").unwrap(); // last residue
         builder.remove(&sel).unwrap();
@@ -401,7 +416,7 @@ mod tests {
     //     })?;
 
     //     println!("cm = {:?}",res);
-        
+
     //     Ok(())
     // }
 
@@ -412,17 +427,19 @@ mod tests {
         let ser = Source::new_serial(top.into(), st.into())?;
         let ser_sel = ser.select_all()?;
 
-        let coms: Vec<_> =
-        ser_sel.for_each_fragment_par(
-            |p| Some(p.atom.resindex),
-            |sel| {
-                sel.center_of_mass()
-            }
-        )?;
+        let mut parts = ser_sel.split_par_contig(|p| Some(p.atom.resindex))?;
+        let coms = parts
+            .par_iter()
+            .map(|sel| sel.center_of_mass())
+            .collect::<Result<Vec<_>,_>>()?;
 
-        println!("{:?}",coms);
-        
+        parts
+            .par_iter()
+            .enumerate()
+            .for_each(|(i, sel)| sel.translate(&(-coms[i].coords)));
+
+        println!("{:?}", coms);
+
         Ok(())
     }
-
 }
