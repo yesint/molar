@@ -120,14 +120,6 @@ impl<K: UserCreatableKind> Source<K> {
         Ok((self.topology.release()?, self.state.release()?))
     }
 
-    fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
-        Sel::from_holders_and_index(
-            self.topology.clone(),
-            self.state.clone(),
-            index,
-        )
-    }
-
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
     pub fn select_iter(&self, iter: impl Iterator<Item = usize>) -> Result<Sel<K>, SelectionError> {
@@ -217,6 +209,14 @@ impl<K: UserCreatableKind> Source<K> {
 
     pub fn get_state(&self) -> Holder<State, K> {
         self.state.clone()
+    }
+
+    fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
+        Sel::from_holders_and_index(
+            self.topology.clone(),
+            self.state.clone(),
+            index,
+        )
     }
 }
 
