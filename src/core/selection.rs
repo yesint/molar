@@ -80,9 +80,6 @@ pub enum SelectionError {
     #[error("can't release source: multiple references are active")]
     Release,
 
-    #[error(transparent)]
-    Holder(#[from] HolderOverlapCheckError),
-
     #[error("splitting produced no selections")]
     EmptySplit,
 
@@ -140,67 +137,6 @@ mod tests {
         // Create two non-overlapping selections.
         let _sel1 = b.select_iter(0..10).unwrap();
         let _sel2 = b.select_iter(11..15).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn builder_par_overlap() {
-        let top = TOPST.0.clone();
-        let st = TOPST.1.clone();
-        let b = Source::new_parallel_mut(top.into(), st.into()).unwrap();
-        // Create two overlapping selections. This must fail!
-        let _sel1 = b.select_iter(0..10).unwrap();
-        let _sel2 = b.select_iter(5..15).unwrap();
-    }
-
-    #[test]
-    fn builder_par_test() -> anyhow::Result<()> {
-        let top = TOPST.0.clone();
-        let st = TOPST.1.clone();
-        let b = Source::new_parallel_mut(top.into(), st.into())?;
-        let mut sels = vec![];
-        // Create valid non-overlapping selections.
-        sels.push(b.select_iter(0..10).unwrap());
-        sels.push(b.select_iter(11..15).unwrap());
-        sels.push(b.select_iter(15..25).unwrap());
-        // Process them
-        let v = Vector3f::new(1.0, 2.0, 3.0);
-        let res = sels
-            .par_iter()
-            .map(|sel| {
-                sel.translate(&v);
-                Ok(sel.center_of_mass()?)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        println!("cm1 = {:?}", res);
-        Ok(())
-    }
-
-    #[test]
-    fn builder_par2() -> anyhow::Result<()> {
-        let top = TOPST.0.clone();
-        let st = TOPST.1.clone();
-        let b = Source::new_parallel_mut(top.into(), st.into())?;
-        // Create non-overlapping selections.
-        let mut sels = vec![];
-        for i in 0..30 {
-            sels.push(b.select_iter(10 * i..10 * (i + 1)).unwrap());
-        }
-        // Process them
-        let res = sels
-            .par_iter()
-            .map(|sel| {
-                let cm = sel.center_of_mass()?;
-                sel.translate(&cm.coords);
-                println!("thread: {}", rayon::current_thread_index().unwrap());
-                sel.center_of_mass()
-            })
-            .collect::<Result<Vec<_>, MeasureError>>()?;
-
-        println!("cm = {:?}", res);
-
-        Ok(())
     }
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
@@ -297,7 +233,7 @@ mod tests {
     #[test]
     fn split_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        for res in sel1.iter_contig_fragments(|p| Some(p.atom.resid)) {
+        for res in sel1.iter_contig_fragments(|p| Some(p.atom.resid))? {
             println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
         Ok(())
@@ -352,17 +288,6 @@ mod tests {
         sel1.save(concat!(env!("OUT_DIR"), "/oriented.pdb"))?;
 
         Ok(())
-    }
-
-    #[test]
-    #[should_panic]
-    fn fail_on_empty_selection() {
-        let (top, st) = FileHandler::open("tests/protein.pdb")
-            .unwrap()
-            .read()
-            .unwrap();
-        let src = Source::new_parallel_mut(top.into(), st.into()).unwrap();
-        src.select_str("resid 5").unwrap();
     }
 
     #[test]

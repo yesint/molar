@@ -51,7 +51,7 @@ impl<'a,K: SelectionKind> FragmentsIterator<'a, K, (), ()> {
 
 impl<K, I, RT> Iterator for FragmentsIterator<'_, K, I, RT>
 where
-    K: ClonableKind,
+    K: UserCreatableKind,
     I: Iterator<Item = (usize, RT)>,
     RT: PartialEq,
 {
@@ -60,18 +60,21 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // Iterate until we get something different or the end (indicated by None)
         let e = self.iter.find_map(|el| if el.1 != self.cur.1 { Some(el) } else { None });
+        let bi = self.cur.0;
         // Create selection (b:e) or (b:end)
         if let Some(e) = e {
-            let bi = self.cur.0;
             let ei = e.0;
             self.cur = e;
             Some(unsafe{
                 self.sel.subsel_from_sorted_vec_unchecked((bi..ei).collect()).unwrap()
             })
-        } else {
+        } else if bi < self.sel.last_index() {
             Some(unsafe{
-                self.sel.subsel_from_sorted_vec_unchecked((self.cur.0..self.sel.last_index()).collect()).unwrap()
+                self.cur.0 = self.sel.last_index(); // Indicate end
+                self.sel.subsel_from_sorted_vec_unchecked((bi..self.sel.last_index()).collect()).unwrap()
             })
+        } else {
+            None
         }
     }
 }
