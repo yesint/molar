@@ -162,6 +162,11 @@ where
     None
 }
 
+
+//===============================
+// Container for parallel split
+//===============================
+
 pub struct ParallelSplit {
     pub(super) parts: Vec<Sel<MutableParallel>>,
     pub(super) _marker: PhantomData<*const ()>,

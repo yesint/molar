@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use super::utils::*;
 
-//---------------------------------------
-// Selection
-//---------------------------------------
+//═══════════════════
+//███  Selection
+//═══════════════════
 
 /// Selection type that acts as a view into given set of indexes from [Topology] and [State].
 /// Selections allow to query various properties of the groups of atoms and to
@@ -56,13 +56,14 @@ pub struct Sel<K> {
     index_storage: SortedSet<usize>,
 }
 
-//-------------------------------------------
-// Functions shared by all selection kinds
-//-------------------------------------------
+//══════════════════════════════════════════════
+//███  Functions shared by all selection kinds
+//══════════════════════════════════════════════
 
-//~~~~~~~~~~~~~
-// Public API
-//~~~~~~~~~~~~~
+//━━━━━━━━━━━━━━━━━━━━━━━━━━
+//       Public API
+//━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     pub(super) fn index(&self) -> &SortedSet<usize> {
@@ -88,9 +89,10 @@ impl<K: SelectionKind> Sel<K> {
     }
 }
 
-//~~~~~~~~~~~~~
-// Private API
-//~~~~~~~~~~~~~
+//──────────────────────────
+//      Private API
+//──────────────────────────
+
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     fn check_index(&self) -> Result<(), SelectionError> {
@@ -177,13 +179,14 @@ impl<K: SelectionKind> Sel<K> {
     }
 }
 
-//+++++++++++++++++++++++++++++++++++++++++++++
-// Functions shared by user creatable kinds
-//+++++++++++++++++++++++++++++++++++++++++++++
+//══════════════════════════════════════════════
+//███  Functions shared by user creatable kinds
+//══════════════════════════════════════════════
 
-//~~~~~~~~~~~~~
-// Private API
-//~~~~~~~~~~~~~
+//──────────────────────────
+//      Private API
+//──────────────────────────
+
 impl<K: UserCreatableKind> Sel<K> {
     // Helper splitting function doing actual work
     fn split_internal<RT, F, C, KO>(&self, func: F) -> C
@@ -266,15 +269,18 @@ impl<K: UserCreatableKind> Sel<K> {
 
 }
 
-//~~~~~~~~~~~~~
-// Public API
-//~~~~~~~~~~~~~
+//━━━━━━━━━━━━━━━━━━━━━━━━━━
+//       Public API
+//━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 impl<K: UserCreatableKind> Sel<K> {    
 
     //============================
     // Splitting
     //============================
+
+    // Naming convention is
+    // [into]_[par]_<collect|iter>_<disjoint|contig>_[<property>]
 
     //----------------------
     // Consuming splitters
@@ -285,7 +291,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.
-    pub fn into_split_disjoint<RT, F, C>(self, func: F) -> C
+    pub fn into_collect_disjoint<RT, F, C>(self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -296,7 +302,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is consumed.
-    pub fn into_split_resid<C>(self) -> C
+    pub fn into_collect_disjoint_resid<C>(self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -308,7 +314,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn into_iter_contig_fragments<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
+    pub fn into_iter_contig<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -318,16 +324,16 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn into_iter_contig_fragments_resindex(
+    pub fn into_iter_contig_resindex(
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
-        self.into_iter_contig_fragments(|p| Some(p.atom.resindex))
+        self.into_iter_contig(|p| Some(p.atom.resindex))
     }
 
-    pub fn into_iter_contig_fragments_chain(
+    pub fn into_iter_contig_chain(
         self,
     ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
-        self.into_iter_contig_fragments(|p| Some(p.atom.chain))
+        self.into_iter_contig(|p| Some(p.atom.chain))
     }
 
     //--------------------------
@@ -339,7 +345,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn split_disjoint<RT, F, C>(&self, func: F) -> C
+    pub fn collect_disjoint<RT, F, C>(&self, func: F) -> C
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -350,7 +356,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is left alive.
-    pub fn split_disjoint_resid<C>(&self) -> C
+    pub fn collect_disjoint_resid<C>(&self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -359,7 +365,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resindexes.
     /// Parent selection is left alive.
-    pub fn split_disjoint_resindex<C>(&self) -> C
+    pub fn collect_disjoint_resindex<C>(&self) -> C
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -372,7 +378,7 @@ impl<K: UserCreatableKind> Sel<K> {
     /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
     /// If `func` returns `None` the atom is skipped and do not added to new selection.
     /// Selections are computed lazily when iterating.
-    pub fn iter_contig_fragments<'a, RT, F>(
+    pub fn iter_contig<'a, RT, F>(
         &'a self,
         func: F,
     ) -> Result<FragmentsIterator<'a, K, impl Iterator<Item = (usize, RT)> + 'a, RT>, SelectionError>
@@ -391,7 +397,7 @@ impl<K: UserCreatableKind> Sel<K> {
         FragmentsIterator<'a, K, impl Iterator<Item = (usize, usize)> + 'a, usize>,
         SelectionError,
     > {
-        self.iter_contig_fragments(|p| Some(p.atom.resindex))
+        self.iter_contig(|p| Some(p.atom.resindex))
     }
 
     //---------------------------------------------------------
@@ -404,7 +410,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Each produced selection correspond to the distinct values returned by `split_fn`.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    pub fn par_collect_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -416,12 +422,12 @@ impl<K: UserCreatableKind> Sel<K> {
     }
 
     /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces may not be contigous and are arranged in random order.
+    /// Pieces are contigous and are arranged in order of appearance.
     /// Parent selection is kept intact.
     ///
-    /// Each produced selection correspond to the distinct values returned by `split_fn`.
+    /// New selection starts when `split_fn` returns a value different from the previous one.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    pub fn par_collect_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -432,7 +438,7 @@ impl<K: UserCreatableKind> Sel<K> {
         })
     }
 
-    pub fn par_iter_contig_fragments<F, RT>(
+    pub fn par_iter_contig<F, RT>(
         &self,
         split_fn: F,
     ) -> Result<rayon::vec::IntoIter<Sel<MutableParallel>>, SelectionError>
@@ -777,9 +783,11 @@ impl<K: UserCreatableKind> Sel<K> {
     }
 }
 
-//-----------------------------------------------
-// Iterator over the [Particle]s from selection
-//-----------------------------------------------
+
+//══════════════════════════════════════════════
+//███  Iterator over Particles 
+//══════════════════════════════════════════════
+
 pub struct SelectionIterator<'a, K: SelectionKind> {
     sel: &'a Sel<K>,
     cur: usize,
@@ -810,9 +818,11 @@ impl<K: SelectionKind> ParticleProvider for Sel<K> {
     }
 }
 
-//--------------------------------------------------------
-// Mutable iterator over the [Particle]s from selection
-//--------------------------------------------------------
+
+//══════════════════════════════════════════════
+//███  Mutable iterator over Particles 
+//══════════════════════════════════════════════
+
 pub struct SelectionIteratorMut<'a, K: SelectionKind> {
     sel: &'a Sel<K>,
     cur: usize,
@@ -843,9 +853,10 @@ impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
     }
 }
 
-//---------------------------------------------
-// IO traots
-//---------------------------------------------
+
+//══════════════════════════════════════════════
+//███  IO traits 
+//══════════════════════════════════════════════
 
 impl<K: SelectionKind> WritableToFile for Sel<K> {}
 
@@ -871,9 +882,9 @@ impl<K: SelectionKind> StateProvider for Sel<K> {
     }
 }
 
-//==================================================================
-// Immutable analysis traits
-//==================================================================
+//══════════════════════════════════════════════
+//███  Immutable analysis traits
+//══════════════════════════════════════════════
 
 impl<K: SelectionKind> BoxProvider for Sel<K> {
     fn get_box(&self) -> Option<&PeriodicBox> {
@@ -943,9 +954,9 @@ impl<K: SelectionKind> RandomAtom for Sel<K> {
     }
 }
 
-//-------------------------------------------------------
-// Mutable analysis traits (only for mutable selections)
-//-------------------------------------------------------
+//═══════════════════════════════════════════════════════════
+//███  Mutable analysis traits (only for mutable selections)
+//═══════════════════════════════════════════════════════════
 
 impl<K: MutableKind> PosMutProvider for Sel<K> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
