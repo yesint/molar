@@ -10,7 +10,7 @@ use crate::prelude::*;
 struct SplitData<RT, F> {
     func: F,
     counter: usize,
-    id: RT,
+    val: RT,
 }
 
 /// Iterator over contiguous pieces of selection returned by [Sel::split_contig]
@@ -18,38 +18,61 @@ struct SplitData<RT, F> {
 ///
 /// This iterator keeps the parent selection alive and yelds selections of the same kind
 /// as sub-selections of the parent [Sel].
-pub struct SelectionFragmentsIterator<'a, RT, F, K: SelectionKind> {
+pub struct FragmentsIterator<'a, K, I, RT> 
+where
+    K: SelectionKind,
+{
     sel: &'a Sel<K>,
-    data: SplitData<RT, F>,
+    iter: I,
+    cur: (usize,RT),
 }
 
-impl<K: SelectionKind> SelectionFragmentsIterator<'_, (), (), K> {
-    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> SelectionFragmentsIterator<'_, RT, F, K>
+impl<'a,K: SelectionKind> FragmentsIterator<'a, K, (), ()> {
+    pub fn new<RT, F>(sel: &'a Sel<K>, func: F) -> Result<FragmentsIterator<'a, K, impl Iterator<Item = (usize, RT)> + 'a, RT>, SelectionError>
     where
         RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> Option<RT>,
+        F: Fn(Particle) -> Option<RT> + 'a,
     {
-        SelectionFragmentsIterator {
+        // Iterator oved valid particles for which split_n returns Some
+        let mut iter = sel.iter_particle().filter_map(move |p| {
+            let i = p.id;
+            func(p).map(|val| (i, val))
+        });
+
+        let cur = iter.next().ok_or_else(|| SelectionError::EmptySplit)?;
+
+        Ok(FragmentsIterator {
             sel,
-            data: SplitData {
-                func,
-                counter: 0,
-                id: RT::default(),
-            },
-        }
+            iter,
+            cur,
+        })
     }
 }
 
-impl<RT, F, S> Iterator for SelectionFragmentsIterator<'_, RT, F, S>
+impl<K, I, RT> Iterator for FragmentsIterator<'_, K, I, RT>
 where
-    RT: Default + std::cmp::PartialEq,
-    F: Fn(Particle) -> Option<RT>,
-    S: SelectionKind,
+    K: ClonableKind,
+    I: Iterator<Item = (usize, RT)>,
+    RT: PartialEq,
 {
-    type Item = Sel<S>;
+    type Item = Sel<K>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        next_split(&mut self.data, self.sel)
+        // Iterate until we get something different or the end (indicated by None)
+        let e = self.iter.find_map(|el| if el.1 != self.cur.1 { Some(el) } else { None });
+        // Create selection (b:e) or (b:end)
+        if let Some(e) = e {
+            let bi = self.cur.0;
+            let ei = e.0;
+            self.cur = e;
+            Some(unsafe{
+                self.sel.subsel_from_sorted_vec_unchecked((bi..ei).collect()).unwrap()
+            })
+        } else {
+            Some(unsafe{
+                self.sel.subsel_from_sorted_vec_unchecked((self.cur.0..self.sel.last_index()).collect()).unwrap()
+            })
+        }
     }
 }
 
@@ -64,19 +87,6 @@ pub struct IntoFragmentsIterator<RT, F, K: SelectionKind> {
     data: SplitData<RT, F>,
 }
 
-impl<RT, F, K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
-    fn drop(&mut self) {
-        // If stored selection is MutableParallel it will clear used indexes
-        // when dropped. This will invalidate used indexes because they are already
-        // used by the fragments created by iterator.
-        // To avoid this we clear index so that nothing is cleared upon dropping selection.
-        unsafe {
-            self.sel.clear_index_before_drop();
-        }
-        // self.sel is now Ok to drop
-    }
-}
-
 impl<K: SelectionKind> IntoFragmentsIterator<(), (), K> {
     pub fn new<RT, F>(sel: Sel<K>, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
@@ -88,7 +98,7 @@ impl<K: SelectionKind> IntoFragmentsIterator<(), (), K> {
             data: SplitData {
                 func,
                 counter: 0,
-                id: RT::default(),
+                val: RT::default(),
             },
         }
     }
@@ -119,20 +129,20 @@ where
     while data.counter < sel.len() {
         let p = unsafe { sel.nth_particle_unchecked(data.counter) };
         let i = p.id;
-        let id = (data.func)(p);
+        let val = (data.func)(p);
 
-        if let Some(id) = id {
-            if id == data.id {
+        if let Some(val) = val {
+            if val == data.val {
                 // Current selection continues. Add current index
                 index.push(i);
             } else if index.is_empty() {
                 // The very first id is not default, this is Ok, add index
                 // and update self.id
-                data.id = id;
+                data.val = val;
                 index.push(i);
             } else {
                 // The end of current selection
-                data.id = id; // Update self.id for the next selection
+                data.val = val; // Update self.id for the next selection
                 return unsafe { Some(sel.subsel_from_sorted_vec_unchecked(index).unwrap()) };
             }
         }
