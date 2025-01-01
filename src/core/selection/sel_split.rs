@@ -18,18 +18,18 @@ struct SplitData<RT, F> {
 ///
 /// This iterator keeps the parent selection alive and yelds selections of the same kind
 /// as sub-selections of the parent [Sel].
-pub struct SelectionFragmentsIterator<'a, RT, F, K: SelectionKind> {
+pub struct FragmentsIterator<'a, RT, F, K> {
     sel: &'a Sel<K>,
     data: SplitData<RT, F>,
 }
 
-impl<K: SelectionKind> SelectionFragmentsIterator<'_, (), (), K> {
-    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> SelectionFragmentsIterator<'_, RT, F, K>
+impl<K: UserCreatableKind> FragmentsIterator<'_, (), (), K> {
+    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> FragmentsIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
     {
-        SelectionFragmentsIterator {
+        FragmentsIterator {
             sel,
             data: SplitData {
                 func,
@@ -40,7 +40,7 @@ impl<K: SelectionKind> SelectionFragmentsIterator<'_, (), (), K> {
     }
 }
 
-impl<RT, F, S> Iterator for SelectionFragmentsIterator<'_, RT, F, S>
+impl<RT, F, S> Iterator for FragmentsIterator<'_, RT, F, S>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(Particle) -> Option<RT>,
@@ -54,27 +54,12 @@ where
 }
 
 //--------------------------------------------
-/// Iterator over contiguous pieces of selection returned by [Sel::into_split_contig]
-/// and `various Sel::into_split_contig_*` convenience methods.
-///
+/// Iterator over contiguous pieces of selection.
 /// This iterator consumes the parent selection and yelds selections of the same kind
 /// as the parent [Sel].
 pub struct IntoFragmentsIterator<RT, F, K: SelectionKind> {
     sel: Sel<K>,
     data: SplitData<RT, F>,
-}
-
-impl<RT, F, K: SelectionKind> Drop for IntoFragmentsIterator<RT, F, K> {
-    fn drop(&mut self) {
-        // If stored selection is MutableParallel it will clear used indexes
-        // when dropped. This will invalidate used indexes because they are already
-        // used by the fragments created by iterator.
-        // To avoid this we clear index so that nothing is cleared upon dropping selection.
-        unsafe {
-            self.sel.clear_index_before_drop();
-        }
-        // self.sel is now Ok to drop
-    }
 }
 
 impl<K: SelectionKind> IntoFragmentsIterator<(), (), K> {
