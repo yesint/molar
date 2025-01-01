@@ -37,14 +37,18 @@ use std::marker::PhantomData;
 /// ```
 //------------------------------------------------------------------
 
-pub struct Source<K: SelectionKind> {
+pub struct Source<K> {
     topology: Holder<Topology, K>,
     state: Holder<State, K>,
     _no_send: PhantomData<*const ()>,
     _kind: PhantomData<K>,
 }
 
-impl Source<MutableSerial> {
+//=======================
+// Constructors
+//=======================
+
+impl Source<()> {
     /// Create the [Source] producing mutable selections that may overlap accessible from a single thread.
     pub fn new_serial(
         topology: Holder<Topology, MutableSerial>,
@@ -113,6 +117,10 @@ impl Source<MutableSerial> {
         Ok(Source::new_builder(top.into(), st.into())?)
     }
 }
+
+//=======================
+// Public API
+//=======================
 
 impl<K: UserCreatableKind> Source<K> {
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
@@ -220,7 +228,10 @@ impl<K: UserCreatableKind> Source<K> {
     }
 }
 
-// Specific methods of builder source
+//=======================
+// Builder API
+//=======================
+
 impl Source<BuilderSerial> {
     pub fn append(&self, data: &(impl PosProvider + AtomsProvider)) -> Sel<BuilderSerial> {
         let first_added_index = self.num_atoms();
@@ -289,7 +300,10 @@ impl Source<BuilderSerial> {
     }
 }
 
-//--------------------------------------------------
+//=======================
+// Trait impls
+//=======================
+
 // All sources provide an index trivially
 impl<K: SelectionKind> IndexProvider for Source<K> {
     fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {

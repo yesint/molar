@@ -6,7 +6,7 @@ use super::{BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, Se
 /// selections pointing to the same data.
 /// Can't be sent to other threads.
 /// Normally this type should not be used directly by the user.
-pub struct Holder<T, K: SelectionKind> {
+pub struct Holder<T, K> {
     arc: triomphe::Arc<T>,
     _kind: PhantomData<K>,
 }
