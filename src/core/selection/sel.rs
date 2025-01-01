@@ -50,7 +50,7 @@ use super::utils::*;
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
 
-pub struct Sel<K: SelectionKind> {
+pub struct Sel<K> {
     topology: Holder<Topology, K>,
     state: Holder<State, K>,
     index_storage: SortedSet<usize>,
