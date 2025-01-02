@@ -7,10 +7,10 @@ use crate::prelude::*;
 // Splitting iterators
 //-------------------------------------------------------
 
-struct SplitData<RT, F> {
-    func: F,
-    counter: usize,
-    id: RT,
+pub(super) struct SplitData<RT, F> {
+    pub(super) func: F,
+    pub(super) cur: usize,
+    pub(super) val: RT,
 }
 
 /// Iterator over contiguous pieces of selection returned by [Sel::split_contig]
@@ -24,7 +24,7 @@ pub struct FragmentsIterator<'a, RT, F, K> {
 }
 
 impl<K: UserCreatableKind> FragmentsIterator<'_, (), (), K> {
-    pub fn new<RT, F>(sel: &Sel<K>, func: F) -> FragmentsIterator<'_, RT, F, K>
+    pub fn new<RT, F,>(sel: &Sel<K>, func: F) -> FragmentsIterator<'_, RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -33,8 +33,8 @@ impl<K: UserCreatableKind> FragmentsIterator<'_, (), (), K> {
             sel,
             data: SplitData {
                 func,
-                counter: 0,
-                id: RT::default(),
+                cur: 0,
+                val: RT::default(),
             },
         }
     }
@@ -72,8 +72,8 @@ impl<K: SelectionKind> IntoFragmentsIterator<(), (), K> {
             sel,
             data: SplitData {
                 func,
-                counter: 0,
-                id: RT::default(),
+                cur: 0,
+                val: RT::default(),
             },
         }
     }
@@ -94,35 +94,36 @@ where
 }
 
 // Actual function that does the splitting
-fn next_split<RT, F, K>(data: &mut SplitData<RT, F>, sel: &Sel<K>) -> Option<Sel<K>>
+pub(super) fn next_split<RT, F, K, KO>(data: &mut SplitData<RT, F>, sel: &Sel<K>) -> Option<Sel<KO>>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(Particle) -> Option<RT>,
     K: SelectionKind,
+    KO: SelectionKind,
 {
     let mut index = Vec::<usize>::new();
-    while data.counter < sel.len() {
-        let p = unsafe { sel.nth_particle_unchecked(data.counter) };
+    while data.cur < sel.len() {
+        let p = unsafe { sel.nth_particle_unchecked(data.cur) };
         let i = p.id;
-        let id = (data.func)(p);
+        let val = (data.func)(p);
 
-        if let Some(id) = id {
-            if id == data.id {
+        if let Some(val) = val {
+            if val == data.val {
                 // Current selection continues. Add current index
                 index.push(i);
             } else if index.is_empty() {
                 // The very first id is not default, this is Ok, add index
                 // and update self.id
-                data.id = id;
+                data.val = val;
                 index.push(i);
             } else {
                 // The end of current selection
-                data.id = id; // Update self.id for the next selection
+                data.val = val; // Update self.id for the next selection
                 return unsafe { Some(sel.subsel_from_sorted_vec_unchecked(index).unwrap()) };
             }
         }
         // Next element
-        data.counter += 1;
+        data.cur += 1;
     }
 
     // Return any remaining index as last selection
