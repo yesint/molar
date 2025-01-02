@@ -1,6 +1,4 @@
 use crate::prelude::*;
-
-use rayon::iter::IntoParallelIterator;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
@@ -293,7 +291,7 @@ impl<K: SelectionKind> Sel<K> {
 
 impl<K: UserCreatableKind> Sel<K> {
     // Helper splitting function doing actual work
-    fn split_internal<RT, F, C, KO>(&self, func: F) -> Result<C,SelectionError>
+    fn split_collect_internal<RT, F, C, KO>(&self, func: F) -> Result<C,SelectionError>
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -301,21 +299,21 @@ impl<K: UserCreatableKind> Sel<K> {
         KO: SelectionKind,
     {
         self.check_index()?;
-        let mut ids = HashMap::<RT, Vec<usize>>::default();
+        let mut values = HashMap::<RT, Vec<usize>>::default();
 
         for p in self.iter_particle() {
             let i = p.id;
-            if let Some(id) = func(p) {
-                if let Some(el) = ids.get_mut(&id) {
+            if let Some(val) = func(p) {
+                if let Some(el) = values.get_mut(&val) {
                     el.push(i);
                 } else {
-                    ids.insert(id, vec![i]);
+                    values.insert(val, vec![i]);
                 }
             }
         }
 
         Ok(C::from_iter(
-            ids.into_values()
+            values.into_values()
                 .map(|ind| unsafe { self.subsel_from_unsorted_vec_unchecked(ind).unwrap() }),
             // This should never fail because `ind` can't be empty and can't contain duplicates
         ))
@@ -370,7 +368,7 @@ impl<K: UserCreatableKind> Sel<K> {
         F: Fn(Particle) -> Option<RT>,
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_internal(func)
+        self.split_collect_internal(func)
     }
 
     /// Helper method that splits selection into the parts with distinct resids.
@@ -379,7 +377,7 @@ impl<K: UserCreatableKind> Sel<K> {
     where
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_internal(|p| Some(p.atom.resid))
+        self.split_collect_internal(|p| Some(p.atom.resid))
     }
 
     /// Return iterator that splits selection into contigous pieces according to the value of function.
@@ -424,7 +422,7 @@ impl<K: UserCreatableKind> Sel<K> {
         F: Fn(Particle) -> Option<RT>,
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_internal(func)
+        self.split_collect_internal(func)
     }
 
     /// Helper method that splits selection into the parts with distinct resids.
@@ -433,7 +431,7 @@ impl<K: UserCreatableKind> Sel<K> {
     where
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_internal(|p| Some(p.atom.resid))
+        self.split_collect_internal(|p| Some(p.atom.resid))
     }
 
     /// Helper method that splits selection into the parts with distinct resindexes.
@@ -442,7 +440,7 @@ impl<K: UserCreatableKind> Sel<K> {
     where
         C: FromIterator<Sel<K>> + Default,
     {
-        self.split_internal(|p| Some(p.atom.resindex))
+        self.split_collect_internal(|p| Some(p.atom.resindex))
     }
 
     /// Return serial iterator that splits selection into contigous pieces according to the value of function.
@@ -482,7 +480,7 @@ impl<K: UserCreatableKind> Sel<K> {
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
         Ok(ParallelSplit {
-            parts: self.split_internal(split_fn)?,
+            parts: self.split_collect_internal(split_fn)?,
             _marker: Default::default(),
         })
     }
@@ -504,15 +502,21 @@ impl<K: UserCreatableKind> Sel<K> {
         })
     }
 
-    pub fn par_iter_contig<F, RT>(
-        &self,
-        split_fn: F,
-    ) -> Result<impl ParallelIterator<Item=Sel<MutableParallel>>, SelectionError>
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces couled be disjoint and are not arranged in any predefined order.
+    /// Parent selection is kept intact.
+    ///
+    /// Each selection corresponds to distinct return value of `split_fn`.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub fn par_collect<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        Ok(self.split_par_contig_internal(split_fn)?.into_par_iter())
+        Ok(ParallelSplit {
+            parts: self.split_collect_internal(split_fn)?,
+            _marker: Default::default(),
+        })
     }
 
     //============================
