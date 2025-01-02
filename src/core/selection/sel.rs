@@ -4,7 +4,7 @@ use rayon::iter::IntoParallelIterator;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
-use super::utils::*;
+use super::{next_split, utils::*, SplitData};
 
 //═══════════════════
 //███  Selection
@@ -329,46 +329,16 @@ impl<K: UserCreatableKind> Sel<K> {
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        // Iterator oved valid particles for which split_n returns Some
-        let mut piter = self.iter_particle().filter_map(|p| {
-            let i = p.id;
-            split_fn(p).map(|val| (i, val))
-        });
-
-        // Get find first valid value or bail with error
-        let (mut part_start, mut part_val) =
-            piter.next().ok_or_else(|| SelectionError::EmptySplit)?;
+        let mut data = SplitData {
+            func: split_fn,
+            cur: 0,
+            val: RT::default(),
+        };
 
         let mut parts = vec![];
-        let mut last_valid = part_start;
-
-        for (i, val) in piter {
-            if val != part_val {
-                // Create new part
-                parts.push(unsafe {
-                    Sel::from_holders_and_index(
-                        self.topology.clone(),
-                        self.state.clone(),
-                        SortedSet::from_sorted((part_start..i).collect()),
-                    )?
-                });
-                // Reset cur
-                part_val = val;
-                part_start = i;
-            }
-            // Keep track of the last valid value
-            last_valid = i;
+        while let Some(part) = next_split(&mut data, self) {
+            parts.push(part);
         }
-
-        // Add last part
-        parts.push(unsafe {
-            Sel::from_holders_and_index(
-                self.topology.clone(),
-                self.state.clone(),
-                SortedSet::from_sorted((part_start..=last_valid).collect()),
-            )?
-        });
-
         Ok(parts)
     }
 }
