@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use rayon::iter::IntoParallelRefMutIterator;
+use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use crate::prelude::*;
 
 //-------------------------------------------------------
@@ -13,11 +13,8 @@ pub(super) struct SplitData<RT, F> {
     pub(super) val: RT,
 }
 
-/// Iterator over contiguous pieces of selection returned by [Sel::split_contig]
-/// and `various Sel::split_contig_*` convenience methods.
-///
-/// This iterator keeps the parent selection alive and yelds selections of the same kind
-/// as sub-selections of the parent [Sel].
+/// Iterator over contiguous pieces of selection.
+/// This iterator keeps the parent selection alive.
 pub struct FragmentsIterator<'a, RT, F, K> {
     sel: &'a Sel<K>,
     data: SplitData<RT, F>,
@@ -53,10 +50,9 @@ where
     }
 }
 
-//--------------------------------------------
+//------------------------------------------------------------
 /// Iterator over contiguous pieces of selection.
-/// This iterator consumes the parent selection and yelds selections of the same kind
-/// as the parent [Sel].
+/// This iterator consumes the parent selection.
 pub struct IntoFragmentsIterator<RT, F, K: SelectionKind> {
     sel: Sel<K>,
     data: SplitData<RT, F>,
@@ -135,13 +131,21 @@ where
     None
 }
 
+/// Opaque container for parallel selections produced 
+/// by `par_collect` and `par_collect_contig` methods.
 pub struct ParallelSplit {
     pub(super) parts: Vec<Sel<MutableParallel>>,
     pub(super) _marker: PhantomData<*const ()>,
 }
 
 impl ParallelSplit {
-    pub fn par_iter(&mut self) -> rayon::slice::IterMut<'_, Sel<MutableParallel>> {
+    /// Returns parallel iterator over stored parallel selections.
+    pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, Sel<MutableParallel>> {
+        self.parts.par_iter()
+    }
+
+    /// Returns parallel mutable iterator over stored parallel selections.
+    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, Sel<MutableParallel>> {
         self.parts.par_iter_mut()
     }
 }
