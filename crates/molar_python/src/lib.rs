@@ -1,6 +1,13 @@
 use molar::prelude::*;
-use numpy::{npyffi, PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, PY_ARRAY_API};
-use pyo3::{prelude::*, types::{PyList, PyString, PyTuple}, IntoPyObjectExt};
+use numpy::{
+    npyffi, PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims,
+    PY_ARRAY_API,
+};
+use pyo3::{
+    prelude::*,
+    types::{PyList, PyString, PyTuple},
+    IntoPyObjectExt,
+};
 use std::ffi::c_void;
 
 pub mod atom;
@@ -9,31 +16,173 @@ use atom::Atom;
 pub mod particle;
 use particle::Particle;
 
+//-------------------------------------------
+#[pyclass]
+struct PeriodicBox(molar::core::PeriodicBox);
+
 #[pyclass]
 struct Topology(Option<molar::core::Topology>);
 
 #[pyclass]
 struct State(Option<molar::core::State>);
 
+#[pymethods]
+impl State {
+    fn __len__(&self) -> anyhow::Result<usize> {
+        self.0
+            .as_ref()
+            .map(|s| s.len())
+            .ok_or_else(|| anyhow::anyhow!("State is moved"))
+    }
+
+    #[getter]
+    fn time(&self) -> anyhow::Result<f32> {
+        self.0
+            .as_ref()
+            .map(|s| s.get_time())
+            .ok_or_else(|| anyhow::anyhow!("State is moved"))
+    }
+
+    #[getter]
+    fn get_box(&self) -> anyhow::Result<PeriodicBox> {
+        Ok(PeriodicBox(
+            self.0
+                .as_ref()
+                .map(|s| s.get_box())
+                .ok_or_else(|| anyhow::anyhow!("State is moved"))?
+                .ok_or_else(|| anyhow::anyhow!("No periodic box"))?
+                .clone(),
+        ))
+    }
+
+    #[setter]
+    fn set_box(&mut self, val: Bound<'_, PeriodicBox>) -> anyhow::Result<()> {
+        let b = self
+            .0
+            .as_mut()
+            .map(|s| s.get_box_mut())
+            .ok_or_else(|| anyhow::anyhow!("State is moved"))?
+            .ok_or_else(|| anyhow::anyhow!("No periodic box"))?;
+        *b = val.borrow().0.clone();
+        Ok(())
+    }
+}
+
 #[pyclass(unsendable)]
 struct FileHandler(molar::io::FileHandler);
 
 #[pymethods]
 impl FileHandler {
-    #[staticmethod]
-    fn open(fname: &str) -> PyResult<Self> {
-        Ok(FileHandler(
-            molar::io::FileHandler::open(fname).map_err(|e| anyhow::anyhow!(e))?,
-        ))
+    #[new]
+    fn new(fname: &str) -> anyhow::Result<Self> {
+        Ok(FileHandler(molar::io::FileHandler::open(fname)?))
     }
 
-    fn read(&mut self) -> PyResult<(Topology, State)> {
-        let (top, st) = self.0.read().map_err(|e| anyhow::anyhow!(e))?;
+    fn read(&mut self) -> anyhow::Result<(Topology, State)> {
+        let (top, st) = self.0.read()?;
         Ok((Topology(Some(top)), State(Some(st))))
+    }
+
+    fn read_topology(&mut self) -> anyhow::Result<Topology> {
+        let top = self.0.read_topology()?;
+        Ok(Topology(Some(top)))
+    }
+
+    fn read_state(&mut self) -> anyhow::Result<State> {
+        let st = self.0.read_state()?;
+        Ok(State(st))
+    }
+
+    fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+        if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
+            self.0.write(&s.0)?;
+        } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
+            self.0.write(&s.0)?;
+        } else if let Ok(s) = data.downcast::<PyTuple>() {
+            if s.len() != 2 {
+                return Err(anyhow::anyhow!("Tuple must have two elements"));
+            }
+            let top = s
+                .iter()
+                .next()
+                .unwrap()
+                .extract::<PyRefMut<'_, Topology>>()?
+                .0
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Topology is moved"))?;
+            let st = s
+                .iter()
+                .next()
+                .unwrap()
+                .extract::<PyRefMut<'_, State>>()?
+                .0
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("State is moved"))?;
+            self.0.write(&(top, st))?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Invalid data type {} when writing to file",
+                data.get_type()
+            ));
+        }
+        Ok(())
+    }
+
+    fn write_topology(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+        if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
+            self.0.write_topology(&s.0)?;
+        } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
+            self.0.write_topology(&s.0)?;
+        } else if let Ok(mut s) = data.extract::<PyRefMut<'_, Topology>>() {
+            self.0.write_topology(
+                &s.0.take()
+                    .ok_or_else(|| anyhow::anyhow!("Topology is moved"))?,
+            )?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Invalid data type {} when writing to file",
+                data.get_type()
+            ));
+        }
+        Ok(())
+    }
+
+    fn write_state(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+        if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
+            self.0.write_state(&s.0)?;
+        } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
+            self.0.write_state(&s.0)?;
+        } else if let Ok(mut s) = data.extract::<PyRefMut<'_, State>>() {
+            self.0.write_state(
+                &s.0.take()
+                    .ok_or_else(|| anyhow::anyhow!("State is moved"))?,
+            )?;
+        } else {
+            return Err(anyhow::anyhow!(
+                "Invalid data type {} when writing to file",
+                data.get_type()
+            ));
+        }
+        Ok(())
+    }
+
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
+        let st = slf.read_state().expect("expected state");
+        if st.0.is_some() {
+            Python::with_gil(|py| Some(st.into_py_any(py)))
+                .unwrap()
+                .ok()
+        } else {
+            None
+        }
     }
 }
 
-#[pyclass(unsendable,sequence)]
+#[pyclass(unsendable, sequence)]
 struct Source(molar::core::Source<molar::core::BuilderSerial>);
 
 #[pymethods]
@@ -75,36 +224,34 @@ impl Source {
     fn __call__(&self, arg: Option<&Bound<'_, PyAny>>) -> PyResult<Sel> {
         if let Some(arg) = arg {
             if arg.is_instance_of::<PyString>() {
-                Ok(Sel(
-                    self.0
+                Ok(Sel(self
+                    .0
                     .select_str(arg.extract::<String>()?)
-                    .map_err(|e| anyhow::anyhow!(e))?
-                ))
+                    .map_err(|e| anyhow::anyhow!(e))?))
             } else if arg.is_instance_of::<PyTuple>() {
-                let (i1,i2) = arg.extract()?;
-                Ok(Sel(
-                    self.0
+                let (i1, i2) = arg.extract()?;
+                Ok(Sel(self
+                    .0
                     .select_range(i1..i2)
-                    .map_err(|e| anyhow::anyhow!(e))?
-                ))
+                    .map_err(|e| anyhow::anyhow!(e))?))
             } else if arg.is_instance_of::<PyList>() {
                 let ind = arg.extract()?;
-                Ok(Sel(
-                    self.0
+                Ok(Sel(self
+                    .0
                     .select_vec(ind)
-                    .map_err(|e| anyhow::anyhow!(e))?
-                ))
+                    .map_err(|e| anyhow::anyhow!(e))?))
             } else {
-                Err(anyhow::anyhow!("Invalid argument type {} when creating selection",arg.get_type()).into())
+                Err(anyhow::anyhow!(
+                    "Invalid argument type {} when creating selection",
+                    arg.get_type()
+                )
+                .into())
             }
         } else {
-            Ok(Sel(
-                self.0.select_all().map_err(|e| anyhow::anyhow!(e))?
-            ))
+            Ok(Sel(self.0.select_all().map_err(|e| anyhow::anyhow!(e))?))
         }
     }
 }
-
 
 //====================================
 
@@ -127,27 +274,28 @@ impl Sel {
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {
         if arg.is_instance_of::<PyString>() {
-            Ok(Sel(
-                self.0
+            Ok(Sel(self
+                .0
                 .subsel_str(arg.extract::<String>()?)
-                .map_err(|e| anyhow::anyhow!(e))?
-            ))
+                .map_err(|e| anyhow::anyhow!(e))?))
         } else if arg.is_instance_of::<PyTuple>() {
-            let (i1,i2) = arg.extract()?;
-            Ok(Sel(
-                self.0
+            let (i1, i2) = arg.extract()?;
+            Ok(Sel(self
+                .0
                 .subsel_local_range(i1..i2)
-                .map_err(|e| anyhow::anyhow!(e))?
-            ))
+                .map_err(|e| anyhow::anyhow!(e))?))
         } else if arg.is_instance_of::<PyList>() {
             let ind: Vec<usize> = arg.extract()?;
-            Ok(Sel(
-                self.0
+            Ok(Sel(self
+                .0
                 .subsel_iter(ind.into_iter())
-                .map_err(|e| anyhow::anyhow!(e))?
-            ))
+                .map_err(|e| anyhow::anyhow!(e))?))
         } else {
-            Err(anyhow::anyhow!("Invalid argument type {} when creating selection",arg.get_type()).into())
+            Err(anyhow::anyhow!(
+                "Invalid argument type {} when creating selection",
+                arg.get_type()
+            )
+            .into())
         }
     }
 
@@ -199,11 +347,11 @@ impl Sel {
         .borrow()
     }
 
-    fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py,PyAny> {
+    fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
         use numpy::Element;
         use numpy::PyArrayDescrMethods;
 
-        let mut dims = numpy::ndarray::Dim((3,self.__len__()));
+        let mut dims = numpy::ndarray::Dim((3, self.__len__()));
 
         unsafe {
             let arr = PY_ARRAY_API.PyArray_NewFromDescr(
@@ -230,8 +378,12 @@ impl Sel {
 
     fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         // Check if the shape is correct
-        if arr.shape() != [3,self.__len__()] {
-            return Err(anyhow::anyhow!("Array shape must be [3, {}], not {:?}",self.__len__(),arr.shape()))?;
+        if arr.shape() != [3, self.__len__()] {
+            return Err(anyhow::anyhow!(
+                "Array shape must be [3, {}], not {:?}",
+                self.__len__(),
+                arr.shape()
+            ))?;
         }
         let ptr = arr.data();
 
@@ -273,7 +425,7 @@ impl ParticleIterator {
 fn map_pyarray_to_pos<'py>(
     py: Python<'py>,
     data: &mut molar::core::Pos,
-    parent: &Bound<'py,PyAny>,
+    parent: &Bound<'py, PyAny>,
 ) -> *mut npyffi::PyArrayObject {
     use numpy::Element;
     use numpy::PyArrayDescrMethods;
@@ -289,8 +441,8 @@ fn map_pyarray_to_pos<'py>(
             dims.as_dims_ptr(),
             std::ptr::null_mut(),                    // no strides
             data.coords.as_mut_ptr() as *mut c_void, // data
-            npyffi::NPY_ARRAY_WRITEABLE, // flag
-            std::ptr::null_mut(), // obj
+            npyffi::NPY_ARRAY_WRITEABLE,             // flag
+            std::ptr::null_mut(),                    // obj
         );
 
         // The following mangling with the ref counting is deduced by
@@ -324,6 +476,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Particle>()?;
     m.add_class::<Topology>()?;
     m.add_class::<State>()?;
+    m.add_class::<PeriodicBox>()?;
     m.add_class::<FileHandler>()?;
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;

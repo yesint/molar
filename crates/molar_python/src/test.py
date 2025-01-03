@@ -5,19 +5,9 @@ import numpy as np
 sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
 
 def test1():
-    topst = f.read()
-    src = Source(*topst)
-
-    sel1 = src.select_all()
-    sel2 = src.select_str("resid 5:600")
-
-    print("com1:",sel1.com())
-    print("com2:",sel2.com())
-
-    print("py1:",sel2[0].pos)
-    sel2[0].pos[0] = 42
-    print("py2:",sel2[0].pos)
-
+    fh = FileHandler('../../tests/protein.xtc')
+    for st in fh:
+        print(st.time)
 
 def test2():
     pos0 = sel[0].pos
@@ -90,4 +80,4 @@ def test8():
 
 #test3()
 #test2()
-test8()
+test1()
