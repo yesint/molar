@@ -1,7 +1,7 @@
+use anyhow::bail;
 use molar::prelude::*;
 use numpy::{
-    npyffi, PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims,
-    PY_ARRAY_API,
+    nalgebra, npyffi, AllowTypeChange, PyArray1, PyArrayLike1, PyArrayLike2, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, PY_ARRAY_API
 };
 use pyo3::{
     prelude::*,
@@ -19,6 +19,66 @@ use particle::Particle;
 //-------------------------------------------
 #[pyclass]
 struct PeriodicBox(molar::core::PeriodicBox);
+
+#[pymethods]
+impl PeriodicBox {
+    #[staticmethod]
+    fn from_matrix<'py>(arr: PyArrayLike2<'py, f32, AllowTypeChange>) -> anyhow::Result<Self> {
+        if arr.shape() != [3, 3] {
+            bail!("Matrix must be 3x3");
+        }
+
+        let mut m = Matrix3f::zeros();
+        unsafe {
+            std::ptr::copy_nonoverlapping(arr.data(), m.as_mut_ptr(), 9);
+        }
+        Ok(PeriodicBox(molar::core::PeriodicBox::from_matrix(m)?))
+    }
+
+    #[staticmethod]
+    fn from_vectors_angles<'py>(
+        v_arr: PyArrayLike1<'py, f32, AllowTypeChange>,
+        a_arr: PyArrayLike1<'py, f32, AllowTypeChange>,
+    ) -> anyhow::Result<Self> {
+        if v_arr.len() != 3 {
+            bail!("Vectors array must be of size 3");
+        }
+        if a_arr.len() != 3 {
+            bail!("Angles array must be of size 3");
+        }
+        let mut v = Vector3f::zeros();
+        let mut a = Vector3f::zeros();
+        unsafe {
+            std::ptr::copy_nonoverlapping(v_arr.data(), v.as_mut_ptr(), 3);
+            std::ptr::copy_nonoverlapping(a_arr.data(), a.as_mut_ptr(), 3);
+        }
+        Ok(PeriodicBox(molar::core::PeriodicBox::from_vectors_angles(
+            v[0], v[1], v[2], a[0], a[1], a[2],
+        )?))
+    }
+
+    fn to_vectors_angles(slf: Bound<Self>) -> (Bound<PyArray1<f32>>, Bound<PyArray1<f32>>) {
+        let (v,a) = slf.borrow().0.to_vectors_angles();
+        let v_arr = copy_vec3_to_pyarray(slf.py(), &v);
+        let a_arr = copy_vec3_to_pyarray(slf.py(), &a);
+        (v_arr, a_arr)
+    }
+
+    fn shortest_vector<'py>(&self, py: Python<'py>, arr: PyArrayLike1<'py, f32, AllowTypeChange>) -> Bound<'py,PyArray1<f32>> {
+        if arr.len() != 3 {
+            panic!("Vector array must be of size 3");
+        }
+        if arr.strides()[0] != std::mem::size_of::<f32>() as isize {
+            panic!("Vector must be contigous");
+        };
+        let mut inp_v = Vector3f::zeros();
+        unsafe {
+            std::ptr::copy_nonoverlapping(arr.data(), inp_v.as_mut_ptr(), 3);
+        }
+        let out_v = self.0.shortest_vector(&inp_v);
+        copy_vec3_to_pyarray(py, &out_v)
+    }
+}
 
 #[pyclass]
 struct Topology(Option<molar::core::Topology>);
@@ -328,9 +388,9 @@ impl Sel {
     }
 
     fn com<'a>(&self, _py: Python<'a>) -> PyResult<Bound<'a, numpy::PyArray1<f32>>> {
-        Ok(copy_pos_to_pyarray(
+        Ok(copy_vec3_to_pyarray(
             _py,
-            &self.0.center_of_mass().map_err(|e| anyhow::anyhow!(e))?,
+            &self.0.center_of_mass().map_err(|e| anyhow::anyhow!(e))?.coords,
         ))
     }
 
@@ -458,11 +518,10 @@ fn map_pyarray_to_pos<'py>(
     }
 }
 
-// Constructs new PyArray that copies Pos
-fn copy_pos_to_pyarray<'py>(py: Python<'py>, data: &molar::core::Pos) -> Bound<'py, PyArray1<f32>> {
+fn copy_vec3_to_pyarray<'py>(py: Python<'py>, data: &Vector3f) -> Bound<'py, PyArray1<f32>> {
     unsafe {
         let array = PyArray1::<f32>::new(py, 3, true);
-        std::ptr::copy_nonoverlapping(data.coords.as_ptr(), array.data(), 3);
+        std::ptr::copy_nonoverlapping(data.as_ptr(), array.data(), 3);
         array
     }
 }

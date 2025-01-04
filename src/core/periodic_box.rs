@@ -1,4 +1,5 @@
 use crate::core::{Matrix3f, Pos, Vector3f};
+use nalgebra::Const;
 use thiserror::Error;
 
 #[derive(Debug, Default, Clone)]
@@ -62,7 +63,9 @@ pub enum PeriodicBoxError {
 }
 
 impl PeriodicBox {
-    pub fn from_matrix(matrix: Matrix3f) -> Result<Self, PeriodicBoxError> {
+    pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError> 
+    where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
+    {
         // Sanity check
         for col in matrix.column_iter() {
             if col.norm() == 0.0 {
@@ -71,7 +74,7 @@ impl PeriodicBox {
         }
 
         Ok(Self {
-            matrix,
+            matrix: matrix.clone_owned(),
             inv: matrix
                 .try_inverse()
                 .ok_or_else(|| PeriodicBoxError::InverseFailed)?,
@@ -161,7 +164,9 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn shortest_vector(&self, vec: &Vector3f) -> Vector3f {
+    pub fn shortest_vector<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
+    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
         box_vec.apply(|v| {
