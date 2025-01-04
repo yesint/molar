@@ -76,8 +76,11 @@ def test8():
     for s in sel:
         print(len(s))
 
-
+def test9():
+    b = PeriodicBox.from_vectors_angles([1,2,3],[70,80,90])
+    print(b.to_vectors_angles())
+    print(b.shortest_vector([0.5,0.5,0.6]))
 
 #test3()
 #test2()
-test1()
+test9()
