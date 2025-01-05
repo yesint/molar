@@ -1,5 +1,7 @@
 [env]
-# Variables for external Gromacs installation.
+#----------------------------------------------
+# Variables for linking with Gromacs
+#----------------------------------------------
 
 # Location of Gromacs source tree
 GROMACS_SOURCE_DIR = "/home/user/install/gromacs-2023"
@@ -9,3 +11,11 @@ GROMACS_BINARY_DIR = "/home/user/install/gromacs-2023/build"
 
 # Location of installed gromacs libraries
 GROMACS_LIB_DIR = "/home/user/programs/gromacs-2023-plumed/lib64"
+
+#----------------------------------------------
+# Variables for compiling PowerSasa library
+#----------------------------------------------
+
+# Location of locally installed Eigen headers (where Eigen dir is located).
+# If not set Eigen 3.4.0 will be downloaded automatically.
+EIGEN_DIR = 
