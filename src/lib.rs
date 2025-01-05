@@ -1,4 +1,4 @@
-#![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
+#![doc = include_str!("../README.md")]
 
 pub mod core;
 pub mod io;

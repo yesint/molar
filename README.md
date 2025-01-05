@@ -61,7 +61,7 @@ molar = {version="*", features=["gromacs"]}
 ```
 
 # Tutorial
-We will write an example program that reads a file of some molecular system containing TIP3P water molecules, convert all water to TIP4P and saves this as a new file. TIP3P water has 3 particles (oxygen and two hydrogens), while TIP$P has 4 (oxygen, two hydrogens and a dummy particle). Our goal is to add these dummy particles to each water molecule.
+We will write an example program that reads a file of some molecular system containing TIP3P water molecules, convert all water to TIP4P and saves this as a new file. TIP3P water has 3 particles (oxygen and two hydrogens), while TIP4P [has 4]((http://www.sklogwiki.org/SklogWiki/index.php/TIP4P/2005_model_of_water)) (oxygen, two hydrogens and a dummy particle). Our goal is to add these dummy particles to each water molecule.
 
 ## Preparing the stage
 First, let's create a new Rust project called `tip3to4`: 
@@ -75,7 +75,7 @@ cargo add molar anyhow
 ```
 
 In `src/main.rs` add needed boilerplate:
-```rust
+```rust,ignore
 // For processing command line arguments
 use std::env;
 // Import all baic things from molar
@@ -99,7 +99,7 @@ Now we can start writing our program.
 ## Reading an input file
 The simples way of loading the molecular system in MolAR is to use a `Source` - an object that holds a `Topology` and `State` of the system and is used to create atom selections for manipulating this data:
 
-```rust
+```rust,ignore
 // Load the source file from the first command line argument
 let src = Source::serial_from_file(&args[0])?;
 ```
@@ -113,7 +113,7 @@ If reading the file fails for whatever reason the `?` operator will return an er
 ## Making selections
 Now we need to select all waters that are going to be converted to TIP4. We also need to select all non-water part of the system to keep it as is.
 
-```rust
+```rust,ignore
 let water = src.select_str("resname TIP3")?;
 let non_water = src.select_str("not resname TIP3")?;
 ```
@@ -125,21 +125,21 @@ In MolAR empty selections are not permitted, so if no atoms are selected (or if 
 ## Looping over indiviudual water molecules
 We selected all water molecules as a single selection but we need to loop over individual water molecules to add an additional dummy particle to each of them. In order to do this we are splitting a selection to fragments by the residue index:
 
-```rust
-// NGo over water molecules one by one                   
-for mol in water.into_iter_fragments_resindex() {
+```rust,ignore
+// Go over water molecules one by one                   
+for mol in water.into_iter_contig_resindex() {
     // Do something with mol
 }
 ```
 
-The method `into_iter_fragments_resindex()` returns a Rust iterator, which produces selections containig distinct residue index each. There are many other ways of splitting selections into parts using arbitrary logic in MolAR, but this simplest one is what we need now. 
+The method `into_iter_contig_resindex()` returns a Rust iterator, which produces contigous selections containig distinct residue index each. There are many other ways of splitting selections into parts using arbitrary logic in MolAR, but this simplest one is what we need now. 
 
-## Working with atom coordinates
+## Working with coordinates
 Now we need to get the coordinates of atoms for current water molecules and compute a position of the dummy atom.
 
-```rust
+```rust,ignore
 // Go over water molecules one by one                   
-for mol in water.into_iter_fragments_resindex() {
+for mol in water.into_iter_contig_resindex() {
     // TIP3 is arranged as O->H->H
     // so atom 0 is O, atoms 1 and 2 are H
     // Get cooridnates
@@ -173,7 +173,7 @@ We are printing our new dummy atom and its position just to be sure that everyth
 ## Constructing output system
 All this is fine, but we still have no system to write our converted water molecules to. Let's fix this and modify the beginning of our main funtion like this:
 
-```rust
+```rust,ignore
 // Load the source file from the first command line argument
 let src = Source::serial_from_file(&args[0])?;
 
@@ -184,13 +184,13 @@ let out = Source::empty_builder();
 Here we are creating new empty `Source` of kind `builder`. This means that we will be able to add and delete the atoms to this source. Conventional `serial` source can access and alter existing atoms, but can't add or delete them. Such a distinction is dictated by performance and memory safety reasons - `builder` sources and selections require additional range checks, which make them a bit slower, so it only makes sense to use them when you actually need to add or delete the atoms.
 
 The first thing that we add to out new empty system is all non-water atoms:
-```rust
+```rust,ignore
 // Add non-water atoms to the output
 out.append(&non_water);
 ```
 
 Now, at the end of our loop over water molecules, we can add new dummy atoms properly to the new system:
-```rust
+```rust,ignore
 // Add new converted water molecule
 // We assume that the dummy is the last atom.
 out.append_atoms(
@@ -208,7 +208,7 @@ This code snippet may look a bit puzzling for non-rustaceans, so let's go throug
 ## Writing the output file
 Out output system is now fully constructed but it still lacks an important element - the periodic box description. Most molecular systems originating from MD are periodic and the information about the periodic box has to be copied to our newly constructed system:
 
-```rust
+```rust,ignore
 // Transfer the box
 out.set_box(src.get_box().cloned());
 ```
@@ -217,7 +217,7 @@ Here we get a reference to the periodic box form our input system, clone it and 
 
 Finally we are ready to write the output file:
 
-```rust
+```rust,ignore
 // Write out new system
 out.save(&args[1])?;
 ```
@@ -226,7 +226,7 @@ Again, file format will be determined by extension. The file name is provided by
 
 ## The final result
 The complete program looks like this:
-```rust
+```rust,no_run
 // For processing command line arguments
 use std::env;
 // Import all baic things from molar
@@ -251,7 +251,7 @@ fn main() -> Result<()> {
     out.append(&non_water);
 
     // Go over water molecules one by one                   
-    for mol in water.into_iter_fragments_resindex() {
+    for mol in water.into_iter_contig_resindex() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
