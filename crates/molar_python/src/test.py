@@ -77,7 +77,8 @@ def test8():
         print(len(s))
 
 def test9():
-    b = PeriodicBox.from_vectors_angles([1,2,3],[70,80,90])
+    #b = PeriodicBox([[1,0,0],[0,1,0],[0,0,1]])
+    b = PeriodicBox([1,2,3],[90,90,90])
     print(b.to_vectors_angles())
     print(b.shortest_vector([0.5,0.5,0.6]))
 
