@@ -1,39 +1,43 @@
 use crate::utils::*;
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
     nalgebra::{Const, Dyn, MatrixView, VectorView},
     AllowTypeChange, PyArray1, PyArray2, PyArrayLike1, PyArrayLike2, ToPyArray,
 };
-use pyo3::prelude::*;
+use pyo3::{prelude::*, types::PyTuple};
 
 #[pyclass]
 pub(super) struct PeriodicBox(pub(super) molar::core::PeriodicBox);
 
 #[pymethods]
 impl PeriodicBox {
-    #[staticmethod]
-    fn from_matrix<'py>(arr: PyArrayLike2<'py, f32, AllowTypeChange>) -> anyhow::Result<Self> {
-        let m: MatrixView<f32, Const<3>, Const<3>, Dyn, Dyn> = arr
-            .try_as_matrix()
-            .ok_or_else(|| anyhow!("conversion to 3x3 matrix has failed"))?;
-        Ok(PeriodicBox(molar::core::PeriodicBox::from_matrix(m)?))
-    }
-
-    #[staticmethod]
-    fn from_vectors_angles<'py>(
-        v_arr: PyArrayLike1<'py, f32, AllowTypeChange>,
-        a_arr: PyArrayLike1<'py, f32, AllowTypeChange>,
-    ) -> anyhow::Result<Self> {
-        let v: VectorView<f32, Const<3>, Dyn> = v_arr
-            .try_as_matrix()
-            .ok_or_else(|| anyhow!("conversion of vectors to Vector3 has failed"))?;
-        let a: VectorView<f32, Const<3>, Dyn> = a_arr
-            .try_as_matrix()
-            .ok_or_else(|| anyhow!("conversion of angles to Vector3 has failed"))?;
-        Ok(PeriodicBox(molar::core::PeriodicBox::from_vectors_angles(
-            v[0], v[1], v[2], a[0], a[1], a[2],
-        )?))
+    #[new]
+    #[pyo3(signature = (*py_args))]
+    fn new<'py>(py_args: &Bound<'py, PyTuple>) -> anyhow::Result<Self> {
+        if py_args.len() == 1 {
+            // From matrix
+            let arr: PyArrayLike2<'py, f32, AllowTypeChange> = py_args.get_item(0)?.extract()?;
+            let m: MatrixView<f32, Const<3>, Const<3>, Dyn, Dyn> = arr
+                .try_as_matrix()
+                .ok_or_else(|| anyhow!("conversion to 3x3 matrix has failed"))?;
+            Ok(PeriodicBox(molar::core::PeriodicBox::from_matrix(m)?))
+        } else if py_args.len() == 2 {
+            // From vectors and angles
+            let v_arr: PyArrayLike1<'py, f32, AllowTypeChange> = py_args.get_item(0)?.extract()?;
+            let a_arr: PyArrayLike1<'py, f32, AllowTypeChange> = py_args.get_item(1)?.extract()?;
+            let v: VectorView<f32, Const<3>, Dyn> = v_arr
+                .try_as_matrix()
+                .ok_or_else(|| anyhow!("conversion of vectors to Vector3 has failed"))?;
+            let a: VectorView<f32, Const<3>, Dyn> = a_arr
+                .try_as_matrix()
+                .ok_or_else(|| anyhow!("conversion of angles to Vector3 has failed"))?;
+            Ok(PeriodicBox(molar::core::PeriodicBox::from_vectors_angles(
+                v[0], v[1], v[2], a[0], a[1], a[2],
+            )?))
+        } else {
+            bail!("wrong number of arguments: 1 or 2 reqired")
+        }
     }
 
     fn to_vectors_angles<'py>(
