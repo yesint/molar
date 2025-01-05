@@ -12,7 +12,7 @@ pub use sel_split::*;
 pub use source::*;
 pub(crate) use utils::*;
 
-use super::{selection_parser::SelectionParserError, BuilderError};
+use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;
 use thiserror::Error;
 
@@ -56,9 +56,6 @@ pub enum SelectionError {
         source: SelectionIndexError,
     },
 
-    #[error("pbc operation on selection withon periodic box")]
-    NoPbc,
-
     #[error("index {0} is beyond the allowed range 0:{1}")]
     OutOfBounds(usize, usize),
 
@@ -91,6 +88,9 @@ pub enum SelectionError {
     
     #[error("selection complement is empy")]
     EmptyComplement,
+
+    #[error(transparent)]
+    PeriodicBox(#[from] PeriodicBoxError),
 }
 
 #[derive(Error, Debug)]

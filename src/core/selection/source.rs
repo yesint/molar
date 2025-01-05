@@ -276,7 +276,7 @@ impl Source<BuilderSerial> {
 
     pub fn multiply_periodically(&self, nbox: [usize; 3]) -> Result<(), SelectionError> {
         if self.get_box().is_none() {
-            return Err(SelectionError::NoPbc);
+            return Err(PeriodicBoxError::NoPbc)?;
         }
         let b = self.get_box_mut().unwrap();
         let m = b.get_matrix();
@@ -295,7 +295,7 @@ impl Source<BuilderSerial> {
             }
         }
         // Scale the box
-        b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32]);
+        b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32])?;
         Ok(())
     }
 }

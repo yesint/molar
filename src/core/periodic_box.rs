@@ -52,6 +52,9 @@ pub const PBC_NONE: PbcDims = PbcDims(0b0000_0000);
 
 #[derive(Error,Debug)]
 pub enum PeriodicBoxError {
+    #[error("pbc operation withon periodic box")]
+    NoPbc,
+
     #[error("zero length box vector")]
     ZeroLengthVector,
     
@@ -176,7 +179,9 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn shortest_vector_dims(&self, vec: &Vector3f, pbc_dims: PbcDims) -> Vector3f {
+    pub fn shortest_vector_dims<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>, pbc_dims: PbcDims) -> Vector3f 
+    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
         for i in 0..3 {
@@ -203,7 +208,9 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn to_box_coords(&self, vec: &Vector3f) -> Vector3f {
+    pub fn to_box_coords<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f
+    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    {
         self.inv * vec
     }
 
@@ -215,7 +222,9 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn to_lab_coords(&self, vec: &Vector3f) -> Vector3f {
+    pub fn to_lab_coords<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
+    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    {
         self.matrix * vec
     }
 
@@ -248,10 +257,14 @@ impl PeriodicBox {
         self.matrix[(2,0)]!=0.0 || self.matrix[(2,1)]!=0.0
     }
     
-    pub(crate) fn scale_vectors(&mut self, scale_factors: [f32; 3]) {
+    pub(crate) fn scale_vectors(&mut self, scale_factors: [f32; 3]) -> Result<(),PeriodicBoxError> {
         for c in 0..3 {
             self.matrix.column_mut(c).apply(|el| *el *= scale_factors[c]);
         }
+        self.inv = self.matrix
+                .try_inverse()
+                .ok_or_else(|| PeriodicBoxError::InverseFailed)?;
+        Ok(())
     }
 
     #[inline(always)]
