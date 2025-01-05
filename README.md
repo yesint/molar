@@ -209,11 +209,11 @@ This code snippet may look a bit puzzling for non-rustaceans, so let's go throug
 Out output system is now fully constructed but it still lacks an important element - the periodic box description. Most molecular systems originating from MD are periodic and the information about the periodic box has to be copied to our newly constructed system:
 
 ```rust,ignore
-// Transfer the box
-out.set_box(src.get_box().cloned());
+// Transfer the box from original file
+out.set_box_from(&src);
 ```
 
-Here we get a reference to the periodic box form our input system, clone it and add to the output system.
+Here we provide a reference to the input system, so the box is cloned from it to the output system.
 
 Finally we are ready to write the output file:
 
@@ -270,7 +270,6 @@ fn main() -> Result<()> {
             name: "M".into(),
             ..mol.first_particle().atom.clone()
         };
-        println!("{:?}",m_at);
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
@@ -281,8 +280,8 @@ fn main() -> Result<()> {
 
     }
 
-    // Transfer box
-    out.set_box(src.get_box().cloned());
+    // Transfer the box
+    out.set_box_from(&src);
 
     // Write out new system
     out.save(&args[1])?;

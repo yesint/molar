@@ -270,8 +270,14 @@ impl Source<BuilderSerial> {
         Ok(())
     }
 
+    /// Sets periodic box replacing current one
     pub fn set_box(&self, new_box: Option<PeriodicBox>) {
         self.state.get_storage_mut().pbox = new_box;
+    }
+
+    /// Replace periodic box with the box from other object
+    pub fn set_box_from(&self, box_provider: &impl BoxProvider) {
+        self.state.get_storage_mut().pbox = box_provider.get_box().cloned();
     }
 
     pub fn multiply_periodically(&self, nbox: [usize; 3]) -> Result<(), SelectionError> {
