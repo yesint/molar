@@ -1,6 +1,6 @@
 [package]
 name = "molar_powersasa"
-version = "0.7.1"
+version = "0.8.0"
 edition.workspace = true
 authors.workspace = true
 
@@ -15,3 +15,4 @@ categories.workspace = true
 
 [build-dependencies]
 cc.workspace = true
+cached-path = "0.6"
