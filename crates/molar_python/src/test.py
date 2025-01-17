@@ -2,14 +2,22 @@ from molar_python import *
 from sys import getrefcount
 import numpy as np
 
-sel = Source.from_file('../../tests/protein.pdb').select_str("resid 5:600")
+sel = Source('../../tests/protein.pdb').select_str("resid 5:600")
 
 def test1():
-    fh = FileHandler('../../tests/protein.xtc')
-    for st in fh:
-        print(st.time)
+    sel = Source('../../tests/protein.pdb')("resid 5:600")
+    trj = FileHandler('../../tests/protein.xtc')
+    for st in trj:
+        sel.set_state(st)
+        print(st.time,sel.com())
 
 def test2():
+    fh = FileHandler('../../tests/protein.pdb')
+    top = fh.read_topology()
+    st = fh.read_state()
+    src = Source(top,st)
+    sel = src("resid 5:600")
+    del top,st,src,fh
     pos0 = sel[0].pos
     pos1 = sel[1].pos
     pos2 = sel[2].pos
@@ -84,4 +92,4 @@ def test9():
 
 #test3()
 #test2()
-test9()
+test1()

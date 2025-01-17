@@ -136,11 +136,11 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
-        self.topology.clone()
+        self.topology.clone_with_kind()
     }
 
     pub fn get_state(&self) -> Holder<State, K> {
-        self.state.clone()
+        self.state.clone_with_kind()
     }
 
     pub fn set_topology(
@@ -232,8 +232,8 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Sel<KO>, SelectionError> {
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone(),
-                state: self.state.clone(),
+                topology: self.topology.clone_with_kind(),
+                state: self.state.clone_with_kind(),
                 index_storage: SortedSet::from_sorted(index),
             })
         } else {
@@ -252,8 +252,8 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Sel<KO>, SelectionError> {
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone(),
-                state: self.state.clone(),
+                topology: self.topology.clone_with_kind(),
+                state: self.state.clone_with_kind(),
                 index_storage: SortedSet::from_unsorted(index),
             })
         } else {
@@ -547,13 +547,13 @@ impl<K: UserCreatableKind> Sel<K> {
     //===================
 
     fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
-        Self::from_holders_and_index(self.topology.clone(), self.state.clone(), index)
+        Self::from_holders_and_index(self.topology.clone_with_kind(), self.state.clone_with_kind(), index)
     }
 
     /// Subselection from expression
     pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
-        Self::from_holders_and_index(self.topology.clone(), self.state.clone(), index)
+        Self::from_holders_and_index(self.topology.clone_with_kind(), self.state.clone_with_kind(), index)
     }
 
     /// Subselection from string
@@ -610,7 +610,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_iter(iter, topology.num_atoms())?;
-        Self::from_holders_and_index(topology.clone(), state.clone(), vec)
+        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
     }
 
     /// Selects all
@@ -620,7 +620,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_all(topology.num_atoms());
-        Self::from_holders_and_index(topology.clone(), state.clone(), vec)
+        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
     }
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
@@ -632,7 +632,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_str(selstr, &topology, &state)?;
-        Self::from_holders_and_index(topology.clone(), state.clone(), vec)
+        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
     }
 
     /// Creates new selection from an existing selection expression.
@@ -643,7 +643,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_expr(expr, &topology, &state)?;
-        Self::from_holders_and_index(topology.clone(), state.clone(), vec)
+        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
     }
 
     /// Creates new selection from a range of indexes.
@@ -655,7 +655,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         let vec = index_from_range(range, topology.num_atoms())?;
-        Self::from_holders_and_index(topology.clone(), state.clone(), vec)
+        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
     }
 
     //==============================================
@@ -698,8 +698,8 @@ impl<K: UserCreatableKind> Sel<K> {
     pub fn union<KO: UserCreatableKind>(&self, other: &Sel<KO>) -> Self {
         let ind = union_sorted(self.index(), other.index());
         Self {
-            topology: self.topology.clone(),
-            state: self.state.clone(),
+            topology: self.topology.clone_with_kind(),
+            state: self.state.clone_with_kind(),
             index_storage: ind,
         }
     }
@@ -713,8 +713,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyIntersection);
         }
         Ok(Self {
-            topology: self.topology.clone(),
-            state: self.state.clone(),
+            topology: self.topology.clone_with_kind(),
+            state: self.state.clone_with_kind(),
             index_storage: ind,
         })
     }
@@ -728,8 +728,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyDifference);
         }
         Ok(Self {
-            topology: self.topology.clone(),
-            state: self.state.clone(),
+            topology: self.topology.clone_with_kind(),
+            state: self.state.clone_with_kind(),
             index_storage: ind,
         })
     }
@@ -743,8 +743,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyComplement);
         }
         Ok(Self {
-            topology: self.topology.clone(),
-            state: self.state.clone(),
+            topology: self.topology.clone_with_kind(),
+            state: self.state.clone_with_kind(),
             index_storage: ind,
         })
     }
