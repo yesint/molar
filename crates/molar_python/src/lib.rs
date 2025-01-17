@@ -429,6 +429,7 @@ impl ParticleIterator {
 
 /// A Python module implemented in Rust.
 #[pymodule(name = "molar")]
+//#[pymodule]
 fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Atom>()?;
     m.add_class::<Particle>()?;
