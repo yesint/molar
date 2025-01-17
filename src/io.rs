@@ -339,7 +339,11 @@ impl FileHandler {
         let top = match self.format_handler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.read_topology().with_context(|| &self.file_name)?
-            }
+            },
+            FileFormat::Gro(ref mut h) => {
+                let (top,_) = h.read()?;
+                top
+            },
             _ => return Err(FileIoError::NotTopologyReadFormat).with_context(|| &self.file_name),
         };
 
@@ -376,7 +380,11 @@ impl FileHandler {
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
-            _ => return Err(FileIoError::NotTrajectoryReadFormat).with_context(|| &self.file_name),
+            FileFormat::Gro(ref mut h) => {
+                let (_,st) = h.read()?;
+                Some(st)
+            },
+            //_ => return Err(FileIoError::NotTrajectoryReadFormat).with_context(|| &self.file_name),
         };
 
         self.stats.elapsed_time += t.elapsed();        
@@ -510,40 +518,46 @@ impl IntoIterator for FileHandler {
 
 //----------------------------------------
 // Implementation of IO traits for tuples
-
-impl TopologyProvider for (Topology, State) {
-    fn num_atoms(&self) -> usize {
-        self.0.num_atoms()
+macro_rules! impl_io_traits_for_tuples {
+    ( $t:ty, $s:ty ) => {
+        impl TopologyProvider for ($t, $s) {
+            fn num_atoms(&self) -> usize {
+                self.0.num_atoms()
+            }
+        }
+        
+        impl AtomsProvider for ($t, $s) {
+            fn iter_atoms(&self) -> impl AtomIterator<'_> {
+                self.0.iter_atoms()
+            }
+        }
+        
+        impl StateProvider for ($t, $s) {
+            fn num_coords(&self) -> usize {
+                self.1.num_coords()
+            }
+        
+            fn get_time(&self) -> f32 {
+                self.1.get_time()
+            }
+        }
+        
+        impl BoxProvider for ($t, $s) {
+            fn get_box(&self) -> Option<&PeriodicBox> {
+                self.1.get_box()
+            }
+        }
+        
+        impl PosProvider for ($t, $s) {
+            fn iter_pos(&self) -> impl PosIterator<'_> {
+                self.1.iter_pos()
+            }
+        }
     }
 }
 
-impl AtomsProvider for (Topology, State) {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.0.iter_atoms()
-    }
-}
-
-impl StateProvider for (Topology, State) {
-    fn num_coords(&self) -> usize {
-        self.1.num_coords()
-    }
-
-    fn get_time(&self) -> f32 {
-        self.1.get_time()
-    }
-}
-
-impl BoxProvider for (Topology, State) {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.1.get_box()
-    }
-}
-
-impl PosProvider for (Topology, State) {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.1.iter_pos()
-    }
-}
+impl_io_traits_for_tuples!(Topology,State);
+impl_io_traits_for_tuples!(Holder<Topology,BuilderSerial>,Holder<State,BuilderSerial>);
 
 //----------------------------------------
 

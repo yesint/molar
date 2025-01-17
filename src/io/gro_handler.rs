@@ -137,7 +137,7 @@ impl GroFileHandler {
             line.clear();
             reader.read_line(&mut line).with_context(|| format!("atom #{i}"))?;
         
-            let at = Atom {
+            let mut at = Atom {
                 resid: line
                     .get(0..5)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
@@ -156,13 +156,12 @@ impl GroFileHandler {
                     .to_owned(),
                 chain: ' ',
                 type_name: "".into(),
-                type_id: 0,
-                occupancy: 0.0,
-                bfactor: 0.0,
-                charge: 0.0,
-                resindex: 0,
                 ..Default::default()
             };
+
+            // We don't have element number and mass, so guess them
+            at.guess_element_and_mass_from_name();
+        
             // Add atom to topology
             top.atoms.push(at);
 

@@ -176,17 +176,19 @@ impl<K: UserCreatableKind> Source<K> {
     ///
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     ///
-    /// Returns unique pointer to the old state, so it could be reused if needed.
-    ///
+    /// Returns [Holder] with old state, so it could be reused if needed.
     pub fn set_state(
         &mut self,
-        state: Holder<State, K>,
+        state: impl Into<Holder<State, K>>,
     ) -> Result<Holder<State, K>, SelectionError> {
-        // Check if the states are compatible
+        let state: Holder<State, K> = state.into();
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
-        Ok(std::mem::replace(&mut self.state, state))
+        let p1 = self.state.arc.as_ptr() as *mut State;
+        let p2 = state.arc.as_ptr() as *mut State;
+        unsafe{ std::ptr::swap(p1, p2) };
+        Ok(state)
     }
 
     /// Sets new [Topology] in this source. All selections created from this Source will automatically view
@@ -212,17 +214,17 @@ impl<K: UserCreatableKind> Source<K> {
     }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
-        self.topology.clone()
+        self.topology.clone_with_kind()
     }
 
     pub fn get_state(&self) -> Holder<State, K> {
-        self.state.clone()
+        self.state.clone_with_kind()
     }
 
     fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
         Sel::from_holders_and_index(
-            self.topology.clone(),
-            self.state.clone(),
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
             index,
         )
     }

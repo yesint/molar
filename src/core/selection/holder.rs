@@ -7,7 +7,7 @@ use super::{BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, Se
 /// Can't be sent to other threads.
 /// Normally this type should not be used directly by the user.
 pub struct Holder<T, K> {
-    arc: triomphe::Arc<T>,
+    pub(super) arc: triomphe::Arc<T>,
     _kind: PhantomData<K>,
 }
 
@@ -22,6 +22,19 @@ macro_rules! impl_from_t_for_holder {
                 }
             }
         }
+    }
+}
+
+macro_rules! impl_clone_for_holder {
+    ( $k:ty ) => {
+        impl<T> Clone for Holder<T, $k> {
+            fn clone(&self) -> Self {
+                Self {
+                    arc: self.arc.clone(),
+                    _kind: Default::default(),
+                }
+            }
+        }
     };
 }
 
@@ -30,6 +43,11 @@ impl_from_t_for_holder!(BuilderSerial);
 impl_from_t_for_holder!(MutableParallel);
 impl_from_t_for_holder!(ImmutableParallel);
 
+impl_clone_for_holder!(MutableSerial);
+impl_clone_for_holder!(BuilderSerial);
+impl_clone_for_holder!(ImmutableParallel);
+
+
 impl<T,K: SelectionKind> Holder<T, K> {
     // Check if two holders point to the same data
     pub fn same_data(&self,other: &Self) -> bool {
@@ -37,7 +55,7 @@ impl<T,K: SelectionKind> Holder<T, K> {
     }
 
     // Clone has limited visibility and can clone to other kinds
-    pub(super) fn clone<KO: SelectionKind>(&self) -> Holder<T,KO> {
+    pub(super) fn clone_with_kind<KO: SelectionKind>(&self) -> Holder<T,KO> {
         Holder {
             arc: self.arc.clone(),
             _kind: Default::default(),

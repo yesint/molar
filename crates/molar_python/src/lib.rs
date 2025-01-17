@@ -19,36 +19,27 @@ use periodic_box::PeriodicBox;
 
 //-------------------------------------------
 
-#[pyclass]
-struct Topology(Option<molar::core::Topology>);
+#[pyclass(unsendable)]
+struct Topology(molar::core::Holder<molar::core::Topology,BuilderSerial>);
 
-#[pyclass]
-struct State(Option<molar::core::State>);
+#[pyclass(unsendable)]
+struct State(molar::core::Holder<molar::core::State,BuilderSerial>);
 
 #[pymethods]
 impl State {
-    fn __len__(&self) -> anyhow::Result<usize> {
-        self.0
-            .as_ref()
-            .map(|s| s.len())
-            .ok_or_else(|| anyhow!("State is moved"))
+    fn __len__(&self) -> usize {
+        self.0.len()
     }
 
     #[getter]
-    fn time(&self) -> anyhow::Result<f32> {
-        self.0
-            .as_ref()
-            .map(|s| s.get_time())
-            .ok_or_else(|| anyhow!("State is moved"))
+    fn time(&self) -> f32 {
+        self.0.get_time()
     }
 
     #[getter]
     fn get_box(&self) -> anyhow::Result<PeriodicBox> {
         Ok(PeriodicBox(
-            self.0
-                .as_ref()
-                .map(|s| s.get_box())
-                .ok_or_else(|| anyhow!("State is moved"))?
+            self.0.get_box()
                 .ok_or_else(|| anyhow!("No periodic box"))?
                 .clone(),
         ))
@@ -58,9 +49,7 @@ impl State {
     fn set_box(&mut self, val: Bound<'_, PeriodicBox>) -> anyhow::Result<()> {
         let b = self
             .0
-            .as_mut()
-            .map(|s| s.get_box_mut())
-            .ok_or_else(|| anyhow!("State is moved"))?
+            .get_box_mut()
             .ok_or_else(|| anyhow!("No periodic box"))?;
         *b = val.borrow().0.clone();
         Ok(())
@@ -79,17 +68,20 @@ impl FileHandler {
 
     fn read(&mut self) -> anyhow::Result<(Topology, State)> {
         let (top, st) = self.0.read()?;
-        Ok((Topology(Some(top)), State(Some(st))))
+        Ok((Topology(top.into()), State(st.into())))
     }
 
     fn read_topology(&mut self) -> anyhow::Result<Topology> {
         let top = self.0.read_topology()?;
-        Ok(Topology(Some(top)))
+        Ok(Topology(top.into()))
     }
 
     fn read_state(&mut self) -> anyhow::Result<State> {
-        let st = self.0.read_state()?;
-        Ok(State(st))
+        if let Some(st) = self.0.read_state()? {
+            Ok(State(st.into()))
+        } else {
+            Err(anyhow!("can't read state"))
+        }
     }
 
     fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
@@ -105,19 +97,13 @@ impl FileHandler {
                 .iter()
                 .next()
                 .unwrap()
-                .extract::<PyRefMut<'_, Topology>>()?
-                .0
-                .take()
-                .ok_or_else(|| anyhow!("Topology is moved"))?;
+                .extract::<PyRefMut<'_, Topology>>()?;
             let st = s
                 .iter()
                 .next()
                 .unwrap()
-                .extract::<PyRefMut<'_, State>>()?
-                .0
-                .take()
-                .ok_or_else(|| anyhow!("State is moved"))?;
-            self.0.write(&(top, st))?;
+                .extract::<PyRefMut<'_, State>>()?;
+            self.0.write(&(top.0.clone(), st.0.clone()))?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -132,9 +118,8 @@ impl FileHandler {
             self.0.write_topology(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             self.0.write_topology(&s.0)?;
-        } else if let Ok(mut s) = data.extract::<PyRefMut<'_, Topology>>() {
-            self.0
-                .write_topology(&s.0.take().ok_or_else(|| anyhow!("Topology is moved"))?)?;
+        } else if let Ok(s) = data.extract::<PyRefMut<'_, Topology>>() {
+            self.0.write_topology(&s.0)?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -149,9 +134,9 @@ impl FileHandler {
             self.0.write_state(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             self.0.write_state(&s.0)?;
-        } else if let Ok(mut s) = data.extract::<PyRefMut<'_, State>>() {
+        } else if let Ok(s) = data.extract::<PyRefMut<'_, State>>() {
             self.0
-                .write_state(&s.0.take().ok_or_else(|| anyhow!("State is moved"))?)?;
+                .write_state(&s.0)?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -166,9 +151,9 @@ impl FileHandler {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        let st = slf.read_state().expect("expected state");
-        if st.0.is_some() {
-            Python::with_gil(|py| Some(st.into_py_any(py)))
+        let st = slf.read_state();
+        if st.is_ok() {
+            Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
                 .unwrap()
                 .ok()
         } else {
@@ -183,25 +168,30 @@ struct Source(molar::core::Source<molar::core::BuilderSerial>);
 #[pymethods]
 impl Source {
     #[new]
-    fn new(topology: &mut Topology, state: &mut State) -> PyResult<Self> {
-        Ok(Source(
-            molar::core::Source::new_builder(
-                topology.0.take().unwrap().into(),
-                state.0.take().unwrap().into(),
-            )
-            .map_err(|e| anyhow!(e))?,
-        ))
+    #[pyo3(signature = (*py_args))]
+    fn new<'py>(py_args: &Bound<'py, PyTuple>) -> PyResult<Self> {
+        if py_args.len() == 1 {
+            // From file
+            Ok(Source(
+                molar::core::Source::builder_from_file(&py_args.get_item(0)?.extract::<String>()?).map_err(|e| anyhow!(e))?,
+            ))
+        } else if py_args.len() == 2 {
+            let top = py_args.get_item(0)?.downcast::<Topology>()?.try_borrow_mut()?;
+            let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
+            Ok(Source(
+                molar::core::Source::new_builder(
+                    top.0.clone(),
+                    st.0.clone(),
+                )
+                .map_err(|e| anyhow!(e))?,
+            ))
+        } else {
+            Err(anyhow!("wrong number of arguments: 1 or 2 reqired")).map_err(|e| anyhow!(e))?
+        }
     }
 
     fn __len__(&self) -> usize {
         self.0.len()
-    }
-
-    #[staticmethod]
-    fn from_file(fname: &str) -> PyResult<Self> {
-        Ok(Source(
-            molar::core::Source::builder_from_file(fname).map_err(|e| anyhow!(e))?,
-        ))
     }
 
     fn select_all(&mut self) -> PyResult<Sel> {
@@ -238,6 +228,11 @@ impl Source {
         } else {
             Ok(Sel(self.0.select_all().map_err(|e| anyhow!(e))?))
         }
+    }
+
+    fn set_state(&mut self, st: Bound<'_,State>) -> PyResult<()>{
+        let _ = self.0.set_state(st.try_borrow_mut()?.0.clone()).map_err(|e| anyhow!(e));
+        Ok(())
     }
 }
 
@@ -386,6 +381,11 @@ impl Sel {
 
         Ok(())
     }
+
+    fn set_state(&mut self, st: Bound<'_,State>) -> PyResult<()>{
+        let _ = self.0.set_state(st.try_borrow_mut()?.0.clone()).map_err(|e| anyhow!(e));
+        Ok(())
+    }
 }
 
 #[pyclass]
@@ -428,7 +428,7 @@ impl ParticleIterator {
 //====================================
 
 /// A Python module implemented in Rust.
-#[pymodule]
+#[pymodule(name = "molar")]
 fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Atom>()?;
     m.add_class::<Particle>()?;
