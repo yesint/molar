@@ -81,16 +81,16 @@ peg::parser! {
         = v:(int_keyword_expr() / str_keyword_expr() / chain_keyword_expr()) {v}
 
         rule regex_value() -> StrKeywordValue
-        = "'" s:$((!"'" [_])+) "'"
+        = "/" s:$((!"/" [_])+) "/"
         {?
             match regex::bytes::Regex::new(&format!("^{s}$")) {
                 Ok(r) => Ok(StrKeywordValue::Regex(r)),
-                Err(_) => Err("Invalid regex value {}"),
+                Err(_) => Err("Invalid regex value"),
             }
         }
 
         rule str_value() -> StrKeywordValue
-        = !("and"/"or") s:$((![' '|'\''|'"'|')'] [_])+)
+        = !("and"/"or") s:$((![' '|'/'|')'] [_])+)
         { StrKeywordValue::Str(s.to_owned()) }
 
 

@@ -1,4 +1,4 @@
-from molar_python import *
+from python import *
 from sys import getrefcount
 import numpy as np
 
