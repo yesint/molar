@@ -160,6 +160,28 @@ impl FileHandler {
             None
         }
     }
+
+    fn skip_to_frame(&mut self, fr: usize) -> PyResult<()> {
+        self.0.skip_to_frame(fr).map_err(|e| anyhow!(e))?;
+        Ok(())
+    }
+
+    fn skip_to_time(&mut self, t: f32) -> anyhow::Result<()> {
+        self.0.skip_to_time(t)?;
+        Ok(())
+    }
+
+    fn tell_first(&self) -> anyhow::Result<(usize,f32)> {
+        Ok(self.0.tell_first()?)
+    }
+
+    fn tell_current(&self) -> anyhow::Result<(usize,f32)> {
+        Ok(self.0.tell_current()?)
+    }
+
+    fn tell_last(&self) -> anyhow::Result<(usize,f32)> {
+        Ok(self.0.tell_last()?)
+    }
 }
 
 #[pyclass(unsendable, sequence)]
