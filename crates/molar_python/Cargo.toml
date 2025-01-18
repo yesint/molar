@@ -21,6 +21,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = {version = "0.23.3", features =["anyhow","extension-module"] }
+pyo3-log = "0.12.1"
 molar = {version = "0.8.0", path = "../..", default-features = false}
 numpy = {version = "0.23.0", features = ["nalgebra"]}
 anyhow = "1.0.90"
+env_logger = "0.11"
+log.workspace = true

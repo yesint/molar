@@ -20,6 +20,9 @@ pub struct XtcFileHandler {
     is_random_access: bool,
 }
 
+// Allow sending handler between threads
+unsafe impl Send for XtcFileHandler {}
+
 #[derive(Error, Debug)]
 pub enum XtcHandlerError {
     #[error("unexpected null characted")]

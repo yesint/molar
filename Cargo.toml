@@ -21,6 +21,7 @@ regex = "1.11.1"
 thiserror = "2.0.8"
 log = "0.4.22"
 cc = {version = "1.2.5", features = ["parallel"]}
+comfy-table = "7.1"
 
 [package]
 name = "molar"
@@ -55,6 +56,7 @@ nalgebra.workspace = true
 peg.workspace = true
 regex.workspace = true
 log.workspace = true
+comfy-table.workspace = true
 ndarray = "0.16.0"
 num-traits = "0.2.16"
 rayon = "1.8"
