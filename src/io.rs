@@ -76,7 +76,7 @@ pub enum FileIoError {
 
     #[error("enable gromacs feature in Cargo.toml to get tpr support")]
     TprDisabled,
-    
+
     #[error("unexpected end of file")]
     UnexpectedEof,
 
@@ -140,16 +140,41 @@ impl IndexProvider for Vec<usize> {
 // Iterator over the frames for any type implementing IoTrajectoryReader
 //=======================================================================
 pub struct IoStateIterator {
-    reader: FileHandler,
+    //reader: FileHandler,
+    receiver: std::sync::mpsc::Receiver<Option<State>>,
+}
+
+impl IoStateIterator {
+    fn new(mut fh: FileHandler) -> Self {
+        use std::sync::mpsc::sync_channel;
+        use std::thread;
+
+        let (sender, receiver) = sync_channel(10);
+
+        // Spawn reading thread
+        thread::spawn(move || {
+            let mut ok = true;
+            while ok {
+                let res = fh.read_state()
+                .map_err(|e| panic!("error reading next state: {}", e))
+                .unwrap();
+                // If None returned exit reading loop
+                if res.is_none() {
+                    ok = false;
+                }
+                // Send state to channel
+                sender.send(res).unwrap();
+            }
+        });
+
+        IoStateIterator{receiver}
+    }
 }
 
 impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
-        self.reader
-            .read_state()
-            .map_err(|e| panic!("error reading next state: {}", e))
-            .unwrap()
+        self.receiver.recv().unwrap()
     }
 }
 
@@ -158,9 +183,9 @@ impl Iterator for IoStateIterator {
 //================================
 
 pub struct FileHandler {
-    file_name: String,
+    pub file_name: String,
     format_handler: FileFormat,
-    stats: FileStats,
+    pub stats: FileStats,
 }
 
 enum FileFormat {
@@ -173,18 +198,18 @@ enum FileFormat {
     Gro(GroFileHandler),
 }
 
-#[derive(Default, Debug)]
-struct FileStats {
-    elapsed_time: std::time::Duration,
-    frames_processed: usize,
-    cur_t: f32,
+#[derive(Default, Debug, Clone)]
+pub struct FileStats {
+    pub elapsed_time: std::time::Duration,
+    pub frames_processed: usize,
+    pub cur_t: f32,
 }
 
 impl Display for FileStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "total IO time {:.4}s, {} frames, {:.4}s per frame",
+            "IO time {:.4}s, {} frames, {:.4}s per frame",
             self.elapsed_time.as_secs_f32(),
             self.frames_processed,
             self.elapsed_time.as_secs_f32() / self.frames_processed as f32
@@ -238,7 +263,11 @@ impl FileHandler {
             )),
 
             "gro" => Ok(Self::new(
-                FileFormat::Gro(GroFileHandler::open(fname).map_err(FileIoError::Gro).with_context(|| fname)?),
+                FileFormat::Gro(
+                    GroFileHandler::open(fname)
+                        .map_err(FileIoError::Gro)
+                        .with_context(|| fname)?,
+                ),
                 fname.into(),
             )),
 
@@ -280,7 +309,11 @@ impl FileHandler {
                 fname.into(),
             )),
             "gro" => Ok(Self::new(
-                FileFormat::Gro(GroFileHandler::create(fname).map_err(FileIoError::Gro).with_context(|| fname)?),
+                FileFormat::Gro(
+                    GroFileHandler::create(fname)
+                        .map_err(FileIoError::Gro)
+                        .with_context(|| fname)?,
+                ),
                 fname.into(),
             )),
             _ => Err(FileIoError::NotRecognized).with_context(|| fname),
@@ -293,16 +326,22 @@ impl FileHandler {
         let (top, st) = match self.format_handler {
             #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => h.read().with_context(|| &self.file_name)?,
-            FileFormat::Gro(ref mut h) => h.read().map_err(FileIoError::Gro).with_context(|| &self.file_name)?,
+            FileFormat::Gro(ref mut h) => h
+                .read()
+                .map_err(FileIoError::Gro)
+                .with_context(|| &self.file_name)?,
             FileFormat::Pdb(ref mut h) => {
                 let top = h.read_topology().with_context(|| &self.file_name)?;
                 let st = h
                     .read_state()
                     .with_context(|| &self.file_name)?
-                    .ok_or_else(|| FileIoError::NoStates).with_context(|| &self.file_name)?;
+                    .ok_or_else(|| FileIoError::NoStates)
+                    .with_context(|| &self.file_name)?;
                 (top, st)
             }
-            _ => return Err(FileIoError::NotTopologyAndStateFormat).with_context(|| &self.file_name),
+            _ => {
+                return Err(FileIoError::NotTopologyAndStateFormat).with_context(|| &self.file_name)
+            }
         };
         check_topology_state_sizes(&top, &st).with_context(|| &self.file_name)?;
 
@@ -319,7 +358,10 @@ impl FileHandler {
         let t = std::time::Instant::now();
 
         match self.format_handler {
-            FileFormat::Gro(ref mut h) => h.write(data).map_err(FileIoError::Gro).with_context(|| &self.file_name)?,
+            FileFormat::Gro(ref mut h) => h
+                .write(data)
+                .map_err(FileIoError::Gro)
+                .with_context(|| &self.file_name)?,
             FileFormat::Pdb(ref mut h) => {
                 h.write_topology(data).with_context(|| &self.file_name)?;
                 h.write_state(data).with_context(|| &self.file_name)?;
@@ -339,11 +381,11 @@ impl FileHandler {
         let top = match self.format_handler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.read_topology().with_context(|| &self.file_name)?
-            },
+            }
             FileFormat::Gro(ref mut h) => {
-                let (top,_) = h.read()?;
+                let (top, _) = h.read()?;
                 top
-            },
+            }
             _ => return Err(FileIoError::NotTopologyReadFormat).with_context(|| &self.file_name),
         };
 
@@ -363,7 +405,7 @@ impl FileHandler {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => {
                 h.write_topology(data).with_context(|| &self.file_name)?
             }
-            _ => return Err(FileIoError::NotTopologyWriteFormat).with_context(|| &self.file_name)
+            _ => return Err(FileIoError::NotTopologyWriteFormat).with_context(|| &self.file_name),
         }
 
         self.stats.elapsed_time += t.elapsed();
@@ -381,13 +423,13 @@ impl FileHandler {
             | FileFormat::Dcd(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.read_state().with_context(|| &self.file_name)?,
             FileFormat::Gro(ref mut h) => {
-                let (_,st) = h.read()?;
+                let (_, st) = h.read()?;
                 Some(st)
-            },
+            }
             //_ => return Err(FileIoError::NotTrajectoryReadFormat).with_context(|| &self.file_name),
         };
 
-        self.stats.elapsed_time += t.elapsed();        
+        self.stats.elapsed_time += t.elapsed();
         // Update stats if not None
         if st.is_some() {
             self.stats.frames_processed += 1;
@@ -408,7 +450,9 @@ impl FileHandler {
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.write_state(data).with_context(|| &self.file_name)?,
             FileFormat::Xtc(ref mut h) => h.write_state(data).with_context(|| &self.file_name)?,
-            _ => return Err(FileIoError::NotTrajectoryWriteFormat).with_context(|| &self.file_name),
+            _ => {
+                return Err(FileIoError::NotTrajectoryWriteFormat).with_context(|| &self.file_name)
+            }
         }
 
         self.stats.elapsed_time += t.elapsed();
@@ -442,7 +486,7 @@ impl FileHandler {
         match self.format_handler {
             FileFormat::Xtc(ref h) => h.tell_current().with_context(|| &self.file_name),
             // For non-random-access trajectories report FileHandler stats
-            _ => Ok((self.stats.frames_processed,self.stats.cur_t)),
+            _ => Ok((self.stats.frames_processed, self.stats.cur_t)),
         }
     }
 
@@ -458,22 +502,24 @@ impl FileHandler {
     pub fn skip_to_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         // Try random-access first
         match self.seek_frame(fr) {
-            Ok(_) => { return Ok(()) },
-            Err(_) => {                
+            Ok(_) => return Ok(()),
+            Err(_) => {
                 // Not a random access trajectory
                 if self.stats.frames_processed == fr {
                     // We are at needed frame, nothing to do
-                    return Ok(())
+                    return Ok(());
                 } else if self.stats.frames_processed > fr {
                     // We are past the needed frame, return error
-                    return Err(FileIoError::SeekFrameError(fr)).with_context(|| &self.file_name)
+                    return Err(FileIoError::SeekFrameError(fr)).with_context(|| &self.file_name);
                 } else {
                     // Do serial read until reaching needed frame or EOF
                     while self.stats.frames_processed < fr {
-                        self.read_state()?.ok_or_else(|| FileIoError::SeekFrameError(fr)).with_context(|| &self.file_name)?;
+                        self.read_state()?
+                            .ok_or_else(|| FileIoError::SeekFrameError(fr))
+                            .with_context(|| &self.file_name)?;
                     }
                 }
-            },
+            }
         }
         Ok(())
     }
@@ -483,19 +529,21 @@ impl FileHandler {
     pub fn skip_to_time(&mut self, t: f32) -> Result<(), FileIoError> {
         // Try random-access first
         match self.seek_time(t) {
-            Ok(_) => { return Ok(()) },
-            Err(_) => {                
+            Ok(_) => return Ok(()),
+            Err(_) => {
                 // Not a random access trajectory
-                if self.stats.cur_t > t {                    
+                if self.stats.cur_t > t {
                     // We are past the needed time, return error
-                    return Err(FileIoError::SeekTimeError(t)).with_context(|| &self.file_name)
+                    return Err(FileIoError::SeekTimeError(t)).with_context(|| &self.file_name);
                 } else {
                     // Do serial read until reaching needed time or EOF
                     while self.stats.cur_t < t {
-                        self.read_state()?.ok_or_else(|| FileIoError::SeekTimeError(t)).with_context(|| &self.file_name)?;
+                        self.read_state()?
+                            .ok_or_else(|| FileIoError::SeekTimeError(t))
+                            .with_context(|| &self.file_name)?;
                     }
                 }
-            },
+            }
         }
         Ok(())
     }
@@ -512,7 +560,7 @@ impl IntoIterator for FileHandler {
     type IntoIter = IoStateIterator;
 
     fn into_iter(self) -> Self::IntoIter {
-        IoStateIterator { reader: self }
+        IoStateIterator::new(self)
     }
 }
 
@@ -525,38 +573,38 @@ macro_rules! impl_io_traits_for_tuples {
                 self.0.num_atoms()
             }
         }
-        
+
         impl AtomsProvider for ($t, $s) {
             fn iter_atoms(&self) -> impl AtomIterator<'_> {
                 self.0.iter_atoms()
             }
         }
-        
+
         impl StateProvider for ($t, $s) {
             fn num_coords(&self) -> usize {
                 self.1.num_coords()
             }
-        
+
             fn get_time(&self) -> f32 {
                 self.1.get_time()
             }
         }
-        
+
         impl BoxProvider for ($t, $s) {
             fn get_box(&self) -> Option<&PeriodicBox> {
                 self.1.get_box()
             }
         }
-        
+
         impl PosProvider for ($t, $s) {
             fn iter_pos(&self) -> impl PosIterator<'_> {
                 self.1.iter_pos()
             }
         }
-    }
+    };
 }
 
-impl_io_traits_for_tuples!(Topology,State);
+impl_io_traits_for_tuples!(Topology, State);
 impl_io_traits_for_tuples!(Holder<Topology,BuilderSerial>,Holder<State,BuilderSerial>);
 
 //----------------------------------------

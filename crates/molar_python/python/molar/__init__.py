@@ -1,5 +1,6 @@
 from .molar import *
 import argparse
+import logging
 
 def _process_suffix(s):
     if s=='':
@@ -18,15 +19,22 @@ def _process_suffix(s):
     return (fr,t)
 
 
-class AnalyisTask:
+class AnalysisTask:
     def __init__(self):
-        parser = argparse.ArgumentParser('Trajectory processor')
+        greeting()
+        FORMAT = '[%(levelname)s] (%(name)s) %(message)s'
+        logging.basicConfig(format=FORMAT)
+        logging.getLogger().setLevel(logging.INFO)
+
+        logging.info(f'Executing task "{type(self).__name__}"...')
+
+        parser = argparse.ArgumentParser('molar_python trajectory processor')
         parser.add_argument('-f','--files',nargs='+')
         parser.add_argument('--log',default=100,type=int)
         parser.add_argument('-b','--begin',default='')
         parser.add_argument('-e','--end',default='')
 
-        # Register user supplied arguments
+        # Register user-supplied arguments
         self.register_args(parser)
         # Parse arguments
         self.args = parser.parse_args()
@@ -43,7 +51,7 @@ class AnalyisTask:
         self.consumed_frames = 0
         begin_skipped = False
         for trj_file in self.args.files[1:]:
-            print(f'Processing trajectory "{trj_file}"...')
+            logging.info(f'Processing trajectory "{trj_file}"...')
             trj_handler = FileHandler(trj_file)
             
             if not begin_skipped:
@@ -85,7 +93,7 @@ class AnalyisTask:
             t = f"{self.state.time/1000.0} ns"
         else:
             t = f"{self.state.time/1000_000.0} us"
-        print(f'Frame {self.consumed_frames}, time {t}')
+        logging.info(f'At frame {self.consumed_frames}, time {t}')
 
 
     def register_args(self,parser):

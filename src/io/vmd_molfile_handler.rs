@@ -33,6 +33,9 @@ pub struct VmdMolFileHandler {
     mode: OpenMode,
 }
 
+// Allow sending handler between threads
+unsafe impl Send for VmdMolFileHandler {}
+
 #[derive(Error, Debug)]
 pub enum VmdHandlerError {
     #[error("unexpected null characted")]

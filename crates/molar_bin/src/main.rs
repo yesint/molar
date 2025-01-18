@@ -103,7 +103,7 @@ fn main() -> Result<()> {
     let cmd = Cmd::parse();
 
     // Greeting
-    greeting();
+    molar::greeting("molar_bin");
 
     match &cmd.command {
         Commands::Last { files, outfile } => {
@@ -139,28 +139,3 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn greeting() {
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
-    use comfy_table::presets::UTF8_FULL;
-    use comfy_table::{Attribute, Cell, Table};
-
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .add_row(vec![
-            Cell::new("MolAR - Molecular Analysis for Rust").add_attributes(vec![Attribute::Bold])
-        ])
-        .add_row(vec![format!(
-            "{}\n{}",
-            env!("CARGO_PKG_HOMEPAGE"),
-            env!("CARGO_PKG_AUTHORS")
-        )])
-        .add_row(vec![format!("MolAR version: {}", molar::VERSION)])
-        .add_row(vec![format!(
-            "Utility: {}, Version: {}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        )]);
-    println!("{table}");
-}

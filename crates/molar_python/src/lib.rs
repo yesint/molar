@@ -182,7 +182,47 @@ impl FileHandler {
     fn tell_last(&self) -> anyhow::Result<(usize,f32)> {
         Ok(self.0.tell_last()?)
     }
+
+    #[getter]
+    fn stats(&self) -> FileStats {
+        FileStats(self.0.stats.clone())
+    }
+
+    #[getter]
+    fn file_name(&self) -> &str {
+        &self.0.file_name
+    }
 }
+
+#[pyclass]
+struct FileStats(molar::io::FileStats);
+
+#[pymethods]
+impl FileStats {
+    #[getter]
+    fn elapsed_time(&self) -> std::time::Duration {
+        self.0.elapsed_time
+    }
+
+    #[getter]
+    fn frames_processed(&self) -> usize {
+        self.0.frames_processed
+    }
+
+    #[getter]
+    fn cur_t(&self) -> f32 {
+        self.0.cur_t
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
+    
+    fn __str__(&self) -> String {
+        format!("{}", self.0)
+    }
+}
+
 
 #[pyclass(unsendable, sequence)]
 struct Source(molar::core::Source<molar::core::BuilderSerial>);
@@ -433,26 +473,19 @@ impl ParticleIterator {
     }
 }
 
-// fn cover(arr: Bound<'_,PyArray1<f32>>) -> nalgebra::VectorView<f32,Const<3>> {
-//     arr.try_as_matrix()
-//     let shape = arr.shape();
-//     let strides = arr.strides();
-//     let storage = unsafe {
-//         nalgebra::ViewStorage::from_raw_parts(
-//             arr.data(),
-//             (Const::<3>,Const::<1>),
-//             (Const::<1>,Const::<3>),
-//         )
-//     };
-//     nalgebra::VectorView::from_data(storage)
-// }
 
 //====================================
+#[pyfunction]
+fn greeting() {
+    molar::greeting("molar_python");
+}
+
 
 /// A Python module implemented in Rust.
 #[pymodule(name = "molar")]
 //#[pymodule]
 fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    pyo3_log::init();
     m.add_class::<Atom>()?;
     m.add_class::<Particle>()?;
     m.add_class::<Topology>()?;
@@ -461,5 +494,6 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FileHandler>()?;
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;
+    m.add_function(wrap_pyfunction!(greeting, m)?)?;
     Ok(())
 }
