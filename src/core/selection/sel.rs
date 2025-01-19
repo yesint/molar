@@ -444,7 +444,7 @@ impl<K: UserCreatableKind> Sel<K> {
     }
 
     /// Return serial iterator that splits selection into contigous pieces according to the value of function.
-    /// Selection is not consumed. Returned selections are of subselection kind.
+    /// Selection is not consumed.
     ///
     /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
     /// If `func` returns `None` the atom is skipped and do not added to new selection.
@@ -498,23 +498,6 @@ impl<K: UserCreatableKind> Sel<K> {
     {
         Ok(ParallelSplit {
             parts: self.split_par_contig_internal(split_fn)?,
-            _marker: Default::default(),
-        })
-    }
-
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces couled be disjoint and are not arranged in any predefined order.
-    /// Parent selection is kept intact.
-    ///
-    /// Each selection corresponds to distinct return value of `split_fn`.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub fn par_collect<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_collect_internal(split_fn)?,
             _marker: Default::default(),
         })
     }

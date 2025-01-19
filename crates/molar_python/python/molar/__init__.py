@@ -2,6 +2,10 @@ from .molar import *
 import argparse
 import logging
 
+PBC_FULL = [True,True,True]
+PBC_NONE = [False,False,False]
+PBC_XY = [True,True,False]
+
 def _process_suffix(s):
     if s=='':
         return (None,None)

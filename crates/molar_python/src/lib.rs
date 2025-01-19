@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use molar::prelude::*;
 use numpy::{
-    npyffi, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, PY_ARRAY_API,
+    nalgebra, npyffi, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, ToPyArray, PY_ARRAY_API
 };
 use pyo3::{prelude::*, types::PyTuple, IntoPyObjectExt};
 
@@ -476,11 +476,66 @@ impl Sel {
         ))
     }
 
-    fn fit_transform(&self) {
-        
+    fn principal_transform(&self) -> anyhow::Result<IsometryTransform> {
+        let tr = self.0.principal_transform()?;
+        Ok(IsometryTransform(tr))    
     }
 
+    fn principal_transform_pbc(&self) -> anyhow::Result<IsometryTransform> {
+        let tr = self.0.principal_transform_pbc()?;
+        Ok(IsometryTransform(tr))    
+    }
+
+    fn apply_transform(&self, tr: &IsometryTransform) {
+        self.0.apply_transform(&tr.0);
+    }
+
+    fn gyration(&self) -> anyhow::Result<f32> {
+        Ok(self.0.gyration()?)
+    }
+
+    fn gyration_pbc(&self) -> anyhow::Result<f32> {
+        Ok(self.0.gyration_pbc()?)
+    }
+
+    fn inertia<'py>(&self, py: Python<'py>) -> anyhow::Result<(Bound<'py,numpy::PyArray1<f32>>, Bound<'py,numpy::PyArray2<f32>>)> {
+        let (moments,axes) = self.0.inertia()?;
+        let mom = clone_vec_to_pyarray1(&moments,py);
+        let ax = axes.to_pyarray(py);
+        Ok((mom,ax))
+    }
+
+    fn inertia_pbc<'py>(&self, py: Python<'py>) -> anyhow::Result<(Bound<'py,numpy::PyArray1<f32>>, Bound<'py,numpy::PyArray2<f32>>)> {
+        let (moments,axes) = self.0.inertia_pbc()?;
+        let mom = clone_vec_to_pyarray1(&moments,py);
+        let ax = axes.to_pyarray(py);
+        Ok((mom,ax))
+    }
+
+    
 }
+
+#[pyclass]
+struct IsometryTransform (nalgebra::IsometryMatrix3<f32>);
+
+// Free functions
+
+#[pyfunction]
+fn fit_transform(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
+    let tr = molar::core::Sel::fit_transform(&sel1.0,&sel2.0)?;
+    Ok(IsometryTransform(tr))
+}
+
+#[pyfunction]
+fn rmsd(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
+    Ok(molar::core::Sel::rmsd(&sel1.0,&sel2.0)?)
+}
+
+#[pyfunction]
+fn rmsd_mw(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
+    Ok(molar::core::Sel::rmsd_mw(&sel1.0,&sel2.0)?)
+}
+
 
 #[pyclass]
 struct ParticleIterator {
@@ -527,5 +582,8 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
+    m.add_function(wrap_pyfunction!(rmsd, m)?)?;
+    m.add_function(wrap_pyfunction!(rmsd_mw, m)?)?;
     Ok(())
 }
