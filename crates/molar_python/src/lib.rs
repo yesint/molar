@@ -383,13 +383,6 @@ impl Sel {
         .into_py_any(slf.py())?)
     }
 
-    fn com<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, numpy::PyArray1<f32>>> {
-        Ok(clone_vec_to_pyarray1(
-            &self.0.center_of_mass().map_err(|e| anyhow!(e))?.coords,
-            py,
-        ))
-    }
-
     // Iteration protocol
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, ParticleIterator> {
         Bound::new(
@@ -464,6 +457,29 @@ impl Sel {
         let _ = self.0.set_state(st.try_borrow_mut()?.0.clone()).map_err(|e| anyhow!(e));
         Ok(())
     }
+
+    #[pyo3(signature = (dims=[false,false,false]))]
+    fn com<'py>(&self, py: Python<'py>, dims: [bool; 3]) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+        let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
+        Ok(clone_vec_to_pyarray1(
+            &self.0.center_of_mass_pbc_dims(pbc_dims).map_err(|e| anyhow!(e))?.coords,
+            py,
+        ))
+    }
+
+    #[pyo3(signature = (dims=[false,false,false]))]
+    fn cog<'py>(&self, py: Python<'py>, dims: [bool; 3]) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+        let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
+        Ok(clone_vec_to_pyarray1(
+            &self.0.center_of_geometry_pbc_dims(pbc_dims).map_err(|e| anyhow!(e))?.coords,
+            py,
+        ))
+    }
+
+    fn fit_transform(&self) {
+        
+    }
+
 }
 
 #[pyclass]

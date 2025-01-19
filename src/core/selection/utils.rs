@@ -2,6 +2,7 @@ use std::ops::Range;
 use sorted_vec::SortedSet;
 use crate::prelude::*;
 
+/// Verifies that topology and state have matching number of atoms
 pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<(),super::TopologyStateSizes> {
     let n1 = topology.num_atoms();
     let n2 = state.num_coords();
@@ -9,10 +10,12 @@ pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> 
     Ok(())
 }
 
+/// Creates an index set containing all indices from 0 to n-1
 pub(super) fn index_from_all(n: usize) -> SortedSet<usize> {
     unsafe { SortedSet::from_sorted((0..n).collect()) }
 }
 
+/// Creates an index set by evaluating a selection expression on the entire system
 pub(super) fn index_from_expr(expr: &mut SelectionExpr, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
     let index = expr.apply_whole(&topology, &state)?;
     if index.len() > 0 {
@@ -25,6 +28,7 @@ pub(super) fn index_from_expr(expr: &mut SelectionExpr, topology: &Topology, sta
     }
 }
 
+/// Creates an index set by evaluating a selection expression on a subset of the system
 pub(super) fn index_from_expr_sub(expr: &mut SelectionExpr, topology: &Topology, state: &State, subset: &SortedSet<usize>) -> Result<SortedSet<usize>, SelectionError> {
     let index = expr.apply_subset(&topology, &state, subset.iter().cloned())?;
     if index.len() > 0 {
@@ -37,6 +41,7 @@ pub(super) fn index_from_expr_sub(expr: &mut SelectionExpr, topology: &Topology,
     }
 }
 
+/// Creates an index set by parsing and evaluating a selection string
 pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
     let index = SelectionExpr::try_from(selstr)?.apply_whole(&topology, &state)?;
     if index.len() > 0 {
@@ -49,6 +54,7 @@ pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -
     }
 }
 
+/// Creates an index set from a range of indices, checking bounds against n
 pub(super) fn index_from_range(range: Range<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
     if range.start > n || range.end > n {
         Err(SelectionError::FromRange {
@@ -67,6 +73,7 @@ pub(super) fn index_from_range(range: Range<usize>, n: usize) -> Result<SortedSe
     }
 }
 
+/// Creates an index set from a vector of indices, checking bounds against n
 pub(super) fn index_from_vec(vec: Vec<usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
     let ind = SortedSet::from_unsorted(vec);
     if ind.is_empty() {        
@@ -88,11 +95,12 @@ pub(super) fn index_from_vec(vec: Vec<usize>, n: usize) -> Result<SortedSet<usiz
     }
 }
 
+/// Creates an index set from an iterator of indices, checking bounds against n
 pub(super) fn index_from_iter(it: impl Iterator<Item = usize>, n: usize) -> Result<SortedSet<usize>, SelectionError> {
     index_from_vec(it.collect(), n)   
 }
 
-// Macro for implementing traits
+/// Macros for implementing common traits for read-only data providers
 macro_rules! impl_read_only_source_traits {
     ( $t:ty ) => {
         impl TopologyProvider for $t {
@@ -156,6 +164,7 @@ macro_rules! impl_read_only_source_traits {
     };
 }
 
+/// Macros for implementing common traits for read-write data providers 
 macro_rules! impl_read_write_source_traits {
     ( $t:ty ) => {
         impl_read_only_source_traits!($t);
@@ -201,6 +210,9 @@ pub(crate) use impl_read_write_source_traits;
 // Operations on sorted vectors
 //------------------------------
 
+/// Computes the union of two sorted sets
+/// 
+/// Returns a new set containing all elements that are in either set
 pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
@@ -230,6 +242,9 @@ pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T
     unsafe {SortedSet::from_sorted(ret)}
 }
 
+/// Computes the intersection of two sorted sets
+/// 
+/// Returns a new set containing elements that appear in both sets
 pub fn intersection_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
@@ -251,6 +266,9 @@ pub fn intersection_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &Sort
     unsafe {SortedSet::from_sorted(ret)}
 }
 
+/// Computes the difference between two sorted sets
+/// 
+/// Returns a new set containing elements from the first set that do not appear in the second set
 pub fn difference_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;

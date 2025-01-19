@@ -1,34 +1,42 @@
-use super::providers::*;
-use super::Matrix3f;
-use super::PbcDims;
-use super::Pos;
-use super::Vector3f;
-use itertools::izip;
-use nalgebra::SymmetricEigen;
-use nalgebra::{IsometryMatrix3, Rotation3, Translation3};
-use num_traits::Bounded;
 use std::iter::zip;
+use itertools::izip;
+use nalgebra::{IsometryMatrix3, Rotation3, Translation3, SymmetricEigen};
+use num_traits::Bounded;
 use thiserror::Error;
+use super::providers::*;
+use super::{Matrix3f, PbcDims, Pos, Vector3f};
+
 //==============================================================
 // Traits for measuring (immutable access)
 //==============================================================
 
+/// Errors that can occur during measurements
 #[derive(Error, Debug)]
 pub enum MeasureError {
+    /// Mismatch in sizes between two selections
     #[error("invalid data sizes: {0} and {1}")]
     Sizes(usize, usize),
+    
+    /// Total mass of the selection is zero
     #[error("zero mass")]
     ZeroMass,
+    
+    /// Singular Value Decomposition failed
     #[error("SVD failed")]
     Svd,
+    
+    /// Operation requires periodic boundary conditions but none are defined
     #[error("no periodic box")]
     NoPbc,
+    
+    /// Cannot unwrap coordinates due to disjoint pieces
     #[error("can't unwrap disjoint pieces")]
     Disjoint,
 }
 
 /// Trait for analysis requiring only positions
 pub trait MeasurePos: PosProvider + LenProvider {
+    /// Returns the minimum and maximum coordinates across all dimensions
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
         let mut upper = Pos::min_value();
@@ -45,6 +53,7 @@ pub trait MeasurePos: PosProvider + LenProvider {
         (lower, upper)
     }
 
+    /// Calculates the geometric center (centroid) of all positions
     fn center_of_geometry(&self) -> Pos {
         let iter = self.iter_pos();
         let n = self.len();
@@ -55,6 +64,7 @@ pub trait MeasurePos: PosProvider + LenProvider {
         Pos::from(cog / n as f32)
     }
 
+    /// Calculates the Root Mean Square Deviation between two selections
     fn rmsd(sel1: &Self, sel2: &Self) -> Result<f32, MeasureError> {
         let mut res = 0.0;
         let iter1 = sel1.iter_pos();
@@ -79,6 +89,7 @@ pub trait MeasurePos: PosProvider + LenProvider {
 
 /// Trait for analysis requiring positions and masses
 pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
+    /// Calculates the center of mass of the selection
     fn center_of_mass(&self) -> Result<Pos, MeasureError> {
         let mut cm = Vector3f::zeros();
         let mut mass = 0.0;
@@ -94,9 +105,10 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
         }
     }
 
+    /// Computes the transformation that best fits sel1 onto sel2
     fn fit_transform(
         sel1: &Self,
-        sel2: &Self,
+        sel2: &impl MeasureMasses,
     ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
         let cm1 = sel1.center_of_mass()?;
         let cm2 = sel2.center_of_mass()?;
@@ -111,9 +123,10 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
         Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
     }
 
+    /// Like fit_transform but assumes both selections are centered at origin
     fn fit_transform_at_origin(
         sel1: &Self,
-        sel2: &Self,
+        sel2: &impl MeasureMasses,
     ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
         let rot = rot_transform(
             sel1.iter_pos().map(|p| p.coords),
@@ -123,7 +136,8 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
         Ok(nalgebra::convert(rot))
     }
 
-    fn rmsd_mw(sel1: &Self, sel2: &Self) -> Result<f32, MeasureError> {
+    /// Calculates the mass-weighted Root Mean Square Deviation between two selections
+    fn rmsd_mw(sel1: &Self, sel2: &impl MeasureMasses) -> Result<f32, MeasureError> {
         let mut res = 0.0;
         let mut m_tot = 0.0;
         let iter1 = sel1.iter_pos();
@@ -145,16 +159,19 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
         }
     }
 
+    /// Calculates the radius of gyration of the selection
     fn gyration(&self) -> Result<f32, MeasureError> {
         let c = self.center_of_mass()?;
         Ok(do_gyration(self.iter_pos().map(|pos| pos - c), self.iter_masses()))
     }
 
+    /// Calculates the moments and axes of inertia
     fn inertia(&self) -> Result<(Vector3f, Matrix3f), MeasureError> {
         let c = self.center_of_mass()?;
         Ok(do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses()))
     }
 
+    /// Computes transformation to principal axes of inertia
     fn principal_transform(&self) -> Result<IsometryMatrix3<f32>, MeasureError> {
         let c = self.center_of_mass()?;
         let (_, axes) = do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses());
@@ -162,7 +179,7 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
     }
 }
 
-/// Trait for analysis requiring positions, masses and pbc
+/// Trait for analysis requiring positions, masses and periodic boundary conditions
 pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvider {
     fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError> {
         let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
@@ -265,6 +282,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 }
 
+/// Helper function to calculate radius of gyration from a set of distances and masses
 fn do_gyration(
     dists: impl Iterator<Item = Vector3f>,
     masses: impl Iterator<Item = f32>,
@@ -279,6 +297,7 @@ fn do_gyration(
     (sd / sm).sqrt()
 }
 
+/// Helper function to calculate inertia tensor from a set of distances and masses
 fn do_inertia(
     dists: impl Iterator<Item = Vector3f>,
     masses: impl Iterator<Item = f32>,
@@ -318,7 +337,7 @@ fn do_inertia(
     (moments, axes)
 }
 
-// Straighforward implementation of Kabsch algorithm
+/// Implements the Kabsch algorithm for finding optimal rotation between two sets of points
 pub fn rot_transform(
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
@@ -351,7 +370,7 @@ pub fn rot_transform(
     Ok(Rotation3::from_matrix_unchecked(u * d_matrix * v_t))
 }
 
-// Principal transform algorithms
+/// Creates a transformation that aligns a structure with its principal axes
 fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f32> {
     axes.try_inverse_mut();
     Translation3::from(cm) * Rotation3::from_matrix_unchecked(axes) * Translation3::from(-cm)
