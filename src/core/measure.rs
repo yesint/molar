@@ -338,7 +338,7 @@ fn do_inertia(
 }
 
 /// Implements the Kabsch algorithm for finding optimal rotation between two sets of points
-pub fn rot_transform(
+fn rot_transform(
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
     masses: impl Iterator<Item = f32>,
