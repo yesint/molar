@@ -179,16 +179,18 @@ impl<K: UserCreatableKind> Source<K> {
     /// Returns [Holder] with old state, so it could be reused if needed.
     pub fn set_state(
         &mut self,
-        state: impl Into<Holder<State, K>>,
-    ) -> Result<Holder<State, K>, SelectionError> {
-        let state: Holder<State, K> = state.into();
+        state: State,
+    ) -> Result<State, SelectionError> {
+        //let state: Holder<State, K>  = Holder::new(state);
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::SetState);
         }
-        let p1 = self.state.arc.as_ptr() as *mut State;
-        let p2 = state.arc.as_ptr() as *mut State;
-        unsafe{ std::ptr::swap(p1, p2) };
-        Ok(state)
+        let p = self.state.arc.as_ptr() as *mut State;
+        //let mut p2 = state.arc.as_ptr() as *mut State;
+        // We physically spap memory at these locations
+        // this is cheap because coordinates are allocated on heap
+        // and only pointers to allocations are swapped
+        Ok(unsafe{ std::ptr::replace(p, state) })
     }
 
     /// Sets new [Topology] in this source. All selections created from this Source will automatically view

@@ -292,9 +292,25 @@ impl Source {
         }
     }
 
-    fn set_state(&mut self, st: Bound<'_,State>) -> PyResult<()>{
-        let _ = self.0.set_state(st.try_borrow_mut()?.0.clone()).map_err(|e| anyhow!(e));
-        Ok(())
+    fn set_state<'py>(&mut self, st: &Bound<'py, State>) -> PyResult<Bound<'py, State>>{
+        let mut st_ref = st.borrow_mut();
+        // In Python we can pass by value, so we have to release State from the
+        // Python object. To do this firt swap it with new dummy Holder 
+        // which is uniquilly owned and then release it from this holder
+        let mut dum_holder = Holder::new(molar::core::State::default());
+        unsafe{ dum_holder.swap_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
+        // dum_holder is uniquelly owned, so this never fails
+        let dum_st = dum_holder.release().unwrap();
+        // Now call set_state as usual
+        let old_st = self.0.set_state(dum_st).map_err(|e| anyhow!(e))?;
+        // We should not leave st empty, it should point to the same state as self
+        unsafe{ st_ref.0.replace_arc(self.0.get_state()) };
+        // Pack old_st and return it
+        Bound::new(st.py(),State(old_st.into()))
+    }
+
+    fn get_state(&self) -> State {
+        State(self.0.get_state())
     }
 }
 

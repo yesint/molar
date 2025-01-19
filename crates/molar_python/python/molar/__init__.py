@@ -33,6 +33,7 @@ class AnalysisTask:
         parser.add_argument('--log',default=100,type=int)
         parser.add_argument('-b','--begin',default='')
         parser.add_argument('-e','--end',default='')
+        parser.add_argument('--skip',default=1,type=int)
 
         # Register user-supplied arguments
         self.register_args(parser)
@@ -50,6 +51,8 @@ class AnalysisTask:
         # Read trajectories and call process_frame on each frame
         self.consumed_frames = 0
         begin_skipped = False
+        valid_frames = 0
+        
         for trj_file in self.args.files[1:]:
             logging.info(f'Processing trajectory "{trj_file}"...')
             trj_handler = FileHandler(trj_file)
@@ -67,8 +70,16 @@ class AnalysisTask:
                     break
                 if et and st.time > et:
                     break
+                
+                # We have a valid frame, 
+                valid_frames += 1
+                
+                # see if we need to skip a frame
+                if (valid_frames-1) % self.args.skip > 0:
+                    continue
 
                 self.state = st
+                
                 if self.consumed_frames == 0:
                     self.src = Source(self.top,self.state)
                     # Call pre-processing
@@ -80,6 +91,7 @@ class AnalysisTask:
                     self.__log_time()
 
                 self.consumed_frames += 1
+                # User supplied process
                 self.process_frame()
 
         # Call post-process
