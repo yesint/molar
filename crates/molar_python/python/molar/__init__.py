@@ -59,7 +59,7 @@ class AnalysisTask:
         
         for trj_file in self.args.files[1:]:
             logging.info(f'Processing trajectory "{trj_file}"...')
-            trj_handler = FileHandler(trj_file)
+            trj_handler = _ParTrajReader(trj_file)
             
             if not begin_skipped:
                 if bfr:
@@ -68,7 +68,13 @@ class AnalysisTask:
                     trj_handler.skip_to_time(bt)
                 begin_skipped = True
             
-            for st in trj_handler:
+            while True:
+                # Read next frame
+                st = trj_handler.next_state()
+                # If None returned exit
+                if st == None:
+                    break
+
                 # See if end is reached
                 if efr and self.consumed_frames >= efr:
                     break

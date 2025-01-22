@@ -93,4 +93,3 @@ class Topology:
 
 def greeting() -> None:
     ...
-

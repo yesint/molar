@@ -194,6 +194,26 @@ impl FileHandler {
     }
 }
 
+
+#[pyclass(unsendable)]
+struct _ParTrajReader{
+    iter: molar::io::IoStateIterator,
+}
+
+#[pymethods]
+impl _ParTrajReader {
+    #[new]
+    fn new(fname: &str) -> anyhow::Result<Self> {
+        let iter = molar::io::FileHandler::open(fname)?.into_iter();
+        Ok(Self{iter})
+    }
+
+    fn next_state(&mut self) -> Option<State> {
+        self.iter.next().map(|st| State(st.into()))
+    }
+}
+
+
 #[pyclass]
 struct FileStats(molar::io::FileStats);
 
@@ -581,6 +601,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FileHandler>()?;
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;
+    m.add_class::<_ParTrajReader>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;

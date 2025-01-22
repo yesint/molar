@@ -643,6 +643,15 @@ mod tests {
     }
 
     #[test]
+    fn test_into_iter() -> Result<()> {
+        let it = FileHandler::open("tests/protein.xtc")?.into_iter();
+        for st in it {
+            println!("{}",st.get_time());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn test_pdb() -> Result<()> {
         let mut r = FileHandler::open("tests/protein.pdb")?;
         let top1 = r.read_topology()?;
