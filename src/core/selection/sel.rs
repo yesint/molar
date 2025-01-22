@@ -350,6 +350,8 @@ impl<K: UserCreatableKind> Sel<K> {
     // Splitting
     //============================
 
+    // split[_par][_iter](CONTIG|DISJOINT)
+
     // Naming convention is
     // [into]_[par]_<collect|iter>_<disjoint|contig>_[<property>]
 
