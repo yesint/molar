@@ -18,4 +18,4 @@ GROMACS_LIB_DIR = "/home/user/programs/gromacs-2023-plumed/lib64"
 
 # Location of locally installed Eigen headers (where Eigen dir is located).
 # If not set Eigen 3.4.0 will be downloaded automatically.
-EIGEN_DIR = 
+# EIGEN_DIR = 
