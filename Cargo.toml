@@ -22,6 +22,7 @@ thiserror = "2.0.8"
 log = "0.4.22"
 cc = {version = "1.2.5", features = ["parallel"]}
 comfy-table = "7.1"
+sorted-vec = "0.8.5"
 
 [package]
 name = "molar"
@@ -64,7 +65,7 @@ itertools = "0.13.0"
 rustc-hash = "2.1.0"
 sync-unsafe-cell = "0.1.1"
 triomphe = {version = "0.1.14", default-features = false, features = ["std"]}
-sorted-vec = "0.8.5"
+sorted-vec.workspace = true
 #nalgebra-lapack = "0.24"
 thiserror_string_context = "0.1.5"
 
