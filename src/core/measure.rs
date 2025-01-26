@@ -1,10 +1,12 @@
-use std::iter::zip;
-use itertools::izip;
-use nalgebra::{IsometryMatrix3, Rotation3, Translation3, SymmetricEigen};
-use num_traits::Bounded;
-use thiserror::Error;
 use super::providers::*;
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
+use itertools::izip;
+use nalgebra::{IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
+use num_traits::Bounded;
+use sorted_vec::SortedSet;
+use std::f32::consts::PI;
+use std::iter::zip;
+use thiserror::Error;
 
 //==============================================================
 // Traits for measuring (immutable access)
@@ -16,19 +18,19 @@ pub enum MeasureError {
     /// Mismatch in sizes between two selections
     #[error("invalid data sizes: {0} and {1}")]
     Sizes(usize, usize),
-    
+
     /// Total mass of the selection is zero
     #[error("zero mass")]
     ZeroMass,
-    
+
     /// Singular Value Decomposition failed
     #[error("SVD failed")]
     Svd,
-    
+
     /// Operation requires periodic boundary conditions but none are defined
     #[error("no periodic box")]
     NoPbc,
-    
+
     /// Cannot unwrap coordinates due to disjoint pieces
     #[error("can't unwrap disjoint pieces")]
     Disjoint,
@@ -85,6 +87,18 @@ pub trait MeasurePos: PosProvider + LenProvider {
 
         Ok((res / n as f32).sqrt())
     }
+}
+
+/// Type of order parameter calculation
+#[derive(PartialEq, Debug)]
+pub enum OrderType {
+    // Sz order parameter identical to gromacs -szonly option
+    Sz,
+    // Deuterium order parameter computed for ideal H positions for double bonds
+    Scd,
+    // Deuterium order parameter computed for corrected H positions for double bonds
+    // https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
+    ScdCorr,
 }
 
 /// Trait for analysis requiring positions and masses
@@ -162,13 +176,19 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
     /// Calculates the radius of gyration of the selection
     fn gyration(&self) -> Result<f32, MeasureError> {
         let c = self.center_of_mass()?;
-        Ok(do_gyration(self.iter_pos().map(|pos| pos - c), self.iter_masses()))
+        Ok(do_gyration(
+            self.iter_pos().map(|pos| pos - c),
+            self.iter_masses(),
+        ))
     }
 
     /// Calculates the moments and axes of inertia
     fn inertia(&self) -> Result<(Vector3f, Matrix3f), MeasureError> {
         let c = self.center_of_mass()?;
-        Ok(do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses()))
+        Ok(do_inertia(
+            self.iter_pos().map(|pos| pos - c),
+            self.iter_masses(),
+        ))
     }
 
     /// Computes transformation to principal axes of inertia
@@ -283,10 +303,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
 }
 
 /// Helper function to calculate radius of gyration from a set of distances and masses
-fn do_gyration(
-    dists: impl Iterator<Item = Vector3f>,
-    masses: impl Iterator<Item = f32>,
-) -> f32 {
+fn do_gyration(dists: impl Iterator<Item = Vector3f>, masses: impl Iterator<Item = f32>) -> f32 {
     let mut sd = 0.0;
     let mut sm = 0.0;
     for (d, m) in zip(dists, masses) {
@@ -374,4 +391,179 @@ fn rot_transform(
 fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f32> {
     axes.try_inverse_mut();
     Translation3::from(cm) * Rotation3::from_matrix_unchecked(axes) * Translation3::from(-cm)
+}
+
+/// Trait for modification requiring random access positions and pbc
+pub trait MeasureRandomAccess: RandomPos {
+    /// Computes order parameter of the lipid tail. Each position in [Self] is
+    /// supposed to represent a carbon atom of a single lipid tail. The size of the array
+    /// of normals is either `1` or `N-2`, where `N` is the number of position in [Self].
+    /// In the first case the same normal is used for all bonds, in the second case each
+    /// bond in the range `1..N-1` has its own normal.
+    /// `bonds_orders` should contain either 1 or 2 for all `N-1` bonds.
+    /// Formulas are taken from:
+    /// - https://pubs.acs.org/doi/10.1021/acs.jctc.7b00643
+    /// - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
+    fn lipid_tail_order(
+        &self,
+        order_type: OrderType,
+        normals: Vec<Vector3f>,
+        bond_orders: Vec<u8>,
+    ) -> Result<Vec<f32>, MeasureError> {
+        //atoms:  0 - 1 - 2 - 3 = 4 - 5 - 6
+        //bonds:    0   1   2   3   4   5
+        //normals:  0   1   2   3   4   5
+
+        // Size check
+        if normals.len() != 1 && normals.len() != self.len() - 2 {
+            return Err(todo!());
+        }
+
+        if bond_orders.len() != self.len() - 1 {
+            return Err(todo!());
+        }
+
+        let mut order = vec![0.0; self.len() - 2];
+        if order_type == OrderType::Sz {
+            // Iterate over atoms
+            for at in 1..self.len() - 1 {
+                // Vector from at+1 to at-1
+                let v = unsafe { self.nth_pos_unchecked(at + 1) - self.nth_pos_unchecked(at - 1) };
+                // Normal
+                let normal = if normals.len() == 1 {
+                    &normals[0]
+                } else {
+                    &normals[at - 1] // indexing starts from zero
+                };
+                // Angle
+                let ang = v.angle(&normal);
+                order[at - 1] = 1.5 * ang.cos().powi(2) - 0.5;
+            }
+        } else {
+            // Compute deuterium order
+            // We iterate over bonds and treat differently single and double bonds
+            for i in 0..self.len() - 2 {
+                if bond_orders[i] == 1 {
+                    // Single bond between atoms i:i+1
+                    // If next bond is also single, compute order for atom i+1
+                    if bond_orders[i + 1] == 1 {
+                        // Compute single order for atom i+1
+                        /*
+                         * C(i)[1]
+                         *  \
+                         *   C(i+1)[2]---H1,2
+                         *  /
+                         * C(i+2)[3]
+                         */
+
+                        let p1 = unsafe { self.nth_pos_unchecked(i) };
+                        let p2 = unsafe { self.nth_pos_unchecked(i + 1) };
+                        let p3 = unsafe { self.nth_pos_unchecked(i + 2) };
+
+                        let local_z = (p3 - p1).normalize();
+                        let local_x = ((p1 - p2).cross(&(p3 - p2))).normalize();
+                        let local_y = local_x.cross(&local_z);
+
+                        // Normal
+                        let n = if normals.len() == 1 {
+                            &normals[0]
+                        } else {
+                            &normals[i] // indexing starts from zero, (i+1)-1 = i
+                        };
+
+                        let ang_x = local_x.angle(n);
+                        let ang_y = local_y.angle(n);
+                        let sxx = 0.5 * (3.0 * ang_x.cos().powi(2) - 1.0);
+                        let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
+                        // Instantaneous order
+                        // Index in order array is c_atom-1: (i+1)-1=i
+                        order[i] = -(2.0 * sxx + syy) / 3.0;
+                        // For single bonds there is no difference between ideal
+                        // and corrected versions of Scd
+                    }
+                    // If next bond is double we do nothing and wait for next iteration
+                } else {
+                    // Double bond between atoms i:i+1
+                    // Compute double order for atoms i and i+1
+                    /*
+                     * C(i-1)[1]
+                     *  \
+                     *   C(i)[2]----H1
+                     *   ||
+                     *   C(i+1)[3]--H2
+                     *  /
+                     * C(i+2)[4]
+                     *
+                     * a1 = 0.5*(pi-ang(1,2,3))
+                     * a2 = 0.5*(pi-ang(2,3,4))
+                     */
+
+                    let c1 = i - 1;
+                    let c2 = i;
+                    let c3 = i + 1;
+                    let c4 = i + 2;
+
+                    let p1 = unsafe { self.nth_pos_unchecked(c1) };
+                    let p2 = unsafe { self.nth_pos_unchecked(c2) };
+                    let p3 = unsafe { self.nth_pos_unchecked(c3) };
+                    let p4 = unsafe { self.nth_pos_unchecked(c4) };
+
+                    let a1 = 0.5 * (PI - (p1 - p2).angle(&(p3 - p2)));
+                    let a2 = 0.5 * (PI - (p2 - p3).angle(&(p4 - p3)));
+
+                    // For atom i
+                    let local_z = (p3 - p2).normalize();
+                    let local_x = ((p1 - p2).cross(&local_z)).normalize();
+                    let local_y = local_x.cross(&local_z);
+
+                    let n1 = if normals.len() == 1 {
+                        &normals[0]
+                    } else {
+                        &normals[i] // indexing starts from zero, (i+1)-1 = i
+                    };
+
+                    let ang_y = local_y.angle(&n1);
+                    let ang_z = local_z.angle(&n1);
+                    let szz = 0.5 * (3.0 * ang_z.cos().powi(2) - 1.0);
+                    let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
+                    let syz = 1.5 * ang_y.cos() * ang_z.cos();
+                    // Index in order array is c_atom-1: i-1
+                    if order_type == OrderType::ScdCorr {
+                        order[i - 1] = -(a1.cos().powi(2) * syy + a1.sin().powi(2) * szz
+                            - 2.0 * a1.cos() * a1.sin() * syz);
+                    } else {
+                        // SCD
+                        order[i - 1] = -(szz / 4.0 + 3.0 * syy / 4.0 - 3.0_f32.sqrt() * syz / 2.0);
+                    }
+
+                    // For atom i+1
+                    //local_z = (p4-p3).normalized();
+                    let local_x = ((p3 - p4).cross(&local_z)).normalize();
+                    let local_y = local_x.cross(&local_z);
+
+                    let n2 = if normals.len() == 1 {
+                        &normals[0]
+                    } else {
+                        &normals[i + 1] // indexing starts from zero, (i+2)-1 = i+1
+                    };
+
+                    let ang_y = local_y.angle(n2);
+                    let ang_z = local_z.angle(n2);
+                    let szz = 0.5 * (3.0 * ang_z.cos().powi(2) - 1.0);
+                    let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
+                    let syz = 1.5 * ang_y.cos() * ang_z.cos();
+                    // Index in order array is c_atom-1: (i+1)-1=i
+                    if order_type == OrderType::ScdCorr {
+                        order[i] = -(a2.cos().powi(2) * syy
+                            + a2.sin().powi(2) * szz
+                            + 2.0 * a2.cos() * a2.sin() * syz);
+                    } else {
+                        // SCD
+                        order[i] = -(szz / 4.0 + 3.0 * syy / 4.0 + 3.0_f32.sqrt() * syz / 2.0);
+                    }
+                } // if single/double
+            } // for bonds
+        }
+        Ok(order)
+    }
 }
