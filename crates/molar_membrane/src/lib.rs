@@ -10,7 +10,7 @@ pub struct LipidSpeciesDescr {
     pub whole_sel_str: String,
     pub head_marker_subsel_str: String,
     pub mid_marker_subsel_str: String,
-    pub tails: Vec<String>,
+    pub tails_descr: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -29,7 +29,7 @@ impl LipidSpecies {
         let first_index = lipid.first_index();
         let mut tails = vec![];
         // Parse tails
-        for t in &descr.tails {
+        for t in &descr.tails_descr {
             let mut names = vec![];
             let mut bond_orders = vec![];
             let mut cur = &t[..];
@@ -133,7 +133,7 @@ mod tests {
             whole_sel_str: "resname POPE".into(),
             head_marker_subsel_str: "name P N".into(),
             mid_marker_subsel_str: "name C21 C22".into(),
-            tails: vec![
+            tails_descr: vec![
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218".into(),
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316".into(),
             ],

@@ -903,6 +903,8 @@ impl<K: SelectionKind> RandomAtom for Sel<K> {
     }
 }
 
+impl<K: SelectionKind> MeasureRandomAccess for Sel<K> {}
+
 //═══════════════════════════════════════════════════════════
 //███  Mutable analysis traits (only for mutable selections)
 //═══════════════════════════════════════════════════════════
