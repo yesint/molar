@@ -173,6 +173,9 @@ macro_rules! impl_state_traits {
                 self.get_storage_mut().coords.get_unchecked_mut(i)
             }
         }
+
+        impl MeasurePos for $t {}
+        impl MeasureRandomAccess for $t {}
     }
 }
 

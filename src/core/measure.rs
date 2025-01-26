@@ -3,7 +3,6 @@ use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
 use nalgebra::{IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
-use sorted_vec::SortedSet;
 use std::f32::consts::PI;
 use std::iter::zip;
 use thiserror::Error;
@@ -34,6 +33,9 @@ pub enum MeasureError {
     /// Cannot unwrap coordinates due to disjoint pieces
     #[error("can't unwrap disjoint pieces")]
     Disjoint,
+
+    #[error("lipid order error")]
+    LipidOrder(#[from] LipidOrderError)
 }
 
 /// Trait for analysis requiring only positions
@@ -87,18 +89,6 @@ pub trait MeasurePos: PosProvider + LenProvider {
 
         Ok((res / n as f32).sqrt())
     }
-}
-
-/// Type of order parameter calculation
-#[derive(PartialEq, Debug)]
-pub enum OrderType {
-    // Sz order parameter identical to gromacs -szonly option
-    Sz,
-    // Deuterium order parameter computed for ideal H positions for double bonds
-    Scd,
-    // Deuterium order parameter computed for corrected H positions for double bonds
-    // https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
-    ScdCorr,
 }
 
 /// Trait for analysis requiring positions and masses
@@ -407,20 +397,24 @@ pub trait MeasureRandomAccess: RandomPos {
     fn lipid_tail_order(
         &self,
         order_type: OrderType,
-        normals: Vec<Vector3f>,
-        bond_orders: Vec<u8>,
-    ) -> Result<Vec<f32>, MeasureError> {
+        normals: &Vec<Vector3f>,
+        bond_orders: &Vec<u8>,
+    ) -> Result<Vec<f32>, LipidOrderError> {
         //atoms:  0 - 1 - 2 - 3 = 4 - 5 - 6
         //bonds:    0   1   2   3   4   5
         //normals:  0   1   2   3   4   5
 
         // Size check
+        if self.len() < 3 {
+            return Err(LipidOrderError::TailTooShort(self.len()));
+        }
+        
         if normals.len() != 1 && normals.len() != self.len() - 2 {
-            return Err(todo!());
+            return Err(LipidOrderError::NormalsCount(self.len(), self.len()-2));
         }
 
         if bond_orders.len() != self.len() - 1 {
-            return Err(todo!());
+            return Err(LipidOrderError::BondOrderCount(self.len(), self.len()-1));
         }
 
         let mut order = vec![0.0; self.len() - 2];
@@ -537,7 +531,7 @@ pub trait MeasureRandomAccess: RandomPos {
                     }
 
                     // For atom i+1
-                    //local_z = (p4-p3).normalized();
+                    // same local_z is used
                     let local_x = ((p3 - p4).cross(&local_z)).normalize();
                     let local_y = local_x.cross(&local_z);
 
@@ -566,4 +560,28 @@ pub trait MeasureRandomAccess: RandomPos {
         }
         Ok(order)
     }
+}
+
+/// Type of order parameter calculation
+#[derive(PartialEq, Debug)]
+pub enum OrderType {
+    // Sz order parameter identical to gromacs -szonly option
+    Sz,
+    // Deuterium order parameter computed for ideal H positions for double bonds
+    Scd,
+    // Deuterium order parameter computed for corrected H positions for double bonds
+    // https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
+    ScdCorr,
+}
+
+#[derive(Error,Debug)]
+pub enum LipidOrderError {
+    #[error("for {0} tail carbons # of normals should be 1 or {1}")]
+    NormalsCount(usize,usize),
+    
+    #[error("for {0} tail carbons # of bond orders should be {1}")]
+    BondOrderCount(usize,usize),
+
+    #[error("tail should have at least 3 carbons, not {0}")]
+    TailTooShort(usize),
 }

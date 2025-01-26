@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
+use itp_handler::ItpHandlerError;
 use log::debug;
 use sorted_vec::SortedSet;
 use std::{fmt::Display, path::Path};
@@ -14,6 +15,7 @@ mod gro_handler;
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
+mod itp_handler;
 
 // Reexports
 pub use gro_handler::GroFileHandler;
@@ -21,6 +23,7 @@ pub use gro_handler::GroFileHandler;
 pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
+pub use itp_handler::ItpFileHandler;
 
 use thiserror_string_context::*;
 
@@ -40,6 +43,9 @@ pub enum FileIoError {
     #[cfg(feature = "gromacs")]
     #[error("in tpr format handler")]
     Tpr(#[from] TprHandlerError),
+
+    #[error("in itp format handler")]
+    Itp(#[from] ItpHandlerError),
 
     #[error("file has no extension")]
     NoExtension,
