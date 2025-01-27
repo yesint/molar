@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, Write},
     num::{ParseFloatError, ParseIntError},
 };
 use thiserror::Error;
