@@ -6,13 +6,11 @@ use std::{
     num::{ParseFloatError, ParseIntError},
 };
 use thiserror::Error;
-use thiserror_string_context::*;
 
 pub struct GroFileHandler {
     file: File,
 }
 
-#[string_context("when ptocessing {0}")]
 #[derive(Debug, Error)]
 pub enum GroHandlerError {
     #[error("unxpected io error")]
@@ -125,25 +123,24 @@ impl GroFileHandler {
         let mut line = String::new();
         
         // Skip the title
-        reader.read_line(&mut line).with_context(|| "title")?;
+        reader.read_line(&mut line).unwrap();
         
         // Read number of atoms
         line.clear();
-        reader.read_line(&mut line).with_context(|| "natoms")?;        
-        let natoms = line.trim().parse::<usize>().with_context(|| "natoms")?;
+        reader.read_line(&mut line).unwrap();
+        let natoms = line.trim().parse::<usize>()?;
 
         // Go over atoms line by line
         for i in 0..natoms {
             line.clear();
-            reader.read_line(&mut line).with_context(|| format!("atom #{i}"))?;
+            reader.read_line(&mut line).unwrap();
         
             let mut at = Atom {
                 resid: line
                     .get(0..5)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
                     .trim()
-                    .parse::<i32>()
-                    .with_context(|| format!("atom #{i} resid"))?,
+                    .parse::<i32>()?,
                 resname: line
                     .get(5..10)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
@@ -170,18 +167,15 @@ impl GroFileHandler {
                 line.get(20..28)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
                     .trim()
-                    .parse::<f32>()
-                    .with_context(|| format!("atom #{i} y"))?,
+                    .parse::<f32>()?,
                 line.get(28..36)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
                     .trim()
-                    .parse::<f32>()
-                    .with_context(|| format!("atom #{i} y"))?,
+                    .parse::<f32>()?,
                 line.get(36..44)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
                     .trim()
-                    .parse::<f32>()
-                    .with_context(|| format!("atom #{i} z"))?,
+                    .parse::<f32>()?,
             );
             state.coords.push(v);
         }
@@ -198,9 +192,9 @@ impl GroFileHandler {
         (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
         */
         line.clear();
-        reader.read_line(&mut line).with_context(|| "box")?;
+        reader.read_line(&mut line).unwrap();
         let l = line.split_whitespace().map(|s| {
-                Ok(s.parse::<f32>().with_context(|| "pbc")?)
+                Ok(s.parse::<f32>()?)
             })
             .collect::<Result<Vec<f32>, GroHandlerError>>()?;
 

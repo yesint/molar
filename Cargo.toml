@@ -67,7 +67,6 @@ sync-unsafe-cell = "0.1.1"
 triomphe = {version = "0.1.14", default-features = false, features = ["std"]}
 sorted-vec.workspace = true
 #nalgebra-lapack = "0.24"
-thiserror_string_context = "0.1.5"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

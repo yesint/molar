@@ -4,7 +4,6 @@ use std::{
     num::{ParseFloatError, ParseIntError},
 };
 use thiserror::Error;
-use thiserror_string_context::*;
 
 use super::{Topology, TopologyStorage};
 
@@ -36,13 +35,12 @@ impl ItpFileHandler {
     }
 }
 
-#[string_context("when ptocessing {0}")]
 #[derive(Debug, Error)]
 pub enum ItpHandlerError {
     //#[error("unxpected io error")]
     //Io(#[from] std::io::Error),
 
-    #[error("can't open gro file for reading")]
+    #[error("can't open itp file for reading")]
     OpenRead(#[source] std::io::Error),
 
     
