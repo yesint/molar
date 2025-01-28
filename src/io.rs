@@ -25,75 +25,6 @@ pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
 
-//--------------------------------------------------------
-#[derive(Error, Debug)]
-#[error("in file {0}:")]
-pub struct FileIoError(String, #[source] FileFormatError);
-
-#[derive(Error, Debug)]
-pub enum FileFormatError {
-    #[error("in vmd format handler")]
-    Vmd(#[from] VmdHandlerError),
-
-    #[error("in gro format handler")]
-    Gro(#[from] GroHandlerError),
-
-    #[error("in xtc format handler")]
-    Xtc(#[from] XtcHandlerError),
-
-    #[cfg(feature = "gromacs")]
-    #[error("in tpr format handler")]
-    Tpr(#[from] TprHandlerError),
-
-    #[error("in itp format handler")]
-    Itp(#[from] ItpHandlerError),
-
-    #[error("file has no extension")]
-    NoExtension,
-
-    #[error("file is not recognized")]
-    NotRecognized,
-
-    #[error("file has no states to read")]
-    NoStates,
-
-    #[error("not a format containing both structure and coordinates")]
-    NotTopologyAndStateFormat,
-
-    #[error("not a write once format")]
-    NotWriteOnceFormat,
-
-    #[error("not a topology reading format")]
-    NotTopologyReadFormat,
-
-    #[error("not a topology writing format")]
-    NotTopologyWriteFormat,
-
-    #[error(transparent)]
-    DifferentSizes(#[from] TopologyStateSizes),
-
-    #[error("not a trajectory reading format")]
-    NotTrajectoryReadFormat,
-
-    #[error("not a trajectory write format")]
-    NotTrajectoryWriteFormat,
-
-    #[error("not a random access format")]
-    NotRandomAccessFormat,
-
-    #[error("enable gromacs feature in Cargo.toml to get tpr support")]
-    TprDisabled,
-
-    #[error("unexpected end of file")]
-    UnexpectedEof,
-
-    #[error("can't seek to frame {0}")]
-    SeekFrameError(usize),
-
-    #[error("can't seek to time {0}")]
-    SeekTimeError(f32),
-}
-
 //===============================
 // Traits for file opening
 //===============================
@@ -214,10 +145,12 @@ impl FileFormat {
                 fname,
                 VmdMolFileType::Pdb,
             )?)),
+
             "dcd" => Ok(FileFormat::Dcd(VmdMolFileHandler::open(
                 fname,
                 VmdMolFileType::Dcd,
             )?)),
+
             "xyz" => Ok(FileFormat::Xyz(VmdMolFileHandler::open(
                 fname,
                 VmdMolFileType::Xyz,
@@ -225,15 +158,14 @@ impl FileFormat {
 
             "xtc" => Ok(FileFormat::Xtc(XtcFileHandler::open(fname)?)),
 
-            "gro" => Ok(FileFormat::Gro(
-                GroFileHandler::open(fname)?,
-            )),
+            "gro" => Ok(FileFormat::Gro(GroFileHandler::open(fname)?)),
 
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(FileFormat::Tpr(TprFileHandler::open(fname)?)),
 
             #[cfg(not(feature = "gromacs"))]
             "tpr" => Err(FileFormatError::TprDisabled),
+
             _ => Err(FileFormatError::NotRecognized),
         }
     }
@@ -245,18 +177,21 @@ impl FileFormat {
                 fname,
                 VmdMolFileType::Pdb,
             )?)),
+
             "dcd" => Ok(FileFormat::Dcd(VmdMolFileHandler::create(
                 fname,
                 VmdMolFileType::Dcd,
             )?)),
+
             "xyz" => Ok(FileFormat::Xyz(VmdMolFileHandler::create(
                 fname,
                 VmdMolFileType::Xyz,
             )?)),
+
             "xtc" => Ok(FileFormat::Xtc(XtcFileHandler::create(fname)?)),
-            "gro" => Ok(FileFormat::Gro(
-                GroFileHandler::create(fname)?,
-            )),
+
+            "gro" => Ok(FileFormat::Gro(GroFileHandler::create(fname)?)),
+
             _ => Err(FileFormatError::NotRecognized),
         }
     }
@@ -265,12 +200,15 @@ impl FileFormat {
         let (top, st) = match self {
             #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => h.read()?,
+
             FileFormat::Gro(ref mut h) => h.read()?,
+
             FileFormat::Pdb(ref mut h) => {
                 let top = h.read_topology()?;
                 let st = h.read_state()?.ok_or_else(|| FileFormatError::NoStates)?;
                 (top, st)
             }
+
             _ => return Err(FileFormatError::NotTopologyAndStateFormat),
         };
         check_topology_state_sizes(&top, &st)?;
@@ -285,10 +223,12 @@ impl FileFormat {
             FileFormat::Gro(ref mut h) => {
                 h.write(data)?;
             }
+
             FileFormat::Pdb(ref mut h) => {
                 h.write_topology(data)?;
                 h.write_state(data)?;
             }
+
             _ => return Err(FileFormatError::NotWriteOnceFormat),
         }
         Ok(())
@@ -296,11 +236,14 @@ impl FileFormat {
 
     pub fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
         let top = match self {
-            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => h.read_topology()?,
+            FileFormat::Pdb(ref mut h)
+            | FileFormat::Xyz(ref mut h) => h.read_topology()?,
+
             FileFormat::Gro(ref mut h) => {
                 let (top, _) = h.read()?;
                 top
             }
+
             _ => return Err(FileFormatError::NotTopologyReadFormat),
         };
         Ok(top)
@@ -311,7 +254,9 @@ impl FileFormat {
         T: TopologyProvider,
     {
         match self {
-            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => h.write_topology(data)?,
+            FileFormat::Pdb(ref mut h) 
+            | FileFormat::Xyz(ref mut h) => h.write_topology(data)?,
+           
             _ => return Err(FileFormatError::NotTopologyWriteFormat),
         }
         Ok(())
@@ -322,7 +267,9 @@ impl FileFormat {
             FileFormat::Pdb(ref mut h)
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.read_state()?,
+            
             FileFormat::Xtc(ref mut h) => h.read_state()?,
+            
             FileFormat::Gro(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
@@ -339,7 +286,9 @@ impl FileFormat {
             FileFormat::Pdb(ref mut h)
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.write_state(data)?,
+            
             FileFormat::Xtc(ref mut h) => h.write_state(data)?,
+            
             _ => return Err(FileFormatError::NotTrajectoryWriteFormat),
         }
         Ok(())
@@ -348,6 +297,7 @@ impl FileFormat {
     pub fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
         match self {
             FileFormat::Xtc(ref mut h) => Ok(h.seek_frame(fr)?),
+            
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -355,6 +305,7 @@ impl FileFormat {
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileFormatError> {
         match self {
             FileFormat::Xtc(ref mut h) => Ok(h.seek_time(t)?),
+            
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -362,6 +313,7 @@ impl FileFormat {
     pub fn tell_first(&self) -> Result<(usize, f32), FileFormatError> {
         match self {
             FileFormat::Xtc(ref h) => Ok(h.tell_first()?),
+            
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -369,6 +321,7 @@ impl FileFormat {
     pub fn tell_current(&self, stats: &FileStats) -> Result<(usize, f32), FileFormatError> {
         match self {
             FileFormat::Xtc(ref h) => Ok(h.tell_current()?),
+            
             // For non-random-access trajectories report FileHandler stats
             _ => Ok((stats.frames_processed, stats.cur_t)),
         }
@@ -377,6 +330,7 @@ impl FileFormat {
     pub fn tell_last(&self) -> Result<(usize, f32), FileFormatError> {
         match self {
             FileFormat::Xtc(ref h) => Ok(h.tell_last()?),
+            
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -459,27 +413,23 @@ pub fn get_ext(fname: &str) -> Result<&str, FileFormatError> {
         .unwrap())
 }
 
+//------------------------------------------------------------------
+
 impl FileHandler {
-    fn new(handler: FileFormat, file_name: String) -> Self {
-        Self {
-            file_name,
-            format_handler: handler,
+    pub fn open(fname: impl AsRef<str>) -> Result<Self, FileIoError> {
+        Ok(Self{
+            file_name: fname.as_ref().to_owned(),
+            format_handler: FileFormat::open(fname.as_ref()).map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
             stats: Default::default(),
-        }
+        })
     }
 
-    pub fn open(fname: &str) -> Result<Self, FileIoError> {
-        Ok(Self::new(
-            FileFormat::open(fname).map_err(|e| FileIoError(fname.to_owned(), e))?,
-            fname.into(),
-        ))
-    }
-
-    pub fn create(fname: &str) -> Result<Self, FileIoError> {
-        Ok(Self::new(
-            FileFormat::create(fname).map_err(|e| FileIoError(fname.to_owned(), e))?,
-            fname.into(),
-        ))
+    pub fn create(fname: impl AsRef<str>) -> Result<Self, FileIoError> {
+        Ok(Self{
+            file_name: fname.as_ref().to_owned(),
+            format_handler: FileFormat::create(fname.as_ref()).map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
+            stats: Default::default(),
+        })
     }
 
     pub fn read(&mut self) -> Result<(Topology, State), FileIoError> {
@@ -690,6 +640,74 @@ macro_rules! impl_io_traits_for_tuples {
 impl_io_traits_for_tuples!(Topology, State);
 impl_io_traits_for_tuples!(Holder<Topology,BuilderSerial>,Holder<State,BuilderSerial>);
 
+//--------------------------------------------------------
+#[derive(Error, Debug)]
+#[error("in file {0}:")]
+pub struct FileIoError(String, #[source] FileFormatError);
+
+#[derive(Error, Debug)]
+pub enum FileFormatError {
+    #[error("in vmd format handler")]
+    Vmd(#[from] VmdHandlerError),
+
+    #[error("in gro format handler")]
+    Gro(#[from] GroHandlerError),
+
+    #[error("in xtc format handler")]
+    Xtc(#[from] XtcHandlerError),
+
+    #[cfg(feature = "gromacs")]
+    #[error("in tpr format handler")]
+    Tpr(#[from] TprHandlerError),
+
+    #[error("in itp format handler")]
+    Itp(#[from] ItpHandlerError),
+
+    #[error("file has no extension")]
+    NoExtension,
+
+    #[error("file is not recognized")]
+    NotRecognized,
+
+    #[error("file has no states to read")]
+    NoStates,
+
+    #[error("not a format containing both structure and coordinates")]
+    NotTopologyAndStateFormat,
+
+    #[error("not a write once format")]
+    NotWriteOnceFormat,
+
+    #[error("not a topology reading format")]
+    NotTopologyReadFormat,
+
+    #[error("not a topology writing format")]
+    NotTopologyWriteFormat,
+
+    #[error(transparent)]
+    DifferentSizes(#[from] TopologyStateSizes),
+
+    #[error("not a trajectory reading format")]
+    NotTrajectoryReadFormat,
+
+    #[error("not a trajectory write format")]
+    NotTrajectoryWriteFormat,
+
+    #[error("not a random access format")]
+    NotRandomAccessFormat,
+
+    #[error("enable gromacs feature in Cargo.toml to get tpr support")]
+    TprDisabled,
+
+    #[error("unexpected end of file")]
+    UnexpectedEof,
+
+    #[error("can't seek to frame {0}")]
+    SeekFrameError(usize),
+
+    #[error("can't seek to time {0}")]
+    SeekTimeError(f32),
+}
 //----------------------------------------
 
 #[cfg(test)]
