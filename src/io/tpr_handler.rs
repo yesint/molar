@@ -3,11 +3,12 @@ use crate::core::*;
 use nalgebra::Matrix3;
 
 use molar_gromacs::gromacs_bindings::*;
-use thiserror::Error;
 use std::{
     ffi::{CStr, CString, NulError},
-    ptr::null_mut, str::Utf8Error,
+    ptr::null_mut,
+    str::Utf8Error,
 };
+use thiserror::Error;
 
 //use super::FormatHandlerError;
 
@@ -15,11 +16,14 @@ pub struct TprFileHandler {
     handle: TprHelper,
 }
 
+// Allow sending handler between threads
+unsafe impl Send for TprFileHandler {}
+
 #[derive(Debug, Error)]
 pub enum TprHandlerError {
     #[error("unexpected null characted")]
     CStringNull(#[from] NulError),
-    
+
     #[error("invalid utf8")]
     CStringUtf8(#[from] Utf8Error),
 
@@ -29,7 +33,6 @@ pub enum TprHandlerError {
     #[error("can't read gmx topology")]
     GetTop,
 }
-
 
 impl TprFileHandler {
     fn new(fname: &str) -> Result<Self, TprHandlerError> {
@@ -42,16 +45,17 @@ impl TprFileHandler {
     pub fn open(fname: &str) -> Result<Self, TprHandlerError> {
         TprFileHandler::new(fname)
     }
-    
+
     #[allow(non_snake_case)]
     pub fn read(&mut self) -> Result<(Topology, State), TprHandlerError> {
         //================
         // Read top
         //================
         let gmx_top = unsafe {
-            self.handle.get_top()
-            .as_ref()
-            .ok_or_else(|| TprHandlerError::GetTop)?
+            self.handle
+                .get_top()
+                .as_ref()
+                .ok_or_else(|| TprHandlerError::GetTop)?
         };
         let natoms = gmx_top.atoms.nr as usize;
         let nres = gmx_top.atoms.nres as usize;
@@ -156,10 +160,7 @@ impl TprFileHandler {
         // Box is stored as column-major matrix
         let sl = unsafe { std::slice::from_raw_parts(self.handle.get_box(), 9) };
         let m = Matrix3::from_column_slice(sl);
-        st.pbox = Some(
-            PeriodicBox::from_matrix(m)
-            .map_err(|e| TprHandlerError::Pbc(e))?
-        );
+        st.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| TprHandlerError::Pbc(e))?);
 
         Ok((top, st.into()))
     }
@@ -173,9 +174,10 @@ impl Drop for TprFileHandler {
 }
 
 unsafe fn c_ptr_to_str(ptr: *const i8) -> Result<String, TprHandlerError> {
-    Ok(CStr::from_ptr(ptr).to_str()
-    .map_err(|e| TprHandlerError::CStringUtf8(e))?
-    .to_owned())
+    Ok(CStr::from_ptr(ptr)
+        .to_str()
+        .map_err(|e| TprHandlerError::CStringUtf8(e))?
+        .to_owned())
 }
 
 fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {

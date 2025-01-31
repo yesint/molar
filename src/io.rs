@@ -5,10 +5,6 @@ use log::debug;
 use sorted_vec::SortedSet;
 use std::{fmt::Display, path::Path};
 use thiserror::Error;
-#[cfg(feature = "gromacs")]
-use tpr_handler::TprHandlerError;
-use vmd_molfile_handler::VmdHandlerError;
-use xtc_handler::XtcHandlerError;
 
 mod gro_handler;
 mod itp_handler;
@@ -16,6 +12,11 @@ mod itp_handler;
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
+
+#[cfg(feature = "gromacs")]
+use tpr_handler::TprHandlerError;
+use vmd_molfile_handler::VmdHandlerError;
+use xtc_handler::XtcHandlerError;
 
 // Reexports
 pub use gro_handler::GroFileHandler;
@@ -236,8 +237,7 @@ impl FileFormat {
 
     pub fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
         let top = match self {
-            FileFormat::Pdb(ref mut h)
-            | FileFormat::Xyz(ref mut h) => h.read_topology()?,
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => h.read_topology()?,
 
             FileFormat::Gro(ref mut h) => {
                 let (top, _) = h.read()?;
@@ -254,9 +254,8 @@ impl FileFormat {
         T: TopologyProvider,
     {
         match self {
-            FileFormat::Pdb(ref mut h) 
-            | FileFormat::Xyz(ref mut h) => h.write_topology(data)?,
-           
+            FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => h.write_topology(data)?,
+
             _ => return Err(FileFormatError::NotTopologyWriteFormat),
         }
         Ok(())
@@ -267,13 +266,19 @@ impl FileFormat {
             FileFormat::Pdb(ref mut h)
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.read_state()?,
-            
+
             FileFormat::Xtc(ref mut h) => h.read_state()?,
-            
+
             FileFormat::Gro(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
-            }
+            },
+
+            #[cfg(feature="gromacs")]
+            FileFormat::Tpr(ref mut h) => {
+                let (_, st) = h.read()?;
+                Some(st)
+            },
         };
         Ok(st)
     }
@@ -286,9 +291,9 @@ impl FileFormat {
             FileFormat::Pdb(ref mut h)
             | FileFormat::Xyz(ref mut h)
             | FileFormat::Dcd(ref mut h) => h.write_state(data)?,
-            
+
             FileFormat::Xtc(ref mut h) => h.write_state(data)?,
-            
+
             _ => return Err(FileFormatError::NotTrajectoryWriteFormat),
         }
         Ok(())
@@ -297,7 +302,7 @@ impl FileFormat {
     pub fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
         match self {
             FileFormat::Xtc(ref mut h) => Ok(h.seek_frame(fr)?),
-            
+
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -305,7 +310,7 @@ impl FileFormat {
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileFormatError> {
         match self {
             FileFormat::Xtc(ref mut h) => Ok(h.seek_time(t)?),
-            
+
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -313,7 +318,7 @@ impl FileFormat {
     pub fn tell_first(&self) -> Result<(usize, f32), FileFormatError> {
         match self {
             FileFormat::Xtc(ref h) => Ok(h.tell_first()?),
-            
+
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
@@ -321,7 +326,7 @@ impl FileFormat {
     pub fn tell_current(&self, stats: &FileStats) -> Result<(usize, f32), FileFormatError> {
         match self {
             FileFormat::Xtc(ref h) => Ok(h.tell_current()?),
-            
+
             // For non-random-access trajectories report FileHandler stats
             _ => Ok((stats.frames_processed, stats.cur_t)),
         }
@@ -330,13 +335,13 @@ impl FileFormat {
     pub fn tell_last(&self) -> Result<(usize, f32), FileFormatError> {
         match self {
             FileFormat::Xtc(ref h) => Ok(h.tell_last()?),
-            
+
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         }
     }
 
     /// Consumes frames until reaching serial frame number `fr` (which is not consumed)
-    /// This uses random-access if available and falls back to serial reading if it is not.    
+    /// This uses random-access if available and falls back to serial reading if it is not.
     pub fn skip_to_frame(&mut self, fr: usize, stats: &FileStats) -> Result<(), FileFormatError> {
         // Try random-access first
         match self.seek_frame(fr) {
@@ -362,7 +367,7 @@ impl FileFormat {
     }
 
     /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
-    /// This uses random-access if available and falls back to serial reading if it is not.    
+    /// This uses random-access if available and falls back to serial reading if it is not.
     pub fn skip_to_time(&mut self, t: f32, stats: &FileStats) -> Result<(), FileFormatError> {
         // Try random-access first
         match self.seek_time(t) {
@@ -417,17 +422,19 @@ pub fn get_ext(fname: &str) -> Result<&str, FileFormatError> {
 
 impl FileHandler {
     pub fn open(fname: impl AsRef<str>) -> Result<Self, FileIoError> {
-        Ok(Self{
+        Ok(Self {
             file_name: fname.as_ref().to_owned(),
-            format_handler: FileFormat::open(fname.as_ref()).map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
+            format_handler: FileFormat::open(fname.as_ref())
+                .map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
             stats: Default::default(),
         })
     }
 
     pub fn create(fname: impl AsRef<str>) -> Result<Self, FileIoError> {
-        Ok(Self{
+        Ok(Self {
             file_name: fname.as_ref().to_owned(),
-            format_handler: FileFormat::create(fname.as_ref()).map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
+            format_handler: FileFormat::create(fname.as_ref())
+                .map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
             stats: Default::default(),
         })
     }
@@ -562,7 +569,7 @@ impl FileHandler {
     }
 
     /// Consumes frames until reaching serial frame number `fr` (which is not consumed)
-    /// This uses random-access if available and falls back to serial reading if it is not.    
+    /// This uses random-access if available and falls back to serial reading if it is not.
     pub fn skip_to_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         // Try random-access first
         Ok(self
@@ -572,7 +579,7 @@ impl FileHandler {
     }
 
     /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
-    /// This uses random-access if available and falls back to serial reading if it is not.    
+    /// This uses random-access if available and falls back to serial reading if it is not.
     pub fn skip_to_time(&mut self, t: f32) -> Result<(), FileIoError> {
         // Try random-access first
         Ok(self
@@ -707,6 +714,9 @@ pub enum FileFormatError {
 
     #[error("can't seek to time {0}")]
     SeekTimeError(f32),
+    
+    #[error("not a state read format")]
+    NotStateReadFormat,
 }
 //----------------------------------------
 
