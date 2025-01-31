@@ -242,7 +242,13 @@ impl FileFormat {
             FileFormat::Gro(ref mut h) => {
                 let (top, _) = h.read()?;
                 top
-            }
+            },
+
+            #[cfg(feature="gromacs")]
+            FileFormat::Tpr(ref mut h) => {
+                let (top, _) = h.read()?;
+                top
+            },
 
             _ => return Err(FileFormatError::NotTopologyReadFormat),
         };
