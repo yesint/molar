@@ -5,6 +5,10 @@ fn main() {
     let bin_env = env!("GROMACS_BINARY_DIR");
     let lib_env = env!("GROMACS_LIB_DIR");
 
+    println!("cargo::warning=\"Gromacs src:{}\"", src_env);
+    println!("cargo::warning=\"Gromacs bin:{}\"", bin_env);
+    println!("cargo::warning=\"Gromacs lib:{}\"", lib_env);
+
     cc::Build::new()
         .cpp(true)
         .file("gromacs/wrapper.cpp")

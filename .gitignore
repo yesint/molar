@@ -7,3 +7,4 @@ tests/1.pdb
 tests/*.dat
 *.gro
 *.pdb
+.zed

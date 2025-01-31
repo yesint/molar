@@ -1,9 +1,11 @@
 [workspace]
-members = ["crates/molar_bin", "crates/molar_python", "crates/molar_membrane"]
+members = ["crates/molar_bin", 
+"crates/molar_python", 
+"crates/molar_membrane"]
 
 [workspace.package]
 version = "0.8.0"
-rust-version = "1.83" 
+rust-version = "1.83"
 edition = "2021"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
 license = "Artistic-2.0"
@@ -20,7 +22,7 @@ peg = "0.8.1"
 regex = "1.11.1"
 thiserror = "2.0.8"
 log = "0.4.22"
-cc = {version = "1.2.5", features = ["parallel"]}
+cc = { version = "1.2.5", features = ["parallel"] }
 comfy-table = "7.1"
 sorted-vec = "0.8.5"
 
@@ -39,16 +41,14 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 
-exclude = [
-    "tests/*.xtc",    
-]
+exclude = ["tests/*.xtc"]
 
 [dependencies]
 # Workspace member crates
-molar_molfile = {path = "crates/molar_molfile", version="0.7.0"}
-molar_xdrfile = {path = "crates/molar_xdrfile", version="0.7.0"}
-molar_powersasa = {path = "crates/molar_powersasa", version="0.8.0"}
-molar_gromacs = {path = "crates/molar_gromacs", version="0.7.0", optional = true}
+molar_molfile = { path = "crates/molar_molfile", version = "0.7.0" }
+molar_xdrfile = { path = "crates/molar_xdrfile", version = "0.7.0" }
+molar_powersasa = { path = "crates/molar_powersasa", version = "0.8.0" }
+molar_gromacs = { path = "crates/molar_gromacs", version = "0.7.0", optional = true }
 
 # Normal dependencies
 thiserror.workspace = true
@@ -64,7 +64,7 @@ rayon = "1.8"
 itertools = "0.13.0"
 rustc-hash = "2.1.0"
 sync-unsafe-cell = "0.1.1"
-triomphe = {version = "0.1.14", default-features = false, features = ["std"]}
+triomphe = { version = "0.1.14", default-features = false, features = ["std"] }
 sorted-vec.workspace = true
 #nalgebra-lapack = "0.24"
 
