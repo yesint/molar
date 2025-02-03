@@ -136,6 +136,7 @@ enum FileFormat {
     #[cfg(feature = "gromacs")]
     Tpr(TprFileHandler),
     Gro(GroFileHandler),
+    Itp(ItpFileHandler),
 }
 
 impl FileFormat {
@@ -161,13 +162,15 @@ impl FileFormat {
 
             "gro" => Ok(FileFormat::Gro(GroFileHandler::open(fname)?)),
 
+            "itp" => Ok(FileFormat::Itp(ItpFileHandler::open(fname)?)),
+
             #[cfg(feature = "gromacs")]
             "tpr" => Ok(FileFormat::Tpr(TprFileHandler::open(fname)?)),
 
             #[cfg(not(feature = "gromacs"))]
             "tpr" => Err(FileFormatError::TprDisabled),
 
-            _ => Err(FileFormatError::NotRecognized),
+            _ => Err(FileFormatError::NotReadable),
         }
     }
 
@@ -193,7 +196,7 @@ impl FileFormat {
 
             "gro" => Ok(FileFormat::Gro(GroFileHandler::create(fname)?)),
 
-            _ => Err(FileFormatError::NotRecognized),
+            _ => Err(FileFormatError::NotWritable),
         }
     }
 
@@ -244,11 +247,13 @@ impl FileFormat {
                 top
             },
 
-            #[cfg(feature="gromacs")]
+            #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => {
                 let (top, _) = h.read()?;
                 top
             },
+
+            FileFormat::Itp(ref mut h) => h.read_topology()?,
 
             _ => return Err(FileFormatError::NotTopologyReadFormat),
         };
@@ -280,11 +285,13 @@ impl FileFormat {
                 Some(st)
             },
 
-            #[cfg(feature="gromacs")]
+            #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
             },
+
+            _ => return Err(FileFormatError::NotStateReadFormat),            
         };
         Ok(st)
     }
@@ -679,8 +686,11 @@ pub enum FileFormatError {
     #[error("file has no extension")]
     NoExtension,
 
-    #[error("file is not recognized")]
-    NotRecognized,
+    #[error("format is not recognized as readable")]
+    NotReadable,
+
+    #[error("format is not recognized as writable")] 
+    NotWritable,
 
     #[error("file has no states to read")]
     NoStates,
@@ -720,7 +730,7 @@ pub enum FileFormatError {
 
     #[error("can't seek to time {0}")]
     SeekTimeError(f32),
-    
+
     #[error("not a state read format")]
     NotStateReadFormat,
 }
@@ -784,4 +794,15 @@ mod tests {
         println!("{outname}");
         Ok(())
     }
+
+    #[test]
+    fn test_itp() -> Result<()> {
+        let mut h = FileHandler::open("tests/POPE.itp")?;
+        let top = h.read_topology()?;
+        for a in top.iter_atoms() {
+            println!("{:?}",a);
+        }
+        Ok(())
+    }
+
 }
