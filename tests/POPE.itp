@@ -13,7 +13,8 @@
 POPE	     3
 
 [ atoms ]
-; nr	type	resnr	residu	atom	cgnr	charge	mass
+;   0       1        2        3        4     5        6           7
+;  nr	       type	 resnr	residu	atom	  cgnr	charge	    mass
      1       NH3L      4     POPE      N      1    -0.300000    14.0070   ; qtot -0.300
      2        HCL      4     POPE    HN1      2     0.330000     1.0080   ; qtot  0.030
      3        HCL      4     POPE    HN2      3     0.330000     1.0080   ; qtot  0.360

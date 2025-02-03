@@ -36,7 +36,7 @@ impl Atom {
         Default::default()
     }
 
-    pub fn guess_element_and_mass_from_name(&mut self) {
+    pub fn guess_element_from_name(&mut self) {
         self.atomic_number = 0;
         // Index of the first letter in atom name
         if let Some(i) = self.name.find(|c: char| c.is_ascii_alphabetic()) {
@@ -83,7 +83,10 @@ impl Atom {
                 }
             }
         }
+    }
 
+    pub fn guess_element_and_mass_from_name(&mut self) {
+        self.guess_element_from_name();
         // Fill mass field
         self.mass = ELEMENT_MASS[self.atomic_number as usize];
     }
