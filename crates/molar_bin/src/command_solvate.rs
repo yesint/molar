@@ -69,7 +69,7 @@ pub(crate) fn command_solvate(
     let mut inside_ind = vec![];
     let b = solute.get_box().unwrap();
     let all = solvent.select_all()?;
-    'outer: for res in all.split_into_resindex_iter() {
+    'outer: for res in all.split_resindex_into_iter() {
         for p in res.iter_pos() {
             if !b.is_inside(p) {
                 // Break without adding this residue to good list

@@ -135,6 +135,26 @@ impl<K: SelectionKind> Sel<K> {
         }
     }
 
+    /// Get an [Atom] for the first selection index.
+    pub fn first_atom(&self) -> &Atom {
+        unsafe { self.nth_atom_unchecked(0) }
+    }
+
+    /// Get an [Atom] for the last selection index.
+    pub fn last_atom(&self) -> &Atom {
+        unsafe { self.nth_atom_unchecked(self.index().len() - 1) }
+    }
+
+    /// Get an [Atom] for the n-th selection index.
+    /// Index is bound-checked, an error is returned if it is out of bounds.
+    pub fn nth_atom(&self, i: usize) -> Option<&Atom> {
+        if i >= self.len() {
+            None
+        } else {
+            Some(unsafe { self.nth_atom_unchecked(i) })
+        }
+    }
+
     pub fn get_topology(&self) -> Holder<Topology, K> {
         self.topology.clone_with_kind()
     }
