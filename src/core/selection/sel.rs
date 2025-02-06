@@ -373,7 +373,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is consumed.
-    pub fn split_into_resid<C>(self) -> Result<C,SelectionError>
+    pub fn split_resid_into<C>(self) -> Result<C,SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -395,13 +395,13 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn split_into_resindex_iter(
+    pub fn split_resindex_into_iter(
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
         self.split_into_iter(|p| Some(p.atom.resindex))
     }
 
-    pub fn split_into_chain_iter(
+    pub fn split_chain_into_iter(
         self,
     ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
         self.split_into_iter(|p| Some(p.atom.chain))

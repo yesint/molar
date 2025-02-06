@@ -132,14 +132,14 @@ for mol in water.into_iter_contig_resindex() {
 }
 ```
 
-The method `into_iter_contig_resindex()` returns a Rust iterator, which produces contigous selections containig distinct residue index each. There are many other ways of splitting selections into parts using arbitrary logic in MolAR, but this simplest one is what we need now. 
+The method `split_resindex_into_iter()` returns a Rust iterator, which produces contigous selections containig distinct residue index each. There are many other ways of splitting selections into parts using arbitrary logic in MolAR, but this simplest one is what we need now. 
 
 ## Working with coordinates
 Now we need to get the coordinates of atoms for current water molecules and compute a position of the dummy atom.
 
 ```rust,ignore
 // Go over water molecules one by one                   
-for mol in water.into_iter_contig_resindex() {
+for mol in water.split_resindex_into_iter() {
     // TIP3 is arranged as O->H->H
     // so atom 0 is O, atoms 1 and 2 are H
     // Get cooridnates
@@ -251,7 +251,7 @@ fn main() -> Result<()> {
     out.append(&non_water);
 
     // Go over water molecules one by one                   
-    for mol in water.into_iter_contig_resindex() {
+    for mol in water.split_resindex_into_iter() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
