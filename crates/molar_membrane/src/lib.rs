@@ -1,10 +1,11 @@
 use std::sync::Arc;
-
 use anyhow::bail;
 use molar::prelude::*;
+use serde::Deserialize;
 use sorted_vec::SortedSet;
 
-#[derive(Clone, Debug)]
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct LipidSpeciesDescr {
     pub name: String,
     pub whole_sel_str: String,
@@ -120,7 +121,7 @@ impl LipidMolecule {
 
 #[cfg(test)]
 mod tests {
-    use molar::core::Source;
+    use molar::{core::{Source, State}, io::{FileHandler, TopologyProvider}};
 
     use crate::{LipidSpecies, LipidSpeciesDescr};
 
@@ -139,6 +140,41 @@ mod tests {
             ],
         };
         let lip_sp = LipidSpecies::new(descr, &pope)?;
+        println!("{lip_sp:?}");
+        Ok(())
+    }
+
+    // #[test]
+    // fn test_descr_from_itp() -> anyhow::Result<()> {
+    //     let top = FileHandler::open("../../tests/POPE.itp")?.read_topology()?;
+    //     let n = top.num_atoms();
+    //     let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
+    //     let pope = src.select_all()?;
+    //     let resname = &pope.first_atom().resname;
+    //     let descr = LipidSpeciesDescr::pope();
+    //     let lip_sp = LipidSpecies::new(descr, &pope)?;
+    //     println!("{lip_sp:?}");
+    //     Ok(())
+    // }
+
+    #[test]
+    fn test_descr_serde() -> anyhow::Result<()> {
+        let top = FileHandler::open("../../tests/POPE.itp")?.read_topology()?;
+        let n = top.num_atoms();
+        let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
+        
+        let descr: LipidSpeciesDescr = toml::from_str(r#"
+            name = "POPE"
+            whole_sel_str = "resname POPE"
+            head_marker_subsel_str = "name P N"
+            mid_marker_subsel_str = "name C21 C22"
+            tails_descr = [
+                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
+                "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
+            ]
+        "#)?;
+
+        let lip_sp = LipidSpecies::new(descr, &src.select_all()?)?;
         println!("{lip_sp:?}");
         Ok(())
     }

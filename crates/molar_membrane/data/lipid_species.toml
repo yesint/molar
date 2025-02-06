@@ -1,0 +1,19 @@
+[[lipid]]
+name = "POPC"
+whole_sel = "resname POPC"
+head_subsel = "name P N"
+mid_subsel = "name C21 C22"
+tails = [
+    "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
+    "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
+]
+
+[[lipid]]
+name = "POPE"
+whole_sel = "resname POPE"
+head_subsel = "name P N"
+mid_subsel = "name C21 C22"
+tails = [
+    "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
+    "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
+]

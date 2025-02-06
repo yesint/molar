@@ -115,6 +115,14 @@ impl State {
     pub fn interchangeable(&self, other: &State) -> bool {
         self.get_storage().coords.len() == other.get_storage().coords.len()
     }
+
+    pub fn new_fake(n: usize) -> Self {
+        Self(SyncUnsafeCell::new(StateStorage{
+            coords: vec![Pos::origin();n],
+            pbox: None,
+            time: 0.0,
+        }))
+    }
 }
 
 //------------------------
