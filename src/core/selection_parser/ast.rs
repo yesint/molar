@@ -536,11 +536,6 @@ impl LogicalNode {
                     )
                 };
 
-                // // Search returns local indexes, convert them to global
-                // for i in res.iter_mut() {
-                //     *i = unsafe { *sub1.subset.get_unchecked(*i) };
-                // }
-
                 // Add inner if asked
                 if prop.include_inner {
                     res.extend(inner);
@@ -596,6 +591,24 @@ impl LogicalNode {
             _ => (),
         }
         Ok(())
+    }
+
+    pub fn is_coord_dependent(&self) -> bool {
+        match self {
+            Self::Not(node)
+            | Self::Same(_, node) => node.is_coord_dependent(),
+            
+            Self::Comparison(node) => node.is_coord_dependent(),
+
+            Self::Or(a, b)
+            | Self::And(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
+
+            Self::Within(_, _) 
+            | Self::WithinPoint(_, _) => true,
+                
+            // All always works for global subset
+            _ => false,
+        }
     }
 }
 
@@ -947,6 +960,23 @@ impl MathNode {
         }
     }
 
+    fn is_coord_dependent(&self) -> bool {
+        match self {
+            Self::X | Self::Y | Self::Z | Self::Dist(_) => true,
+            Self::Plus(a, b)
+            | Self::Minus(a, b)
+            | Self::Mul(a, b)
+            | Self::Div(a, b)
+            | Self::Pow(a, b) => {
+                a.is_coord_dependent() || b.is_coord_dependent()
+            },
+            Self::Neg(v) | Self::Function(_, v) => {
+                v.is_coord_dependent()
+            },
+            _ => false,
+        }
+    }
+
     fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
         match self {
             Self::Dist(p) => p.precompute(data)?,
@@ -1068,5 +1098,26 @@ impl ComparisonNode {
             }
         }
         Ok(())
+    }
+    
+    fn is_coord_dependent(&self) -> bool {
+        match self {
+            // Simple
+            Self::Eq(v1, v2)
+            | Self::Neq(v1, v2)
+            | Self::Gt(v1, v2)
+            | Self::Geq(v1, v2)
+            | Self::Lt(v1, v2)
+            | Self::Leq(v1, v2) => v1.is_coord_dependent() || v2.is_coord_dependent(),
+            // Chained
+            Self::LtLt(v1, v2, v3)
+            | Self::LtLeq(v1, v2, v3)
+            | Self::LeqLt(v1, v2, v3)
+            | Self::LeqLeq(v1, v2, v3)
+            | Self::GtGt(v1, v2, v3)
+            | Self::GtGeq(v1, v2, v3)
+            | Self::GeqGt(v1, v2, v3)
+            | Self::GeqGeq(v1, v2, v3) => v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent(),
+        }
     }
 }

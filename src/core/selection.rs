@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn split_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        for res in sel1.iter_contig(|p| Some(p.atom.resid))? {
+        for res in sel1.split_iter(|p| Some(p.atom.resid))? {
             println!("Res: {}", res.iter_atoms().next().unwrap().resid)
         }
         Ok(())
@@ -361,7 +361,7 @@ mod tests {
         let ser = Source::new_serial(top.into(), st.into())?;
         let ser_sel = ser.select_all()?;
 
-        let mut parts = ser_sel.par_collect_contig(|p| Some(p.atom.resindex))?;
+        let mut parts = ser_sel.split_par_contig(|p| Some(p.atom.resindex))?;
         let coms = parts
             .par_iter()
             .map(|sel| sel.center_of_mass())
