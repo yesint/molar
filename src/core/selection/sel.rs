@@ -350,10 +350,8 @@ impl<K: UserCreatableKind> Sel<K> {
     // Splitting
     //============================
 
-    // split[_par][_iter](CONTIG|DISJOINT)
-
     // Naming convention is
-    // [into]_[par]_<collect|iter>_<disjoint|contig>_[<property>]
+    // split[_into][_<property>][_[par_]iter]
 
     //----------------------
     // Consuming splitters
@@ -364,7 +362,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.
-    pub fn into_collect_disjoint<RT, F, C>(self, func: F) -> Result<C,SelectionError>
+    pub fn split_into<RT, F, C>(self, func: F) -> Result<C,SelectionError>
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -375,7 +373,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is consumed.
-    pub fn into_collect_disjoint_resid<C>(self) -> Result<C,SelectionError>
+    pub fn split_into_resid<C>(self) -> Result<C,SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -387,7 +385,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Whenever `func` returns a value different from the previous one, new selection is created.
     /// Selections are computed lazily when iterating.
-    pub fn into_iter_contig<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
+    pub fn split_into_iter<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -397,16 +395,16 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Return iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is consumed.
-    pub fn into_iter_contig_resindex(
+    pub fn split_into_resindex_iter(
         self,
     ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
-        self.into_iter_contig(|p| Some(p.atom.resindex))
+        self.split_into_iter(|p| Some(p.atom.resindex))
     }
 
-    pub fn into_iter_contig_chain(
+    pub fn split_into_chain_iter(
         self,
     ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
-        self.into_iter_contig(|p| Some(p.atom.chain))
+        self.split_into_iter(|p| Some(p.atom.chain))
     }
 
     //--------------------------
@@ -418,7 +416,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn collect_disjoint<RT, F, C>(&self, func: F) -> Result<C,SelectionError>
+    pub fn split<RT, F, C>(&self, func: F) -> Result<C,SelectionError>
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -429,7 +427,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is left alive.
-    pub fn collect_disjoint_resid<C>(&self) -> Result<C,SelectionError>
+    pub fn split_resid<C>(&self) -> Result<C,SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -438,7 +436,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resindexes.
     /// Parent selection is left alive.
-    pub fn collect_disjoint_resindex<C>(&self) -> Result<C,SelectionError>
+    pub fn split_resindex<C>(&self) -> Result<C,SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -451,7 +449,7 @@ impl<K: UserCreatableKind> Sel<K> {
     /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
     /// If `func` returns `None` the atom is skipped and do not added to new selection.
     /// Selections are computed lazily when iterating.
-    pub fn iter_contig<'a, RT, F>(&'a self, func: F) -> Result<FragmentsIterator<'a, RT, F, K>,SelectionError>
+    pub fn split_iter<'a, RT, F>(&'a self, func: F) -> Result<FragmentsIterator<'a, RT, F, K>,SelectionError>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT> + 'a,
@@ -462,8 +460,8 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Return serial iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn iter_contig_resindex<'a>(&'a self) -> Result<FragmentsIterator<'a, usize, impl Fn(Particle) -> Option<usize> + 'a , K>,SelectionError> {
-        self.iter_contig(|p| Some(p.atom.resindex))
+    pub fn split_resindex_iter<'a>(&'a self) -> Result<FragmentsIterator<'a, usize, impl Fn(Particle) -> Option<usize> + 'a , K>,SelectionError> {
+        self.split_iter(|p| Some(p.atom.resindex))
     }
 
     //---------------------------------------------------------
@@ -476,7 +474,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Each produced selection correspond to the distinct values returned by `split_fn`.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn par_collect_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit,SelectionError>
+    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit,SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -493,7 +491,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// New selection starts when `split_fn` returns a value different from the previous one.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn par_collect_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
