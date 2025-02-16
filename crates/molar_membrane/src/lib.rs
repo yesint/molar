@@ -1,17 +1,18 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use anyhow::bail;
 use molar::prelude::*;
 use serde::Deserialize;
 use sorted_vec::SortedSet;
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct PredefinedLipidSpecies (HashMap<String,LipidSpeciesDescr>);
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LipidSpeciesDescr {
-    pub name: String,
-    pub whole_sel_str: String,
-    pub head_marker_subsel_str: String,
-    pub mid_marker_subsel_str: String,
-    pub tails_descr: Vec<String>,
+    pub whole: String,
+    pub head: String,
+    pub mid: String,
+    pub tails: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -30,7 +31,7 @@ impl LipidSpecies {
         let first_index = lipid.first_index();
         let mut tails = vec![];
         // Parse tails
-        for t in &descr.tails_descr {
+        for t in &descr.tails {
             let mut names = vec![];
             let mut bond_orders = vec![];
             let mut cur = &t[..];
@@ -75,14 +76,14 @@ impl LipidSpecies {
             descr: descr.clone(),
             head_marker_offsets: SortedSet::from_unsorted(
                 lipid
-                    .subsel_str(descr.head_marker_subsel_str)?
+                    .subsel_str(descr.head)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),
             ),
             mid_marker_offsets: SortedSet::from_unsorted(
                 lipid
-                    .subsel_str(descr.mid_marker_subsel_str)?
+                    .subsel_str(descr.mid)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),
@@ -121,20 +122,21 @@ impl LipidMolecule {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
     use molar::{core::{Source, State}, io::{FileHandler, TopologyProvider}};
 
-    use crate::{LipidSpecies, LipidSpeciesDescr};
+    use crate::{LipidSpecies, LipidSpeciesDescr, PredefinedLipidSpecies};
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
         let src = Source::serial_from_file("../../tests/membr.gro")?;
         let pope = src.select_str("resid 60")?;
         let descr = LipidSpeciesDescr {
-            name: "POPE".into(),
-            whole_sel_str: "resname POPE".into(),
-            head_marker_subsel_str: "name P N".into(),
-            mid_marker_subsel_str: "name C21 C22".into(),
-            tails_descr: vec![
+            whole: "resname POPE".into(),
+            head: "name P N".into(),
+            mid: "name C21 C22".into(),
+            tails: vec![
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218".into(),
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316".into(),
             ],
@@ -176,6 +178,40 @@ mod tests {
 
         let lip_sp = LipidSpecies::new(descr, &src.select_all()?)?;
         println!("{lip_sp:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_toml_descr() -> anyhow::Result<()> {
+        let mut toml = String::new();
+        std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
+        let descr: PredefinedLipidSpecies = toml::from_str(&toml)?;
+        println!("{descr:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_toml2() -> anyhow::Result<()> {
+        let toml: PredefinedLipidSpecies = toml::from_str(r#"
+            [POPC]
+            whole = "resname POPE"
+            head = "name P N"
+            mid = "name C21 C22"
+            tails = [
+                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
+                "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
+            ]
+
+            [POPE]
+            whole = "resname POPE"
+            head = "name P N"
+            mid = "name C21 C22"
+            tails = [
+                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
+                "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
+            ]
+        "#)?;
+        println!("{toml:?}");
         Ok(())
     }
 }
