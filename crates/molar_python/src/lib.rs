@@ -332,6 +332,31 @@ impl Source {
     fn get_state(&self) -> State {
         State(self.0.get_state())
     }
+
+    fn save(&self, fname: &str) -> anyhow::Result<()>{
+        Ok(self.0.save(fname)?)
+    }
+
+    fn remove(&self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
+        // In the future other types can be used as well
+        if let Ok(sel) = arg.downcast::<Sel>() {
+            Ok(self.0.remove(&sel.borrow().0)?)
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn append(&self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
+        // In the future other types can be used as well
+        if let Ok(sel) = arg.downcast::<Sel>() {
+            self.0.append(&sel.borrow().0);
+        } else if let Ok(sel) = arg.downcast::<Source>(){
+            self.0.append(&sel.borrow().0);
+        } else {
+            anyhow::bail!("Unsupported type to append a Source")
+        }
+        Ok(())
+    }
 }
 
 //====================================
@@ -532,7 +557,9 @@ impl Sel {
         Ok((mom,ax))
     }
 
-    
+    fn save(&self, fname: &str) -> anyhow::Result<()>{
+        Ok(self.0.save(fname)?)
+    }
 }
 
 #[pyclass]
