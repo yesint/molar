@@ -1,10 +1,11 @@
-use crate::distance_search::SearchConnectivity;
-use crate::prelude::distance_search_single_pbc;
 use super::providers::*;
 use super::MeasureError;
 use super::PbcDims;
 use super::Vector3f;
 use super::PBC_FULL;
+use crate::distance_search::SearchConnectivity;
+use crate::prelude::distance_search_single_pbc;
+use nalgebra::Const;
 use nalgebra::Rotation3;
 use nalgebra::Unit;
 
@@ -14,7 +15,13 @@ use nalgebra::Unit;
 
 /// Trait for modification requiring only positions
 pub trait ModifyPos: PosMutProvider + PosProvider {
-    fn translate(&self, shift: &Vector3f) {
+    //pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
+    //where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
+
+    fn translate<S>(&self, shift: &nalgebra::Matrix<f32, Const<3>, Const<1>, S>)
+    where
+        S: nalgebra::storage::Storage<f32, Const<3>, Const<1>>,
+    {
         for el in self.iter_pos_mut() {
             *el += shift;
         }
@@ -51,26 +58,25 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
         Ok(())
     }
 
-    fn unwrap_simple(&self) -> Result<(), MeasureError>{
+    fn unwrap_simple(&self) -> Result<(), MeasureError> {
         self.unwrap_simple_dim(PBC_FULL)
     }
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess:
-    PosMutProvider + PosProvider + BoxProvider + RandomPosMut
-{
+pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + RandomPosMut {
     fn unwrap_connectivity(&self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
 
-    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<(),MeasureError> {
+    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self
             .get_box()
             .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
-        let conn: SearchConnectivity = distance_search_single_pbc(cutoff, self, 0..self.len(), &b, dims);
-        
+        let conn: SearchConnectivity =
+            distance_search_single_pbc(cutoff, self, 0..self.len(), &b, dims);
+
         // used atoms
         let mut used = vec![false; conn.len()];
         // Centers to unwrap
