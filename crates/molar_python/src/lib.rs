@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use molar::prelude::*;
 use numpy::{
-    nalgebra, npyffi, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, ToPyArray, PY_ARRAY_API
+    nalgebra::{self, Const, Dyn, VectorView}, npyffi, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, ToPyArray, PY_ARRAY_API
 };
 use pyo3::{prelude::*, types::PyTuple, IntoPyObjectExt};
 
@@ -341,6 +341,9 @@ impl Source {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
             Ok(self.0.remove(&sel.borrow().0)?)
+        } else if let Ok(sel_str) = arg.extract::<String>() { 
+            let sel = self.0.select_str(sel_str)?;
+            Ok(self.0.remove(&sel)?)
         } else {
             unreachable!()
         }
@@ -559,6 +562,14 @@ impl Sel {
 
     fn save(&self, fname: &str) -> anyhow::Result<()>{
         Ok(self.0.save(fname)?)
+    }
+
+    fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> anyhow::Result<()>{
+        let vec: VectorView<f32, Const<3>, Dyn> = arg
+            .try_as_matrix()
+            .ok_or_else(|| anyhow!("conversion to Vector3 has failed"))?;
+        self.0.translate(&vec);
+        Ok(())
     }
 }
 
