@@ -1,0 +1,63 @@
+[package]
+name = "molar"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude = ["tests/*.xtc"]
+readme = "README.md"
+
+[dependencies]
+# Workspace member crates
+molar_molfile = {path = "../molar_molfile", version = "0.7.0"}
+molar_xdrfile = {path = "../molar_xdrfile", version = "0.7.0"}
+molar_powersasa = {path = "../molar_powersasa", version = "0.8.0"}
+molar_gromacs = {path = "../molar_gromacs", version = "0.7.0", optional = true}
+
+# Normal dependencies
+thiserror.workspace = true
+nalgebra.workspace = true
+#nalgebra-lapack.workspace = true
+peg.workspace = true
+regex.workspace = true
+log.workspace = true
+comfy-table.workspace = true
+ndarray = "0.16.0"
+num-traits = "0.2.16"
+rayon = "1.8"
+itertools = "0.13.0"
+rustc-hash = "2.1.0"
+sync-unsafe-cell = "0.1.1"
+triomphe = { version = "0.1.14", default-features = false, features = ["std"] }
+sorted-vec.workspace = true
+#nalgebra-lapack = "0.24"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+anyhow = "1.0.94"
+
+[features]
+#default = ["gromacs"]
+gromacs = ["dep:molar_gromacs"]
+
+[[bench]]
+name = "fit_benchmark"
+harness = false
+
+[[bench]]
+name = "comparison_small"
+harness = false
+
+[[bench]]
+name = "comparison_large"
+harness = false
+
+[package.metadata.docs.rs]
+# Prevents CI builds from building C/C++ dependences
+no-default-features = true

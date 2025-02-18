@@ -1,7 +1,15 @@
 [workspace]
-members = ["crates/molar_bin", 
-"crates/molar_python", 
-"crates/molar_membrane"]
+members = [
+"molar",
+"molar_molfile",
+"molar_xdrfile",
+"molar_gromacs",
+"molar_powersasa",
+"molar_bin", 
+"molar_python", 
+"molar_membrane"
+]
+resolver = "2"
 
 [workspace.package]
 version = "0.8.0"
@@ -15,6 +23,7 @@ documentation = "https://docs.rs/molar"
 readme = "README.md"
 keywords = ["MD", "science", "trajectory", "modeling"]
 categories = ["science", "simulation", "external-ffi-bindings"]
+description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
 
 [workspace.dependencies]
 nalgebra = "0.33.2"
@@ -25,69 +34,3 @@ log = "0.4.22"
 cc = { version = "1.2.5", features = ["parallel"] }
 comfy-table = "7.1"
 sorted-vec = "0.8.5"
-
-[package]
-name = "molar"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-
-license.workspace = true
-description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
-homepage.workspace = true
-repository.workspace = true
-documentation.workspace = true
-readme = "README.md"
-keywords.workspace = true
-categories.workspace = true
-
-exclude = ["tests/*.xtc"]
-
-[dependencies]
-# Workspace member crates
-molar_molfile = { path = "crates/molar_molfile", version = "0.7.0" }
-molar_xdrfile = { path = "crates/molar_xdrfile", version = "0.7.0" }
-molar_powersasa = { path = "crates/molar_powersasa", version = "0.8.0" }
-molar_gromacs = { path = "crates/molar_gromacs", version = "0.7.0", optional = true }
-
-# Normal dependencies
-thiserror.workspace = true
-nalgebra.workspace = true
-#nalgebra-lapack.workspace = true
-peg.workspace = true
-regex.workspace = true
-log.workspace = true
-comfy-table.workspace = true
-ndarray = "0.16.0"
-num-traits = "0.2.16"
-rayon = "1.8"
-itertools = "0.13.0"
-rustc-hash = "2.1.0"
-sync-unsafe-cell = "0.1.1"
-triomphe = { version = "0.1.14", default-features = false, features = ["std"] }
-sorted-vec.workspace = true
-#nalgebra-lapack = "0.24"
-
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-anyhow = "1.0.94"
-
-[features]
-#default = ["gromacs"]
-gromacs = ["dep:molar_gromacs"]
-
-[[bench]]
-name = "fit_benchmark"
-harness = false
-
-[[bench]]
-name = "comparison_small"
-harness = false
-
-[[bench]]
-name = "comparison_large"
-harness = false
-
-[package.metadata.docs.rs]
-# Prevents CI builds from building C/C++ dependences
-no-default-features = true
