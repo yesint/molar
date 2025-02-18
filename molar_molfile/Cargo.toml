@@ -1,0 +1,17 @@
+[package]
+name = "molar_molfile"
+version = "0.7.1"
+edition.workspace = true
+authors.workspace = true
+
+license.workspace = true
+description = "VMD molfile FFI bindings for molar"
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/molar_molfile"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[build-dependencies]
+cc.workspace = true

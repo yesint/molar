@@ -1,5 +1,0 @@
-# cpptraj input script
-parm protein.pdb
-trajin protein.xtc
-rmsd rmsd_task mass first
-run

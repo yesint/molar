@@ -1,0 +1,18 @@
+[package]
+name = "molar_powersasa"
+version = "0.8.0"
+edition.workspace = true
+authors.workspace = true
+
+license.workspace = true
+description = "powersasa FFI bindings for molar"
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/molar_powersasa"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+cached-path = "0.6"
