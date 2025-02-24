@@ -51,6 +51,41 @@ pub trait RandomAtom: LenProvider {
     }
 }
 
+pub trait BondsProvider: LenProvider {
+
+    fn num_bonds(&self) -> usize;
+
+    
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]>;
+
+    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2];
+    
+    fn nth_bond(&self, i: usize) -> Option<&[usize; 2]> {
+        if i<self.num_bonds() {
+            Some(unsafe{self.nth_bond_unchecked(i)})
+        } else {
+            None
+        }
+    }
+}
+
+pub trait MoleculesProvider: LenProvider {
+    fn num_molecules(&self) -> usize;
+    
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]>;
+
+    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2];
+    
+    fn nth_molecule(&self, i: usize) -> Option<&[usize; 2]> {
+        if i<self.num_molecules() {
+            Some(unsafe{self.nth_molecule_unchecked(i)})
+        } else {
+            None
+        }
+    }
+}
+
+
 //--------------------------------------------------------------
 // Mutable providers
 //--------------------------------------------------------------

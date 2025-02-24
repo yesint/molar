@@ -194,12 +194,11 @@ mod tests {
     use crate::prelude::*;
     #[test]
     fn test_tpr() {
-        let path = "/home/semen/work/Projects/Misha/balanced/not_depleted/topol.tpr";
-        let mut h = TprFileHandler::open(path).unwrap();
+        let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
         let (top, st) = h.read().unwrap();
         println!("natoms: {:?}", top.num_atoms());
-        //println!("nbonds: {:?}",top.bonds.len());
-        //println!("molecules: {:?}",top.molecules.len());
+        println!("nbonds: {:?}",top.num_bonds());
+        println!("nmolecules: {:?}",top.num_molecules());
         println!("state sz: {:?}", st.num_coords());
     }
 }

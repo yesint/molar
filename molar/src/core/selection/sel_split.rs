@@ -149,3 +149,24 @@ impl ParallelSplit {
         self.parts.par_iter_mut()
     }
 }
+
+/// Iterator over molecules
+pub struct MoleculesIterator<'a,K> {
+    pub(super) sel: &'a Sel<K>,
+    pub(super) cur: usize,
+}
+
+impl<'a,S: SelectionKind> Iterator for MoleculesIterator<'a,S> {
+    type Item = Sel<S>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur < self.sel.num_molecules() {
+            let [i,j] = unsafe{self.sel.nth_molecule_unchecked(self.cur).to_owned()};
+            let index = (i..=j).collect();
+            self.cur += 1;
+            unsafe{ Some(self.sel.subsel_from_sorted_vec_unchecked(index).unwrap()) }
+        } else {
+            None
+        }
+    }
+}
