@@ -9,6 +9,3 @@ pub mod gromacs_bindings {
     #[cfg(not(feature = "gen_bindings"))]
     include!("gromacs_bindings.rs");
 }
-
-
-
