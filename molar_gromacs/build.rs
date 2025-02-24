@@ -64,5 +64,7 @@ fn main() {
         bindings
             .write_to_file(out_path.join("gromacs_bindings.rs"))
             .expect("should be able to write bindings!");
+        
+        println!("cargo:warning=\"Gromacs bindings written to {}\"",out_path.to_str().unwrap());
     }
 }

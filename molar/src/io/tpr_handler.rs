@@ -59,6 +59,7 @@ impl TprFileHandler {
         };
         let natoms = gmx_top.atoms.nr as usize;
         let nres = gmx_top.atoms.nres as usize;
+        println!(">>> {} {}",natoms,nres);
 
         let mut top = TopologyStorage::default();
         top.atoms.reserve(natoms);
@@ -193,7 +194,8 @@ mod tests {
     use crate::prelude::*;
     #[test]
     fn test_tpr() {
-        let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
+        let path = "/home/semen/work/Projects/Misha/balanced/not_depleted/topol.tpr";
+        let mut h = TprFileHandler::open(path).unwrap();
         let (top, st) = h.read().unwrap();
         println!("natoms: {:?}", top.num_atoms());
         //println!("nbonds: {:?}",top.bonds.len());
