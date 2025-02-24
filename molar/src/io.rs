@@ -245,13 +245,13 @@ impl FileFormat {
             FileFormat::Gro(ref mut h) => {
                 let (top, _) = h.read()?;
                 top
-            },
+            }
 
             #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => {
                 let (top, _) = h.read()?;
                 top
-            },
+            }
 
             FileFormat::Itp(ref mut h) => h.read_topology()?,
 
@@ -283,15 +283,15 @@ impl FileFormat {
             FileFormat::Gro(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
-            },
+            }
 
             #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
-            },
+            }
 
-            _ => return Err(FileFormatError::NotStateReadFormat),            
+            _ => return Err(FileFormatError::NotStateReadFormat),
         };
         Ok(st)
     }
@@ -689,7 +689,7 @@ pub enum FileFormatError {
     #[error("format is not recognized as readable")]
     NotReadable,
 
-    #[error("format is not recognized as writable")] 
+    #[error("format is not recognized as writable")]
     NotWritable,
 
     #[error("file has no states to read")]
@@ -800,9 +800,8 @@ mod tests {
         let mut h = FileHandler::open("tests/POPE.itp")?;
         let top = h.read_topology()?;
         for a in top.iter_atoms() {
-            println!("{:?}",a);
+            println!("{:?}", a);
         }
         Ok(())
     }
-
 }

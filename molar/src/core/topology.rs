@@ -202,6 +202,34 @@ macro_rules! impl_topology_traits {
                 self.get_storage_mut().atoms.get_unchecked_mut(i)
             }
         }
+
+        impl BondsProvider for $t {
+            fn num_bonds(&self) -> usize {
+                self.get_storage().bonds.len()
+            }
+
+            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+                self.get_storage().bonds.get_unchecked(i)
+            }
+
+            fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.get_storage().bonds.iter()
+            }
+        }
+        
+        impl MoleculesProvider for $t {
+            fn num_molecules(&self) -> usize {
+                self.get_storage().molecules.len()
+            }
+            
+            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+                self.get_storage().molecules.get_unchecked(i)
+            }
+
+            fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.get_storage().molecules.iter()
+            }
+        }
     };
 }
 

@@ -522,6 +522,13 @@ impl<K: UserCreatableKind> Sel<K> {
         })
     }
 
+    pub fn split_molecules_iter(&self) -> Result<MoleculesIterator<K>,SelectionError> {
+        Ok(MoleculesIterator {
+            sel: self,
+            cur: 0,
+        })
+    }
+
     //============================
     // Misceleneous
     //============================
@@ -922,6 +929,34 @@ impl<K: SelectionKind> RandomAtom for Sel<K> {
 }
 
 impl<K: SelectionKind> MeasureRandomAccess for Sel<K> {}
+
+impl<K: SelectionKind> MoleculesProvider for Sel<K> {
+    fn num_molecules(&self) -> usize {
+        self.topology.num_molecules()
+    }
+
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.topology.iter_molecules()
+    }
+
+    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+        self.topology.nth_molecule_unchecked(i)
+    }
+}
+
+impl<K: SelectionKind> BondsProvider for Sel<K> {
+    fn num_bonds(&self) -> usize {
+        self.topology.num_bonds()
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.topology.iter_bonds()
+    }
+
+    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+        self.topology.nth_bond_unchecked(i)
+    }
+}
 
 //═══════════════════════════════════════════════════════════
 //███  Mutable analysis traits (only for mutable selections)
