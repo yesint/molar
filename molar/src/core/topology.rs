@@ -1,4 +1,3 @@
-use crate::io::TopologyProvider;
 use crate::prelude::*;
 use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
@@ -157,13 +156,9 @@ impl Topology {
 //---------------------------
 macro_rules! impl_topology_traits {
     ( $t:ty ) => {
-        impl TopologyProvider for $t {
-            fn num_atoms(&self) -> usize {
-                self.get_storage().atoms.len()
-            }
-        }
+        impl TopologyProvider for $t {}
 
-        impl AtomsProvider for $t {
+        impl AtomProvider for $t {
             fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
                 self.get_storage().atoms.iter()
             }
@@ -187,13 +182,17 @@ macro_rules! impl_topology_traits {
             }
         }
 
-        impl RandomAtom for $t {
+        impl RandomAtomProvider for $t {
+            fn num_atoms(&self) -> usize {
+                self.get_storage().atoms.len()
+            }
+
             unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
                 self.get_storage().atoms.get_unchecked(i)
             }
         }
 
-        impl RandomAtomMut for $t {
+        impl RandomAtomMutProvider for $t {
             fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
                 self.get_storage_mut().atoms.get_mut(i)
             }

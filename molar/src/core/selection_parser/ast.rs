@@ -303,14 +303,18 @@ impl LenProvider for ActiveSubset<'_> {
     }
 }
 
-impl RandomPos for ActiveSubset<'_> {
+impl RandomPosProvider for ActiveSubset<'_> {
+    fn num_coords(&self) -> usize {
+        self.subset.len()
+    }
+    
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.subset.get(i).unwrap();
         self.state.nth_pos_unchecked(ind)
     }
 }
 
-impl AtomsProvider for ActiveSubset<'_> {
+impl AtomProvider for ActiveSubset<'_> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.subset
             .iter()
@@ -318,7 +322,11 @@ impl AtomsProvider for ActiveSubset<'_> {
     }
 }
 
-impl RandomAtom for ActiveSubset<'_> {
+impl RandomAtomProvider for ActiveSubset<'_> {
+    fn num_atoms(&self) -> usize {
+        self.subset.len()
+    }
+    
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = *self.subset.get(i).unwrap();
         self.topology.nth_atom_unchecked(ind)

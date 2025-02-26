@@ -43,7 +43,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 anyhow = "1.0.94"
 
 [features]
-default = ["gromacs"]
+#default = ["gromacs"]
 gromacs = ["dep:molar_gromacs"]
 
 [[bench]]

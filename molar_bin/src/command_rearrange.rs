@@ -2,10 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::{anyhow, bail, Context, Result};
 use log::info;
-use molar::{
-    core::{MutableSerial, Sel, Source},
-    io::{IndexProvider, TopologyProvider, WritableToFile},
-};
+use molar::prelude::*;
 
 pub(super) fn command_rearrange(
     infile: &str,
