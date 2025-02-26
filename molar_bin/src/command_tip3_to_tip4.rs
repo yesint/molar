@@ -3,10 +3,7 @@ use std::iter;
 
 use anyhow::Result;
 use log::info;
-use molar::{
-    core::{Atom, AtomsProvider, BoxProvider, PosProvider, Source},
-    io::{TopologyProvider, WritableToFile},
-};
+use molar::prelude::*;
 
 pub(crate) fn command_tip3_to_tip4(
     file: &str,

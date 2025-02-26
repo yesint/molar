@@ -840,19 +840,11 @@ impl<K: SelectionKind> IndexProvider for Sel<K> {
     }
 }
 
-impl<K: SelectionKind> TopologyProvider for Sel<K> {
-    fn num_atoms(&self) -> usize {
-        self.index().len()
-    }
-}
+impl<K: SelectionKind> TopologyProvider for Sel<K> {}
 
 impl<K: SelectionKind> StateProvider for Sel<K> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
-    }
-
-    fn num_coords(&self) -> usize {
-        self.index().len()
     }
 }
 
@@ -880,7 +872,7 @@ impl<K: SelectionKind> PosProvider for Sel<K> {
 
 impl<K: SelectionKind> MeasurePos for Sel<K> {}
 
-impl<K: SelectionKind> AtomsProvider for Sel<K> {
+impl<K: SelectionKind> AtomProvider for Sel<K> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.index()
@@ -908,14 +900,22 @@ impl<K: SelectionKind> LenProvider for Sel<K> {
     }
 }
 
-impl<K: SelectionKind> RandomPos for Sel<K> {
+impl<K: SelectionKind> RandomPosProvider for Sel<K> {
+    fn num_coords(&self) -> usize {
+        self.index().len()    
+    }
+
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.index().get_unchecked(i);
         self.state.nth_pos_unchecked(ind)
     }
 }
 
-impl<K: SelectionKind> RandomAtom for Sel<K> {
+impl<K: SelectionKind> RandomAtomProvider for Sel<K> {
+    fn num_atoms(&self) -> usize {
+        self.index().len()
+    }
+
     fn nth_atom(&self, i: usize) -> Option<&Atom> {
         self.index()
             .get(i)
@@ -995,7 +995,7 @@ impl<K: MutableKind> RandomPosMut for Sel<K> {
     }
 }
 
-impl<K: MutableKind> RandomAtomMut for Sel<K> {
+impl<K: MutableKind> RandomAtomMutProvider for Sel<K> {
     fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
         self.index()
             .get(i)

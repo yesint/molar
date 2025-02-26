@@ -75,7 +75,7 @@ pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + Rando
             .ok_or_else(|| MeasureError::NoPbc)?
             .to_owned();
         let conn: SearchConnectivity =
-            distance_search_single_pbc(cutoff, self, 0..self.len(), &b, dims);
+            distance_search_single_pbc(cutoff, self, 0..self.num_coords(), &b, dims);
 
         // used atoms
         let mut used = vec![false; conn.len()];

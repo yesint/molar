@@ -384,7 +384,7 @@ fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait MeasureRandomAccess: RandomPos {
+pub trait MeasureRandomAccess: RandomPosProvider {
     /// Computes order parameter of the lipid tail. Each position in [Self] is
     /// supposed to represent a carbon atom of a single lipid tail. The size of the array
     /// of normals is either `1` or `N-2`, where `N` is the number of position in [Self].
@@ -405,22 +405,22 @@ pub trait MeasureRandomAccess: RandomPos {
         //normals:  0   1   2   3   4   5
 
         // Size check
-        if self.len() < 3 {
-            return Err(LipidOrderError::TailTooShort(self.len()));
+        if self.num_coords() < 3 {
+            return Err(LipidOrderError::TailTooShort(self.num_coords()));
         }
         
-        if normals.len() != 1 && normals.len() != self.len() - 2 {
-            return Err(LipidOrderError::NormalsCount(self.len(), self.len()-2));
+        if normals.len() != 1 && normals.len() != self.num_coords() - 2 {
+            return Err(LipidOrderError::NormalsCount(self.num_coords(), self.num_coords()-2));
         }
 
-        if bond_orders.len() != self.len() - 1 {
-            return Err(LipidOrderError::BondOrderCount(self.len(), self.len()-1));
+        if bond_orders.len() != self.num_coords() - 1 {
+            return Err(LipidOrderError::BondOrderCount(self.num_coords(), self.num_coords()-1));
         }
 
-        let mut order = vec![0.0; self.len() - 2];
+        let mut order = vec![0.0; self.num_coords() - 2];
         if order_type == OrderType::Sz {
             // Iterate over atoms
-            for at in 1..self.len() - 1 {
+            for at in 1..self.num_coords() - 1 {
                 // Vector from at+1 to at-1
                 let v = unsafe { self.nth_pos_unchecked(at + 1) - self.nth_pos_unchecked(at - 1) };
                 // Normal
@@ -436,7 +436,7 @@ pub trait MeasureRandomAccess: RandomPos {
         } else {
             // Compute deuterium order
             // We iterate over bonds and treat differently single and double bonds
-            for i in 0..self.len() - 2 {
+            for i in 0..self.num_coords() - 2 {
                 if bond_orders[i] == 1 {
                     // Single bond between atoms i:i+1
                     // If next bond is also single, compute order for atom i+1

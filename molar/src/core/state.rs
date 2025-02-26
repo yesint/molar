@@ -1,5 +1,4 @@
 use sync_unsafe_cell::SyncUnsafeCell;
-use crate::io::StateProvider;
 use crate::prelude::*;
 //use super::handle::{SharedHandle, Handle};
 
@@ -132,15 +131,21 @@ macro_rules! impl_state_traits {
             fn get_time(&self) -> f32 {
                 self.get_storage().time
             }
-        
-            fn num_coords(&self) -> usize {
-                self.get_storage().coords.len()
-            }
         }
         
         impl PosProvider for $t {
             fn iter_pos(&self) -> impl super::PosIterator<'_> {
                 self.get_storage().coords.iter()
+            }
+        }
+
+        impl RandomPosProvider for $t {
+            fn num_coords(&self) -> usize {
+                self.get_storage().coords.len()
+            }
+
+            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+                self.get_storage().coords.get_unchecked(i)
             }
         }
         
@@ -159,12 +164,6 @@ macro_rules! impl_state_traits {
         impl LenProvider for $t {
             fn len(&self) -> usize {
                 self.get_storage().coords.len()
-            }
-        }
-
-        impl RandomPos for $t {
-            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-                self.get_storage().coords.get_unchecked(i)
             }
         }
 

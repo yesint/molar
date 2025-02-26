@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use log::info;
-use molar::io::{FileHandler, StateProvider};
+use molar::prelude::*;
 
 pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
     let mut trj; // Trajectory file

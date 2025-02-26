@@ -124,7 +124,7 @@ impl LipidMolecule {
 mod tests {
     use std::io::Read;
 
-    use molar::{core::{Source, State}, io::{FileHandler, TopologyProvider}};
+    use molar::prelude::*;
 
     use crate::{LipidSpecies, LipidSpeciesDescr, PredefinedLipidSpecies};
 

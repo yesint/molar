@@ -2,7 +2,6 @@ use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
 use log::debug;
-use sorted_vec::SortedSet;
 use std::{fmt::Display, path::Path};
 use thiserror::Error;
 
@@ -36,44 +35,6 @@ pub use xtc_handler::XtcFileHandler;
 // (2)  State only multiple times (XTC, TRR)
 //      These are classical trajectories
 // (3)  Topology once + multiple states (PDB, TNG)
-
-//===============================
-// Traits for writing
-//===============================
-pub trait IndexProvider {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize>;
-}
-
-pub trait TopologyProvider: AtomsProvider {
-    fn num_atoms(&self) -> usize;
-}
-
-pub trait StateProvider: PosProvider + BoxProvider {
-    fn get_time(&self) -> f32;
-    fn num_coords(&self) -> usize;
-}
-
-pub trait WritableToFile: TopologyProvider + StateProvider
-where
-    Self: Sized,
-{
-    fn save(&self, fname: &str) -> Result<(), FileIoError> {
-        let mut h = FileHandler::create(fname)?;
-        h.write(self)
-    }
-}
-
-impl IndexProvider for SortedSet<usize> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
-        self.iter().cloned()
-    }
-}
-
-impl IndexProvider for Vec<usize> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
-        self.iter().cloned()
-    }
-}
 
 //=======================================================================
 // Iterator over the frames for any type implementing IoTrajectoryReader
@@ -621,23 +582,53 @@ impl IntoIterator for FileHandler {
 // Implementation of IO traits for tuples
 macro_rules! impl_io_traits_for_tuples {
     ( $t:ty, $s:ty ) => {
-        impl TopologyProvider for ($t, $s) {
+        impl TopologyProvider for ($t, $s) {}
+
+        impl RandomAtomProvider for ($t, $s) {
             fn num_atoms(&self) -> usize {
                 self.0.num_atoms()
             }
-        }
 
-        impl AtomsProvider for ($t, $s) {
+            unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+                self.0.nth_atom_unchecked(i)
+            }
+        }
+        
+        impl AtomProvider for ($t, $s) {
             fn iter_atoms(&self) -> impl AtomIterator<'_> {
                 self.0.iter_atoms()
             }
         }
 
-        impl StateProvider for ($t, $s) {
-            fn num_coords(&self) -> usize {
-                self.1.num_coords()
+        impl MoleculesProvider for ($t, $s) {
+            fn num_molecules(&self) -> usize {
+                self.0.num_molecules()
             }
+        
+            fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.0.iter_molecules()
+            }
+        
+            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+                self.0.nth_molecule_unchecked(i)
+            }
+        }
+        
+        impl BondsProvider for ($t, $s) {
+            fn num_bonds(&self) -> usize {
+                self.0.num_bonds()
+            }
+        
+            fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.0.iter_bonds()
+            }
+        
+            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+                self.0.nth_bond_unchecked(i)
+            }
+        }
 
+        impl StateProvider for ($t, $s) {
             fn get_time(&self) -> f32 {
                 self.1.get_time()
             }
@@ -652,6 +643,16 @@ macro_rules! impl_io_traits_for_tuples {
         impl PosProvider for ($t, $s) {
             fn iter_pos(&self) -> impl PosIterator<'_> {
                 self.1.iter_pos()
+            }
+        }
+
+        impl RandomPosProvider for ($t, $s) {
+            fn num_coords(&self) -> usize {
+                self.1.num_coords()
+            }
+
+            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+                self.1.nth_pos_unchecked(i)
             }
         }
     };

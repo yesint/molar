@@ -237,7 +237,7 @@ impl<K: UserCreatableKind> Source<K> {
 //=======================
 
 impl Source<BuilderSerial> {
-    pub fn append(&self, data: &(impl PosProvider + AtomsProvider)) -> Sel<BuilderSerial> {
+    pub fn append(&self, data: &(impl PosProvider + AtomProvider)) -> Sel<BuilderSerial> {
         let first_added_index = self.num_atoms();
         self.topology
             .get_storage_mut()
@@ -314,6 +314,144 @@ impl Source<BuilderSerial> {
 // Trait impls
 //=======================
 
+/// Macros for implementing common traits for read-only sources
+macro_rules! impl_read_only_source_traits {
+    ( $t:ty ) => {
+        impl TopologyProvider for $t {
+            
+        }
+        
+        impl AtomProvider for $t {
+            fn iter_atoms(&self) -> impl AtomIterator<'_> {
+                self.topology.iter_atoms()
+            }
+        }
+
+        impl RandomAtomProvider for $t {
+            fn num_atoms(&self) -> usize {
+                self.topology.num_atoms()
+            }
+
+            unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+                self.topology.nth_atom_unchecked(i)
+            }
+        }
+        
+        impl StateProvider for $t {
+            fn get_time(&self) -> f32 {
+                self.state.get_time()
+            }
+        }
+        
+        impl PosProvider for $t {
+            fn iter_pos(&self) -> impl PosIterator<'_> {
+                self.state.iter_pos()
+            }
+        }
+        
+        impl BoxProvider for $t {
+            fn get_box(&self) -> Option<&PeriodicBox> {
+                self.state.get_box()
+            }
+        }
+        
+        impl WritableToFile for $t {}
+
+        impl ParticleProvider for $t {
+            fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
+                self.iter_index().map(|i| Particle {
+                    id: i,
+                    atom: unsafe{self.topology.nth_atom_unchecked(i)},
+                    pos: unsafe{self.state.nth_pos_unchecked(i)},
+                })
+            }
+        }
+
+        impl LenProvider for $t {
+            fn len(&self) -> usize {
+                self.state.num_coords()
+            }
+        }
+        
+        impl RandomPosProvider for $t {
+            fn num_coords(&self) -> usize {
+                self.state.num_coords()
+            }
+
+            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+                self.state.nth_pos_unchecked(i)
+            }
+        }
+
+        impl MoleculesProvider for $t {
+            fn num_molecules(&self) -> usize {
+                self.topology.num_molecules()
+            }
+        
+            fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.topology.iter_molecules()
+            }
+        
+            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+                self.topology.nth_molecule_unchecked(i)
+            }
+        }
+        
+        impl BondsProvider for $t {
+            fn num_bonds(&self) -> usize {
+                self.topology.num_bonds()
+            }
+        
+            fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.topology.iter_bonds()
+            }
+        
+            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+                self.topology.nth_bond_unchecked(i)
+            }
+        }
+    };
+}
+
+/// Macros for implementing common traits for read-write sources 
+macro_rules! impl_read_write_source_traits {
+    ( $t:ty ) => {
+        impl_read_only_source_traits!($t);
+
+        impl PosMutProvider for $t {
+            fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
+                self.state.iter_pos_mut()
+            }
+        }
+
+        impl RandomPosMut for $t {
+            fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+                self.state.nth_pos_mut(i)
+            }
+
+            unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+                self.state.nth_pos_mut_unchecked(i)
+            }
+        }
+
+        impl AtomsMutProvider for $t {
+            fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
+                self.topology.iter_atoms_mut()
+            }
+        }
+        
+        impl ParticleMutProvider for $t {
+            fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
+                self.iter_index().map(|i| ParticleMut {
+                    id: i,
+                    atom: unsafe{self.topology.nth_atom_unchecked_mut(i)},
+                    pos: unsafe{self.state.nth_pos_unchecked_mut(i)},
+                })
+            }
+        }
+    }
+}
+
 // All sources provide an index trivially
 impl<K: SelectionKind> IndexProvider for Source<K> {
     fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
@@ -324,8 +462,10 @@ impl<K: SelectionKind> IndexProvider for Source<K> {
 // For serial sources all traits are implemented
 impl_read_write_source_traits!(Source<MutableSerial>);
 impl_read_write_source_traits!(Source<BuilderSerial>);
+
 // For immutable parallel source read-only traits are implemented
 impl_read_only_source_traits!(Source<ImmutableParallel>);
+
 // For mutable parallel source no traits are implemented!
 
 // Bor Builder also BoxMut is implemnted

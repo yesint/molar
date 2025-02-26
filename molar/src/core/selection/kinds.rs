@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use sorted_vec::SortedSet;
-use crate::{core::{State, Topology}, io::{StateProvider, TopologyProvider}};
+use crate::prelude::*;
 use super::SelectionError;
 
 /// Trait for kinds of selections
