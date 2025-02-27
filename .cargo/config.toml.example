@@ -7,7 +7,7 @@
 GROMACS_SOURCE_DIR = "/home/user/install/gromacs-2023"
 
 # Location of Gromacs *build* directory (for generated headers)
-GROMACS_BINARY_DIR = "/home/user/install/gromacs-2023/build"
+GROMACS_BUILD_DIR = "/home/user/install/gromacs-2023/build"
 
 # Location of installed gromacs libraries
 GROMACS_LIB_DIR = "/home/user/programs/gromacs-2023-plumed/lib64"

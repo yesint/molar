@@ -7,12 +7,10 @@ use thiserror::Error;
 
 mod gro_handler;
 mod itp_handler;
-#[cfg(feature = "gromacs")]
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
 
-#[cfg(feature = "gromacs")]
 use tpr_handler::TprHandlerError;
 use vmd_molfile_handler::VmdHandlerError;
 use xtc_handler::XtcHandlerError;
@@ -20,7 +18,6 @@ use xtc_handler::XtcHandlerError;
 // Reexports
 pub use gro_handler::GroFileHandler;
 pub use itp_handler::ItpFileHandler;
-#[cfg(feature = "gromacs")]
 pub use tpr_handler::TprFileHandler;
 pub use vmd_molfile_handler::{VmdMolFileHandler, VmdMolFileType};
 pub use xtc_handler::XtcFileHandler;
@@ -93,8 +90,7 @@ enum FileFormat {
     Pdb(VmdMolFileHandler),
     Dcd(VmdMolFileHandler),
     Xyz(VmdMolFileHandler),
-    Xtc(XtcFileHandler),
-    #[cfg(feature = "gromacs")]
+    Xtc(XtcFileHandler),    
     Tpr(TprFileHandler),
     Gro(GroFileHandler),
     Itp(ItpFileHandler),
@@ -124,13 +120,9 @@ impl FileFormat {
             "gro" => Ok(FileFormat::Gro(GroFileHandler::open(fname)?)),
 
             "itp" => Ok(FileFormat::Itp(ItpFileHandler::open(fname)?)),
-
-            #[cfg(feature = "gromacs")]
+            
             "tpr" => Ok(FileFormat::Tpr(TprFileHandler::open(fname)?)),
-
-            #[cfg(not(feature = "gromacs"))]
-            "tpr" => Err(FileFormatError::TprDisabled),
-
+            
             _ => Err(FileFormatError::NotReadable),
         }
     }
@@ -163,7 +155,6 @@ impl FileFormat {
 
     pub fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
         let (top, st) = match self {
-            #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => h.read()?,
 
             FileFormat::Gro(ref mut h) => h.read()?,
@@ -208,7 +199,6 @@ impl FileFormat {
                 top
             }
 
-            #[cfg(feature = "gromacs")]
             FileFormat::Tpr(ref mut h) => {
                 let (top, _) = h.read()?;
                 top
@@ -245,8 +235,7 @@ impl FileFormat {
                 let (_, st) = h.read()?;
                 Some(st)
             }
-
-            #[cfg(feature = "gromacs")]
+            
             FileFormat::Tpr(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
@@ -677,7 +666,6 @@ pub enum FileFormatError {
     #[error("in xtc format handler")]
     Xtc(#[from] XtcHandlerError),
 
-    #[cfg(feature = "gromacs")]
     #[error("in tpr format handler")]
     Tpr(#[from] TprHandlerError),
 
@@ -719,10 +707,7 @@ pub enum FileFormatError {
 
     #[error("not a random access format")]
     NotRandomAccessFormat,
-
-    #[error("enable gromacs feature in Cargo.toml to get tpr support")]
-    TprDisabled,
-
+    
     #[error("unexpected end of file")]
     UnexpectedEof,
 

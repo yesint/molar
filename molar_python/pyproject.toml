@@ -13,6 +13,6 @@ classifiers = [
 dynamic = ["version"]
 
 [tool.maturin]
-features = ["pyo3/extension-module", "molar/gromacs"]
+features = ["pyo3/extension-module"]
 module-name = "molar.molar"
 python-source = "python"
