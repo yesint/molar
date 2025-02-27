@@ -48,7 +48,7 @@ In order to link with Gromacs create a `.cargo/config.toml` file in the root dir
 # Location of Gromacs source tree
 GROMACS_SOURCE_DIR = "<path-to-gromacs-source>/gromacs-2023"
 # Location of Gromacs *build* directory (for generated headers)
-GROMACS_BINARY_DIR = "<path-to-gromacs-source>/gromacs-2023>/build"
+GROMACS_BUILD_DIR = "<path-to-gromacs-source>/gromacs-2023>/build"
 # Location of installed gromacs libraries (where libgromacs.so is located)
 GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
 ```

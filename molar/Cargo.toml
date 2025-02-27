@@ -18,7 +18,7 @@ readme = "README.md"
 molar_molfile = {path = "../molar_molfile", version = "0.7.0"}
 molar_xdrfile = {path = "../molar_xdrfile", version = "0.7.0"}
 molar_powersasa = {path = "../molar_powersasa", version = "0.8.0"}
-molar_gromacs = {path = "../molar_gromacs", version = "0.7.0", optional = true}
+molar_gromacs = {path = "../molar_gromacs", version = "0.7.0"}
 
 # Normal dependencies
 thiserror.workspace = true
@@ -44,7 +44,7 @@ anyhow = "1.0.94"
 
 [features]
 #default = ["gromacs"]
-gromacs = ["dep:molar_gromacs"]
+#gromacs = ["dep:molar_gromacs"]
 
 [[bench]]
 name = "fit_benchmark"
