@@ -8,3 +8,5 @@ tests/*.dat
 *.gro
 *.pdb
 .zed
+molar_python/.cargo/*
+.gitignore
