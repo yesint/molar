@@ -1,13 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
 use anyhow::bail;
+use log::warn;
 use molar::prelude::*;
 use serde::Deserialize;
 use sorted_vec::SortedSet;
-
+use std::{collections::HashMap, sync::Arc};
 
 pub struct Membrane {
     source: Source<MutableSerial>,
-    species: Vec<Arc<LipidSpecies>>,
+    species: HashMap<String, Arc<LipidSpecies>>,
     lipids: Vec<LipidMolecule>,
     groups: Vec<LipidGroup>,
 }
@@ -16,24 +16,64 @@ impl Membrane {
     pub fn new(source: Source<MutableSerial>) -> Self {
         Self {
             source,
-            species: vec![],
+            species: Default::default(),
             lipids: vec![],
             groups: vec![],
         }
     }
 
-    pub fn species_from_str(&mut self, defstr: &str) -> anyhow::Result<()> {
+    pub fn species_from_str(source: Source<MutableSerial>, defstr: &str) -> anyhow::Result<Self> {
         // Load species descriptions
-        let species_descr: HashMap<String,LipidSpeciesDescr> = toml::from_str(defstr)?;
+        let species_descr: HashMap<String, LipidSpeciesDescr> = toml::from_str(defstr)?;
         // Load lipids from provided source
-        for (name,sp) in species_descr.iter() {
-            let lips = self.source.select_str(&sp.whole)?.split_resindex::<Vec<_>>()?;
-            if lips.is_empty() {
-                bail!("no lipids '{name}' in the system");
+        let mut species: HashMap<String, Arc<LipidSpecies>> = Default::default();
+        let mut lipids = vec![];
+        for (name, descr) in species_descr.iter() {
+            let lips = source
+                .select_str(&descr.whole)?
+                .split_resindex::<Vec<_>>()?;
+            if !lips.is_empty() {
+                // Use first lipid to create lipid species object
+                log::info!("Creating {} '{}' lipids", lips.len(), name);
+                species.insert(
+                    name.to_owned(),
+                    Arc::new(LipidSpecies::new(descr.clone(), &lips[0])?),
+                );
+                // Now create individual lipids
+                
+                for lip in lips {
+                    let sp = &species[name];
+                    let head_sel = lip.subsel_iter(sp.head_marker_offsets.iter().cloned())?;
+                    let mid_sel = lip.subsel_iter(sp.mid_marker_offsets.iter().cloned())?;
+                    
+                    let mut tail_sels = vec![];
+                    let mut tail_ends = vec![];
+                    for t in sp.tails.iter() {
+                        tail_sels.push(lip.subsel_iter(t.offsets.iter().cloned())?);
+                        tail_ends.push(*t.offsets.last().unwrap());
+                    }
+                    let tail_end_sel = lip.subsel_iter(tail_ends.iter().cloned())?;
+                    
+                    lipids.push(LipidMolecule {
+                        sel: lip, // Selection is moved to the lipid
+                        species: Arc::clone(sp),
+                        head_sel,
+                        mid_sel,
+                        tail_end_sel,
+                        tail_sels,
+                        head_marker: Default::default(),
+                        mid_marker: Default::default(),
+                        tail_marker: Default::default(),
+                    });
+                }
             }
-            
         }
-        Ok(())
+        Ok(Self {
+            source,
+            species,
+            lipids,
+            groups: Default::default(),
+        })
     }
 }
 
@@ -42,9 +82,8 @@ pub struct LipidGroup {
     lipids: Vec<usize>,
 }
 
-
 #[derive(Clone, Debug, Deserialize)]
-pub struct PredefinedLipidSpecies (HashMap<String,LipidSpeciesDescr>);
+pub struct PredefinedLipidSpecies(HashMap<String, LipidSpeciesDescr>);
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LipidSpeciesDescr {
@@ -74,7 +113,7 @@ impl LipidSpecies {
             let mut names = vec![];
             let mut bond_orders = vec![];
             let mut cur = &t[..];
-            
+
             while let Some(e) = cur.find(['-', '=']) {
                 if cur[..e].is_empty() {
                     bail!("missing carbon atom name");
@@ -86,14 +125,14 @@ impl LipidSpecies {
                     "=" => 2,
                     _ => unreachable!(),
                 });
-                cur = &cur[e+1..];
-            } 
-            
+                cur = &cur[e + 1..];
+            }
+
             if cur.is_empty() {
                 bail!("missing last carbon atom name");
             }
             names.push(&cur);
-            
+
             // Now find offsets for each atom name
             let mut offsets = vec![];
             for name in names {
@@ -140,14 +179,35 @@ pub struct LipidTail {
 }
 
 pub struct LipidMolecule {
+    sel: Sel<MutableSerial>,
     species: Arc<LipidSpecies>,
+    head_sel: Sel<MutableSerial>,
+    mid_sel: Sel<MutableSerial>,
+    tail_end_sel: Sel<MutableSerial>,
+    tail_sels: Vec<Sel<MutableSerial>>,
     head_marker: Pos,
     mid_marker: Pos,
     tail_marker: Pos,
-    tails: Vec<LipidTail>,
 }
 
 impl LipidMolecule {
+    // pub fn new<K: UserCreatableKind>(
+    //     &mut self,
+    //     species: Arc<LipidSpecies>,
+    //     sel: &Sel<K>,
+    // ) -> anyhow::Result<Self> {
+    //     Ok(Self {
+    //         species,
+    //         head_marker: sel
+    //             .subsel_iter(self.species.head_marker_offsets.iter().cloned())?
+    //             .center_of_mass_pbc()?,
+    //         mid_marker: sel
+    //             .subsel_iter(self.species.mid_marker_offsets.iter().cloned())?
+    //             .center_of_mass_pbc()?,
+    //         tail_marker:
+    //     })
+    // }
+
     pub fn update<K: UserCreatableKind>(&mut self, sel: &Sel<K>) -> anyhow::Result<()> {
         self.head_marker = sel
             .subsel_iter(self.species.head_marker_offsets.iter().cloned())?
@@ -158,7 +218,6 @@ impl LipidMolecule {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -177,7 +236,8 @@ mod tests {
             head: "name P N".into(),
             mid: "name C21 C22".into(),
             tails: vec![
-                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218".into(),
+                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218"
+                    .into(),
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316".into(),
             ],
         };
@@ -204,8 +264,9 @@ mod tests {
         let top = FileHandler::open("../../tests/POPE.itp")?.read_topology()?;
         let n = top.num_atoms();
         let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
-        
-        let descr: LipidSpeciesDescr = toml::from_str(r#"
+
+        let descr: LipidSpeciesDescr = toml::from_str(
+            r#"
             name = "POPE"
             whole_sel_str = "resname POPE"
             head_marker_subsel_str = "name P N"
@@ -214,7 +275,8 @@ mod tests {
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
             ]
-        "#)?;
+        "#,
+        )?;
 
         let lip_sp = LipidSpecies::new(descr, &src.select_all()?)?;
         println!("{lip_sp:?}");
@@ -232,7 +294,8 @@ mod tests {
 
     #[test]
     fn test_toml2() -> anyhow::Result<()> {
-        let toml: PredefinedLipidSpecies = toml::from_str(r#"
+        let toml: PredefinedLipidSpecies = toml::from_str(
+            r#"
             [POPC]
             whole = "resname POPE"
             head = "name P N"
@@ -250,7 +313,8 @@ mod tests {
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
             ]
-        "#)?;
+        "#,
+        )?;
         println!("{toml:?}");
         Ok(())
     }
