@@ -26,6 +26,7 @@ fn main() {
         .file("powersasa/wrapper.cpp")
         .include(eigen_path)
         .pic(true)
+        .flag_if_supported("-std=c++17")
         .warnings(false)
         .compile("powersasa");
 }

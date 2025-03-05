@@ -4,6 +4,45 @@ use molar::prelude::*;
 use serde::Deserialize;
 use sorted_vec::SortedSet;
 
+
+pub struct Membrane {
+    source: Source<MutableSerial>,
+    species: Vec<Arc<LipidSpecies>>,
+    lipids: Vec<LipidMolecule>,
+    groups: Vec<LipidGroup>,
+}
+
+impl Membrane {
+    pub fn new(source: Source<MutableSerial>) -> Self {
+        Self {
+            source,
+            species: vec![],
+            lipids: vec![],
+            groups: vec![],
+        }
+    }
+
+    pub fn species_from_str(&mut self, defstr: &str) -> anyhow::Result<()> {
+        // Load species descriptions
+        let species_descr: HashMap<String,LipidSpeciesDescr> = toml::from_str(defstr)?;
+        // Load lipids from provided source
+        for (name,sp) in species_descr.iter() {
+            let lips = self.source.select_str(&sp.whole)?.split_resindex::<Vec<_>>()?;
+            if lips.is_empty() {
+                bail!("no lipids '{name}' in the system");
+            }
+            
+        }
+        Ok(())
+    }
+}
+
+pub struct LipidGroup {
+    name: String,
+    lipids: Vec<usize>,
+}
+
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct PredefinedLipidSpecies (HashMap<String,LipidSpeciesDescr>);
 
@@ -119,6 +158,7 @@ impl LipidMolecule {
         Ok(())
     }
 }
+
 
 #[cfg(test)]
 mod tests {
