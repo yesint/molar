@@ -1,11 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
 use anyhow::bail;
 use molar::prelude::*;
 use serde::Deserialize;
 use sorted_vec::SortedSet;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PredefinedLipidSpecies (HashMap<String,LipidSpeciesDescr>);
+pub struct PredefinedLipidSpecies(HashMap<String, LipidSpeciesDescr>);
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LipidSpeciesDescr {
@@ -35,7 +35,7 @@ impl LipidSpecies {
             let mut names = vec![];
             let mut bond_orders = vec![];
             let mut cur = &t[..];
-            
+
             while let Some(e) = cur.find(['-', '=']) {
                 if cur[..e].is_empty() {
                     bail!("missing carbon atom name");
@@ -47,14 +47,14 @@ impl LipidSpecies {
                     "=" => 2,
                     _ => unreachable!(),
                 });
-                cur = &cur[e+1..];
-            } 
-            
+                cur = &cur[e + 1..];
+            }
+
             if cur.is_empty() {
                 bail!("missing last carbon atom name");
             }
             names.push(&cur);
-            
+
             // Now find offsets for each atom name
             let mut offsets = vec![];
             for name in names {
@@ -100,22 +100,97 @@ pub struct LipidTail {
     bond_orders: Vec<u8>,
 }
 
-pub struct LipidMolecule {
+#[derive(Debug)]
+pub struct LipidMolecule<K: UserCreatableKind> {
+    sel: Sel<K>,
     species: Arc<LipidSpecies>,
+    markers: LipidMarkers,
+    cutoff_neib: Vec<usize>,
+    voronoi_neib: Vec<usize>,
+    properties: LipidProperties,
+}
+
+#[derive(Debug,Default)]
+struct LipidMarkers {
+    // Markers
     head_marker: Pos,
     mid_marker: Pos,
     tail_marker: Pos,
-    tails: Vec<LipidTail>,
 }
 
-impl LipidMolecule {
-    pub fn update<K: UserCreatableKind>(&mut self, sel: &Sel<K>) -> anyhow::Result<()> {
-        self.head_marker = sel
+/// Instanteneous lipid properties
+#[derive(Default,Debug)]
+pub struct LipidProperties {
+    // Normals and orientations
+    pub normal: Vector3f,
+    pub head_tail_vec: Vector3f,
+    pub tilt_angle: f32,
+    // Curvatures
+    pub mean_curvature: f32,
+    pub gaussian_curvature: f32,
+    pub prinical_curvature_vecs: [Vector3f;2],
+    pub prinical_curvatures: [f32;2],
+    // Tails properties
+    pub tail_orders: Vec<Vec<f32>>,
+    pub tail_dihedrals: Vec<Vec<f32>>,
+}
+
+impl<K: UserCreatableKind> LipidMolecule<K> {
+    pub fn new(species: Arc<LipidSpecies>, sel: Sel<K>) -> anyhow::Result<Self> {
+        let head_marker = sel
+            .subsel_iter(species.head_marker_offsets.iter().cloned())?
+            .center_of_mass_pbc()?;
+        let mid_marker = sel
+            .subsel_iter(species.mid_marker_offsets.iter().cloned())?
+            .center_of_mass_pbc()?;
+
+        let tail_marker;
+        if !species.tails.is_empty() {
+            // Collect ends of all tails
+            let mut end_ind = Vec::with_capacity(species.tails.len());
+            for tail in species.tails.iter() {
+                end_ind.push(tail.offsets.last().unwrap());
+            }
+            tail_marker = sel
+                .subsel_iter(end_ind.into_iter().cloned())?
+                .center_of_mass_pbc()?;
+        } else {
+            tail_marker = mid_marker;
+        }
+        Ok(Self {
+            sel,
+            species,
+            markers: LipidMarkers{
+                head_marker,
+                mid_marker,
+                tail_marker,
+            },
+            cutoff_neib: vec![],
+            voronoi_neib: vec![],
+            properties: Default::default(),
+        })
+    }
+
+    pub fn update(&mut self, sel: &Sel<K>) -> anyhow::Result<()> {
+        self.markers.head_marker = sel
             .subsel_iter(self.species.head_marker_offsets.iter().cloned())?
             .center_of_mass_pbc()?;
-        self.mid_marker = sel
+        self.markers.mid_marker = sel
             .subsel_iter(self.species.mid_marker_offsets.iter().cloned())?
             .center_of_mass_pbc()?;
+
+        if !self.species.tails.is_empty() {
+            // Collect ends of all tails
+            let mut end_ind = Vec::with_capacity(self.species.tails.len());
+            for tail in self.species.tails.iter() {
+                end_ind.push(tail.offsets.last().unwrap());
+            }
+            self.markers.tail_marker = sel
+                .subsel_iter(end_ind.into_iter().cloned())?
+                .center_of_mass_pbc()?;
+        } else {
+            self.markers.tail_marker = self.markers.mid_marker;
+        }
         Ok(())
     }
 }
@@ -137,7 +212,8 @@ mod tests {
             head: "name P N".into(),
             mid: "name C21 C22".into(),
             tails: vec![
-                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218".into(),
+                "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218"
+                    .into(),
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316".into(),
             ],
         };
@@ -164,8 +240,9 @@ mod tests {
         let top = FileHandler::open("../../tests/POPE.itp")?.read_topology()?;
         let n = top.num_atoms();
         let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
-        
-        let descr: LipidSpeciesDescr = toml::from_str(r#"
+
+        let descr: LipidSpeciesDescr = toml::from_str(
+            r#"
             name = "POPE"
             whole_sel_str = "resname POPE"
             head_marker_subsel_str = "name P N"
@@ -174,7 +251,8 @@ mod tests {
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
             ]
-        "#)?;
+        "#,
+        )?;
 
         let lip_sp = LipidSpecies::new(descr, &src.select_all()?)?;
         println!("{lip_sp:?}");
@@ -192,7 +270,8 @@ mod tests {
 
     #[test]
     fn test_toml2() -> anyhow::Result<()> {
-        let toml: PredefinedLipidSpecies = toml::from_str(r#"
+        let toml: PredefinedLipidSpecies = toml::from_str(
+            r#"
             [POPC]
             whole = "resname POPE"
             head = "name P N"
@@ -210,7 +289,8 @@ mod tests {
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
             ]
-        "#)?;
+        "#,
+        )?;
         println!("{toml:?}");
         Ok(())
     }

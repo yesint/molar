@@ -768,7 +768,7 @@ where
 
 pub fn distance_search_double_pbc<T, C>(
     cutoff: f32,
-    data1: &(impl PosProvider + BoxProvider),
+    data1: &impl PosProvider,
     data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
@@ -873,7 +873,7 @@ where
 }
 
 pub fn distance_search_double_vdw_pbc<T, C>(
-    data1: &(impl PosProvider + BoxProvider),
+    data1: &impl PosProvider,
     data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
