@@ -1,9 +1,15 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
-    nalgebra::{self, Const, Dyn, VectorView}, npyffi, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims, ToPyArray, PY_ARRAY_API
+    nalgebra::{self, Const, Dyn, VectorView},
+    npyffi, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims,
+    ToPyArray, PY_ARRAY_API,
 };
-use pyo3::{prelude::*, types::PyTuple, IntoPyObjectExt};
+use pyo3::{
+    prelude::*,
+    types::{PyNone, PySequence, PyTuple},
+    IntoPyObjectExt,
+};
 
 mod utils;
 use utils::*;
@@ -20,10 +26,10 @@ use periodic_box::PeriodicBox;
 //-------------------------------------------
 
 #[pyclass(unsendable)]
-struct Topology(molar::core::Holder<molar::core::Topology,BuilderSerial>);
+struct Topology(molar::core::Holder<molar::core::Topology, BuilderSerial>);
 
 #[pyclass(unsendable)]
-struct State(molar::core::Holder<molar::core::State,BuilderSerial>);
+struct State(molar::core::Holder<molar::core::State, BuilderSerial>);
 
 #[pymethods]
 impl State {
@@ -39,7 +45,8 @@ impl State {
     #[getter]
     fn get_box(&self) -> anyhow::Result<PeriodicBox> {
         Ok(PeriodicBox(
-            self.0.get_box()
+            self.0
+                .get_box()
                 .ok_or_else(|| anyhow!("No periodic box"))?
                 .clone(),
         ))
@@ -98,11 +105,7 @@ impl FileHandler {
                 .next()
                 .unwrap()
                 .extract::<PyRefMut<'_, Topology>>()?;
-            let st = s
-                .iter()
-                .next()
-                .unwrap()
-                .extract::<PyRefMut<'_, State>>()?;
+            let st = s.iter().next().unwrap().extract::<PyRefMut<'_, State>>()?;
             self.0.write(&(top.0.clone(), st.0.clone()))?;
         } else {
             return Err(anyhow!(
@@ -135,8 +138,7 @@ impl FileHandler {
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             self.0.write_state(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, State>>() {
-            self.0
-                .write_state(&s.0)?;
+            self.0.write_state(&s.0)?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -171,15 +173,15 @@ impl FileHandler {
         Ok(())
     }
 
-    fn tell_first(&self) -> anyhow::Result<(usize,f32)> {
+    fn tell_first(&self) -> anyhow::Result<(usize, f32)> {
         Ok(self.0.tell_first()?)
     }
 
-    fn tell_current(&self) -> anyhow::Result<(usize,f32)> {
+    fn tell_current(&self) -> anyhow::Result<(usize, f32)> {
         Ok(self.0.tell_current()?)
     }
 
-    fn tell_last(&self) -> anyhow::Result<(usize,f32)> {
+    fn tell_last(&self) -> anyhow::Result<(usize, f32)> {
         Ok(self.0.tell_last()?)
     }
 
@@ -194,9 +196,8 @@ impl FileHandler {
     }
 }
 
-
 #[pyclass(unsendable)]
-struct _ParTrajReader{
+struct _ParTrajReader {
     iter: molar::io::IoStateIterator,
 }
 
@@ -205,14 +206,13 @@ impl _ParTrajReader {
     #[new]
     fn new(fname: &str) -> anyhow::Result<Self> {
         let iter = molar::io::FileHandler::open(fname)?.into_iter();
-        Ok(Self{iter})
+        Ok(Self { iter })
     }
 
     fn next_state(&mut self) -> Option<State> {
         self.iter.next().map(|st| State(st.into()))
     }
 }
-
 
 #[pyclass]
 struct FileStats(molar::io::FileStats);
@@ -237,12 +237,11 @@ impl FileStats {
     fn __repr__(&self) -> String {
         format!("{}", self.0)
     }
-    
+
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }
 }
-
 
 #[pyclass(unsendable, sequence)]
 struct Source(molar::core::Source<molar::core::BuilderSerial>);
@@ -255,17 +254,18 @@ impl Source {
         if py_args.len() == 1 {
             // From file
             Ok(Source(
-                molar::core::Source::builder_from_file(&py_args.get_item(0)?.extract::<String>()?).map_err(|e| anyhow!(e))?,
+                molar::core::Source::builder_from_file(&py_args.get_item(0)?.extract::<String>()?)
+                    .map_err(|e| anyhow!(e))?,
             ))
         } else if py_args.len() == 2 {
-            let top = py_args.get_item(0)?.downcast::<Topology>()?.try_borrow_mut()?;
+            let top = py_args
+                .get_item(0)?
+                .downcast::<Topology>()?
+                .try_borrow_mut()?;
             let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
             Ok(Source(
-                molar::core::Source::new_builder(
-                    top.0.clone(),
-                    st.0.clone(),
-                )
-                .map_err(|e| anyhow!(e))?,
+                molar::core::Source::new_builder(top.0.clone(), st.0.clone())
+                    .map_err(|e| anyhow!(e))?,
             ))
         } else {
             Err(anyhow!("wrong number of arguments: 1 or 2 reqired")).map_err(|e| anyhow!(e))?
@@ -312,28 +312,28 @@ impl Source {
         }
     }
 
-    fn set_state<'py>(&mut self, st: &Bound<'py, State>) -> PyResult<Bound<'py, State>>{
+    fn set_state<'py>(&mut self, st: &Bound<'py, State>) -> PyResult<Bound<'py, State>> {
         let mut st_ref = st.borrow_mut();
         // In Python we can pass by value, so we have to release State from the
-        // Python object. To do this firt swap it with new dummy Holder 
+        // Python object. To do this firt swap it with new dummy Holder
         // which is uniquilly owned and then release it from this holder
         let mut dum_holder = Holder::new(molar::core::State::default());
-        unsafe{ dum_holder.swap_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
-        // dum_holder is uniquelly owned, so this never fails
+        unsafe { dum_holder.swap_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
+                                                             // dum_holder is uniquelly owned, so this never fails
         let dum_st = dum_holder.release().unwrap();
         // Now call set_state as usual
         let old_st = self.0.set_state(dum_st).map_err(|e| anyhow!(e))?;
         // We should not leave st empty, it should point to the same state as self
-        unsafe{ st_ref.0.replace_arc(self.0.get_state()) };
+        unsafe { st_ref.0.replace_arc(self.0.get_state()) };
         // Pack old_st and return it
-        Bound::new(st.py(),State(old_st.into()))
+        Bound::new(st.py(), State(old_st.into()))
     }
 
     fn get_state(&self) -> State {
         State(self.0.get_state())
     }
 
-    fn save(&self, fname: &str) -> anyhow::Result<()>{
+    fn save(&self, fname: &str) -> anyhow::Result<()> {
         Ok(self.0.save(fname)?)
     }
 
@@ -341,7 +341,7 @@ impl Source {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
             Ok(self.0.remove(&sel.borrow().0)?)
-        } else if let Ok(sel_str) = arg.extract::<String>() { 
+        } else if let Ok(sel_str) = arg.extract::<String>() {
             let sel = self.0.select_str(sel_str)?;
             Ok(self.0.remove(&sel)?)
         } else {
@@ -353,7 +353,7 @@ impl Source {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
             self.0.append(&sel.borrow().0);
-        } else if let Ok(sel) = arg.downcast::<Source>(){
+        } else if let Ok(sel) = arg.downcast::<Source>() {
             self.0.append(&sel.borrow().0);
         } else {
             anyhow::bail!("Unsupported type to append a Source")
@@ -501,37 +501,56 @@ impl Sel {
         Ok(())
     }
 
-    fn set_state(&mut self, st: Bound<'_,State>) -> PyResult<()>{
-        let _ = self.0.set_state(st.try_borrow_mut()?.0.clone()).map_err(|e| anyhow!(e));
+    fn set_state(&mut self, st: Bound<'_, State>) -> PyResult<()> {
+        let _ = self
+            .0
+            .set_state(st.try_borrow_mut()?.0.clone())
+            .map_err(|e| anyhow!(e));
         Ok(())
     }
 
     #[pyo3(signature = (dims=[false,false,false]))]
-    fn com<'py>(&self, py: Python<'py>, dims: [bool; 3]) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+    fn com<'py>(
+        &self,
+        py: Python<'py>,
+        dims: [bool; 3],
+    ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
-            &self.0.center_of_mass_pbc_dims(pbc_dims).map_err(|e| anyhow!(e))?.coords,
+            &self
+                .0
+                .center_of_mass_pbc_dims(pbc_dims)
+                .map_err(|e| anyhow!(e))?
+                .coords,
             py,
         ))
     }
 
     #[pyo3(signature = (dims=[false,false,false]))]
-    fn cog<'py>(&self, py: Python<'py>, dims: [bool; 3]) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+    fn cog<'py>(
+        &self,
+        py: Python<'py>,
+        dims: [bool; 3],
+    ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
-            &self.0.center_of_geometry_pbc_dims(pbc_dims).map_err(|e| anyhow!(e))?.coords,
+            &self
+                .0
+                .center_of_geometry_pbc_dims(pbc_dims)
+                .map_err(|e| anyhow!(e))?
+                .coords,
             py,
         ))
     }
 
     fn principal_transform(&self) -> anyhow::Result<IsometryTransform> {
         let tr = self.0.principal_transform()?;
-        Ok(IsometryTransform(tr))    
+        Ok(IsometryTransform(tr))
     }
 
     fn principal_transform_pbc(&self) -> anyhow::Result<IsometryTransform> {
         let tr = self.0.principal_transform_pbc()?;
-        Ok(IsometryTransform(tr))    
+        Ok(IsometryTransform(tr))
     }
 
     fn apply_transform(&self, tr: &IsometryTransform) {
@@ -546,25 +565,37 @@ impl Sel {
         Ok(self.0.gyration_pbc()?)
     }
 
-    fn inertia<'py>(&self, py: Python<'py>) -> anyhow::Result<(Bound<'py,numpy::PyArray1<f32>>, Bound<'py,numpy::PyArray2<f32>>)> {
-        let (moments,axes) = self.0.inertia()?;
-        let mom = clone_vec_to_pyarray1(&moments,py);
+    fn inertia<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> anyhow::Result<(
+        Bound<'py, numpy::PyArray1<f32>>,
+        Bound<'py, numpy::PyArray2<f32>>,
+    )> {
+        let (moments, axes) = self.0.inertia()?;
+        let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
-        Ok((mom,ax))
+        Ok((mom, ax))
     }
 
-    fn inertia_pbc<'py>(&self, py: Python<'py>) -> anyhow::Result<(Bound<'py,numpy::PyArray1<f32>>, Bound<'py,numpy::PyArray2<f32>>)> {
-        let (moments,axes) = self.0.inertia_pbc()?;
-        let mom = clone_vec_to_pyarray1(&moments,py);
+    fn inertia_pbc<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> anyhow::Result<(
+        Bound<'py, numpy::PyArray1<f32>>,
+        Bound<'py, numpy::PyArray2<f32>>,
+    )> {
+        let (moments, axes) = self.0.inertia_pbc()?;
+        let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
-        Ok((mom,ax))
+        Ok((mom, ax))
     }
 
-    fn save(&self, fname: &str) -> anyhow::Result<()>{
+    fn save(&self, fname: &str) -> anyhow::Result<()> {
         Ok(self.0.save(fname)?)
     }
 
-    fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> anyhow::Result<()>{
+    fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> anyhow::Result<()> {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
             .ok_or_else(|| anyhow!("conversion to Vector3 has failed"))?;
@@ -574,26 +605,25 @@ impl Sel {
 }
 
 #[pyclass]
-struct IsometryTransform (nalgebra::IsometryMatrix3<f32>);
+struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 
 // Free functions
 
 #[pyfunction]
 fn fit_transform(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
-    let tr = molar::core::Sel::fit_transform(&sel1.0,&sel2.0)?;
+    let tr = molar::core::Sel::fit_transform(&sel1.0, &sel2.0)?;
     Ok(IsometryTransform(tr))
 }
 
 #[pyfunction]
 fn rmsd(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
-    Ok(molar::core::Sel::rmsd(&sel1.0,&sel2.0)?)
+    Ok(molar::core::Sel::rmsd(&sel1.0, &sel2.0)?)
 }
 
 #[pyfunction]
 fn rmsd_mw(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
-    Ok(molar::core::Sel::rmsd_mw(&sel1.0,&sel2.0)?)
+    Ok(molar::core::Sel::rmsd_mw(&sel1.0, &sel2.0)?)
 }
-
 
 #[pyclass]
 struct ParticleIterator {
@@ -618,13 +648,87 @@ impl ParticleIterator {
     }
 }
 
+#[pyfunction]
+#[pyo3(signature = (cutoff,data1,data2,dims=[false,false,false]))]
+fn distance_search_double(
+    cutoff: &Bound<'_, PyAny>,
+    data1: &Bound<'_, Sel>,
+    data2: &Bound<'_, Sel>,
+    dims: [bool;3],
+) -> anyhow::Result<()> {
+    let res: Vec<(usize, usize, f32)>;
+    let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
+    let sel1 = &data1.borrow().0;
+    let sel2 = &data2.borrow().0;
+
+    if let Ok(d) = cutoff.extract::<f32>() {
+        // Distance cutoff
+        if pbc_dims.any() {
+            res = molar::distance_search::distance_search_double_pbc(
+                d,
+                sel1,
+                sel2,
+                sel1.iter_index(),
+                sel2.iter_index(),
+                sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                pbc_dims,
+            );
+        } else {
+            res = molar::distance_search::distance_search_double(
+                d,
+                sel1,
+                sel2,
+                sel1.iter_index(),
+                sel2.iter_index(),
+            );
+        }
+        Ok(())
+    } else if let Ok(s) = cutoff.extract::<String>() {
+        if s != "vdw" {
+            bail!("Unknown cutoff type {s}");
+        }
+        // VdW cutof
+        let vdw1 = sel1.iter_atoms().map(|a| a.vdw()).collect();
+        let vdw2 = sel2.iter_atoms().map(|a| a.vdw()).collect();
+
+        if pbc_dims.any() {
+            res = molar::distance_search::distance_search_double_vdw(
+                sel1,
+                sel2,
+                sel1.iter_index(),
+                sel2.iter_index(),
+                &vdw1,
+                &vdw2,
+            );
+        } else {
+            res = molar::distance_search::distance_search_double_vdw_pbc(
+                sel1,
+                sel2,
+                sel1.iter_index(),
+                sel2.iter_index(),
+                &vdw1,
+                &vdw2,
+                sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                pbc_dims,
+            );
+        }
+        Ok(())
+    } else {
+        unreachable!()
+    }
+
+    
+    // molar::distance_search::distance_search_double(cutoff, data1, data2, ids1, ids2);
+    // molar::distance_search::distance_search_double_pbc(cutoff, data1, data2, ids1, ids2, pbox, pbc_dims);
+    // molar::distance_search::distance_search_double_vdw(data1, data2, ids1, ids2, vdw1, vdw2);
+    // molar::distance_search::distance_search_double_vdw_pbc(data1, data2, ids1, ids2, vdw1, vdw2, pbox, pbc_dims);
+}
 
 //====================================
 #[pyfunction]
 fn greeting() {
     molar::greeting("molar_python");
 }
-
 
 /// A Python module implemented in Rust.
 #[pymodule(name = "molar")]

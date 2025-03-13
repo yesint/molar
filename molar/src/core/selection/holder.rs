@@ -6,6 +6,7 @@ use super::{BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, Se
 /// selections pointing to the same data.
 /// Can't be sent to other threads.
 /// Normally this type should not be used directly by the user.
+#[derive(Debug)]
 pub struct Holder<T, K> {
     pub(super) arc: triomphe::Arc<T>,
     _kind: PhantomData<K>,

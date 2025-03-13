@@ -90,6 +90,17 @@ impl TopologyStorage {
 #[derive(Default)]
 pub struct Topology(SyncUnsafeCell<TopologyStorage>);
 
+impl std::fmt::Debug for Topology {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self.get_storage();
+        f.debug_struct("Topology")
+            .field("atoms", &s.atoms)
+            .field("bonds", &s.bonds)
+            .field("molecules", &s.molecules)
+            .finish()
+    }
+}
+
 impl Clone for Topology {
     fn clone(&self) -> Self {
         Self(SyncUnsafeCell::new(self.get_storage().clone()))

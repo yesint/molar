@@ -48,6 +48,7 @@ use super::{next_split, utils::*, SplitData};
 /// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
 /// kind as a parent selection.
 
+#[derive(Debug)]
 pub struct Sel<K> {
     topology: Holder<Topology, K>,
     state: Holder<State, K>,

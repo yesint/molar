@@ -57,6 +57,18 @@ impl StateStorage {
 #[derive(Default)]
 pub struct State(SyncUnsafeCell<StateStorage>);
 
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self.get_storage();
+        f.debug_struct("State")
+            .field("coords", &s.coords)
+            .field("time", &s.time)
+            .field("pbox", &s.pbox)
+            .finish()
+    }
+}
+
+
 impl Clone for State {
     fn clone(&self) -> Self {
         Self(SyncUnsafeCell::new(self.get_storage().clone()))
