@@ -1,8 +1,8 @@
-from python import *
+from pymolar import *
 from sys import getrefcount
 import numpy as np
 
-sel = Source('../../tests/protein.pdb').select_str("resid 5:600")
+#sel = Source('../../molar/tests/protein.pdb').select_str("resid 5:600")
 
 def test1():
     sel = Source('../../tests/protein.pdb')("resid 5:600")
@@ -80,6 +80,7 @@ def test8():
     sel.append( src(None) )
     sel.append( src() )
     sel.append( src((0,199)) )
+
     sel.append( src([1,3,4,5,6,7]) )
     for s in sel:
         print(len(s))
@@ -90,6 +91,15 @@ def test9():
     print(b.to_vectors_angles())
     print(b.shortest_vector([0.5,0.5,0.6]))
 
+
+def test_distance_search():
+    s = Source('molar/tests/topol.tpr')
+    sel1 = s("resid 5:100")
+    sel2 = s("resid 101:200")
+    pairs,dist = distance_search('vdw',sel1,sel2)
+    print(len(pairs),len(dist))
+    print(pairs,dist)
+
 #test3()
 #test2()
-test1()
+test_distance_search()
