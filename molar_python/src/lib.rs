@@ -649,79 +649,160 @@ impl ParticleIterator {
 }
 
 #[pyfunction]
-#[pyo3(signature = (cutoff,data1,data2,dims=[false,false,false]))]
-fn distance_search_double(
-    cutoff: &Bound<'_, PyAny>,
-    data1: &Bound<'_, Sel>,
-    data2: &Bound<'_, Sel>,
-    dims: [bool;3],
-) -> anyhow::Result<()> {
+#[pyo3(signature = (cutoff,data1,data2=None,dims=[false,false,false]))]
+fn distance_search<'py>(
+    py: Python<'py>,
+    cutoff: &Bound<'py, PyAny>,
+    data1: &Bound<'py, Sel>,
+    data2: Option<&Bound<'py, Sel>>,
+    dims: [bool; 3],
+) -> anyhow::Result<Bound<'py, PyAny>> {
+    use numpy::Element;
+    use numpy::PyArrayDescrMethods;
+
     let res: Vec<(usize, usize, f32)>;
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
-    let sel1 = &data1.borrow().0;
-    let sel2 = &data2.borrow().0;
+    let sel1 = &data1.borrow().0;    
 
     if let Ok(d) = cutoff.extract::<f32>() {
         // Distance cutoff
-        if pbc_dims.any() {
-            res = molar::distance_search::distance_search_double_pbc(
-                d,
-                sel1,
-                sel2,
-                sel1.iter_index(),
-                sel2.iter_index(),
-                sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
-                pbc_dims,
-            );
+        if let Some(d2) = data2 {
+            let sel2 = &d2.borrow().0;
+            if pbc_dims.any() {
+                res = molar::distance_search::distance_search_double_pbc(
+                    d,
+                    sel1,
+                    sel2,
+                    sel1.iter_index(),
+                    sel2.iter_index(),
+                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    pbc_dims,
+                );
+            } else {
+                res = molar::distance_search::distance_search_double(
+                    d,
+                    sel1,
+                    sel2,
+                    sel1.iter_index(),
+                    sel2.iter_index(),
+                );
+            }
         } else {
-            res = molar::distance_search::distance_search_double(
-                d,
-                sel1,
-                sel2,
-                sel1.iter_index(),
-                sel2.iter_index(),
-            );
+            if pbc_dims.any() {
+                res = molar::distance_search::distance_search_single_pbc(
+                    d,
+                    sel1,
+                    sel1.iter_index(),                    
+                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    pbc_dims,
+                );
+            } else {
+                res = molar::distance_search::distance_search_single(
+                    d,
+                    sel1,
+                    sel1.iter_index(),                    
+                );
+            }
         }
-        Ok(())
+
+        
     } else if let Ok(s) = cutoff.extract::<String>() {
         if s != "vdw" {
             bail!("Unknown cutoff type {s}");
         }
-        // VdW cutof
-        let vdw1 = sel1.iter_atoms().map(|a| a.vdw()).collect();
-        let vdw2 = sel2.iter_atoms().map(|a| a.vdw()).collect();
 
-        if pbc_dims.any() {
-            res = molar::distance_search::distance_search_double_vdw(
-                sel1,
-                sel2,
-                sel1.iter_index(),
-                sel2.iter_index(),
-                &vdw1,
-                &vdw2,
-            );
-        } else {
-            res = molar::distance_search::distance_search_double_vdw_pbc(
-                sel1,
-                sel2,
-                sel1.iter_index(),
-                sel2.iter_index(),
-                &vdw1,
-                &vdw2,
-                sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
-                pbc_dims,
-            );
+        // VdW cutof
+        let vdw1: Vec<f32> = sel1.iter_atoms().map(|a| a.vdw()).collect();
+
+        if sel1.len() != vdw1.len() {
+            bail!("Size mismatch 1: {} {}",sel1.len(),vdw1.len());
         }
-        Ok(())
+
+        if let Some(d2) = data2 {
+            let sel2 = &d2.borrow().0;
+            let vdw2: Vec<f32> = sel2.iter_atoms().map(|a| a.vdw()).collect();
+
+            if sel2.len() != vdw2.len() {
+                bail!("Size mismatch 2: {} {}",sel2.len(),vdw2.len());
+            }
+
+            if pbc_dims.any() {
+                res = molar::distance_search::distance_search_double_vdw(
+                    sel1,
+                    sel2,
+                    sel1.iter_index(),
+                    sel2.iter_index(),
+                    &vdw1,
+                    &vdw2,
+                );
+            } else {
+                res = molar::distance_search::distance_search_double_vdw_pbc(
+                    sel1,
+                    sel2,
+                    sel1.iter_index(),
+                    sel2.iter_index(),
+                    &vdw1,
+                    &vdw2,
+                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    pbc_dims,
+                );
+            }
+        } else {
+            bail!("VdW distance search is not yet supported for single selection");
+        }
     } else {
         unreachable!()
-    }
+    };
 
-    
-    // molar::distance_search::distance_search_double(cutoff, data1, data2, ids1, ids2);
-    // molar::distance_search::distance_search_double_pbc(cutoff, data1, data2, ids1, ids2, pbox, pbc_dims);
-    // molar::distance_search::distance_search_double_vdw(data1, data2, ids1, ids2, vdw1, vdw2);
-    // molar::distance_search::distance_search_double_vdw_pbc(data1, data2, ids1, ids2, vdw1, vdw2, pbox, pbc_dims);
+    // Subdivide the result into two arrays
+    unsafe {
+        // Pairs array
+        let mut dims = numpy::ndarray::Dim((res.len(),2));
+        let pairs_arr = PY_ARRAY_API.PyArray_NewFromDescr(
+            py,
+            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
+            usize::get_dtype(py).into_dtype_ptr(),
+            dims.ndim_cint(),
+            dims.as_dims_ptr(),
+            std::ptr::null_mut(), // no strides
+            std::ptr::null_mut(), // no data, allocate new buffer
+            npyffi::NPY_ARRAY_OWNDATA | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
+            std::ptr::null_mut(), // obj
+        ) as *mut npyffi::PyArrayObject;
+
+        // Copy pairs directly into uninitialized array buffer
+        let mut ptr = (*pairs_arr).data.cast::<usize>();
+        for i in 0..res.len() {
+            std::ptr::copy_nonoverlapping(&res[i].0 as *const usize, ptr, 2);
+            ptr = ptr.add(2);
+        }
+
+        // Distances array
+        let mut dims = numpy::ndarray::Dim(res.len());
+        let dist_arr = PY_ARRAY_API.PyArray_NewFromDescr(
+            py,
+            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
+            f32::get_dtype(py).into_dtype_ptr(),
+            dims.ndim_cint(),
+            dims.as_dims_ptr(),
+            std::ptr::null_mut(), // no strides
+            std::ptr::null_mut(), // no data, allocate new buffer
+            npyffi::NPY_ARRAY_OWNDATA | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
+            std::ptr::null_mut(), // obj
+        ) as *mut npyffi::PyArrayObject;
+
+        // Copy pairs directly into uninitialized array buffer
+        let mut ptr = (*dist_arr).data.cast::<f32>();
+        for i in 0..res.len() {
+            std::ptr::copy_nonoverlapping(&res[i].2 as *const f32, ptr, 1);
+            ptr = ptr.add(1);
+        }
+
+        Ok((
+            Bound::from_owned_ptr(py, pairs_arr.cast()),
+            Bound::from_owned_ptr(py, dist_arr.cast()),
+        ).into_bound_py_any(py)?)
+    }    
 }
 
 //====================================
@@ -748,5 +829,6 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd_mw, m)?)?;
+    m.add_function(wrap_pyfunction!(distance_search, m)?)?;
     Ok(())
 }
