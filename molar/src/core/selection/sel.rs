@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use itertools::Itertools;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
@@ -209,7 +210,6 @@ impl<K: SelectionKind> Sel<K> {
             a.chain = val;
         }
     }
-
 }
 
 //──────────────────────────
@@ -312,7 +312,7 @@ impl<K: SelectionKind> Sel<K> {
 
 impl<K: UserCreatableKind> Sel<K> {
     // Helper splitting function doing actual work
-    fn split_collect_internal<RT, F, C, KO>(&self, func: F) -> Result<C,SelectionError>
+    fn split_collect_internal<RT, F, C, KO>(&self, func: F) -> Result<C, SelectionError>
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -334,7 +334,8 @@ impl<K: UserCreatableKind> Sel<K> {
         }
 
         Ok(C::from_iter(
-            values.into_values()
+            values
+                .into_values()
                 .map(|ind| unsafe { self.subsel_from_unsorted_vec_unchecked(ind).unwrap() }),
             // This should never fail because `ind` can't be empty and can't contain duplicates
         ))
@@ -383,7 +384,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as parent selection.
-    pub fn split_into<RT, F, C>(self, func: F) -> Result<C,SelectionError>
+    pub fn split_into<RT, F, C>(self, func: F) -> Result<C, SelectionError>
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -394,7 +395,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is consumed.
-    pub fn split_resid_into<C>(self) -> Result<C,SelectionError>
+    pub fn split_resid_into<C>(self) -> Result<C, SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -428,6 +429,41 @@ impl<K: UserCreatableKind> Sel<K> {
         self.split_into_iter(|p| Some(p.atom.chain))
     }
 
+    pub fn split_mol_into<C>(self) -> Result<C, SelectionError>
+    where
+        C: FromIterator<Sel<K>> + Default,
+    {
+        // Error if no molecules
+        if self.topology.num_molecules() == 0 {
+            return Err(SelectionError::NoMolecules);
+        }
+
+        // Iterate over molecules and find those inside selection
+        let first = self.first_index();
+        let last = self.last_index();
+
+        Ok(self
+            .topology
+            .iter_molecules()
+            .cloned()
+            .filter_map(|[b, e]| {
+                if b < first && e >= first && e <= last {
+                    // molecule starts before Sel
+                    Some(0..=e - first)
+                } else if b >= first && e <= last {
+                    // molecule inside Sel
+                    Some(b - first..=e - first)
+                } else if b >= first && b <= last && e > last {
+                    // molecule ends after Sel
+                    Some(b - first..=last - first)
+                } else {
+                    None
+                }
+            })
+            .map(|r| self.subsel_local_range(r))
+            .collect::<Result<C, SelectionError>>()?)
+    }
+
     //--------------------------
     // Non-consuming splitters
     //-------------------------
@@ -437,7 +473,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// The number of selections correspond to the distinct values returned by `func`.
     /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn split<RT, F, C>(&self, func: F) -> Result<C,SelectionError>
+    pub fn split<RT, F, C>(&self, func: F) -> Result<C, SelectionError>
     where
         RT: Default + std::hash::Hash + std::cmp::Eq,
         F: Fn(Particle) -> Option<RT>,
@@ -448,7 +484,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resids.
     /// Parent selection is left alive.
-    pub fn split_resid<C>(&self) -> Result<C,SelectionError>
+    pub fn split_resid<C>(&self) -> Result<C, SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -457,7 +493,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Helper method that splits selection into the parts with distinct resindexes.
     /// Parent selection is left alive.
-    pub fn split_resindex<C>(&self) -> Result<C,SelectionError>
+    pub fn split_resindex<C>(&self) -> Result<C, SelectionError>
     where
         C: FromIterator<Sel<K>> + Default,
     {
@@ -470,7 +506,10 @@ impl<K: UserCreatableKind> Sel<K> {
     /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
     /// If `func` returns `None` the atom is skipped and do not added to new selection.
     /// Selections are computed lazily when iterating.
-    pub fn split_iter<'a, RT, F>(&'a self, func: F) -> Result<FragmentsIterator<'a, RT, F, K>,SelectionError>
+    pub fn split_iter<'a, RT, F>(
+        &'a self,
+        func: F,
+    ) -> Result<FragmentsIterator<'a, RT, F, K>, SelectionError>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT> + 'a,
@@ -481,7 +520,12 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Return serial iterator over contigous pieces of selection with distinct contigous resids.
     /// Parent selection is left alive.
-    pub fn split_resindex_iter<'a>(&'a self) -> Result<FragmentsIterator<'a, usize, impl Fn(Particle) -> Option<usize> + 'a , K>,SelectionError> {
+    pub fn split_resindex_iter<'a>(
+        &'a self,
+    ) -> Result<
+        FragmentsIterator<'a, usize, impl Fn(Particle) -> Option<usize> + 'a, K>,
+        SelectionError,
+    > {
         self.split_iter(|p| Some(p.atom.resindex))
     }
 
@@ -495,7 +539,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Each produced selection correspond to the distinct values returned by `split_fn`.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit,SelectionError>
+    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
@@ -523,11 +567,8 @@ impl<K: UserCreatableKind> Sel<K> {
         })
     }
 
-    pub fn split_molecules_iter(&self) -> Result<MoleculesIterator<K>,SelectionError> {
-        Ok(MoleculesIterator {
-            sel: self,
-            cur: 0,
-        })
+    pub fn split_molecules_iter(&self) -> Result<MoleculesIterator<K>, SelectionError> {
+        Ok(MoleculesIterator { sel: self, cur: 0 })
     }
 
     //============================
@@ -558,13 +599,21 @@ impl<K: UserCreatableKind> Sel<K> {
     //===================
 
     fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
-        Self::from_holders_and_index(self.topology.clone_with_kind(), self.state.clone_with_kind(), index)
+        Self::from_holders_and_index(
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
+            index,
+        )
     }
 
     /// Subselection from expression
     pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
-        Self::from_holders_and_index(self.topology.clone_with_kind(), self.state.clone_with_kind(), index)
+        Self::from_holders_and_index(
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
+            index,
+        )
     }
 
     /// Subselection from string
@@ -576,13 +625,13 @@ impl<K: UserCreatableKind> Sel<K> {
     /// Subselection from the range of local selection indexes
     pub fn subsel_local_range(
         &self,
-        range: std::ops::Range<usize>,
+        range: std::ops::RangeInclusive<usize>,
     ) -> Result<Sel<K>, SelectionError> {
-        if range.end >= self.index().len() {
+        if *range.end() >= self.index().len() {
             return Err(SelectionError::LocalRange(
-                range.start,
-                range.end,
-                self.index().len() - 1,
+                *range.start(),
+                *range.end(),
+                self.len() - 1,
             ));
         }
 
@@ -591,8 +640,10 @@ impl<K: UserCreatableKind> Sel<K> {
             .index()
             .iter()
             .cloned()
-            .skip(range.start)
-            .take(range.len())
+            .skip(*range.start())
+            .take(range.try_len().map_err(|_| {
+                SelectionError::LocalRange(*range.start(), *range.end(), self.len() - 1)
+            })?)
             .collect();
 
         self.subselect_internal(unsafe { SortedSet::from_sorted(index) })
@@ -903,7 +954,7 @@ impl<K: SelectionKind> LenProvider for Sel<K> {
 
 impl<K: SelectionKind> RandomPosProvider for Sel<K> {
     fn num_coords(&self) -> usize {
-        self.index().len()    
+        self.index().len()
     }
 
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
@@ -940,7 +991,7 @@ impl<K: SelectionKind> MoleculesProvider for Sel<K> {
         self.topology.iter_molecules()
     }
 
-    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
         self.topology.nth_molecule_unchecked(i)
     }
 }
@@ -954,7 +1005,7 @@ impl<K: SelectionKind> BondsProvider for Sel<K> {
         self.topology.iter_bonds()
     }
 
-    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
         self.topology.nth_bond_unchecked(i)
     }
 }
