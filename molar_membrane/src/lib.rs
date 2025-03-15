@@ -191,23 +191,6 @@ pub struct LipidMolecule {
 }
 
 impl LipidMolecule {
-    // pub fn new<K: UserCreatableKind>(
-    //     &mut self,
-    //     species: Arc<LipidSpecies>,
-    //     sel: &Sel<K>,
-    // ) -> anyhow::Result<Self> {
-    //     Ok(Self {
-    //         species,
-    //         head_marker: sel
-    //             .subsel_iter(self.species.head_marker_offsets.iter().cloned())?
-    //             .center_of_mass_pbc()?,
-    //         mid_marker: sel
-    //             .subsel_iter(self.species.mid_marker_offsets.iter().cloned())?
-    //             .center_of_mass_pbc()?,
-    //         tail_marker:
-    //     })
-    // }
-
     pub fn update<K: UserCreatableKind>(&mut self, sel: &Sel<K>) -> anyhow::Result<()> {
         self.head_marker = sel
             .subsel_iter(self.species.head_marker_offsets.iter().cloned())?

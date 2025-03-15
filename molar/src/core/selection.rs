@@ -91,6 +91,9 @@ pub enum SelectionError {
 
     #[error(transparent)]
     PeriodicBox(#[from] PeriodicBoxError),
+
+    #[error("no molecules in topology")]
+    NoMolecules,
 }
 
 #[derive(Error, Debug)]
