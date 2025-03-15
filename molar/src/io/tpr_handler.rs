@@ -62,7 +62,6 @@ mod internal_tpr_enabled {
             };
             let natoms = gmx_top.atoms.nr as usize;
             let nres = gmx_top.atoms.nres as usize;
-            println!(">>> {} {}", natoms, nres);
 
             let mut top = TopologyStorage::default();
             top.atoms.reserve(natoms);

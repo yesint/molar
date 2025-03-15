@@ -444,39 +444,18 @@ impl Sel {
         .borrow()
     }
 
-    fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
-        // We don't want to create a matrix and call to_pyarray() because it copies the data.
+    fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2::<f32>> {
         // Instead we allocate an uninitialized PyArray manually and fill it by data.
-        // By doing this we save copying potentially large array.
-        use numpy::Element;
-        use numpy::PyArrayDescrMethods;
-
-        let mut dims = numpy::ndarray::Dim((3, self.__len__()));
-
+        // By doing this we save on unnecessary initiallization and extra allocation
         unsafe {
-            let arr = PY_ARRAY_API.PyArray_NewFromDescr(
-                py,
-                PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-                f32::get_dtype(py).into_dtype_ptr(),
-                dims.ndim_cint(),
-                dims.as_dims_ptr(),
-                std::ptr::null_mut(), // no strides
-                std::ptr::null_mut(), // no data, allocate new buffer
-                npyffi::NPY_ARRAY_WRITEABLE
-                    | npyffi::NPY_ARRAY_OWNDATA
-                    | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
-                std::ptr::null_mut(), // obj
-            ) as *mut npyffi::PyArrayObject;
-
-            // Copy coordinates directly into uninitialized array buffer
-            let mut ptr = (*arr).data.cast::<f32>();
+            let arr = numpy::PyArray2::<f32>::new(py,[3,self.0.len()],true);
+            let arr_ptr = arr.data();
             for i in 0..self.0.len() {
-                let pos = self.0.nth_pos_unchecked(i);
-                std::ptr::copy_nonoverlapping(pos.coords.as_ptr(), ptr, 3);
-                ptr = ptr.add(3);
+                let pos_ptr = self.0.nth_pos_unchecked(i).coords.as_ptr();
+                // This is faster than copying by element with uget_raw()
+                std::ptr::copy_nonoverlapping(pos_ptr,arr_ptr.offset(i as isize * 3), 3);
             }
-
-            Bound::from_owned_ptr(py, arr.cast())
+            arr
         }
     }
 
@@ -657,10 +636,7 @@ fn distance_search<'py>(
     data2: Option<&Bound<'py, Sel>>,
     dims: [bool; 3],
 ) -> anyhow::Result<Bound<'py, PyAny>> {
-    use numpy::Element;
-    use numpy::PyArrayDescrMethods;
-
-    let res: Vec<(usize, usize, f32)>;
+    let mut res: Vec<(usize, usize, f32)>;
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
     let sel1 = &data1.borrow().0;    
 
@@ -730,8 +706,8 @@ fn distance_search<'py>(
                 res = molar::distance_search::distance_search_double_vdw(
                     sel1,
                     sel2,
-                    sel1.iter_index(),
-                    sel2.iter_index(),
+                    //sel1.iter_index(),
+                    //sel2.iter_index(),
                     &vdw1,
                     &vdw2,
                 );
@@ -739,13 +715,19 @@ fn distance_search<'py>(
                 res = molar::distance_search::distance_search_double_vdw_pbc(
                     sel1,
                     sel2,
-                    sel1.iter_index(),
-                    sel2.iter_index(),
+                    //sel1.iter_index(),
+                    //sel2.iter_index(),
                     &vdw1,
                     &vdw2,
                     sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
+            }
+            
+            // Convert local indices to global
+            for el in &mut res {
+                el.0 = sel1.nth_index(el.0).unwrap();
+                el.1 = sel2.nth_index(el.1).unwrap();
             }
         } else {
             bail!("VdW distance search is not yet supported for single selection");
@@ -757,51 +739,19 @@ fn distance_search<'py>(
     // Subdivide the result into two arrays
     unsafe {
         // Pairs array
-        let mut dims = numpy::ndarray::Dim((res.len(),2));
-        let pairs_arr = PY_ARRAY_API.PyArray_NewFromDescr(
-            py,
-            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-            usize::get_dtype(py).into_dtype_ptr(),
-            dims.ndim_cint(),
-            dims.as_dims_ptr(),
-            std::ptr::null_mut(), // no strides
-            std::ptr::null_mut(), // no data, allocate new buffer
-            npyffi::NPY_ARRAY_OWNDATA | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
-            std::ptr::null_mut(), // obj
-        ) as *mut npyffi::PyArrayObject;
-
-        // Copy pairs directly into uninitialized array buffer
-        let mut ptr = (*pairs_arr).data.cast::<usize>();
+        let pairs_arr = numpy::PyArray2::<usize>::new(py,[res.len(),2],true);
         for i in 0..res.len() {
-            std::ptr::copy_nonoverlapping(&res[i].0 as *const usize, ptr, 2);
-            ptr = ptr.add(2);
+            pairs_arr.uget_raw([i,0]).write(res[i].0);
+            pairs_arr.uget_raw([i,1]).write(res[i].1);
         }
-
+        
         // Distances array
-        let mut dims = numpy::ndarray::Dim(res.len());
-        let dist_arr = PY_ARRAY_API.PyArray_NewFromDescr(
-            py,
-            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-            f32::get_dtype(py).into_dtype_ptr(),
-            dims.ndim_cint(),
-            dims.as_dims_ptr(),
-            std::ptr::null_mut(), // no strides
-            std::ptr::null_mut(), // no data, allocate new buffer
-            npyffi::NPY_ARRAY_OWNDATA | npyffi::NPY_ARRAY_F_CONTIGUOUS, // flag
-            std::ptr::null_mut(), // obj
-        ) as *mut npyffi::PyArrayObject;
-
-        // Copy pairs directly into uninitialized array buffer
-        let mut ptr = (*dist_arr).data.cast::<f32>();
+        let dist_arr = numpy::PyArray1::<f32>::new(py,[res.len()],true);
         for i in 0..res.len() {
-            std::ptr::copy_nonoverlapping(&res[i].2 as *const f32, ptr, 1);
-            ptr = ptr.add(1);
+            dist_arr.uget_raw(i).write(res[i].2);
         }
 
-        Ok((
-            Bound::from_owned_ptr(py, pairs_arr.cast()),
-            Bound::from_owned_ptr(py, dist_arr.cast()),
-        ).into_bound_py_any(py)?)
+        Ok((pairs_arr,dist_arr).into_bound_py_any(py)?)
     }    
 }
 
