@@ -1010,7 +1010,7 @@ mod tests {
     fn within_pbc() -> anyhow::Result<()> {
         let src = Source::serial_from_file("tests/albumin.pdb")?;
         let sel = src.select_str("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
-        sel.save("target/pbc_sel.pdb")?;
+        sel.save("../target/pbc_sel.pdb")?;
         Ok(())
     }
 }

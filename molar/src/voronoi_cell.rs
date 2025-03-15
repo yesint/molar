@@ -270,7 +270,7 @@ mod tests {
         c.add_point(&Vector2f::new(10.0,10.0), 3);
         c.add_point(&Vector2f::new(-5.0*2.0,-2.0*2.0), 4);
         c.add_point(&Vector2f::new(-5.0*2.0,5.0*2.0), 5);
-        c.write_to_file("target/out.dat");
+        c.write_to_file("../target/out.dat");
 
         for v in c.iter_vertex() {
             println!("{v:?}")
