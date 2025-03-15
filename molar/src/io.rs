@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_itp() -> Result<()> {
-        let mut h = FileHandler::open("tests/POPE.itp")?;
+        let mut h = FileHandler::open("../molar_membrane/tests/POPE.itp")?;
         let top = h.read_topology()?;
         for a in top.iter_atoms() {
             println!("{:?}", a);

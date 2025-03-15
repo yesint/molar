@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
-        let src = Source::serial_from_file("../../tests/membr.gro")?;
+        let src = Source::serial_from_file("tests/membr.gro")?;
         let pope = src.select_str("resid 60")?;
         let descr = LipidSpeciesDescr {
             whole: "resname POPE".into(),
@@ -261,17 +261,16 @@ mod tests {
 
     #[test]
     fn test_descr_serde() -> anyhow::Result<()> {
-        let top = FileHandler::open("../../tests/POPE.itp")?.read_topology()?;
+        let top = FileHandler::open("tests/POPE.itp")?.read_topology()?;
         let n = top.num_atoms();
         let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
 
         let descr: LipidSpeciesDescr = toml::from_str(
             r#"
-            name = "POPE"
-            whole_sel_str = "resname POPE"
-            head_marker_subsel_str = "name P N"
-            mid_marker_subsel_str = "name C21 C22"
-            tails_descr = [
+            whole = "resname POPE"
+            head = "name P N"
+            mid = "name C21 C22"
+            tails = [
                 "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
             ]
