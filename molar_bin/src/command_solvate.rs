@@ -92,8 +92,8 @@ pub(crate) fn command_solvate(
         distance_search_double_vdw_pbc(
             &inside_sel, 
             &solute,
-            0..inside_sel.len(),
-            0..solute.len(),
+            //0..inside_sel.len(),
+            //0..solute.len(),
             &vdw1, 
             &vdw2,
             b,

@@ -819,11 +819,12 @@ where
         .collect()
 }
 
+// This always returns local idexes
 pub fn distance_search_double_vdw<T, C>(
     data1: &impl PosProvider,
     data2: &impl PosProvider,
-    ids1: impl Iterator<Item = usize>,
-    ids2: impl Iterator<Item = usize>,
+    //ids1: impl Iterator<Item = usize>,
+    //ids2: impl Iterator<Item = usize>,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
 ) -> C
@@ -842,8 +843,8 @@ where
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1.iter_pos(), ids1, &lower, &upper);
-    grid2.populate(data2.iter_pos(), ids2, &lower, &upper);
+    grid1.populate(data1.iter_pos(), 0..vdw1.len(), &lower, &upper);
+    grid2.populate(data2.iter_pos(), 0..vdw2.len(), &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -874,11 +875,12 @@ where
         .collect()
 }
 
+// This always returns local idexes
 pub fn distance_search_double_vdw_pbc<T, C>(
     data1: &impl PosProvider,
     data2: &impl PosProvider,
-    ids1: impl Iterator<Item = usize>,
-    ids2: impl Iterator<Item = usize>,
+    //ids1: impl Iterator<Item = usize>,
+    //ids2: impl Iterator<Item = usize>,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     pbox: &PeriodicBox,
@@ -899,8 +901,8 @@ where
     let mut buf1 = vec![];
     let mut buf2 = vec![];
 
-    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), 0..vdw1.len(), pbox, pbc_dims, &mut buf1);
+    grid2.populate_pbc(data2.iter_pos(), 0..vdw2.len(), pbox, pbc_dims, &mut buf2);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
