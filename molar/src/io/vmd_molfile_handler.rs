@@ -276,7 +276,7 @@ impl VmdMolFileHandler {
         let mut ts = molfile_timestep_t {
             coords: state.coords.as_mut_ptr().cast::<f32>(), // Raw ptr to allocated storage
             velocities: ptr::null_mut(),                     // Don't read velocities
-            A: 0.0,
+            A: -1.0, // Indicator that box is not read
             B: 0.0,
             C: 0.0,
             alpha: 0.0,
@@ -299,14 +299,18 @@ impl VmdMolFileHandler {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { state.coords.set_len(self.natoms as usize) }
             // Convert the box
-            state.pbox = Some(PeriodicBox::from_vectors_angles(
-                ts.A * 0.1,
-                ts.B * 0.1,
-                ts.C * 0.1,
-                ts.alpha,
-                ts.beta,
-                ts.gamma,
-            )?);
+            if ts.A < 0.0 {
+                state.pbox = None;
+            } else {
+                state.pbox = Some(PeriodicBox::from_vectors_angles(
+                    ts.A * 0.1,
+                    ts.B * 0.1,
+                    ts.C * 0.1,
+                    ts.alpha,
+                    ts.beta,
+                    ts.gamma,
+                )?);
+            }
             // time
             state.time = ts.physical_time as f32;
             // Convert to nm

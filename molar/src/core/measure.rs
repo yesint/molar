@@ -563,7 +563,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
 }
 
 /// Type of order parameter calculation
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum OrderType {
     // Sz order parameter identical to gromacs -szonly option
     Sz,

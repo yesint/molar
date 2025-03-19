@@ -17,7 +17,7 @@ tails = [
 ]
 
 [POPG]
-whole = "resname POPE"
+whole = "resname POPG"
 head = "name P OC2 OC3"
 mid = "name C2"
 tails = [
