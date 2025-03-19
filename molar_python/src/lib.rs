@@ -581,6 +581,22 @@ impl Sel {
         self.0.translate(&vec);
         Ok(())
     }
+
+    fn split_resindex(&self) -> anyhow::Result<Vec<Sel>> {
+        Ok(self.0.split_resindex_iter()?.map(|sel| Sel(sel)).collect())
+    }
+
+    fn split_chain(&self) -> anyhow::Result<Vec<Sel>> {
+        Ok(self.0.split_iter(|p| Some(p.atom.chain))?.map(|sel| Sel(sel)).collect())
+    }
+
+    fn split_molecule(&self) -> anyhow::Result<Vec<Sel>> {
+        Ok(self.0.split_molecules_iter()?.map(|sel| Sel(sel)).collect())
+    }
+
+    fn gromacs_ndx(&self, name: &str) -> String {
+        self.0.gromacs_ndx(name)
+    }
 }
 
 #[pyclass]

@@ -810,6 +810,17 @@ impl<K: UserCreatableKind> Sel<K> {
             index_storage: ind,
         })
     }
+
+    pub fn gromacs_ndx(&self, name: impl AsRef<str>) -> String {
+        let name = name.as_ref();
+        let mut s = format!("[ {} ]\n",name);
+        for chunk in &self.iter_index().chunks(15) {
+            let line: String = chunk.map(|i| i.to_string()).join(" ");
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s
+    }
 }
 
 //══════════════════════════════════════════════
