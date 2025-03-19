@@ -656,7 +656,7 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Sel<K>, SelectionError> {
         let ind = self.index();
         let global_vec: Vec<_> = iter.map(|i| ind[i]).collect();
-        self.subselect_internal(index_from_vec(global_vec, self.len())?)
+        self.subselect_internal(index_from_vec(global_vec, self.topology.num_atoms())?)
     }
 
     //==============================================

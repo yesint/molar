@@ -387,7 +387,7 @@ impl Sel {
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             Ok(Sel(self
                 .0
-                .subsel_local_range(val.0..val.1)
+                .subsel_local_range(val.0..=val.1)
                 .map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
             Ok(Sel(self
