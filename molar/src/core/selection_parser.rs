@@ -4,7 +4,7 @@ use crate::prelude::*;
 mod grammar;
 mod ast;
 
-use ast::{EvaluationContext, LogicalNode, SubsetType};
+use ast::{EvaluationContext, LogicalNode};
 pub use ast::SelectionParserError;
 
 //##############################
@@ -52,11 +52,10 @@ impl SelectionExpr {
         topology: &Topology,
         state: &State,
     ) -> Result<SortedSet<usize>, SelectionParserError> {
-        let subset = SubsetType::from_iter(0..topology.num_atoms());
+        let subset = (0..topology.num_atoms()).collect();
         let data = EvaluationContext::new(topology, state, &subset)?;
         self.ast.precompute(&data)?;
-        let index = Vec::<usize>::from_iter(self.ast.apply(&data)?.into_iter());
-        Ok(index.into())
+        Ok(self.ast.apply(&data)?.into())
     }
 
     pub fn apply_subset(
@@ -65,11 +64,10 @@ impl SelectionExpr {
         state: &State,
         subset: impl Iterator<Item = usize>,
     ) -> Result<SortedSet<usize>, SelectionParserError> {
-        let subset = SubsetType::from_iter(subset);
+        let subset = subset.collect();
         let data = EvaluationContext::new(topology, state, &subset)?;
         self.ast.precompute(&data)?;
-        let index = self.ast.apply(&data)?.into_iter().collect::<Vec<usize>>();
-        Ok(index.into())
+        Ok(self.ast.apply(&data)?.into())
     }
 }
 

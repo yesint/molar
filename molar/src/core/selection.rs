@@ -69,10 +69,10 @@ pub enum SelectionError {
     Builder(#[from] BuilderError),
 
     #[error("can't set incompatible state")]
-    SetState,
+    IncompatibleState,
 
     #[error("can't set incompatible topology")]
-    SetTopology,
+    IncompatibleTopology,
 
     #[error("can't release source: multiple references are active")]
     Release,
