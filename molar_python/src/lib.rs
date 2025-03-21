@@ -373,14 +373,6 @@ impl Sel {
         self.0.len()
     }
 
-    fn invert(&mut self) {
-        self.0.invert();
-    }
-
-    fn exclude(&mut self, other: &Sel) {
-        self.0.exclude(&other.0);
-    }
-
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {
         if let Ok(val) = arg.extract::<String>() {
             Ok(Sel(self.0.subsel_str(val).map_err(|e| anyhow!(e))?))
@@ -606,6 +598,46 @@ impl Sel {
             anyhow::bail!("Unsupported type to append a Sel")
         }
         Ok(())
+    }
+
+    /// += opeator (append in place)
+    fn __iadd__(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
+        self.append(arg)
+    }
+
+    /// Invert in place
+    fn invert(&mut self) {
+        self.0.invert();
+    }
+
+    /// remove other from self
+    fn exclude_global(&mut self, other: &Sel) {
+        self.0.exclude_global(&other.0);
+    }
+
+    /// -= (remove other from self in place)
+    fn __isub__(&mut self, other: &Sel) {
+        self.exclude_global(other)
+    }
+
+    /// operator |
+    fn __or__(&self, rhs: &Sel) -> Sel {
+        Sel(self.0.union(&rhs.0))
+    }
+
+    /// operator &
+    fn __and__(&self, rhs: &Sel) -> anyhow::Result<Sel> {
+        Ok(Sel(self.0.intersection(&rhs.0)?))
+    }
+
+    /// -= (remove other from self)
+    fn __sub__(&self, rhs: &Sel) -> anyhow::Result<Sel> {
+        Ok(Sel(self.0.difference(&rhs.0)?))
+    }
+
+    /// ~ operator
+    fn __invert__(&self) -> anyhow::Result<Sel> {
+        Ok(Sel(self.0.complement()?))
     }
 }
 

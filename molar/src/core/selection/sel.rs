@@ -729,7 +729,7 @@ impl<K: UserCreatableKind> Sel<K> {
         Ok(())
     }
 
-    pub fn exclude(&mut self, other: &impl IndexProvider) {
+    pub fn exclude_global(&mut self, other: &impl IndexProvider) {
         let lhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
         let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other.iter_index());
         let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
