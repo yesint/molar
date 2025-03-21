@@ -594,8 +594,18 @@ impl Sel {
         Ok(self.0.split_molecules_iter()?.map(|sel| Sel(sel)).collect())
     }
 
-    fn gromacs_ndx(&self, name: &str) -> String {
-        self.0.gromacs_ndx(name)
+    fn to_gromacs_ndx(&self, name: &str) -> String {
+        self.0.to_gromacs_ndx(name)
+    }
+
+    fn append(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
+        // In the future other types can be used as well
+        if let Ok(sel) = arg.downcast::<Sel>() {
+            self.0.append(&sel.borrow().0)?;
+        } else {
+            anyhow::bail!("Unsupported type to append a Sel")
+        }
+        Ok(())
     }
 }
 

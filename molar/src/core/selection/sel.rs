@@ -811,11 +811,11 @@ impl<K: UserCreatableKind> Sel<K> {
         })
     }
 
-    pub fn gromacs_ndx(&self, name: impl AsRef<str>) -> String {
+    pub fn to_gromacs_ndx(&self, name: impl AsRef<str>) -> String {
         let name = name.as_ref();
         let mut s = format!("[ {} ]\n",name);
         for chunk in &self.iter_index().chunks(15) {
-            let line: String = chunk.map(|i| i.to_string()).join(" ");
+            let line: String = chunk.map(|i| (i+1).to_string()).join(" ");
             s.push_str(&line);
             s.push('\n');
         }
