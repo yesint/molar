@@ -78,6 +78,10 @@ impl<K: SelectionKind> Sel<K> {
         self.num_atoms()
     }
 
+    //=================================
+    // Getters, Setters and Accessors
+    //=================================
+    
     pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
         let ind = *self.index().get(i)?;
         Some(unsafe { self.state.nth_pos_unchecked(ind) })
@@ -87,10 +91,6 @@ impl<K: SelectionKind> Sel<K> {
         let ind = *self.index().get(i)?;
         Some(unsafe { self.state.nth_pos_unchecked_mut(ind) })
     }
-
-    //=================================
-    // Getters, Setters and Accessors
-    //=================================
 
     /// Returns a copy of the selection index vector.
     pub fn get_index_vec(&self) -> SortedSet<usize> {
@@ -171,7 +171,7 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Holder<Topology, K>, SelectionError> {
         let topology = topology.into();
         if !self.topology.interchangeable(&topology) {
-            return Err(SelectionError::SetState);
+            return Err(SelectionError::IncompatibleState);
         }
         Ok(std::mem::replace(&mut self.topology, topology))
     }
@@ -182,7 +182,7 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Holder<State, K>, SelectionError> {
         let state = state.into();
         if !self.state.interchangeable(&state) {
-            return Err(SelectionError::SetState);
+            return Err(SelectionError::IncompatibleState);
         }
         Ok(std::mem::replace(&mut self.state, state))
     }
@@ -1074,3 +1074,15 @@ impl<K: MutableKind> RandomAtomMutProvider for Sel<K> {
 impl<K: MutableKind> ModifyPos for Sel<K> {}
 impl<K: MutableKind> ModifyPeriodic for Sel<K> {}
 impl<K: MutableKind> ModifyRandomAccess for Sel<K> {}
+
+//-----------------------------------------------
+pub trait SelectionDef {
+    fn to_sel_index(self, top: &Topology, st: &State) -> Result<SortedSet<usize>, SelectionError>;
+}
+
+impl SelectionDef for &str {
+    fn to_sel_index(self, top: &Topology, st: &State) -> Result<SortedSet<usize>, SelectionError> {
+        let mut expr: SelectionExpr = self.try_into()?;
+        Ok(expr.apply_whole(top, st)?)
+    }
+}

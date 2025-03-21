@@ -183,7 +183,7 @@ impl<K: UserCreatableKind> Source<K> {
     ) -> Result<State, SelectionError> {
         //let state: Holder<State, K>  = Holder::new(state);
         if !self.state.interchangeable(&state) {
-            return Err(SelectionError::SetState);
+            return Err(SelectionError::IncompatibleState);
         }
         let p = self.state.arc.as_ptr() as *mut State;
         //let mut p2 = state.arc.as_ptr() as *mut State;
@@ -209,7 +209,7 @@ impl<K: UserCreatableKind> Source<K> {
     ) -> Result<Holder<Topology, K>, SelectionError> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
-            return Err(SelectionError::SetTopology);
+            return Err(SelectionError::IncompatibleTopology);
         }
 
         Ok(std::mem::replace(&mut self.topology, topology))

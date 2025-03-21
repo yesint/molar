@@ -1,33 +1,9 @@
 use num_traits::Bounded;
 use regex::bytes::Regex;
-use std::collections::HashSet;
+use std::{collections::HashSet, ops::Not};
 use thiserror::Error;
 
 use crate::prelude::*;
-
-#[derive(Error, Debug)]
-pub enum SelectionParserError {
-    #[error("synatx error: {0}")]
-    SyntaxError(String),
-
-    #[error(transparent)]
-    DifferentSizes(#[from] TopologyStateSizes),
-
-    #[error("no periodic box for pbc unwrapping")]
-    PbcUnwrap,
-
-    #[error("division by zero in math node eval")]
-    DivisionByZero,
-
-    #[error("sqrt of negative number in math node eval")]
-    NegativeSqrt,
-
-    #[error(transparent)]
-    Measure(#[from] MeasureError),
-
-    #[error("asked for atom {0} while inner expression selects {1} atoms")]
-    OutOfBounds(usize, usize),
-}
 
 //##############################
 //#  AST node types
@@ -188,17 +164,6 @@ pub(super) enum CompoundNode {
 //#  AST application stuff
 //##############################
 
-// Intermediate index type for applying AST
-//type SubsetType = rustc_hash::FxHashSet<usize>;
-pub(super) type SubsetType = Vec<usize>;
-
-enum NodePayload {}
-
-struct AstNode {
-    payload: NodePayload,
-    nodes: Vec<Box<AstNode>>,
-}
-
 #[derive(Clone)]
 pub(super) struct EvaluationContext<'a> {
     topology: &'a Topology,
@@ -206,19 +171,19 @@ pub(super) struct EvaluationContext<'a> {
     // This is a subset passed from outside
     // selection is completely within it
     // Parser is not changing subset
-    global_subset: &'a SubsetType,
+    global_subset: &'a Vec<usize>,
     // This is a context-dependent subset
     // (created for example by AND operation)
     // Selection can extend out of it
     // (like with WITHIN of BY)
-    local_subset: Option<&'a SubsetType>,
+    local_subset: Option<&'a Vec<usize>>,
 }
 
 impl<'a> EvaluationContext<'a> {
     pub(super) fn new(
         topology: &'a Topology,
         state: &'a State,
-        global_subset: &'a SubsetType,
+        global_subset: &'a Vec<usize>,
     ) -> Result<Self, SelectionParserError> {
         check_topology_state_sizes(topology, state)?;
 
@@ -246,7 +211,7 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn custom_subset(&self, custom: &'a SubsetType) -> ActiveSubset<'_> {
+    fn custom_subset(&self, custom: &'a Vec<usize>) -> ActiveSubset<'_> {
         ActiveSubset {
             topology: &self.topology,
             state: &self.state,
@@ -254,7 +219,7 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn clone_with_local_subset(&self, local_subset: &'a SubsetType) -> Self {
+    fn clone_with_local_subset(&self, local_subset: &'a Vec<usize>) -> Self {
         Self {
             local_subset: Some(local_subset),
             ..*self
@@ -267,7 +232,7 @@ impl<'a> EvaluationContext<'a> {
 struct ActiveSubset<'a> {
     topology: &'a Topology,
     state: &'a State,
-    subset: &'a SubsetType,
+    subset: &'a Vec<usize>,
 }
 
 impl ActiveSubset<'_> {
@@ -441,9 +406,9 @@ impl LogicalNode {
     fn map_same_prop<T>(
         &self,
         data: &EvaluationContext,
-        inner: &SubsetType,
+        inner: &Vec<usize>,
         prop_fn: fn(&Atom) -> &T,
-    ) -> SubsetType
+    ) -> Vec<usize>
     where
         T: Eq + std::hash::Hash + Copy,
     {
@@ -454,7 +419,7 @@ impl LogicalNode {
             properties.insert(*prop_fn(at));
         }
 
-        let mut res = SubsetType::default();
+        let mut res = vec![];
         // Now loop over *global* subset and add all atoms with the same property
         let sub = data.global_subset();
         for (i, at) in sub.iter_ind_atom() {
@@ -468,7 +433,7 @@ impl LogicalNode {
         res
     }
 
-    pub fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    pub fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         use rustc_hash::FxHashSet;
         match self {
             Self::Not(node) => {
@@ -515,7 +480,7 @@ impl LogicalNode {
                 let sub1 = data.global_subset();
                 let sub2 = data.custom_subset(&inner);
                 // Perform distance search
-                let mut res: SubsetType = if prop.pbc == PBC_NONE {
+                let mut res: Vec<usize> = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
@@ -555,7 +520,7 @@ impl LogicalNode {
                 let sub1 = data.global_subset();
                 let pvec = point.get_vec();
                 // Perform distance search
-                let res: SubsetType = if prop.pbc == PBC_NONE {
+                let res: Vec<usize> = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
                     let lower = pvec.coords.add_scalar(-prop.cutoff - f32::EPSILON);
@@ -691,11 +656,11 @@ impl CompoundNode {
         }
     }
 
-    pub fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    pub fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         let sub = data.active_subset();
         match self {
             Self::Protein => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_protein(at) {
                         res.push(i)
@@ -705,7 +670,7 @@ impl CompoundNode {
             }
 
             Self::Backbone => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_backbone(at) {
                         res.push(i)
@@ -715,7 +680,7 @@ impl CompoundNode {
             }
 
             Self::Sidechain => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_sidechain(at) {
                         res.push(i)
@@ -725,7 +690,7 @@ impl CompoundNode {
             }
 
             Self::Water => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_water(at) {
                         res.push(i)
@@ -735,7 +700,7 @@ impl CompoundNode {
             }
 
             Self::NotWater => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_water(at) {
                         res.push(i)
@@ -745,7 +710,7 @@ impl CompoundNode {
             }
 
             Self::Hydrogen => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_hydrogen(at) {
                         res.push(i)
@@ -755,7 +720,7 @@ impl CompoundNode {
             }
 
             Self::NotHydrogen => {
-                let mut res = SubsetType::new();
+                let mut res = Vec::<usize>::new();
                 for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_hydrogen(at) {
                         res.push(i)
@@ -790,8 +755,8 @@ impl KeywordNode {
         data: &EvaluationContext,
         values: &Vec<StrKeywordValue>,
         f: fn(&Atom) -> &String,
-    ) -> SubsetType {
-        let mut res = SubsetType::default();
+    ) -> Vec<usize> {
+        let mut res = Vec::<usize>::default();
         let sub = data.active_subset();
         for (ind, a) in sub.iter_ind_atom() {
             for val in values {
@@ -819,8 +784,8 @@ impl KeywordNode {
         data: &EvaluationContext,
         values: &Vec<IntKeywordValue>,
         f: fn(&Atom, usize) -> i32,
-    ) -> SubsetType {
-        let mut res = SubsetType::default();
+    ) -> Vec<usize> {
+        let mut res = vec![];
         let sub = data.active_subset();
         for (ind, a) in sub.iter_ind_atom() {
             for val in values {
@@ -844,7 +809,7 @@ impl KeywordNode {
         res
     }
 
-    fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         match self {
             Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
             Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
@@ -854,7 +819,7 @@ impl KeywordNode {
             }
             Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
             Self::Chain(values) => {
-                let mut res = SubsetType::default();
+                let mut res = vec![];
                 let sub = data.active_subset();
                 for (i, a) in sub.iter_ind_atom() {
                     for c in values {
@@ -1000,8 +965,8 @@ impl ComparisonNode {
         v1: &MathNode,
         v2: &MathNode,
         op: fn(f32, f32) -> bool,
-    ) -> Result<SubsetType, SelectionParserError> {
-        let mut res = SubsetType::default();
+    ) -> Result<Vec<usize>, SelectionParserError> {
+        let mut res = vec![];
         let b = data.state.get_box();
         let sub = data.active_subset();
 
@@ -1023,8 +988,8 @@ impl ComparisonNode {
         v3: &MathNode,
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
-    ) -> Result<SubsetType, SelectionParserError> {
-        let mut res = SubsetType::default();
+    ) -> Result<Vec<usize>, SelectionParserError> {
+        let mut res = vec![];
         let b = data.state.get_box();
         let sub = data.active_subset();
 
@@ -1041,7 +1006,7 @@ impl ComparisonNode {
         Ok(res)
     }
 
-    fn apply(&self, data: &EvaluationContext) -> Result<SubsetType, SelectionParserError> {
+    fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
@@ -1128,4 +1093,28 @@ impl ComparisonNode {
             | Self::GeqGeq(v1, v2, v3) => v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent(),
         }
     }
+}
+
+#[derive(Error, Debug)]
+pub enum SelectionParserError {
+    #[error("synatx error: {0}")]
+    SyntaxError(String),
+
+    #[error(transparent)]
+    DifferentSizes(#[from] TopologyStateSizes),
+
+    #[error("no periodic box for pbc unwrapping")]
+    PbcUnwrap,
+
+    #[error("division by zero in math node eval")]
+    DivisionByZero,
+
+    #[error("sqrt of negative number in math node eval")]
+    NegativeSqrt,
+
+    #[error(transparent)]
+    Measure(#[from] MeasureError),
+
+    #[error("asked for atom {0} while inner expression selects {1} atoms")]
+    OutOfBounds(usize, usize),
 }
