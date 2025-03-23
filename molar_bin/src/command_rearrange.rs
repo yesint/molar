@@ -34,13 +34,13 @@ pub(super) fn command_rearrange(
     let in_source = Source::serial_from_file(infile)?;
     let begin_sels = begin
         .iter()
-        .map(|s| in_source.select_str(s).map_err(|e| anyhow!(e)))
+        .map(|s| in_source.select(s).map_err(|e| anyhow!(e)))
         .collect::<Result<Vec<Sel<MutableSerial>>>>()
         .with_context(|| "can't create begin selections for rearranging")?;
 
     let end_sels = end
         .iter()
-        .map(|s| in_source.select_str(s).map_err(|e| anyhow!(e)))
+        .map(|s| in_source.select(s).map_err(|e| anyhow!(e)))
         .collect::<Result<Vec<Sel<MutableSerial>>>>()
         .with_context(|| "can't create end selections for rearranging")?;
 

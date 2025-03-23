@@ -16,15 +16,15 @@ pub(crate) fn command_tip3_to_tip4(
     let out = Source::empty_builder();
 
     // Select water
-    let water = inp.select_str("resname TIP3")?;
+    let water = inp.select("resname TIP3")?;
 
     // For correct re-assembly of the system
     // select what is before and what is after water
     let w_first = water.first_index();
     let w_last = water.last_index();
 
-    let sel_before = inp.select_iter(0..w_first)?;
-    let sel_after = inp.select_iter(w_last+1..inp.num_atoms())?;
+    let sel_before = inp.select(0..w_first)?;
+    let sel_after = inp.select(w_last+1..inp.num_atoms())?;
 
     // Add before selection
     out.append(&sel_before);

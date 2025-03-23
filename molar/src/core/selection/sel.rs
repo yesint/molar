@@ -1068,7 +1068,73 @@ impl SelectionDef for &str {
         let expr = SelectionExpr::new(self)?;
         match subset {
             None => Ok(expr.apply_whole(top, st)?),
-            Some(sub) => Ok(expr.apply_subset(top, st, sub)?),
+            Some(sub) => {
+                let ind = expr.apply_subset(top, st, sub)?;
+                if ind.is_empty() {
+                    Err(SelectionError::Empty)
+                } else {
+                    Ok(ind)
+                }
+            },
+        }
+    }
+}
+
+impl SelectionDef for String {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        self.as_str().into_sel_index(top, st, subset)
+    }
+}
+
+impl SelectionDef for &String {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        self.as_str().into_sel_index(top, st, subset)
+    }
+}
+
+impl SelectionDef for std::ops::Range<usize> {
+    fn into_sel_index(
+        self,
+        _top: &Topology,
+        _st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        match subset {
+            None => Ok(unsafe{SortedSet::from_sorted(self.collect::<Vec<_>>())}),
+            Some(sub) => {
+                let n = sub.len();
+                if self.start >= n || self.end >=n {
+                    Err(SelectionError::IndexCheck(self.start, self.end, n))
+                } else {
+                    Ok(self.map(|i| sub[i]).collect::<Vec<_>>().into())
+                }
+            },
+        }
+    }
+}
+
+impl SelectionDef for std::ops::RangeInclusive<usize> {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        if self.is_empty() {
+            Err(SelectionError::Empty)
+        } else {
+            let (b,e) = self.into_inner();
+            (b..e+1).into_sel_index(top, st, subset)
         }
     }
 }

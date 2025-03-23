@@ -13,7 +13,7 @@ fn read_test_pdb() -> (Topology, State) {
 fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
     let (top,st) = read_test_pdb();
     let b = Source::new_serial(top.into(), st.into()).unwrap();
-    //let sel = b.select_str("not resname TIP3 POT CLA").unwrap();
+    //let sel = b.select("not resname TIP3 POT CLA").unwrap();
     let sel = b.select_all().unwrap();
     Ok(sel)
 }

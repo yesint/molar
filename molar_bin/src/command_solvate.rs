@@ -111,7 +111,7 @@ pub(crate) fn command_solvate(
     // If exclude selection is provided remove it
     if exclude.is_some() {
         let sel_str = exclude.as_ref().unwrap();
-        let excl_sel = solute.select_str(sel_str)?;
+        let excl_sel = solute.select(sel_str)?;
         info!(
             "Excluding {} atoms by selection '{}'",
             excl_sel.len(),

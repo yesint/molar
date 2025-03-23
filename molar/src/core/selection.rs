@@ -80,6 +80,9 @@ pub enum SelectionError {
     #[error("can't release source: multiple references are active")]
     Release,
 
+    #[error("selection is empty")]
+    Empty,
+
     #[error("splitting produced no selections")]
     EmptySplit,
 
@@ -130,8 +133,8 @@ mod tests {
         let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into())?;
         // Create two overlapping selections
-        let _sel1 = b.select_iter(0..10)?;
-        let _sel2 = b.select_iter(5..15)?;
+        let _sel1 = b.select(0..10)?;
+        let _sel2 = b.select(5..15)?;
         Ok(())
     }
 
@@ -141,8 +144,8 @@ mod tests {
         let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into()).unwrap();
         // Create two non-overlapping selections.
-        let _sel1 = b.select_iter(0..10).unwrap();
-        let _sel2 = b.select_iter(11..15).unwrap();
+        let _sel1 = b.select(0..10).unwrap();
+        let _sel2 = b.select(11..15).unwrap();
     }
 
     fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
@@ -157,7 +160,7 @@ mod tests {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let b = Source::new_serial(top.into(), st.into())?;
-        let sel = b.select_str("not resname TIP3 POT CLA")?;
+        let sel = b.select("not resname TIP3 POT CLA")?;
         Ok(sel)
     }
 
@@ -301,7 +304,7 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.num_atoms();
         let builder = Source::new_builder(top.into(), st.into())?;
-        let sel = builder.select_str("resid 550:560")?;
+        let sel = builder.select("resid 550:560")?;
         let added = sel.len();
         builder.append(&sel);
         let all = builder.select_all()?;
@@ -314,7 +317,7 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.num_atoms();
         let builder = Source::new_builder(top.into(), st.into())?;
-        let sel = builder.select_str("resid 550:560")?;
+        let sel = builder.select("resid 550:560")?;
         let removed = sel.len();
         builder.remove(&sel)?;
         let all = builder.select_all()?;
@@ -330,7 +333,7 @@ mod tests {
             .read()
             .unwrap();
         let builder = Source::new_builder(top.into(), st.into()).unwrap();
-        let sel = builder.select_str("resid 809").unwrap(); // last residue
+        let sel = builder.select("resid 809").unwrap(); // last residue
         builder.remove(&sel).unwrap();
         // Trying to call method on invalid selection
         let _cm = sel.center_of_mass();
@@ -388,8 +391,8 @@ mod tests {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let ser = Source::new_serial(top.into(), st.into())?;
-        let sel1 = ser.select_str("name CA")?;
-        let sel2 = ser.select_str("name CB")?;
+        let sel1 = ser.select("name CA")?;
+        let sel2 = ser.select("name CB")?;
         let sel3 = sel1.union(&sel2);
         assert_eq!(sel3.len(), sel1.len()+sel2.len());
         Ok(())

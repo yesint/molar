@@ -11,8 +11,8 @@ fn molar_benchmark_large(c: &mut Criterion) {
         black_box(
         || {
             let src = Source::serial_from_file(PDB).unwrap();
-            let ref_sel = src.select_str("protein").unwrap();
-            let mut cur_sel = src.select_str("protein").unwrap();
+            let ref_sel = src.select("protein").unwrap();
+            let mut cur_sel = src.select("protein").unwrap();
 
             let mut rmsd = vec![];
 
@@ -30,7 +30,7 @@ fn molar_benchmark_large(c: &mut Criterion) {
     c.bench_function("within_large", |b| b.iter(
         black_box(|| {
             let src = Source::serial_from_file(PDB).unwrap();
-            let mut sel = src.select_str("within 1.0 of protein").unwrap();
+            let mut sel = src.select("within 1.0 of protein").unwrap();
             let mut cm = vec![];
             let trj = FileHandler::open(XTC).unwrap().into_iter();
             for st in trj {
@@ -44,7 +44,7 @@ fn molar_benchmark_large(c: &mut Criterion) {
     c.bench_function("trjconv_large", |b| b.iter(
         black_box(|| {
             let src = Source::serial_from_file(PDB).unwrap();
-            let mut sel = src.select_str("protein").unwrap();
+            let mut sel = src.select("protein").unwrap();
 
             let in_trj = FileHandler::open(XTC).unwrap().into_iter();
             let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();
