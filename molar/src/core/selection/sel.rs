@@ -81,7 +81,7 @@ impl<K: SelectionKind> Sel<K> {
     //=================================
     // Getters, Setters and Accessors
     //=================================
-    
+
     pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
         let ind = *self.index().get(i)?;
         Some(unsafe { self.state.nth_pos_unchecked(ind) })
@@ -460,7 +460,7 @@ impl<K: UserCreatableKind> Sel<K> {
                     None
                 }
             })
-            .map(|r| self.subsel_local_range(r))
+            .map(|r| self.subsel_iter(r))
             .collect::<Result<C, SelectionError>>()?)
     }
 
@@ -598,17 +598,15 @@ impl<K: UserCreatableKind> Sel<K> {
     // Subselections
     //===================
 
-    fn subselect_internal(&self, index: SortedSet<usize>) -> Result<Self, SelectionError> {
-        Self::from_holders_and_index(
-            self.topology.clone_with_kind(),
-            self.state.clone_with_kind(),
-            index,
-        )
-    }
-
     /// Subselection from expression
     pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
-        let index = index_from_expr_sub(expr, &self.topology, &self.state, &self.index())?;
+        let index = expr.apply_subset(&self.topology, &self.state, self.index_storage.as_slice())?;
+        if index.is_empty() {
+            return Err(SelectionError::FromExpr {
+                expr_str: expr.get_str().into(),
+                source: SelectionIndexError::IndexEmpty,
+            });
+        }
         Self::from_holders_and_index(
             self.topology.clone_with_kind(),
             self.state.clone_with_kind(),
@@ -618,45 +616,20 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Subselection from string
     pub fn subsel_str(&self, sel_str: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
-        let mut expr = SelectionExpr::try_from(sel_str.as_ref())?;
+        let mut expr = SelectionExpr::new(sel_str.as_ref())?;
         self.subsel_expr(&mut expr)
-    }
-
-    /// Subselection from the range of local selection indexes
-    pub fn subsel_local_range(
-        &self,
-        range: std::ops::RangeInclusive<usize>,
-    ) -> Result<Sel<K>, SelectionError> {
-        if *range.end() >= self.index().len() {
-            return Err(SelectionError::LocalRange(
-                *range.start(),
-                *range.end(),
-                self.len() - 1,
-            ));
-        }
-
-        // Translate range of local indexes to global indexes
-        let index: Vec<usize> = self
-            .index()
-            .iter()
-            .cloned()
-            .skip(*range.start())
-            .take(range.try_len().map_err(|_| {
-                SelectionError::LocalRange(*range.start(), *range.end(), self.len() - 1)
-            })?)
-            .collect();
-
-        self.subselect_internal(unsafe { SortedSet::from_sorted(index) })
     }
 
     /// Subselection from iterator that provides local selection indexes
     pub fn subsel_iter(
         &self,
-        iter: impl ExactSizeIterator<Item = usize>,
+        iter: impl IntoIterator<Item = usize>,
     ) -> Result<Sel<K>, SelectionError> {
-        let ind = self.index();
-        let global_vec: Vec<_> = iter.map(|i| ind[i]).collect();
-        self.subselect_internal(index_from_vec(global_vec, self.topology.num_atoms())?)
+        Self::from_holders_and_index(
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
+            local_to_global(iter.into_iter(), &self.index_storage)?,
+        )
     }
 
     //==============================================
@@ -813,9 +786,9 @@ impl<K: UserCreatableKind> Sel<K> {
 
     pub fn to_gromacs_ndx(&self, name: impl AsRef<str>) -> String {
         let name = name.as_ref();
-        let mut s = format!("[ {} ]\n",name);
+        let mut s = format!("[ {} ]\n", name);
         for chunk in &self.iter_index().chunks(15) {
-            let line: String = chunk.map(|i| (i+1).to_string()).join(" ");
+            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
             s.push_str(&line);
             s.push('\n');
         }
@@ -1077,12 +1050,25 @@ impl<K: MutableKind> ModifyRandomAccess for Sel<K> {}
 
 //-----------------------------------------------
 pub trait SelectionDef {
-    fn to_sel_index(self, top: &Topology, st: &State) -> Result<SortedSet<usize>, SelectionError>;
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError>;
 }
 
 impl SelectionDef for &str {
-    fn to_sel_index(self, top: &Topology, st: &State) -> Result<SortedSet<usize>, SelectionError> {
-        let mut expr: SelectionExpr = self.try_into()?;
-        Ok(expr.apply_whole(top, st)?)
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        let expr = SelectionExpr::new(self)?;
+        match subset {
+            None => Ok(expr.apply_whole(top, st)?),
+            Some(sub) => Ok(expr.apply_subset(top, st, sub)?),
+        }
     }
 }

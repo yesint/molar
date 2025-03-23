@@ -1,11 +1,13 @@
-use sorted_vec::SortedSet;
+use std::cell::RefCell;
+
 use crate::prelude::*;
+use sorted_vec::SortedSet;
 
-mod grammar;
 mod ast;
+mod grammar;
 
-use ast::{EvaluationContext, LogicalNode};
 pub use ast::SelectionParserError;
+use ast::{EvaluationContext, LogicalNode};
 
 //##############################
 //#  Public interface
@@ -13,7 +15,7 @@ pub use ast::SelectionParserError;
 
 #[derive(Debug)]
 pub struct SelectionExpr {
-    ast: LogicalNode,
+    ast: RefCell<LogicalNode>,
     sel_str: String,
 }
 
@@ -23,51 +25,43 @@ impl SelectionExpr {
     }
 }
 
- 
-impl TryFrom<&str> for SelectionExpr {
-    type Error = SelectionParserError;
-    fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
+impl SelectionExpr {
+    pub fn new(s: &str) -> Result<Self, SelectionParserError> {
         Ok(Self {
-            ast: grammar::selection_parser::logical_expr(value).map_err(|e| {
+            ast: RefCell::new(grammar::selection_parser::logical_expr(s).map_err(|e| {
                 let s = format!(
-                    "\n{}\n{}^\nExpected {}",
-                    value,
+                    "\n{s}\n{}^\nExpected {}",
                     "-".repeat(e.location.column - 1),
                     e.expected
                 );
                 SelectionParserError::SyntaxError(s)
-            })?,
-            sel_str: value.to_owned(),
+            })?),
+            sel_str: s.to_owned(),
         })
-    }
-}
-
-impl SelectionExpr {
-    pub fn new(s: &str) -> Result<Self, SelectionParserError> {
-        Ok(s.try_into()?)
     }
 
     pub fn apply_whole(
-        &mut self,
+        &self,
         topology: &Topology,
         state: &State,
     ) -> Result<SortedSet<usize>, SelectionParserError> {
-        let subset = (0..topology.num_atoms()).collect();
+        let subset = (0..topology.num_atoms()).collect::<Vec<_>>();
         let data = EvaluationContext::new(topology, state, &subset)?;
-        self.ast.precompute(&data)?;
-        Ok(self.ast.apply(&data)?.into())
+        let mut ast = self.ast.borrow_mut();
+        ast.precompute(&data)?;
+        Ok(ast.apply(&data)?.into())
     }
 
     pub fn apply_subset(
-        &mut self,
+        &self,
         topology: &Topology,
         state: &State,
-        subset: impl Iterator<Item = usize>,
+        subset: &[usize],
     ) -> Result<SortedSet<usize>, SelectionParserError> {
-        let subset = subset.collect();
-        let data = EvaluationContext::new(topology, state, &subset)?;
-        self.ast.precompute(&data)?;
-        Ok(self.ast.apply(&data)?.into())
+        let data = EvaluationContext::new(topology, state, subset)?;
+        let mut ast = self.ast.borrow_mut();
+        ast.precompute(&data)?;
+        Ok(ast.apply(&data)?.into())
     }
 }
 
@@ -77,30 +71,29 @@ impl SelectionExpr {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
     use super::{SelectionExpr, State, Topology};
     use crate::io::*;
-    
-    static TOPST: LazyLock<(Topology,State)> = LazyLock::new(|| {
+    use std::sync::LazyLock;
+
+    static TOPST: LazyLock<(Topology, State)> = LazyLock::new(|| {
         let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
         h.read().unwrap()
     });
-    
 
     #[test]
     fn within_syntax_test() {
-        let _ast: SelectionExpr = "within 0.5 pbc yyy of resid 555".try_into().unwrap();
+        let _ast = SelectionExpr::new("within 0.5 pbc yyy of resid 555").unwrap();
     }
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
-        let mut ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
         ast.apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST")
             .to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
-        let mut ast: SelectionExpr = sel_str.try_into().expect("Error generating AST");
+        let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
         ast.apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST")
             .to_vec()
@@ -109,17 +102,17 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_invalid_syntax() {
-        let _ast: SelectionExpr = "resname A B C D and resid a:6".try_into().unwrap();
+        let _ast = SelectionExpr::new("resname A B C D and resid a:6").unwrap();
     }
 
     #[test]
     fn test_sqrt() {
-        let mut ast: SelectionExpr = "sqrt (x^2)<5^2".try_into().expect("Error generating AST");
+        let ast = SelectionExpr::new("sqrt (x^2)<5^2").expect("Error generating AST");
         let vec1 = ast
             .apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST");
 
-        let mut ast: SelectionExpr = "x<25".try_into().expect("Error generating AST");
+        let ast = SelectionExpr::new("x<25").expect("Error generating AST");
         let vec2 = ast
             .apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST");
@@ -129,24 +122,21 @@ mod tests {
 
     #[test]
     fn test_dist_syntax() {
-        let _ast: SelectionExpr = "dist point 1.9 2.9 3.8 > 0.4"
-            .try_into()
+        let _ast = SelectionExpr::new("dist point 1.9 2.9 3.8 > 0.4")
             .expect("Error generating AST");
     }
 
     #[test]
     fn within_from_point() {
-        let _ast: SelectionExpr = "within 0.5 of com pbc 101 of protein"
-            .try_into()
+        let _ast = SelectionExpr::new("within 0.5 of com pbc 101 of protein")
             .expect("Error generating AST");
     }
 
     #[test]
     fn debug_print() {
-        let ast: SelectionExpr = "within 0.5 of com pbc 101 of protein"
-            .try_into()
+        let ast = SelectionExpr::new("within 0.5 of com pbc 101 of protein")
             .expect("Error generating AST");
-        println!("{:?}",ast);
+        println!("{:?}", ast);
     }
 
     include!(concat!(
