@@ -1,5 +1,5 @@
 use super::utils::*;
-use crate::prelude::*;
+use crate::{core::topology, prelude::*};
 use sorted_vec::SortedSet;
 use std::marker::PhantomData;
 
@@ -99,12 +99,6 @@ impl Source<()> {
         })
     }
 
-    pub fn parallel_from_file(fname: &str) -> Result<Source<ImmutableParallel>, SelectionError> {
-        let mut fh = FileHandler::open(fname)?;
-        let (top, st) = fh.read()?;
-        Ok(Source::new_parallel(top.into(), st.into())?)
-    }
-
     pub fn serial_from_file(fname: &str) -> Result<Source<MutableSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
@@ -116,6 +110,12 @@ impl Source<()> {
         let (top, st) = fh.read()?;
         Ok(Source::new_builder(top.into(), st.into())?)
     }
+
+    pub fn parallel_from_file(fname: &str) -> Result<Source<ImmutableParallel>, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Source::new_parallel(top.into(), st.into())?)
+    }
 }
 
 //=======================
@@ -123,52 +123,77 @@ impl Source<()> {
 //=======================
 
 impl<K: UserCreatableKind> Source<K> {
+    pub fn new(
+        topology: impl Into<Holder<Topology, K>>,
+        state: impl Into<Holder<State, K>>,
+    ) -> Result<Source<K>, SelectionError> {
+        let topology = topology.into();
+        let state = state.into();
+        check_topology_state_sizes(&topology, &state)?;
+        Ok(Source {
+            topology: topology,
+            state: state,
+            _no_send: Default::default(),
+            _kind: Default::default(),
+        })
+    }
+
+    pub fn from_file(fname: &str) -> Result<Source<K>, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Source::new(Holder::new(top), Holder::new(st))?)
+    }
+
     /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
     pub fn release(self) -> Result<(Topology, State), SelectionError> {
         Ok((self.topology.release()?, self.state.release()?))
     }
 
+    pub fn select<T,D>(&self, def: T) -> Result<Sel<K>, SelectionError> 
+    where
+        T: Into<D>,
+        D: SelectionDef,
+    {
+        let ind = def.into().into_sel_index(&self.topology,&self.state,None)?;
+        todo!("bounds check");
+        Sel::from_holders_and_index(
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
+            ind
+        )
+    }
+
     /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
     /// If any index is out of bounds the error is returned.
-    pub fn select_iter(&self, iter: impl Iterator<Item = usize>) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_iter(iter, self.topology.num_atoms())?;
-        self.new_sel(vec)
+    pub fn select_iter(
+        &self,
+        iter: impl IntoIterator<Item = usize>,
+    ) -> Result<Sel<K>, SelectionError> {
+        let vec = index_from_iter(iter.into_iter(), self.topology.num_atoms())?;
+        self.select_internal(vec)
     }
 
-    pub fn select_vec(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_vec(vec, self.topology.num_atoms())?;
-        self.new_sel(vec)
-    }
-
-    pub unsafe fn select_vec_unchecked(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
-        let vec = SortedSet::from_sorted(vec);
-        self.new_sel(vec)
+    pub unsafe fn select_unchecked(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
+        self.select_internal(SortedSet::from_sorted(vec))
     }
 
     /// Creates selection of all
     pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_all(self.topology.num_atoms());
-        self.new_sel(vec)
+        self.select_internal(vec)
     }
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
     pub fn select_str(&self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
-        self.new_sel(vec)
+        self.select_internal(vec)
     }
 
     /// Creates new selection from an existing selection expression.
     pub fn select_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
         let vec = index_from_expr(expr, &self.topology, &self.state)?;
-        self.new_sel(vec)
-    }
-
-    /// Creates new selection from a range of indexes.
-    /// If rangeis out of bounds the error is returned.
-    pub fn select_range(&self, range: std::ops::Range<usize>) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_range(range, self.topology.num_atoms())?;
-        self.new_sel(vec)
+        self.select_internal(vec)
     }
 
     /// Sets new [State] in this source. All selections created from this source will automatically view
@@ -177,10 +202,7 @@ impl<K: UserCreatableKind> Source<K> {
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     ///
     /// Returns [Holder] with old state, so it could be reused if needed.
-    pub fn set_state(
-        &mut self,
-        state: State,
-    ) -> Result<State, SelectionError> {
+    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
         //let state: Holder<State, K>  = Holder::new(state);
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);
@@ -190,7 +212,7 @@ impl<K: UserCreatableKind> Source<K> {
         // We physically spap memory at these locations
         // this is cheap because coordinates are allocated on heap
         // and only pointers to allocations are swapped
-        Ok(unsafe{ std::ptr::replace(p, state) })
+        Ok(unsafe { std::ptr::replace(p, state) })
     }
 
     /// Sets new [Topology] in this source. All selections created from this Source will automatically view
@@ -223,7 +245,7 @@ impl<K: UserCreatableKind> Source<K> {
         self.state.clone_with_kind()
     }
 
-    fn new_sel(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
+    fn select_internal(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
         Sel::from_holders_and_index(
             self.topology.clone_with_kind(),
             self.state.clone_with_kind(),
@@ -246,7 +268,7 @@ impl Source<BuilderSerial> {
             .get_storage_mut()
             .add_coords(data.iter_pos().cloned());
         let last_added_index = self.num_atoms();
-        self.select_range(first_added_index..last_added_index)
+        self.select_iter(first_added_index..last_added_index)
             .unwrap()
     }
 
@@ -259,7 +281,7 @@ impl Source<BuilderSerial> {
         self.topology.get_storage_mut().add_atoms(atoms);
         self.state.get_storage_mut().add_coords(coords);
         let last_added_index = self.num_atoms();
-        self.select_range(first_added_index..last_added_index)
+        self.select_iter(first_added_index..last_added_index)
             .unwrap()
     }
 
@@ -317,10 +339,8 @@ impl Source<BuilderSerial> {
 /// Macros for implementing common traits for read-only sources
 macro_rules! impl_read_only_source_traits {
     ( $t:ty ) => {
-        impl TopologyProvider for $t {
-            
-        }
-        
+        impl TopologyProvider for $t {}
+
         impl AtomProvider for $t {
             fn iter_atoms(&self) -> impl AtomIterator<'_> {
                 self.topology.iter_atoms()
@@ -336,33 +356,33 @@ macro_rules! impl_read_only_source_traits {
                 self.topology.nth_atom_unchecked(i)
             }
         }
-        
+
         impl StateProvider for $t {
             fn get_time(&self) -> f32 {
                 self.state.get_time()
             }
         }
-        
+
         impl PosProvider for $t {
             fn iter_pos(&self) -> impl PosIterator<'_> {
                 self.state.iter_pos()
             }
         }
-        
+
         impl BoxProvider for $t {
             fn get_box(&self) -> Option<&PeriodicBox> {
                 self.state.get_box()
             }
         }
-        
+
         impl WritableToFile for $t {}
 
         impl ParticleProvider for $t {
             fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
                 self.iter_index().map(|i| Particle {
                     id: i,
-                    atom: unsafe{self.topology.nth_atom_unchecked(i)},
-                    pos: unsafe{self.state.nth_pos_unchecked(i)},
+                    atom: unsafe { self.topology.nth_atom_unchecked(i) },
+                    pos: unsafe { self.state.nth_pos_unchecked(i) },
                 })
             }
         }
@@ -372,7 +392,7 @@ macro_rules! impl_read_only_source_traits {
                 self.state.num_coords()
             }
         }
-        
+
         impl RandomPosProvider for $t {
             fn num_coords(&self) -> usize {
                 self.state.num_coords()
@@ -387,33 +407,33 @@ macro_rules! impl_read_only_source_traits {
             fn num_molecules(&self) -> usize {
                 self.topology.num_molecules()
             }
-        
+
             fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
                 self.topology.iter_molecules()
             }
-        
-            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+
+            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.topology.nth_molecule_unchecked(i)
             }
         }
-        
+
         impl BondsProvider for $t {
             fn num_bonds(&self) -> usize {
                 self.topology.num_bonds()
             }
-        
+
             fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
                 self.topology.iter_bonds()
             }
-        
-            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+
+            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.topology.nth_bond_unchecked(i)
             }
         }
     };
 }
 
-/// Macros for implementing common traits for read-write sources 
+/// Macros for implementing common traits for read-write sources
 macro_rules! impl_read_write_source_traits {
     ( $t:ty ) => {
         impl_read_only_source_traits!($t);
@@ -439,17 +459,17 @@ macro_rules! impl_read_write_source_traits {
                 self.topology.iter_atoms_mut()
             }
         }
-        
+
         impl ParticleMutProvider for $t {
             fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
                 self.iter_index().map(|i| ParticleMut {
                     id: i,
-                    atom: unsafe{self.topology.nth_atom_unchecked_mut(i)},
-                    pos: unsafe{self.state.nth_pos_unchecked_mut(i)},
+                    atom: unsafe { self.topology.nth_atom_unchecked_mut(i) },
+                    pos: unsafe { self.state.nth_pos_unchecked_mut(i) },
                 })
             }
         }
-    }
+    };
 }
 
 // All sources provide an index trivially

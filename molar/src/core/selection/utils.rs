@@ -28,22 +28,9 @@ pub(super) fn index_from_expr(expr: &mut SelectionExpr, topology: &Topology, sta
     }
 }
 
-/// Creates an index set by evaluating a selection expression on a subset of the system
-pub(super) fn index_from_expr_sub(expr: &mut SelectionExpr, topology: &Topology, state: &State, subset: &SortedSet<usize>) -> Result<SortedSet<usize>, SelectionError> {
-    let index = expr.apply_subset(&topology, &state, subset.iter().cloned())?;
-    if index.len() > 0 {
-        Ok(index)
-    } else {
-        Err(SelectionError::FromExpr {
-            expr_str: expr.get_str().into(), 
-            source: SelectionIndexError::IndexEmpty, 
-        })
-    }
-}
-
 /// Creates an index set by parsing and evaluating a selection string
 pub(super) fn index_from_str(selstr: &str, topology: &Topology, state: &State) -> Result<SortedSet<usize>, SelectionError> {
-    let index = SelectionExpr::try_from(selstr)?.apply_whole(&topology, &state)?;
+    let index = SelectionExpr::new(selstr)?.apply_whole(&topology, &state)?;
     if index.len() > 0 {
         Ok(index)
     } else {
@@ -188,6 +175,22 @@ pub fn difference_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &Sorted
     }
 
     unsafe {SortedSet::from_sorted(ret)}
+}
+
+// Convert local selection indexes to global
+pub(super) fn local_to_global(
+    local: impl Iterator<Item = usize>,
+    subset: &SortedSet<usize>,
+) -> Result<SortedSet<usize>, SelectionError> {
+    Ok(local
+        .map(|i| {
+            subset
+                .get(i)
+                .cloned()
+                .ok_or_else(|| SelectionError::LocalToGlobal(i, subset.len()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into())
 }
 
 

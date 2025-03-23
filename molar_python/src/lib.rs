@@ -296,10 +296,10 @@ impl Source {
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
                 Ok(Sel(self
                     .0
-                    .select_range(val.0..val.1)
+                    .select_iter(val.0..val.1)
                     .map_err(|e| anyhow!(e))?))
             } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-                Ok(Sel(self.0.select_vec(val).map_err(|e| anyhow!(e))?))
+                Ok(Sel(self.0.select_iter(val).map_err(|e| anyhow!(e))?))
             } else {
                 Err(anyhow!(
                     "Invalid argument type {} when creating selection",
@@ -379,7 +379,7 @@ impl Sel {
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             Ok(Sel(self
                 .0
-                .subsel_local_range(val.0..=val.1)
+                .subsel_iter(val.0..=val.1)
                 .map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
             Ok(Sel(self

@@ -59,6 +59,9 @@ pub enum SelectionError {
     #[error("index {0} is beyond the allowed range 0:{1}")]
     OutOfBounds(usize, usize),
 
+    #[error("local index {0} is beyond the allowed range 0:{1}")]
+    LocalToGlobal(usize, usize),
+
     #[error("selection index {0}:{1} is outside the source range: 0:{2}")]
     IndexCheck(usize, usize, usize),
 

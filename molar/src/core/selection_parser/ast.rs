@@ -171,19 +171,19 @@ pub(super) struct EvaluationContext<'a> {
     // This is a subset passed from outside
     // selection is completely within it
     // Parser is not changing subset
-    global_subset: &'a Vec<usize>,
+    global_subset: &'a [usize],
     // This is a context-dependent subset
     // (created for example by AND operation)
     // Selection can extend out of it
     // (like with WITHIN of BY)
-    local_subset: Option<&'a Vec<usize>>,
+    local_subset: Option<&'a [usize]>,
 }
 
 impl<'a> EvaluationContext<'a> {
     pub(super) fn new(
         topology: &'a Topology,
         state: &'a State,
-        global_subset: &'a Vec<usize>,
+        global_subset: &'a [usize],
     ) -> Result<Self, SelectionParserError> {
         check_topology_state_sizes(topology, state)?;
 
@@ -232,7 +232,7 @@ impl<'a> EvaluationContext<'a> {
 struct ActiveSubset<'a> {
     topology: &'a Topology,
     state: &'a State,
-    subset: &'a Vec<usize>,
+    subset: &'a [usize],
 }
 
 impl ActiveSubset<'_> {
