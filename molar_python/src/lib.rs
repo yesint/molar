@@ -280,8 +280,8 @@ impl Source {
         Ok(Sel(self.0.select_all().map_err(|e| anyhow!(e))?))
     }
 
-    fn select_str(&mut self, sel_str: &str) -> PyResult<Sel> {
-        Ok(Sel(self.0.select_str(sel_str).map_err(|e| anyhow!(e))?))
+    fn select(&mut self, sel_str: &str) -> PyResult<Sel> {
+        Ok(Sel(self.0.select(sel_str).map_err(|e| anyhow!(e))?))
     }
 
     #[pyo3(signature = (arg=None))]
@@ -291,7 +291,7 @@ impl Source {
                 if val.is_empty() {
                     Ok(Sel(self.0.select_all().map_err(|e| anyhow!(e))?))
                 } else {
-                    Ok(Sel(self.0.select_str(val).map_err(|e| anyhow!(e))?))
+                    Ok(Sel(self.0.select(val).map_err(|e| anyhow!(e))?))
                 }
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
                 Ok(Sel(self
@@ -342,7 +342,7 @@ impl Source {
         if let Ok(sel) = arg.downcast::<Sel>() {
             Ok(self.0.remove(&sel.borrow().0)?)
         } else if let Ok(sel_str) = arg.extract::<String>() {
-            let sel = self.0.select_str(sel_str)?;
+            let sel = self.0.select(sel_str)?;
             Ok(self.0.remove(&sel)?)
         } else {
             unreachable!()

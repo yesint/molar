@@ -114,8 +114,8 @@ If reading the file fails for whatever reason the `?` operator will return an er
 Now we need to select all waters that are going to be converted to TIP4. We also need to select all non-water part of the system to keep it as is.
 
 ```rust,ignore
-let water = src.select_str("resname TIP3")?;
-let non_water = src.select_str("not resname TIP3")?;
+let water = src.select("resname TIP3")?;
+let non_water = src.select("not resname TIP3")?;
 ```
 
 Selections are created with the syntax that is very similar to one used in VMD Pteros and Gromacs. Here we select water and non-water by residue name.
@@ -244,8 +244,8 @@ fn main() -> Result<()> {
     // Make empty output system
     let out = Source::empty_builder();
 
-    let water = src.select_str("resname TIP3")?;
-    let non_water = src.select_str("not resname TIP3")?;
+    let water = src.select("resname TIP3")?;
+    let non_water = src.select("not resname TIP3")?;
 
     // Add non-water atoms to the output
     out.append(&non_water);

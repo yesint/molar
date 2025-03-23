@@ -149,17 +149,11 @@ impl<K: UserCreatableKind> Source<K> {
         Ok((self.topology.release()?, self.state.release()?))
     }
 
-    pub fn select<T,D>(&self, def: T) -> Result<Sel<K>, SelectionError> 
-    where
-        T: Into<D>,
-        D: SelectionDef,
-    {
-        let ind = def.into().into_sel_index(&self.topology,&self.state,None)?;
-        todo!("bounds check");
+    pub fn select(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
         Sel::from_holders_and_index(
             self.topology.clone_with_kind(),
             self.state.clone_with_kind(),
-            ind
+            def.into_sel_index(&self.topology, &self.state, None)?,
         )
     }
 
@@ -185,16 +179,16 @@ impl<K: UserCreatableKind> Source<K> {
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
     /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
-    pub fn select_str(&self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
-        self.select_internal(vec)
-    }
+    // pub fn select_str(&self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
+    //     let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
+    //     self.select_internal(vec)
+    // }
 
-    /// Creates new selection from an existing selection expression.
-    pub fn select_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_expr(expr, &self.topology, &self.state)?;
-        self.select_internal(vec)
-    }
+    // /// Creates new selection from an existing selection expression.
+    // pub fn select_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
+    //     let vec = index_from_expr(expr, &self.topology, &self.state)?;
+    //     self.select_internal(vec)
+    // }
 
     /// Sets new [State] in this source. All selections created from this source will automatically view
     /// the new state.
@@ -268,7 +262,7 @@ impl Source<BuilderSerial> {
             .get_storage_mut()
             .add_coords(data.iter_pos().cloned());
         let last_added_index = self.num_atoms();
-        self.select_iter(first_added_index..last_added_index)
+        self.select(first_added_index..last_added_index)
             .unwrap()
     }
 
@@ -281,7 +275,7 @@ impl Source<BuilderSerial> {
         self.topology.get_storage_mut().add_atoms(atoms);
         self.state.get_storage_mut().add_coords(coords);
         let last_added_index = self.num_atoms();
-        self.select_iter(first_added_index..last_added_index)
+        self.select(first_added_index..last_added_index)
             .unwrap()
     }
 

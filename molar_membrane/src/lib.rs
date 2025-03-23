@@ -32,7 +32,7 @@ impl Membrane {
         //let mut species: HashMap<String, Arc<LipidSpecies>> = Default::default();
         let mut lipids = vec![];
         for (name, descr) in species_descr.iter() {
-            if let Ok(lips) = source.select_str(&descr.whole) {
+            if let Ok(lips) = source.select(&descr.whole) {
                 let lips = lips.split_resindex::<Vec<_>>()?;
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn test_descr() -> anyhow::Result<()> {
         let src = Source::serial_from_file("tests/membr.gro")?;
-        let pope = src.select_str("resid 60")?;
+        let pope = src.select("resid 60")?;
         let descr = LipidSpeciesDescr {
             whole: "resname POPE".into(),
             head: "name P N".into(),
@@ -510,7 +510,7 @@ mod tests {
     fn test_whole() -> anyhow::Result<()> {
         let src = Source::serial_from_file("/home/semen/work/Projects/Misha/PG_flipping/last.gro")?;
         let z0 = src
-            .select_str("not resname TIP3 POT CLA")?
+            .select("not resname TIP3 POT CLA")?
             .center_of_mass()?
             .z;
         let mut toml = String::new();

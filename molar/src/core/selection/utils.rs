@@ -180,7 +180,7 @@ pub fn difference_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &Sorted
 // Convert local selection indexes to global
 pub(super) fn local_to_global(
     local: impl Iterator<Item = usize>,
-    subset: &SortedSet<usize>,
+    subset: &[usize],
 ) -> Result<SortedSet<usize>, SelectionError> {
     Ok(local
         .map(|i| {

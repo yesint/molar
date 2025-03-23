@@ -999,7 +999,7 @@ mod tests {
     fn within_plan_test() -> anyhow::Result<()> {
         let src = Source::serial_from_file("tests/albumin.pdb")?;
         let t = std::time::Instant::now();
-        src.select_str("within 4.0 of resid 10:300")?;
+        src.select("within 4.0 of resid 10:300")?;
         println!("elapsed {}", t.elapsed().as_secs_f32());
         Ok(())
     }
@@ -1007,7 +1007,7 @@ mod tests {
     #[test]
     fn within_pbc() -> anyhow::Result<()> {
         let src = Source::serial_from_file("tests/albumin.pdb")?;
-        let sel = src.select_str("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
+        let sel = src.select("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
         sel.save("../target/pbc_sel.pdb")?;
         Ok(())
     }

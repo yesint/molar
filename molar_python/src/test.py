@@ -2,7 +2,7 @@ from pymolar import *
 from sys import getrefcount
 import numpy as np
 
-#sel = Source('../../molar/tests/protein.pdb').select_str("resid 5:600")
+#sel = Source('../../molar/tests/protein.pdb').select("resid 5:600")
 
 def test1():
     sel = Source('../../tests/protein.pdb')("resid 5:600")
