@@ -600,7 +600,8 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Subselection from expression
     pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
-        let index = expr.apply_subset(&self.topology, &self.state, self.index_storage.as_slice())?;
+        let index =
+            expr.apply_subset(&self.topology, &self.state, self.index_storage.as_slice())?;
         if index.is_empty() {
             return Err(SelectionError::FromExpr {
                 expr_str: expr.get_str().into(),
@@ -1075,7 +1076,7 @@ impl SelectionDef for &str {
                 } else {
                     Ok(ind)
                 }
-            },
+            }
         }
     }
 }
@@ -1110,15 +1111,15 @@ impl SelectionDef for std::ops::Range<usize> {
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {
         match subset {
-            None => Ok(unsafe{SortedSet::from_sorted(self.collect::<Vec<_>>())}),
+            None => Ok(unsafe { SortedSet::from_sorted(self.collect::<Vec<_>>()) }),
             Some(sub) => {
                 let n = sub.len();
-                if self.start >= n || self.end >=n {
+                if self.start >= n || self.end >= n {
                     Err(SelectionError::IndexCheck(self.start, self.end, n))
                 } else {
                     Ok(self.map(|i| sub[i]).collect::<Vec<_>>().into())
                 }
-            },
+            }
         }
     }
 }
@@ -1133,8 +1134,66 @@ impl SelectionDef for std::ops::RangeInclusive<usize> {
         if self.is_empty() {
             Err(SelectionError::Empty)
         } else {
-            let (b,e) = self.into_inner();
-            (b..e+1).into_sel_index(top, st, subset)
+            let (b, e) = self.into_inner();
+            (b..e + 1).into_sel_index(top, st, subset)
         }
+    }
+}
+
+impl SelectionDef for &[usize] {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        _st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        if self.is_empty() {
+            Err(SelectionError::Empty)
+        } else {
+            // First, sort input indexes
+            let mut v = SortedSet::from_unsorted(self.to_vec());
+            // Get allowed range
+            let n = match subset {
+                None => top.num_atoms(),
+                Some(sub) => sub.len(),
+            };
+            // Range check
+            if v[0] >= n || v[v.len() - 1] >= n {
+                Err(SelectionError::IndexCheck(v[0], v[v.len() - 1], n))
+            } else {
+                // For subset convert to global indexes
+                if let Some(sub) = subset {
+                    let vec = unsafe{v.get_unchecked_mut_vec()};
+                    for i in 0..sub.len() {
+                        vec[i] = sub[vec[i]];
+                    }
+                }
+                // Return v
+                Ok(v)
+            }
+        }
+    }
+}
+
+
+impl SelectionDef for &Vec<usize> {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        self.as_slice().into_sel_index(top, st, subset)
+    }
+}
+
+impl SelectionDef for Vec<usize> {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        self.as_slice().into_sel_index(top, st, subset)
     }
 }
