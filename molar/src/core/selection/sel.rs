@@ -640,8 +640,8 @@ impl<K: UserCreatableKind> Sel<K> {
     //==============================================
     // Logic on selections that modify existing ones
     //==============================================
-    pub fn append(&mut self, other: &impl IndexProvider) -> Result<(), SelectionError> {
-        self.index_storage.extend(other.iter_index());
+    pub fn append(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
+        self.index_storage.extend(other.into_sel_index(&self.topology, &self.state, None)?.iter().cloned());
         self.check_index()?;
         Ok(())
     }

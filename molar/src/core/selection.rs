@@ -110,6 +110,9 @@ pub enum SelectionError {
 
     #[error("gromacs ndx error in group {0}")]
     Ndx(String, #[source] NdxError),
+
+    #[error("selection as a definition for subselecting in ambigous")]
+    SelDefInSubsel,
 }
 
 #[derive(Error, Debug)]

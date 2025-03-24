@@ -192,3 +192,24 @@ impl SelectionDef for &SVec {
         self.clone().into_sel_index(top, st, subset)
     }
 }
+
+impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
+    fn into_sel_index(
+        self,
+        top: &Topology,
+        _st: &State,
+        subset: Option<&[usize]>,
+    ) -> Result<SortedSet<usize>, SelectionError> {
+        if let Some(_) = subset {
+            return Err(SelectionError::SelDefInSubsel)
+        }
+
+        let n = top.num_atoms();
+        if self.first_index() >= n || self.last_index() >= n {
+            return Err(SelectionError::IndexCheck(self.first_index(), self.last_index(), n));
+        }
+
+        Ok(self.get_index_vec())
+    }
+}
+
