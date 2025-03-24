@@ -21,16 +21,14 @@ impl SelectionDef for &SelectionExpr {
         st: &State,
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {        
-        match subset {
-            None => Ok(self.apply_whole(top, st)?),
-            Some(sub) => {
-                let ind = self.apply_subset(top, st, sub)?;
-                if ind.is_empty() {
-                    Err(SelectionError::Empty)
-                } else {
-                    Ok(ind)
-                }
-            }
+        let ind = match subset {
+            None => self.apply_whole(top, st)?,
+            Some(sub) => self.apply_subset(top, st, sub)?,
+        };
+        if ind.is_empty() {
+            Err(SelectionError::Empty)
+        } else {
+            Ok(ind)
         }
     }
 }
