@@ -296,10 +296,10 @@ impl Source {
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
                 Ok(Sel(self
                     .0
-                    .select_iter(val.0..val.1)
+                    .select(val.0..val.1)
                     .map_err(|e| anyhow!(e))?))
             } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-                Ok(Sel(self.0.select_iter(val).map_err(|e| anyhow!(e))?))
+                Ok(Sel(self.0.select(val).map_err(|e| anyhow!(e))?))
             } else {
                 Err(anyhow!(
                     "Invalid argument type {} when creating selection",
@@ -375,16 +375,16 @@ impl Sel {
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {
         if let Ok(val) = arg.extract::<String>() {
-            Ok(Sel(self.0.subsel_str(val).map_err(|e| anyhow!(e))?))
+            Ok(Sel(self.0.subsel(val).map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             Ok(Sel(self
                 .0
-                .subsel_iter(val.0..=val.1)
+                .subsel(val.0..=val.1)
                 .map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
             Ok(Sel(self
                 .0
-                .subsel_iter(val.into_iter())
+                .subsel(val)
                 .map_err(|e| anyhow!(e))?))
         } else {
             Err(anyhow!(

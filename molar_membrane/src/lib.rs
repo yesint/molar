@@ -41,16 +41,16 @@ impl Membrane {
                 // Now create individual lipids
                 for lip in lips {
                     //let sp = &species[name];
-                    let head_sel = lip.subsel_iter(sp.head_marker_offsets.iter().cloned())?;
-                    let mid_sel = lip.subsel_iter(sp.mid_marker_offsets.iter().cloned())?;
+                    let head_sel = lip.subsel(&sp.head_marker_offsets)?;
+                    let mid_sel = lip.subsel(&sp.mid_marker_offsets)?;
 
                     let mut tail_sels = vec![];
                     let mut tail_ends = vec![];
                     for t in sp.tails.iter() {
-                        tail_sels.push(lip.subsel_iter(t.offsets.iter().cloned())?);
+                        tail_sels.push(lip.subsel(&t.offsets)?);
                         tail_ends.push(*t.offsets.last().unwrap());
                     }
-                    let tail_end_sel = lip.subsel_iter(tail_ends.iter().cloned())?;
+                    let tail_end_sel = lip.subsel(tail_ends)?;
 
                     // Unwrap the lipid
                     lip.unwrap_simple()?;
@@ -330,7 +330,7 @@ impl LipidSpecies {
             // Now find offsets for each atom name
             let mut offsets = vec![];
             for name in names {
-                let atom = lipid.subsel_str(format!("name {name}"))?;
+                let atom = lipid.subsel(format!("name {name}"))?;
                 if atom.len() > 1 {
                     bail!("more than one tail atom {name} in lipid");
                 }
@@ -349,14 +349,14 @@ impl LipidSpecies {
             descr: descr.clone(),
             head_marker_offsets: SortedSet::from_unsorted(
                 lipid
-                    .subsel_str(descr.head)?
+                    .subsel(descr.head)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),
             ),
             mid_marker_offsets: SortedSet::from_unsorted(
                 lipid
-                    .subsel_str(descr.mid)?
+                    .subsel(descr.mid)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),

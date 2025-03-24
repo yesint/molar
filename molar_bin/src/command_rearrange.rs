@@ -21,14 +21,14 @@ pub(super) fn command_rearrange(
             info!("\t{s}");
         }
     }
-    
+
     if !end.is_empty() {
         info!("Selections to put at the end:");
         for s in end.iter() {
             info!("\t{s}");
         }
     }
-    
+
     // Make selections
     info!("Rearranging file '{infile}'...");
     let in_source = Source::serial_from_file(infile)?;
@@ -56,8 +56,10 @@ pub(super) fn command_rearrange(
 
     // Get the rest of indexes, which are not used
     let all_ind = (0..in_source.num_atoms()).collect::<HashSet<usize>>();
-    
-    let rest_sel = in_source.select_iter(all_ind.difference(&used).cloned()).ok();
+
+    let rest_sel = in_source
+        .select(all_ind.difference(&used).cloned().collect::<Vec<_>>())
+        .ok();
 
     // Create output builder
     let out = Source::empty_builder();
@@ -68,7 +70,7 @@ pub(super) fn command_rearrange(
 
     // Add the rest if any
     if let Some(rest) = rest_sel {
-        info!("There are {} untouched atoms",rest.len());
+        info!("There are {} untouched atoms", rest.len());
         out.append(&rest);
     }
 

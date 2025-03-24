@@ -149,6 +149,10 @@ impl<K: UserCreatableKind> Source<K> {
         Ok((self.topology.release()?, self.state.release()?))
     }
 
+    pub fn len(&self) -> usize {
+        self.topology.num_atoms()
+    }
+
     pub fn select(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
         Sel::from_holders_and_index(
             self.topology.clone_with_kind(),
@@ -157,24 +161,21 @@ impl<K: UserCreatableKind> Source<K> {
         )
     }
 
-    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
-    /// If any index is out of bounds the error is returned.
-    pub fn select_iter(
-        &self,
-        iter: impl IntoIterator<Item = usize>,
-    ) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_iter(iter.into_iter(), self.topology.num_atoms())?;
-        self.select_internal(vec)
-    }
-
-    pub unsafe fn select_unchecked(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
-        self.select_internal(SortedSet::from_sorted(vec))
+    pub unsafe fn select_vec_unchecked(&self, vec: Vec<usize>) -> Result<Sel<K>, SelectionError> {
+        Sel::from_holders_and_index(
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
+            vec.into(),
+        )        
     }
 
     /// Creates selection of all
-    pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
-        let vec = index_from_all(self.topology.num_atoms());
-        self.select_internal(vec)
+    pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {        
+        Sel::from_holders_and_index(
+            self.topology.clone_with_kind(),
+            self.state.clone_with_kind(),
+            unsafe { SortedSet::from_sorted((0..self.len()).collect()) },
+        )        
     }
 
     /// Creates new selection from a selection expression string. Selection expression is constructed internally but
@@ -237,14 +238,6 @@ impl<K: UserCreatableKind> Source<K> {
 
     pub fn get_state(&self) -> Holder<State, K> {
         self.state.clone_with_kind()
-    }
-
-    fn select_internal(&self, index: SortedSet<usize>) -> Result<Sel<K>, SelectionError> {
-        Sel::from_holders_and_index(
-            self.topology.clone_with_kind(),
-            self.state.clone_with_kind(),
-            index,
-        )
     }
 }
 
