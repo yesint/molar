@@ -641,16 +641,27 @@ impl<K: UserCreatableKind> Sel<K> {
     // Logic on selections that modify existing ones
     //==============================================
     pub fn append(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
-        self.index_storage.extend(other.into_sel_index(&self.topology, &self.state, None)?.iter().cloned());
+        self.index_storage.extend(
+            other
+                .into_sel_index(&self.topology, &self.state, None)?
+                .iter()
+                .cloned(),
+        );
         self.check_index()?;
         Ok(())
     }
 
-    pub fn exclude_global(&mut self, other: &impl IndexProvider) {
+    pub fn exclude_global(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
         let lhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
-        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other.iter_index());
+        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(
+            other
+                .into_sel_index(&self.topology, &self.state, None)?
+                .iter()
+                .cloned(),
+        );
         let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
         self.index_storage = SortedSet::from_unsorted(v);
+        Ok(())
     }
 
     pub fn exclude_local(&mut self, other: impl IntoIterator<Item = usize>) {
