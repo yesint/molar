@@ -80,7 +80,7 @@ pub(crate) fn command_solvate(
         inside_ind.extend(res.iter_index());
     }
     // It is safe to call here since indexes are guaranteed to be properly sorted
-    let mut inside_sel = unsafe { solvent.select_unchecked(inside_ind)? };
+    let mut inside_sel = unsafe { solvent.select_vec_unchecked(inside_ind)? };
 
     //inside_sel.save("target/inside.gro")?;
 

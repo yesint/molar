@@ -2,8 +2,11 @@ mod holder;
 mod kinds;
 mod sel;
 mod sel_split;
+mod selection_def;
 mod source;
 mod utils;
+
+use std::num::ParseIntError;
 
 pub use holder::*;
 pub use kinds::*;
@@ -11,10 +14,14 @@ pub use sel::*;
 pub use sel_split::*;
 pub use source::*;
 pub(crate) use utils::*;
+pub use selection_def::SelectionDef;
 
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;
 use thiserror::Error;
+
+/// Alias to sorted vector
+pub type SVec = sorted_vec::SortedSet<usize>;
 
 //############################################################
 //#  Error enums
@@ -100,6 +107,9 @@ pub enum SelectionError {
 
     #[error("no molecules in topology")]
     NoMolecules,
+
+    #[error("gromacs ndx error in group {0}")]
+    Ndx(String, #[source] NdxError),
 }
 
 #[derive(Error, Debug)]
@@ -109,6 +119,19 @@ pub enum SelectionIndexError {
     #[error("selection indeces {0}:{1} are out of allowed range 0:{2}")]
     IndexOutOfBounds(usize, usize, usize),
 }
+
+#[derive(Debug, Error)]
+pub enum NdxError {
+    #[error("group not found")]
+    NoGroup,
+    
+    #[error("group is empty")]
+    EmptyGroup,
+    
+    #[error(transparent)]
+    Parse(#[from] ParseIntError)
+}
+
 
 //############################################################
 //#  Tests
@@ -397,4 +420,5 @@ mod tests {
         assert_eq!(sel3.len(), sel1.len()+sel2.len());
         Ok(())
     }
+    
 }

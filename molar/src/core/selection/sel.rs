@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use itertools::Itertools;
+use ndarray::IntoNdProducer;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
@@ -460,7 +461,7 @@ impl<K: UserCreatableKind> Sel<K> {
                     None
                 }
             })
-            .map(|r| self.subsel_iter(r))
+            .map(|r| self.subsel(r))
             .collect::<Result<C, SelectionError>>()?)
     }
 
@@ -599,99 +600,41 @@ impl<K: UserCreatableKind> Sel<K> {
     //===================
 
     /// Subselection from expression
-    pub fn subsel_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
-        let index =
-            expr.apply_subset(&self.topology, &self.state, self.index_storage.as_slice())?;
-        if index.is_empty() {
-            return Err(SelectionError::FromExpr {
-                expr_str: expr.get_str().into(),
-                source: SelectionIndexError::IndexEmpty,
-            });
-        }
+    pub fn subsel(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
         Self::from_holders_and_index(
             self.topology.clone_with_kind(),
             self.state.clone_with_kind(),
-            index,
-        )
-    }
-
-    /// Subselection from string
-    pub fn subsel_str(&self, sel_str: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
-        let mut expr = SelectionExpr::new(sel_str.as_ref())?;
-        self.subsel_expr(&mut expr)
-    }
-
-    /// Subselection from iterator that provides local selection indexes
-    pub fn subsel_iter(
-        &self,
-        iter: impl IntoIterator<Item = usize>,
-    ) -> Result<Sel<K>, SelectionError> {
-        Self::from_holders_and_index(
-            self.topology.clone_with_kind(),
-            self.state.clone_with_kind(),
-            local_to_global(iter.into_iter(), &self.index_storage)?,
+            def.into_sel_index(&self.topology, &self.state, Some(self.index().as_slice()))?,
         )
     }
 
     //==============================================
     // Direct creation of selections without Source
     //==============================================
-
-    /// Creates new selection from an iterator of indexes. Indexes are bound checked, sorted and duplicates are removed.
-    /// If any index is out of bounds the error is returned.
-    pub fn from_iter(
+    pub fn new(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
-        iter: impl Iterator<Item = usize>,
+        def: impl SelectionDef,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
-        let vec = index_from_iter(iter, topology.num_atoms())?;
-        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
+        Self::from_holders_and_index(
+            topology.clone_with_kind(),
+            state.clone_with_kind(),
+            def.into_sel_index(&topology, &state, None)?,
+        )
     }
 
     /// Selects all
-    pub fn from_all(
+    pub fn new_all(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
-        let vec = index_from_all(topology.num_atoms());
-        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
-    }
-
-    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
-    /// can't be reused. Consider using [select_expr](Self::select_expr) if you already have selection expression.
-    pub fn from_str(
-        topology: &Holder<Topology, K>,
-        state: &Holder<State, K>,
-        selstr: &str,
-    ) -> Result<Self, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
-        let vec = index_from_str(selstr, &topology, &state)?;
-        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
-    }
-
-    /// Creates new selection from an existing selection expression.
-    pub fn from_expr(
-        topology: &Holder<Topology, K>,
-        state: &Holder<State, K>,
-        expr: &mut SelectionExpr,
-    ) -> Result<Self, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
-        let vec = index_from_expr(expr, &topology, &state)?;
-        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
-    }
-
-    /// Creates new selection from a range of indexes.
-    /// If range is out of bounds the error is returned.
-    pub fn from_range(
-        topology: &Holder<Topology, K>,
-        state: &Holder<State, K>,
-        range: std::ops::Range<usize>,
-    ) -> Result<Self, SelectionError> {
-        check_topology_state_sizes(&topology, &state)?;
-        let vec = index_from_range(range, topology.num_atoms())?;
-        Self::from_holders_and_index(topology.clone_with_kind(), state.clone_with_kind(), vec)
+        Self::from_holders_and_index(
+            topology.clone_with_kind(),
+            state.clone_with_kind(),
+            unsafe { SortedSet::from_sorted((0..topology.num_atoms()).collect()) },
+        )
     }
 
     //==============================================
@@ -794,6 +737,65 @@ impl<K: UserCreatableKind> Sel<K> {
             s.push('\n');
         }
         s
+    }
+
+    pub fn from_gromacs_ndx(
+        topology: &Holder<Topology, K>,
+        state: &Holder<State, K>,
+        ndx_str: impl AsRef<str>,
+        group_name: impl AsRef<str>,
+    ) -> Result<Self, SelectionError> {
+        let group_name = group_name.as_ref();
+        let ndx_str = ndx_str.as_ref();
+    
+        // Find the group header
+        let group_header = format!("[ {} ]", group_name);
+        let mut found_group = false;
+        let mut numbers = Vec::new();
+    
+        for line in ndx_str.lines() {
+            let line = line.trim();
+            
+            if line == group_header {
+                found_group = true;
+                continue;
+            }
+            
+            // If we hit another group header, stop reading
+            if found_group && line.starts_with('[') {
+                break;
+            }
+    
+            // Parse numbers if we're in the right group
+            if found_group && !line.is_empty() {
+                numbers.extend(
+                    line.split_whitespace()
+                        .map(|s| s.parse::<usize>())
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| SelectionError::Ndx(group_name.into(),NdxError::Parse(e)))?
+                );
+            }
+        }
+    
+        if !found_group {
+            return Err(SelectionError::Ndx(group_name.into(),NdxError::NoGroup));
+        }
+    
+        if numbers.is_empty() {
+            return Err(SelectionError::Ndx(group_name.into(),NdxError::EmptyGroup));
+        }
+    
+        // Convert from 1-based to 0-based indexing
+        for num in numbers.iter_mut() {
+            *num = num.saturating_sub(1);
+        }
+            
+        // Create and return new selection
+        Self::from_holders_and_index(
+            topology.clone_with_kind(),
+            state.clone_with_kind(),
+            numbers.into()
+        )
     }
 }
 
@@ -1048,152 +1050,3 @@ impl<K: MutableKind> RandomAtomMutProvider for Sel<K> {
 impl<K: MutableKind> ModifyPos for Sel<K> {}
 impl<K: MutableKind> ModifyPeriodic for Sel<K> {}
 impl<K: MutableKind> ModifyRandomAccess for Sel<K> {}
-
-//-----------------------------------------------
-pub trait SelectionDef {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError>;
-}
-
-impl SelectionDef for &str {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        let expr = SelectionExpr::new(self)?;
-        match subset {
-            None => Ok(expr.apply_whole(top, st)?),
-            Some(sub) => {
-                let ind = expr.apply_subset(top, st, sub)?;
-                if ind.is_empty() {
-                    Err(SelectionError::Empty)
-                } else {
-                    Ok(ind)
-                }
-            }
-        }
-    }
-}
-
-impl SelectionDef for String {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        self.as_str().into_sel_index(top, st, subset)
-    }
-}
-
-impl SelectionDef for &String {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        self.as_str().into_sel_index(top, st, subset)
-    }
-}
-
-impl SelectionDef for std::ops::Range<usize> {
-    fn into_sel_index(
-        self,
-        _top: &Topology,
-        _st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        match subset {
-            None => Ok(unsafe { SortedSet::from_sorted(self.collect::<Vec<_>>()) }),
-            Some(sub) => {
-                let n = sub.len();
-                if self.start >= n || self.end >= n {
-                    Err(SelectionError::IndexCheck(self.start, self.end, n))
-                } else {
-                    Ok(self.map(|i| sub[i]).collect::<Vec<_>>().into())
-                }
-            }
-        }
-    }
-}
-
-impl SelectionDef for std::ops::RangeInclusive<usize> {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        if self.is_empty() {
-            Err(SelectionError::Empty)
-        } else {
-            let (b, e) = self.into_inner();
-            (b..e + 1).into_sel_index(top, st, subset)
-        }
-    }
-}
-
-impl SelectionDef for &[usize] {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        _st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        if self.is_empty() {
-            Err(SelectionError::Empty)
-        } else {
-            // First, sort input indexes
-            let mut v = SortedSet::from_unsorted(self.to_vec());
-            // Get allowed range
-            let n = match subset {
-                None => top.num_atoms(),
-                Some(sub) => sub.len(),
-            };
-            // Range check
-            if v[0] >= n || v[v.len() - 1] >= n {
-                Err(SelectionError::IndexCheck(v[0], v[v.len() - 1], n))
-            } else {
-                // For subset convert to global indexes
-                if let Some(sub) = subset {
-                    let vec = unsafe{v.get_unchecked_mut_vec()};
-                    for i in 0..sub.len() {
-                        vec[i] = sub[vec[i]];
-                    }
-                }
-                // Return v
-                Ok(v)
-            }
-        }
-    }
-}
-
-
-impl SelectionDef for &Vec<usize> {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        self.as_slice().into_sel_index(top, st, subset)
-    }
-}
-
-impl SelectionDef for Vec<usize> {
-    fn into_sel_index(
-        self,
-        top: &Topology,
-        st: &State,
-        subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        self.as_slice().into_sel_index(top, st, subset)
-    }
-}
