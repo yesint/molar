@@ -110,7 +110,7 @@ pub(super) fn local_to_global(
             subset
                 .get(i)
                 .cloned()
-                .ok_or_else(|| SelectionError::LocalToGlobal(i, subset.len()))
+                .ok_or_else(|| SelectionError::LocalToGlobal(i, subset.len()-1))
         })
         .collect::<Result<Vec<_>, _>>()?
         .into())

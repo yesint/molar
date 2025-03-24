@@ -330,11 +330,21 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.num_atoms();
         let builder = Source::new_builder(top.into(), st.into())?;
+        
         let sel = builder.select("resid 550:560")?;
         let added = sel.len();
         builder.append(&sel);
         let all = builder.select_all()?;
         assert_eq!(all.len(), n + added);
+        Ok(())
+    }
+
+    #[test]
+    fn test_select_from_vec() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+        let src = Source::new_serial(top.into(), st.into())?;
+        let last = src.len()-1;
+        let _sel = src.select([1usize,2,last].as_slice())?;
         Ok(())
     }
 

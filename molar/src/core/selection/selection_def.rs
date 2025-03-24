@@ -80,8 +80,8 @@ impl SelectionDef for std::ops::Range<usize> {
             Some(sub) => sub.len(),
         };
 
-        if self.start >= n || self.end >= n {
-            return Err(SelectionError::IndexCheck(self.start, self.end, n));
+        if self.start >= n || self.end > n {
+            return Err(SelectionError::IndexCheck(self.start, self.end, n-1));
         }
 
         match subset {
@@ -124,7 +124,7 @@ impl SelectionDef for &[usize] {
                     let v: SortedSet<usize> = self.to_vec().into();
                     let n = top.num_atoms();
                     if v[0] >= n || v[v.len()-1] >= n {
-                        Err(SelectionError::IndexCheck(v[0], v[v.len()-1], n))
+                        Err(SelectionError::IndexCheck(v[0], v[v.len()-1], n-1))
                     } else {
                         Ok(v)
                     }
@@ -171,7 +171,7 @@ impl SelectionDef for SVec {
                 None => {                    
                     let n = top.num_atoms();
                     if self[0] >= n || self[self.len()-1] >= n {
-                        Err(SelectionError::IndexCheck(self[0], self[self.len()-1], n))
+                        Err(SelectionError::IndexCheck(self[0], self[self.len()-1], n-1))
                     } else {
                         Ok(self)
                     }
@@ -206,7 +206,7 @@ impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
 
         let n = top.num_atoms();
         if self.first_index() >= n || self.last_index() >= n {
-            return Err(SelectionError::IndexCheck(self.first_index(), self.last_index(), n));
+            return Err(SelectionError::IndexCheck(self.first_index(), self.last_index(), n-1));
         }
 
         Ok(self.get_index_vec())
