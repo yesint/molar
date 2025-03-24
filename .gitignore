@@ -5,8 +5,6 @@ tests/1.pdb
 .cargo/config.toml
 .vscode
 tests/*.dat
-*.gro
-*.pdb
 .zed
 molar_python/.cargo/*
 .gitignore
