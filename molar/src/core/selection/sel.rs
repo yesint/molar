@@ -747,54 +747,50 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         let group_name = group_name.as_ref();
         let ndx_str = ndx_str.as_ref();
-    
+
         // Find the group header
         let group_header = format!("[ {} ]", group_name);
         let mut found_group = false;
         let mut numbers = Vec::new();
-    
+
         for line in ndx_str.lines() {
             let line = line.trim();
-            
+
             if line == group_header {
                 found_group = true;
                 continue;
             }
-            
+
             // If we hit another group header, stop reading
             if found_group && line.starts_with('[') {
                 break;
             }
-    
+
             // Parse numbers if we're in the right group
             if found_group && !line.is_empty() {
                 numbers.extend(
                     line.split_whitespace()
                         .map(|s| s.parse::<usize>())
+                        .map_ok(|i| i - 1) // Convert to zero-based
                         .collect::<Result<Vec<_>, _>>()
-                        .map_err(|e| SelectionError::Ndx(group_name.into(),NdxError::Parse(e)))?
+                        .map_err(|e| SelectionError::Ndx(group_name.into(), NdxError::Parse(e)))?,
                 );
             }
         }
-    
+
         if !found_group {
-            return Err(SelectionError::Ndx(group_name.into(),NdxError::NoGroup));
+            return Err(SelectionError::Ndx(group_name.into(), NdxError::NoGroup));
         }
-    
+
         if numbers.is_empty() {
-            return Err(SelectionError::Ndx(group_name.into(),NdxError::EmptyGroup));
+            return Err(SelectionError::Ndx(group_name.into(), NdxError::EmptyGroup));
         }
-    
-        // Convert from 1-based to 0-based indexing
-        for num in numbers.iter_mut() {
-            *num = num.saturating_sub(1);
-        }
-            
+
         // Create and return new selection
         Self::from_holders_and_index(
             topology.clone_with_kind(),
             state.clone_with_kind(),
-            numbers.into()
+            numbers.into(),
         )
     }
 }
