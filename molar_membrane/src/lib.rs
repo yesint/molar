@@ -32,7 +32,9 @@ impl Membrane {
         //let mut species: HashMap<String, Arc<LipidSpecies>> = Default::default();
         let mut lipids = vec![];
         for (name, descr) in species_descr.iter() {
+            println!(">>> {}",descr.whole);
             if let Ok(lips) = source.select(&descr.whole) {
+                println!(">>> {}",lips.len());
                 let lips = lips.split_resindex::<Vec<_>>()?;
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
