@@ -1,6 +1,6 @@
 use num_traits::Bounded;
 use regex::bytes::Regex;
-use std::{collections::HashSet, ops::Not};
+use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::prelude::*;

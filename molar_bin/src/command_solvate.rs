@@ -103,7 +103,7 @@ pub(crate) fn command_solvate(
 
     // Local selection indexes in 'inside_sel' are returned
     // Remove overlapping
-    inside_sel.exclude_local(local_overlap_ind);
+    inside_sel.remove_local(local_overlap_ind);
 
     // Add solvent
     solute.append(&inside_sel);

@@ -9,6 +9,7 @@ pub mod powersasa_bindings;
 // From here: 
 // https://users.rust-lang.org/t/passing-a-closure-to-an-external-c-ffi-library/100271/2
 
+use std::cell::OnceCell;
 use std::os::raw::c_void;
 use std::marker::PhantomData;
 
@@ -46,15 +47,49 @@ impl<'closure, Arg, Ret> CCallback<'closure, Arg, Ret> {
     }
 }
 
-pub fn sasa(
+#[derive(Debug)]
+pub struct SasaResults {
+    areas: Vec<f32>,
+    volumes: Vec<f32>,
+    total_area: OnceCell<f32>,
+    total_volume: OnceCell<f32>,
+}
+
+impl SasaResults {
+    fn new(natoms: usize) -> Self {
+        Self {
+            areas: Vec::with_capacity(natoms),
+            volumes: Vec::with_capacity(natoms),
+            total_area: Default::default(),
+            total_volume: Default::default(),
+        }
+    }
+
+    pub fn areas(&self) -> &[f32] {
+        &self.areas
+    }
+
+    pub fn volumes(&self) -> &[f32] {
+        &self.volumes
+    }
+
+    pub fn total_area(&self) -> f32 {
+        *self.total_area.get_or_init(|| self.areas.iter().sum())
+    }
+
+    pub fn total_volume(&self) -> f32 {
+        *self.total_volume.get_or_init(|| self.volumes.iter().sum())
+    }
+}
+
+pub fn compute_sasa(
     natoms: usize,
     probe_r: f32,
     mut pos_callback: impl FnMut(usize)-> *mut f32, 
     mut vdw_callback: impl FnMut(usize)-> f32,
-) -> (Vec<f32>,Vec<f32>) {
-    // Arrays for areas and volumes
-    let mut areas = Vec::<f32>::with_capacity(natoms);
-    let mut volumes = Vec::<f32>::with_capacity(natoms);       
+) -> SasaResults {
+    // results
+    let mut res = SasaResults::new(natoms);
     
     let crd_cb = CCallback::new(&mut pos_callback);
 
@@ -63,8 +98,8 @@ pub fn sasa(
 
     unsafe {
         powersasa_bindings::run_powersasa(
-            areas.as_mut_ptr(),
-            volumes.as_mut_ptr(),
+            res.areas.as_mut_ptr(),
+            res.volumes.as_mut_ptr(),
             Some(crd_cb.function),
             Some(vdw_cb.function),
             crd_cb.user_data,
@@ -72,9 +107,9 @@ pub fn sasa(
             natoms
         );
         // Resize vectors accordingly
-        areas.set_len(natoms);
-        volumes.set_len(natoms);
+        res.areas.set_len(natoms);
+        res.volumes.set_len(natoms);
     }
 
-    (areas,volumes)
+    res
 }

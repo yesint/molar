@@ -277,8 +277,8 @@ mod tests {
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let sel1 = make_sel_all()?;
-        let (a, v) = sel1.sasa();
-        println!("Sasa: {a}, Volume: {v}");
+        let res = sel1.sasa();
+        println!("Sasa: {a}, Volume: {v}",a=res.total_area(),v=res.total_volume());
         Ok(())
     }
 
