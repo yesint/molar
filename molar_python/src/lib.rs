@@ -589,7 +589,7 @@ impl Sel {
         self.0.to_gromacs_ndx(name)
     }
 
-    fn append(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
+    fn add(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
             self.0.add(&sel.borrow().0)?;
@@ -601,7 +601,7 @@ impl Sel {
 
     /// += opeator (append in place)
     fn __iadd__(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
-        self.append(arg)
+        self.add(arg)
     }
 
     /// Invert in place
@@ -610,14 +610,14 @@ impl Sel {
     }
 
     /// remove other from self
-    fn exclude_global(&mut self, other: &Sel) -> anyhow::Result<()> {
+    fn remove_global(&mut self, other: &Sel) -> anyhow::Result<()> {
         self.0.remove_global(&other.0)?;
         Ok(())
     }
 
     /// -= (remove other from self in place)
     fn __isub__(&mut self, other: &Sel) -> anyhow::Result<()> {
-        self.exclude_global(other)
+        self.remove_global(other)
     }
 
     /// operator |
@@ -638,6 +638,36 @@ impl Sel {
     /// ~ operator
     fn __invert__(&self) -> anyhow::Result<Sel> {
         Ok(Sel(self.0.complement()?))
+    }
+
+    fn sasa(&self) -> SasaResults {
+        SasaResults(self.0.sasa())
+    }
+}
+
+#[pyclass(unsendable)]
+struct SasaResults(molar::core::SasaResults);
+
+#[pymethods]
+impl SasaResults {
+    #[getter]
+    fn areas(&self) -> &[f32] {
+        self.0.areas()
+    }
+
+    #[getter]
+    fn volumes(&self) -> &[f32] {
+        self.0.volumes()
+    }
+
+    #[getter]
+    fn total_area(&self) -> f32 {
+        self.0.total_area()
+    }
+
+    #[getter]
+    fn total_volume(&self) -> f32 {
+        self.0.total_volume()
     }
 }
 
@@ -832,6 +862,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FileHandler>()?;
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;
+    m.add_class::<SasaResults>()?;
     m.add_class::<_ParTrajReader>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;

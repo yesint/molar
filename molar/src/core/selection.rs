@@ -15,6 +15,7 @@ pub use sel_split::*;
 pub use source::*;
 pub(crate) use utils::*;
 pub use selection_def::SelectionDef;
+pub use molar_powersasa::SasaResults;
 
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;
