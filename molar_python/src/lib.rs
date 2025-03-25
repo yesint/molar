@@ -2,12 +2,11 @@ use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
     nalgebra::{self, Const, Dyn, VectorView},
-    npyffi, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToNpyDims,
-    ToPyArray, PY_ARRAY_API,
+    PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
 use pyo3::{
     prelude::*,
-    types::{PyNone, PySequence, PyTuple},
+    types::PyTuple,
     IntoPyObjectExt,
 };
 
@@ -593,7 +592,7 @@ impl Sel {
     fn append(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
-            self.0.append(&sel.borrow().0)?;
+            self.0.add(&sel.borrow().0)?;
         } else {
             anyhow::bail!("Unsupported type to append a Sel")
         }
@@ -611,12 +610,13 @@ impl Sel {
     }
 
     /// remove other from self
-    fn exclude_global(&mut self, other: &Sel) {
-        self.0.exclude_global(&other.0);
+    fn exclude_global(&mut self, other: &Sel) -> anyhow::Result<()> {
+        self.0.remove_global(&other.0)?;
+        Ok(())
     }
 
     /// -= (remove other from self in place)
-    fn __isub__(&mut self, other: &Sel) {
+    fn __isub__(&mut self, other: &Sel) -> anyhow::Result<()> {
         self.exclude_global(other)
     }
 

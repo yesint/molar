@@ -1,5 +1,5 @@
 use super::utils::*;
-use crate::{core::topology, prelude::*};
+use crate::prelude::*;
 use sorted_vec::SortedSet;
 use std::marker::PhantomData;
 

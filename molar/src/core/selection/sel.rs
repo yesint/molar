@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use itertools::Itertools;
-use ndarray::IntoNdProducer;
+use molar_powersasa::SasaResults;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 
@@ -582,8 +582,8 @@ impl<K: UserCreatableKind> Sel<K> {
     }
 
     /// Computes the Solvet Accessible Surface Area (SASA).
-    pub fn sasa(&self) -> (f32, f32) {
-        let (areas, volumes) = molar_powersasa::sasa(
+    pub fn sasa(&self) -> SasaResults {
+        molar_powersasa::compute_sasa(
             self.len(),
             0.14,
             |i| unsafe {
@@ -591,8 +591,7 @@ impl<K: UserCreatableKind> Sel<K> {
                 self.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
             },
             |i: usize| self.nth_particle(i).unwrap().atom.vdw(),
-        );
-        (areas.into_iter().sum(), volumes.into_iter().sum())
+        )
     }
 
     //===================
@@ -640,7 +639,7 @@ impl<K: UserCreatableKind> Sel<K> {
     //==============================================
     // Logic on selections that modify existing ones
     //==============================================
-    pub fn append(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
+    pub fn add(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
         self.index_storage.extend(
             other
                 .into_sel_index(&self.topology, &self.state, None)?
@@ -651,7 +650,7 @@ impl<K: UserCreatableKind> Sel<K> {
         Ok(())
     }
 
-    pub fn exclude_global(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
+    pub fn remove_global(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
         let lhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
         let rhs = rustc_hash::FxHashSet::<usize>::from_iter(
             other
@@ -664,7 +663,7 @@ impl<K: UserCreatableKind> Sel<K> {
         Ok(())
     }
 
-    pub fn exclude_local(&mut self, other: impl IntoIterator<Item = usize>) {
+    pub fn remove_local(&mut self, other: impl IntoIterator<Item = usize>) {
         let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
         let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other);
         let v: Vec<usize> = lhs
