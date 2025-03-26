@@ -20,8 +20,8 @@ clap = {version = "4.5", features=["derive"]}
 env_logger = "0.11"
 log.workspace = true
 comfy-table.workspace = true
-nalgebra.workspace = true
+nalgebra = {workspace = true, features = ["serde-serialize"]}
 sorted-vec.workspace = true
-serde = {version = "1.0", features = ["derive"]}
+serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 

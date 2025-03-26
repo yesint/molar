@@ -27,10 +27,10 @@ description = "Molar is a rust library for analysis of MD trajectories and molec
 
 [workspace.dependencies]
 nalgebra = "0.33.2"
-peg = "0.8.1"
+peg = "0.8.5"
 regex = "1.11.1"
-thiserror = "2.0.8"
-log = "0.4.22"
-cc = { version = "1.2.5", features = ["parallel"] }
+thiserror = "2.0.12"
+log = "0.4.27"
+cc = { version = "1.2.17", features = ["parallel"] }
 comfy-table = "7.1"
 sorted-vec = "0.8.5"
