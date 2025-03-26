@@ -1,7 +1,7 @@
 use super::providers::*;
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
-use nalgebra::{IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
+use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
 use std::f32::consts::PI;
 use std::iter::zip;
@@ -399,7 +399,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         order_type: OrderType,
         normals: &Vec<Vector3f>,
         bond_orders: &Vec<u8>,
-    ) -> Result<Vec<f32>, LipidOrderError> {
+    ) -> Result<DVector<f32>, LipidOrderError> {
         //atoms:  0 - 1 - 2 - 3 = 4 - 5 - 6
         //bonds:    0   1   2   3   4   5
         //normals:  0   1   2   3   4   5
@@ -417,7 +417,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
             return Err(LipidOrderError::BondOrderCount(self.num_coords(), self.num_coords()-1));
         }
 
-        let mut order = vec![0.0; self.num_coords() - 2];
+        let mut order = DVector::from_element(self.num_coords() - 2, 0.0);
         if order_type == OrderType::Sz {
             // Iterate over atoms
             for at in 1..self.num_coords() - 1 {
