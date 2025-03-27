@@ -1,8 +1,5 @@
-use anyhow::bail;
+use anyhow::{bail,Context};
 use molar::prelude::*;
-use nalgebra::DVector;
-use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
-use sorted_vec::SortedSet;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -13,6 +10,15 @@ use log::{info, warn}; // Use log crate when building application
 
 #[cfg(test)]
 use std::{println as info, println as warn};
+
+mod stats;
+use stats::{GroupProperties, StatProperties};
+
+mod lipid_molecule;
+use lipid_molecule::{LipidMolecule, SingleLipidProperties};
+
+mod lipid_species;
+use lipid_species::{LipidSpecies, LipidSpeciesDescr};
 
 pub struct Membrane {
     // source: Source<MutableSerial>,
@@ -69,7 +75,7 @@ impl Membrane {
                         head_marker,
                         mid_marker,
                         tail_marker,
-                        stats: LipidProperties::new(&sp),
+                        stats: SingleLipidProperties::new(&sp),
                     });
                 }
             } else {
@@ -134,201 +140,14 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn finalize(&mut self) -> anyhow::Result<()> {
-        // Compute averages for groups
-        todo!()
-    }
-}
-
-#[derive(Debug)]
-pub struct LipidProperties {
-    pub normal: Vector3f,
-    pub area: f32,
-    pub tilt: f32,
-    pub order: Vec<DVector<f32>>,
-    // mean_curv: f32,
-    // gauss_curv: f32,
-    // princ_curv: [f32; 2],
-    // princ_curv_axes: [Vector3f; 2],
-}
-
-impl LipidProperties {
-    pub fn new(species: &LipidSpecies) -> Self {
-        // Allocate needed number of tails
-        let mut order = Vec::with_capacity(species.tails.len());
-        // Initialize each tail
-        for t in &species.tails {
-            order.push(DVector::from_element(t.bond_orders.len() - 1, 0.0));
-        }
-        Self {
-            normal: Default::default(),
-            area: Default::default(),
-            tilt: Default::default(),
-            order,
-        }
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct GroupProperties {
-    pub per_species: HashMap<String, StatProperties>,
-}
-
-impl GroupProperties {
-    fn add_lipid_stats<'a>(
-        &'a mut self,
-        lipids: impl Iterator<Item = &'a LipidMolecule>,
-    ) -> anyhow::Result<()> {
-        for lip in lipids {
-            let sp_name = &lip.species.name;
-            self.per_species
-                .get_mut(sp_name)
-                .unwrap()
-                .add_single_lipid_stats(lip)?;
+    pub fn finalize(&self, out_dir: impl AsRef<str>) -> anyhow::Result<()> {
+        // Write results for groups
+        for (gr_name,gr) in &self.groups {
+            let fname = format!("{}/{}.dat",out_dir.as_ref(),gr_name);
+            //let fname = format!("{}.dat",gr_name);
+            gr.stats.save_order_to_file(&fname).with_context(|| fname)?;
         }
         Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct StatProperties {
-    pub num_lip: usize,
-    pub area: MeanStd,
-    pub tilt: MeanStd,
-    pub order: Vec<MeanStdVec>,
-}
-
-impl StatProperties {
-    pub fn new(species: &LipidSpecies) -> Self {
-        // Allocate needed number of tails
-        let mut order = Vec::with_capacity(species.tails.len());
-        // Initialize each tail
-        for t in &species.tails {
-            order.push(MeanStdVec::new(t.bond_orders.len() - 1));
-        }
-        Self {
-            area: Default::default(),
-            tilt: Default::default(),
-            order,
-            num_lip: 0,
-        }
-    }
-
-    pub fn add_single_lipid_stats(&mut self, lip: &LipidMolecule) -> anyhow::Result<()> {
-        // area
-        self.area.add(lip.stats.area);
-        // tilt
-        self.tilt.add(lip.stats.tilt);
-        // orders
-        for tail in 0..lip.stats.order.len() {
-            self.order[tail].add(&lip.stats.order[tail])?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct MeanStd {
-    x: f32,
-    x2: f32,
-    n: f32,
-}
-
-impl MeanStd {
-    pub fn add(&mut self, val: f32) {
-        self.x = self.x + val;
-        self.x2 = self.x2 + val * val;
-        self.n += 1.0;
-    }
-
-    pub fn compute(&self) -> anyhow::Result<MeanStdResult> {
-        if self.n == 0.0 {
-            bail!("no values accumulated in MeanStd");
-        }
-        let mean = self.x / self.n;
-        let stddev = ((self.x2 / self.n) - (mean * mean)).sqrt();
-        Ok(MeanStdResult{mean, stddev})
-    }
-}
-
-#[derive(Serialize,Debug,Clone)]
-pub struct MeanStdResult {
-    mean: f32,
-    stddev: f32,
-}
-
-impl Serialize for MeanStd {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("MeanStdVec", 2)?;
-        let res = self.compute().unwrap();
-        state.serialize_field("mean", &res.mean)?;
-        state.serialize_field("stddev", &res.stddev)?;
-        state.end()
-    }
-}
-
-//-------------------------------------------------------
-
-#[derive(Debug)]
-pub struct MeanStdVec {
-    x: DVector<f32>,
-    x2: DVector<f32>,
-    n: f32,
-}
-
-#[derive(Serialize,Debug,Clone)]
-pub struct MeanStdVecResult {
-    mean: DVector<f32>,
-    stddev: DVector<f32>,
-}
-
-impl MeanStdVec {
-    pub fn new(sz: usize) -> Self {
-        Self {
-            x: DVector::zeros(sz),
-            x2: DVector::zeros(sz),
-            n: 0.0,
-        }
-    }
-
-    pub fn add(&mut self, val: &DVector<f32>) -> anyhow::Result<()> {
-        if val.len() != self.x.len() {
-            bail!(
-                "incomtible vector size in MeanStdVec::add: {} provided, {} expected",
-                val.len(),
-                self.x.len()
-            );
-        }
-        self.x = &self.x + val;
-        self.x2 = &self.x2 + val.component_mul(val);
-        self.n += 1.0;
-        Ok(())
-    }
-
-    pub fn compute(&self) -> anyhow::Result<MeanStdVecResult> {
-        if self.n == 0.0 {
-            bail!("no values accumulated in MeanStd");
-        }
-        let mean = &self.x / self.n;
-        let mut stddev = (&self.x2 / self.n) - mean.component_mul(&mean);
-        stddev.apply(|v| *v = v.sqrt());
-        Ok(MeanStdVecResult{mean, stddev})
-    }
-}
-
-impl Serialize for MeanStdVec {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("MeanStdVec", 2)?;
-        let res = self.compute().unwrap();
-        state.serialize_field("mean", &res.mean)?;
-        state.serialize_field("stddev", &res.stddev)?;
-        state.end()
     }
 }
 
@@ -364,150 +183,13 @@ impl LipidGroup {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct PredefinedLipidSpecies(HashMap<String, LipidSpeciesDescr>);
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct LipidSpeciesDescr {
-    pub whole: String,
-    pub head: String,
-    pub mid: String,
-    pub tails: Vec<String>,
-}
-
-#[derive(Debug)]
-pub struct LipidSpecies {
-    name: String,
-    descr: LipidSpeciesDescr,
-    head_marker_offsets: SortedSet<usize>,
-    mid_marker_offsets: SortedSet<usize>,
-    tails: Vec<LipidTail>,
-}
-
-impl LipidSpecies {
-    pub fn new<K: UserCreatableKind>(
-        name: String,
-        descr: LipidSpeciesDescr,
-        lipid: &Sel<K>,
-    ) -> anyhow::Result<Self> {
-        let first_index = lipid.first_index();
-        let mut tails = vec![];
-        // Parse tails
-        for t in &descr.tails {
-            let mut names = vec![];
-            let mut bond_orders = vec![];
-            let mut cur = &t[..];
-
-            while let Some(e) = cur.find(['-', '=']) {
-                if cur[..e].is_empty() {
-                    bail!("missing carbon atom name");
-                }
-                names.push(&cur[..e]);
-                //println!("name: {} order: {}",&cur[..e], &cur[e..=e]);
-                bond_orders.push(match &cur[e..=e] {
-                    "-" => 1,
-                    "=" => 2,
-                    _ => unreachable!(),
-                });
-                cur = &cur[e + 1..];
-            }
-
-            if cur.is_empty() {
-                bail!("missing last carbon atom name");
-            }
-            names.push(&cur);
-
-            // Now find offsets for each atom name
-            let mut offsets = vec![];
-            for name in names {
-                let atom = lipid.subsel(format!("name {name}"))?;
-                if atom.len() > 1 {
-                    bail!("more than one tail atom {name} in lipid");
-                }
-                offsets.push(atom.first_index() - first_index);
-            }
-
-            tails.push(LipidTail {
-                descr: t.to_owned(),
-                offsets,
-                bond_orders,
-            });
-        }
-
-        Ok(Self {
-            name,
-            descr: descr.clone(),
-            head_marker_offsets: SortedSet::from_unsorted(
-                lipid
-                    .subsel(descr.head)?
-                    .iter_index()
-                    .map(|i| i - first_index)
-                    .collect(),
-            ),
-            mid_marker_offsets: SortedSet::from_unsorted(
-                lipid
-                    .subsel(descr.mid)?
-                    .iter_index()
-                    .map(|i| i - first_index)
-                    .collect(),
-            ),
-            tails,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct LipidTail {
-    descr: String,
-    offsets: Vec<usize>,
-    bond_orders: Vec<u8>,
-}
-
-pub struct LipidMolecule {
-    sel: Sel<MutableSerial>,
-    species: Arc<LipidSpecies>,
-    head_sel: Sel<MutableSerial>,
-    mid_sel: Sel<MutableSerial>,
-    tail_end_sel: Sel<MutableSerial>,
-    tail_sels: Vec<Sel<MutableSerial>>,
-    head_marker: Pos,
-    mid_marker: Pos,
-    tail_marker: Pos,
-    stats: LipidProperties,
-}
-
-impl LipidMolecule {
-    pub fn update_markers<K: UserCreatableKind>(&mut self) -> anyhow::Result<()> {
-        self.head_marker = self.head_sel.center_of_mass_pbc()?;
-        self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
-        self.tail_marker = self.tail_end_sel.center_of_mass_pbc()?;
-        Ok(())
-    }
-
-    pub fn compute_order(&mut self, order_type: OrderType, normal: &Vector3f) {
-        for i in 0..self.tail_sels.len() {
-            self.stats.order[i] = self.tail_sels[i]
-                .lipid_tail_order(
-                    order_type.clone(),
-                    &vec![normal.clone()],
-                    &self.species.tails[i].bond_orders,
-                )
-                .unwrap();
-        }
-    }
-
-    pub fn num_tails(&self) -> usize {
-        self.tail_sels.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Read;
 
     use molar::prelude::*;
 
-    use crate::{LipidSpecies, LipidSpeciesDescr, Membrane, PredefinedLipidSpecies};
+    use crate::{lipid_species::PredefinedLipidSpecies, LipidSpecies, LipidSpeciesDescr, Membrane};
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
@@ -619,10 +301,12 @@ mod tests {
                 lower.push(id);
             }
         }
+
         memb.add_group("upper", upper)?;
         memb.add_group("lower", lower)?;
 
         memb.compute()?;
+        memb.finalize("../../target")?;
 
         Ok(())
     }
