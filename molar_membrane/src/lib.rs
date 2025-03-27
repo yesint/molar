@@ -1,8 +1,7 @@
 use anyhow::{bail,Context};
 use molar::prelude::*;
 use std::{
-    collections::HashMap,
-    sync::Arc,
+    collections::HashMap, path::Path, sync::Arc
 };
 
 #[cfg(not(test))]
@@ -140,12 +139,13 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn finalize(&self, out_dir: impl AsRef<str>) -> anyhow::Result<()> {
+    pub fn finalize(&self, out_dir: impl AsRef<Path>) -> anyhow::Result<()> {
+        let out_dir = out_dir.as_ref();
+        info!("Writing results to directory '{}'", out_dir.display());
         // Write results for groups
         for (gr_name,gr) in &self.groups {
-            let fname = format!("{}/{}.dat",out_dir.as_ref(),gr_name);
-            //let fname = format!("{}.dat",gr_name);
-            gr.stats.save_order_to_file(&fname).with_context(|| fname)?;
+            info!("\tGroup '{gr_name}'...");
+            gr.stats.save_order_to_file(out_dir, gr_name)?;
         }
         Ok(())
     }
@@ -306,7 +306,7 @@ mod tests {
         memb.add_group("lower", lower)?;
 
         memb.compute()?;
-        memb.finalize("../../target")?;
+        memb.finalize("../target")?;
 
         Ok(())
     }

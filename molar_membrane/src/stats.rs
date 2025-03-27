@@ -1,7 +1,9 @@
 use anyhow::bail;
+use log::info;
 use nalgebra::DVector;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::lipid_species::LipidSpecies;
 use crate::LipidMolecule;
@@ -14,9 +16,9 @@ pub struct GroupProperties {
 impl GroupProperties {
     pub fn add_lipid_stats<'a>(
         &'a mut self,
-        lipids: impl Iterator<Item = &'a LipidMolecule>,
+        gr_lipids: impl Iterator<Item = &'a LipidMolecule>,
     ) -> anyhow::Result<()> {
-        for lip in lipids {
+        for lip in gr_lipids {
             let sp_name = &lip.species.name;
             self.per_species
                 .get_mut(sp_name)
@@ -26,9 +28,17 @@ impl GroupProperties {
         Ok(())
     }
 
-    pub fn save_order_to_file(&self,gr_name: impl AsRef<str>) -> anyhow::Result<()> {
-        for (sp,stat) in &self.per_species {
-            stat.save_order_to_file(format!("gr_{}_order_{sp}.dat",gr_name.as_ref()))?;
+    pub fn save_order_to_file(
+        &self,
+        dir: impl AsRef<Path>,
+        gr_name: impl AsRef<str>,
+    ) -> anyhow::Result<()> {
+        for (sp, stat) in &self.per_species {
+            info!("\tWriting order for '{sp}'");
+            stat.save_order_to_file(
+                dir.as_ref(),
+                format!("gr_{}_order_{}.dat", gr_name.as_ref(), sp),
+            )?;
         }
         Ok(())
     }
@@ -38,7 +48,7 @@ impl GroupProperties {
 pub struct StatProperties {
     pub num_lip: usize,
     pub area: MeanStd,
-    pub tilt: MeanStd, 
+    pub tilt: MeanStd,
     pub order: Vec<MeanStdVec>,
 }
 
@@ -65,15 +75,21 @@ impl StatProperties {
         Ok(())
     }
 
-    fn order_to_string(&self) -> anyhow::Result<String> {
-        use std::fmt::Write;
+    pub fn save_order_to_file(
+        &self,
+        dir: impl AsRef<Path>,
+        fname: impl AsRef<str>,
+    ) -> anyhow::Result<()> {
+        // We need Write traits from both fmt and io, so rewrite the imports
+        // to avoid name clash
+        use std::fmt::Write as FmtWrite;
+        use std::io::Write as StdWrite;
 
-        let max_len = self.order.iter()
-            .map(|v| v.x.len())
-            .max()
-            .unwrap();
-        
-        let mstd = self.order.iter()
+        let max_len = self.order.iter().map(|v| v.x.len()).max().unwrap();
+
+        let mstd = self
+            .order
+            .iter()
             .map(|mstd| mstd.compute())
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -92,29 +108,39 @@ impl StatProperties {
             ave_order[i] = ave / nave as f32;
         }
 
-        // Write to file. Missing value are written as "--"        
-        let mut s = "".to_string();
+        // Write to file. Missing value are written as "--"
+        let mut s = "# time\taver\t".to_string();
+        // Headers for indivisual tails
+        for t in 0..mstd.len() {
+            write!(s, "tail{}", t + 1)?;
+            if t < mstd.len() - 1 {
+                s.push('\t');
+            } else {
+                s.push('\n');
+            }
+        }
+        // Data lines
         for i in 0..max_len {
             // Carbon number and average
-            write!(s, "{} {} ", i+1,ave_order[i])?;
+            write!(s, "{:.3}\t{:.3}\t", i + 1, ave_order[i])?;
             // Individual tails
             for t in 0..mstd.len() {
-                let sv = mstd[t].mean.get(i).map(|v| format!("{:.3}",v)).unwrap_or("--".into());
+                let sv = mstd[t]
+                    .mean
+                    .get(i)
+                    .map(|v| format!("{:.3}", v))
+                    .unwrap_or("--".into());
                 write!(s, "{sv}")?;
-                if t<mstd.len()-1 {
-                    write!(s, " ")?;
+                if t < mstd.len() - 1 {
+                    s.push('\t');
                 } else {
-                    write!(s, "\n")?;
+                    s.push('\n');
                 }
             }
         }
-        Ok(s)
-    }
-
-    pub fn save_order_to_file(&self, fname: impl AsRef<str>) -> anyhow::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::File::create(fname.as_ref())?;
-        write!(f, "{}", self.order_to_string()?)?;
+        // Write to file
+        let mut f = std::fs::File::create(dir.as_ref().join(fname.as_ref()))?;
+        write!(f, "{}", s)?;
         Ok(())
     }
 }
@@ -139,7 +165,7 @@ impl MeanStd {
         }
         let mean = self.x / self.n;
         let stddev = ((self.x2 / self.n) - (mean * mean)).sqrt();
-        Ok(MeanStdResult{mean, stddev})
+        Ok(MeanStdResult { mean, stddev })
     }
 }
 
@@ -169,7 +195,7 @@ pub struct MeanStdVec {
     n: f32,
 }
 
-#[derive(Serialize,Debug,Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct MeanStdVecResult {
     mean: DVector<f32>,
     stddev: DVector<f32>,
@@ -200,12 +226,12 @@ impl MeanStdVec {
 
     pub fn compute(&self) -> anyhow::Result<MeanStdVecResult> {
         if self.n == 0.0 {
-            bail!("no values accumulated in MeanStd");  
+            bail!("no values accumulated in MeanStd");
         }
         let mean = &self.x / self.n;
         let mut stddev = (&self.x2 / self.n) - mean.component_mul(&mean);
         stddev.apply(|v| *v = v.sqrt());
-        Ok(MeanStdVecResult{mean, stddev})
+        Ok(MeanStdVecResult { mean, stddev })
     }
 }
 
