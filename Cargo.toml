@@ -34,3 +34,4 @@ log = "0.4.27"
 cc = { version = "1.2.17", features = ["parallel"] }
 comfy-table = "7.1"
 sorted-vec = "0.8.5"
+anyhow = "1.0.97"

@@ -207,7 +207,7 @@ impl LipidGroup {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Read, path::{Path, PathBuf}};
+    use std::{io::Read, path::PathBuf};
 
     use molar::prelude::*;
 

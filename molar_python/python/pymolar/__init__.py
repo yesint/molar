@@ -59,7 +59,7 @@ class AnalysisTask:
         
         for trj_file in self.args.files[1:]:
             logging.info(f'Processing trajectory "{trj_file}"...')
-            trj_handler = _ParTrajReader(trj_file)
+            trj_handler = ParTrajReader(trj_file)
             
             if not begin_skipped:
                 if bfr:
