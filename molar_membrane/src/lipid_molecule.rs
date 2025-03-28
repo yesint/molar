@@ -63,4 +63,15 @@ impl LipidMolecule {
     pub fn num_tails(&self) -> usize {
         self.tail_sels.len()
     }
+
+    pub fn set_state(&mut self, st: Holder<State,MutableSerial>) -> anyhow::Result<()>{
+        self.sel.set_state(st.clone())?;
+        self.head_sel.set_state(st.clone())?;
+        self.mid_sel.set_state(st.clone())?;
+        for t in &mut self.tail_sels {
+            t.set_state(st.clone())?;
+        }
+        self.update_markers()?;
+        Ok(())
+    }
 }
