@@ -1,0 +1,183 @@
+use clap::Parser;
+use log::info;
+use std::num::{ParseFloatError, ParseIntError};
+use std::path::PathBuf;
+use thiserror::Error;
+
+use crate::core::{
+    Holder, MutableSerial, RandomAtomProvider, SelectionError, Source, State, StateProvider,
+    Topology,
+};
+use crate::io::{FileHandler, FileIoError};
+
+#[derive(Parser)]
+pub struct AnalysisArgs {
+    /// Input files (topology and trajectory)
+    #[clap(short = 'f', long = "files", required = true, num_args = 2..)]
+    pub files: Vec<PathBuf>,
+
+    /// Logging frequency
+    #[clap(long = "log", default_value = "100")]
+    pub log: usize,
+
+    /// Begin time/frame
+    #[clap(short = 'b', long = "begin", default_value = "0")]
+    pub begin: String,
+
+    /// End time/frame  
+    #[clap(short = 'e', long = "end", default_value = "")]
+    pub end: String,
+
+    /// Frame skip interval
+    #[clap(long = "skip", default_value = "1")]
+    pub skip: usize,
+}
+
+#[derive(Error, Debug)]
+pub enum AnalysisError {
+    #[error(transparent)]
+    ParseFloat(#[from] ParseFloatError),
+
+    #[error(transparent)]
+    ParseInt(#[from] ParseIntError),
+
+    #[error("invalid time suffix, 'fr', 'ps', 'ns', 'us' allowed")]
+    InvalidSuffix,
+
+    #[error(transparent)]
+    FileIo(#[from] FileIoError),
+
+    #[error(transparent)]
+    Selection(#[from] SelectionError),
+
+    #[error("in task pre-process")]
+    PreProcess(#[from] anyhow::Error)
+}
+
+fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError> {
+    if s.is_empty() {
+        return Ok((None, None));
+    }
+
+    let mut frame = None;
+    let mut time = None;
+
+    if s.len() >= 2 {
+        let suffix = &s[s.len() - 2..];
+        let num_part = &s[..s.len() - 2];
+
+        if let Ok(fr) = s.parse() {
+            frame = Some(fr);
+        } else {
+            match suffix {
+                "fr" => frame = Some(num_part.parse::<usize>()?),
+                "ps" => time = Some(num_part.parse::<f32>()? * 1.0),
+                "ns" => time = Some(num_part.parse::<f32>()? * 1000.0),
+                "us" => time = Some(num_part.parse::<f32>()? * 1000_000.0),
+                _ => return Err(AnalysisError::InvalidSuffix),
+            }
+        }
+    }
+
+    Ok((frame, time))
+}
+
+pub trait AnalysisTask {
+    //fn register_args(&mut self, command: &mut clap::Command);
+
+    fn pre_process(&mut self, context: &AnalysisContext);
+
+    fn process_frame(&mut self, context: &AnalysisContext);
+
+    fn post_process(&mut self, context: &AnalysisContext);
+}
+
+pub struct AnalysisContext {
+    pub src: Source<MutableSerial>,
+    pub consumed_frames: usize,
+}
+
+pub fn run_analysis_task(mut task: impl AnalysisTask) -> Result<(), AnalysisError> {
+    // Parse command line arguments
+    let args = AnalysisArgs::parse();
+
+    if args.files.len() < 2 {
+        panic!("At least one trajectory file is required");
+    }
+
+    // Read topology
+    let top: Holder<Topology, MutableSerial> =
+        FileHandler::open(&args.files[0])?.read_topology()?.into();
+
+    let (begin_frame, begin_time) = process_suffix(&args.begin)?;
+    let (end_frame, end_time) = process_suffix(&args.end)?;
+
+    let mut context = AnalysisContext {
+        consumed_frames: 0,
+        src: Source::new(top.clone(), State::new_fake(top.num_atoms()))?,
+    };
+
+    let mut begin_skipped = false;
+
+    // Process trajectory files
+    for trj_file in &args.files[1..] {
+        info!("Processing trajectory '{}'...", trj_file.display());
+        let mut trj_handler = FileHandler::open(trj_file)?;
+
+        if !begin_skipped {
+            if let Some(fr) = begin_frame {
+                trj_handler.skip_to_frame(fr)?;
+            } else if let Some(t) = begin_time {
+                trj_handler.skip_to_time(t)?;
+            }
+            begin_skipped = true;
+        }
+
+        let mut trj_iter = trj_handler.into_iter();
+
+        while let Some(state) = trj_iter.next() {
+            // Check if end is reached
+            if end_frame.map_or(false, |ef| context.consumed_frames >= ef)
+                || end_time.map_or(false, |et| state.get_time() > et)
+            {
+                break;
+            }
+
+            // Skip frames if needed
+            if (context.consumed_frames - 1) % args.skip > 0 {
+                continue;
+            }
+
+            if context.consumed_frames % args.log == 0 {
+                info!(
+                    "At frame {}, time {}",
+                    context.consumed_frames,
+                    get_log_time(&state)
+                );
+            }
+
+            context.src.set_state(state)?;
+
+            if context.consumed_frames == 0 {
+                task.pre_process(&context);
+            }
+
+            context.consumed_frames += 1;
+
+            task.process_frame(&context);
+        }
+    }
+
+    task.post_process(&context);
+    Ok(())
+}
+
+fn get_log_time(state: &State) -> String {
+    if state.get_time() < 1000.0 {
+        format!("{} ps", state.get_time())
+    } else if state.get_time() < 1000_000.0 {
+        format!("{} ns", state.get_time() / 1000.0)
+    } else {
+        format!("{} us", state.get_time() / 1000_000.0)
+    }
+}

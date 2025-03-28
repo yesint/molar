@@ -4,14 +4,15 @@ pub mod core;
 pub mod io;
 pub mod distance_search;
 pub mod voronoi_cell;
+pub mod analysis_task;
 
 pub mod prelude {
     pub use crate::core::*;
     pub use crate::io::*;
     pub use crate::distance_search::*;
+    pub use crate::analysis_task::*;
     pub use rayon::iter::ParallelIterator;
 }
-
 
 pub fn greeting(tool: &str) {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
