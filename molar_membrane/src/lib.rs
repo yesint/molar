@@ -1,7 +1,7 @@
 use anyhow::{bail,Context};
 use molar::prelude::*;
 use std::{
-    collections::HashMap, path::Path, sync::Arc
+    collections::HashMap, path::{Path, PathBuf}, sync::Arc
 };
 
 #[cfg(not(test))]
@@ -26,6 +26,7 @@ pub struct Membrane {
     groups: HashMap<String, LipidGroup>,
     global_normal: Option<Vector3f>,
     order_type: OrderType,
+    output_dir: PathBuf,
 }
 
 impl Membrane {
@@ -89,6 +90,7 @@ impl Membrane {
             groups: Default::default(),
             global_normal: None,
             order_type: OrderType::ScdCorr,
+            output_dir: PathBuf::from("membrane_results"),
         })
     }
 
@@ -100,6 +102,19 @@ impl Membrane {
     pub fn with_order_type(mut self, order_type: OrderType) -> Self {
         self.order_type = order_type;
         self
+    }
+
+    pub fn with_output_dir(mut self, output_dir: impl AsRef<Path>) -> anyhow::Result<Self> {
+        // Check if we can access this directory or create it if needed
+        let path = output_dir.as_ref();
+        if !path.exists() {
+            std::fs::create_dir_all(path)
+                .with_context(|| format!("Failed to create output directory '{}'", path.display()))?;
+        }
+        
+        self.output_dir = path.to_path_buf();
+        info!("will use output directory '{}'", path.display());
+        Ok(self)
     }
 
     pub fn iter_lipids(&self) -> impl Iterator<Item = (usize, &LipidMolecule)> {
@@ -139,13 +154,12 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn finalize(&self, out_dir: impl AsRef<Path>) -> anyhow::Result<()> {
-        let out_dir = out_dir.as_ref();
-        info!("Writing results to directory '{}'", out_dir.display());
+    pub fn finalize(&self) -> anyhow::Result<()> {        
+        info!("Writing results to directory '{}'", self.output_dir.display());
         // Write results for groups
         for (gr_name,gr) in &self.groups {
             info!("\tGroup '{gr_name}'...");
-            gr.stats.save_order_to_file(out_dir, gr_name)?;
+            gr.stats.save_order_to_file(self.output_dir.as_path(), gr_name)?;
         }
         Ok(())
     }
@@ -299,7 +313,8 @@ mod tests {
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
         let mut memb = Membrane::new(src, &toml)?
             .with_global_normal(Vector3f::z())
-            .with_order_type(OrderType::ScdCorr);
+            .with_order_type(OrderType::ScdCorr)
+            .with_output_dir("../target/membr_test_results")?;
 
         let mut upper = vec![];
         let mut lower = vec![];
@@ -315,13 +330,13 @@ mod tests {
         memb.add_group("lower", lower)?;
 
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
-        for st in traj.into_iter().take(1000) {
-            println!(">> {}",st.get_time());
+        for st in traj.into_iter().take(10) {
+            //println!(">> {}",st.get_time());
             memb.set_state(st.into())?;
             memb.compute()?;
         }
         
-        memb.finalize("../target")?;
+        memb.finalize()?;
 
         Ok(())
     }
