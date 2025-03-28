@@ -30,13 +30,13 @@ impl GroupProperties {
 
     pub fn save_order_to_file(
         &self,
-        dir: impl AsRef<Path>,
+        dir: &Path,
         gr_name: impl AsRef<str>,
     ) -> anyhow::Result<()> {
         for (sp, stat) in &self.per_species {
             info!("\tWriting order for '{sp}'");
             stat.save_order_to_file(
-                dir.as_ref(),
+                dir,
                 format!("gr_{}_order_{}.dat", gr_name.as_ref(), sp),
             )?;
         }
@@ -77,7 +77,7 @@ impl StatProperties {
 
     pub fn save_order_to_file(
         &self,
-        dir: impl AsRef<Path>,
+        dir: &Path,
         fname: impl AsRef<str>,
     ) -> anyhow::Result<()> {
         // We need Write traits from both fmt and io, so rewrite the imports
@@ -139,7 +139,7 @@ impl StatProperties {
             }
         }
         // Write to file
-        let mut f = std::fs::File::create(dir.as_ref().join(fname.as_ref()))?;
+        let mut f = std::fs::File::create(dir.join(fname.as_ref()))?;
         write!(f, "{}", s)?;
         Ok(())
     }
