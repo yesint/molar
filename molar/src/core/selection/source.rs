@@ -1,7 +1,7 @@
 use super::utils::*;
 use crate::prelude::*;
 use sorted_vec::SortedSet;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, path::Path};
 
 //----------------------------------------
 // Source of parallel selections
@@ -99,19 +99,19 @@ impl Source<()> {
         })
     }
 
-    pub fn serial_from_file(fname: &str) -> Result<Source<MutableSerial>, SelectionError> {
+    pub fn serial_from_file(fname: impl AsRef<Path>) -> Result<Source<MutableSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
         Ok(Source::new_serial(top.into(), st.into())?)
     }
 
-    pub fn builder_from_file(fname: &str) -> Result<Source<BuilderSerial>, SelectionError> {
+    pub fn builder_from_file(fname: impl AsRef<Path>) -> Result<Source<BuilderSerial>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
         Ok(Source::new_builder(top.into(), st.into())?)
     }
 
-    pub fn parallel_from_file(fname: &str) -> Result<Source<ImmutableParallel>, SelectionError> {
+    pub fn parallel_from_file(fname: impl AsRef<Path>) -> Result<Source<ImmutableParallel>, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
         Ok(Source::new_parallel(top.into(), st.into())?)

@@ -2,7 +2,7 @@ use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
 use log::debug;
-use std::{fmt::Display, path::Path};
+use std::{fmt::Display, path::{Path, PathBuf}};
 use thiserror::Error;
 
 mod gro_handler;
@@ -60,8 +60,12 @@ impl IoStateIterator {
                 if res.is_none() {
                     ok = false;
                 }
-                // Send state to channel
-                sender.send(res).unwrap();
+                // Send state to channel. 
+                // An error means that the reciever has closed the channel already. 
+                // This is fine, just exit.
+                if let Err(_) = sender.send(res) {
+                    ok = false;
+                }
             }
         });
 
@@ -81,7 +85,7 @@ impl Iterator for IoStateIterator {
 //================================
 
 pub struct FileHandler {
-    pub file_name: String,
+    pub file_name: PathBuf,
     format_handler: FileFormat,
     pub stats: FileStats,
 }
@@ -97,8 +101,8 @@ enum FileFormat {
 }
 
 impl FileFormat {
-    pub fn open(fname: &str) -> Result<Self, FileFormatError> {
-        let ext = get_ext(fname)?;
+    pub fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> {
+        let ext = get_ext(fname.as_ref())?;
         match ext {
             "pdb" => Ok(FileFormat::Pdb(VmdMolFileHandler::open(
                 fname,
@@ -127,8 +131,8 @@ impl FileFormat {
         }
     }
 
-    pub fn create(fname: &str) -> Result<Self, FileFormatError> {
-        let ext = get_ext(fname)?;
+    pub fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> {
+        let ext = get_ext(fname.as_ref())?;
         match ext {
             "pdb" => Ok(FileFormat::Pdb(VmdMolFileHandler::create(
                 fname,
@@ -372,9 +376,9 @@ impl Display for FileStats {
     }
 }
 
-pub fn get_ext(fname: &str) -> Result<&str, FileFormatError> {
+pub fn get_ext(fname: &Path) -> Result<&str, FileFormatError> {
     // Get extention
-    Ok(Path::new(fname)
+    Ok(fname
         .extension()
         .ok_or_else(|| FileFormatError::NoExtension)?
         .to_str()
@@ -384,16 +388,17 @@ pub fn get_ext(fname: &str) -> Result<&str, FileFormatError> {
 //------------------------------------------------------------------
 
 impl FileHandler {
-    pub fn open(fname: impl AsRef<str>) -> Result<Self, FileIoError> {
+    pub fn open(fname: impl AsRef<Path>) -> Result<Self, FileIoError> {
+        let fname = fname.as_ref();
         Ok(Self {
-            file_name: fname.as_ref().to_owned(),
-            format_handler: FileFormat::open(fname.as_ref())
-                .map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
+            file_name: fname.to_path_buf(),
+            format_handler: FileFormat::open(fname)
+                .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             stats: Default::default(),
         })
     }
 
-    pub fn create(fname: impl AsRef<str>) -> Result<Self, FileIoError> {
+    pub fn create(fname: impl AsRef<Path>) -> Result<Self, FileIoError> {
         Ok(Self {
             file_name: fname.as_ref().to_owned(),
             format_handler: FileFormat::create(fname.as_ref())
@@ -554,7 +559,7 @@ impl FileHandler {
 
 impl Drop for FileHandler {
     fn drop(&mut self) {
-        debug!("Done with file '{}': {}", self.file_name, self.stats);
+        debug!("Done with file '{}': {}", self.file_name.display(), self.stats);
     }
 }
 
@@ -653,7 +658,7 @@ impl_io_traits_for_tuples!(Holder<Topology,BuilderSerial>,Holder<State,BuilderSe
 //--------------------------------------------------------
 #[derive(Error, Debug)]
 #[error("in file {0}:")]
-pub struct FileIoError(String, #[source] FileFormatError);
+pub struct FileIoError(PathBuf, #[source] FileFormatError);
 
 #[derive(Error, Debug)]
 pub enum FileFormatError {

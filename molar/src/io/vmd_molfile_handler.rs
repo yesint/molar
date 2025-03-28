@@ -3,6 +3,7 @@ use crate::core::*;
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString, NulError};
+use std::path::Path;
 use std::ptr::{self, null_mut};
 use std::str::Utf8Error;
 use thiserror::Error;
@@ -158,15 +159,15 @@ impl VmdMolFileHandler {
         Ok(())
     }
 
-    pub fn open(fname: &str, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
+    pub fn open(fname: impl AsRef<Path>, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
         let mut instance = Self::new_for_type(ftype)?;
-        instance.open_read(fname)?;
+        instance.open_read(fname.as_ref().to_str().unwrap())?;
         Ok(instance)
     }
 
-    pub fn create(fname: &str, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
+    pub fn create(fname: impl AsRef<Path>, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
         let mut instance = Self::new_for_type(ftype)?;
-        instance.fname = CString::new(fname)?;
+        instance.fname = CString::new(fname.as_ref().to_str().unwrap())?;
         // We can't open for writing here because we don't know
         // the number of atoms to write yet. Defer it to
         // actual writing operation

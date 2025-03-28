@@ -9,9 +9,7 @@ mod internal_tpr_enabled {
     use molar_gromacs::gromacs_bindings::*;
     use nalgebra::Matrix3;
     use std::{
-        ffi::{CStr, CString, NulError},
-        ptr::null_mut,
-        str::Utf8Error,
+        ffi::{CStr, CString, NulError}, path::Path, ptr::null_mut, str::Utf8Error
     };
     use thiserror::Error;
 
@@ -38,14 +36,14 @@ mod internal_tpr_enabled {
     }
 
     impl TprFileHandler {
-        fn new(fname: &str) -> Result<Self, TprHandlerError> {
-            let f_name = CString::new(fname.to_owned())?;
+        fn new(fname: impl AsRef<Path>) -> Result<Self, TprHandlerError> {
+            let f_name = CString::new(fname.as_ref().to_str().unwrap())?;
             Ok(TprFileHandler {
                 handle: unsafe { TprHelper::new(f_name.as_ptr()) },
             })
         }
 
-        pub fn open(fname: &str) -> Result<Self, TprHandlerError> {
+        pub fn open(fname: impl AsRef<Path>) -> Result<Self, TprHandlerError> {
             TprFileHandler::new(fname)
         }
 

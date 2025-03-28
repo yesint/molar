@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
@@ -190,7 +192,7 @@ impl FileHandler {
     }
 
     #[getter]
-    fn file_name(&self) -> &str {
+    fn file_name(&self) -> &Path {
         &self.0.file_name
     }
 }

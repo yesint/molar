@@ -149,6 +149,19 @@ impl Membrane {
         }
         Ok(())
     }
+    
+    fn set_state(&mut self, st: Holder<State,MutableSerial>) -> anyhow::Result<()> {
+        for lip in &mut self.lipids {
+            lip.sel.set_state(st.clone())?;
+            lip.head_sel.set_state(st.clone())?;
+            lip.mid_sel.set_state(st.clone())?;
+            for t in &mut lip.tail_sels {
+                t.set_state(st.clone())?;
+            }
+            lip.update_markers()?;
+        }
+        Ok(())
+    }
 }
 
 pub struct LipidGroup {
@@ -185,7 +198,7 @@ impl LipidGroup {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
+    use std::{io::Read, path::{Path, PathBuf}};
 
     use molar::prelude::*;
 
@@ -284,7 +297,8 @@ mod tests {
 
     #[test]
     fn test_whole() -> anyhow::Result<()> {
-        let src = Source::serial_from_file("/home/semen/work/Projects/Misha/PG_flipping/last.gro")?;
+        let path = PathBuf::from("/home/semen/work/Projects/Misha/balanced/not_depleted");
+        let src = Source::serial_from_file(path.join("inp_7.gro"))?;
         let z0 = src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
@@ -305,7 +319,13 @@ mod tests {
         memb.add_group("upper", upper)?;
         memb.add_group("lower", lower)?;
 
-        memb.compute()?;
+        let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
+        for st in traj.into_iter().take(1000) {
+            println!(">> {}",st.get_time());
+            memb.set_state(st.into())?;
+            memb.compute()?;
+        }
+        
         memb.finalize("../target")?;
 
         Ok(())

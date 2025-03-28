@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::{BufRead, BufReader},
-    num::{ParseFloatError, ParseIntError},
+    num::{ParseFloatError, ParseIntError}, path::Path,
 };
 use thiserror::Error;
 use crate::core::Atom;
@@ -14,9 +14,9 @@ pub struct ItpFileHandler {
 }
 
 impl ItpFileHandler {
-    pub fn open(fname: &str) -> Result<Self, ItpHandlerError> {
+    pub fn open(fname: impl AsRef<Path>) -> Result<Self, ItpHandlerError> {
         Ok(Self {
-            file: File::open(fname.to_owned())
+            file: File::open(fname)
                 .map_err(|e| ItpHandlerError::OpenRead(e))?,
         })
     }
