@@ -150,14 +150,9 @@ impl Membrane {
         Ok(())
     }
     
-    fn set_state(&mut self, st: Holder<State,MutableSerial>) -> anyhow::Result<()> {
+    pub fn set_state(&mut self, st: Holder<State,MutableSerial>) -> anyhow::Result<()> {
         for lip in &mut self.lipids {
-            lip.sel.set_state(st.clone())?;
-            lip.head_sel.set_state(st.clone())?;
-            lip.mid_sel.set_state(st.clone())?;
-            for t in &mut lip.tail_sels {
-                t.set_state(st.clone())?;
-            }
+            lip.set_state(st.clone())?;            
             lip.update_markers()?;
         }
         Ok(())
