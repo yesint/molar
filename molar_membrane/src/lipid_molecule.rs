@@ -41,7 +41,7 @@ pub struct LipidMolecule {
 }
 
 impl LipidMolecule {
-    pub fn update_markers<K: UserCreatableKind>(&mut self) -> anyhow::Result<()> {
+    pub fn update_markers(&mut self) -> anyhow::Result<()> {
         self.head_marker = self.head_sel.center_of_mass_pbc()?;
         self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
         self.tail_marker = self.tail_end_sel.center_of_mass_pbc()?;

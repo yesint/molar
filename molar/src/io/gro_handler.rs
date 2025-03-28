@@ -2,7 +2,7 @@ use crate::prelude::*;
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
-    num::{ParseFloatError, ParseIntError},
+    num::{ParseFloatError, ParseIntError}, path::Path,
 };
 use thiserror::Error;
 
@@ -35,16 +35,16 @@ pub enum GroHandlerError {
 }
 
 impl GroFileHandler {
-    pub fn open(fname: &str) -> Result<Self, GroHandlerError> {
+    pub fn open(fname: impl AsRef<Path>) -> Result<Self, GroHandlerError> {
         Ok(Self {
-            file: File::open(fname.to_owned())
+            file: File::open(fname)
                 .map_err(|e| GroHandlerError::OpenRead(e))?,
         })
     }
 
-    pub fn create(fname: &str) -> Result<Self, GroHandlerError> {
+    pub fn create(fname: impl AsRef<Path>) -> Result<Self, GroHandlerError> {
         Ok(Self {
-            file: File::create(fname.to_owned())
+            file: File::create(fname)
                 .map_err(|e| GroHandlerError::OpenWrite(e))?,
         })
     }

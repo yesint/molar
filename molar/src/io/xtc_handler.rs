@@ -7,6 +7,7 @@ use crate::core::{PeriodicBox, StateStorage};
 
 use log::{debug, warn};
 use std::ffi::{CString, NulError};
+use std::path::Path;
 use std::ptr;
 
 pub struct XtcFileHandler {
@@ -191,18 +192,18 @@ impl XtcFileHandler {
         Ok(())
     }
 
-    fn open_write(&mut self, fname: &str) -> Result<(), XtcHandlerError> {
-        self.handle = get_xdr_handle(fname, "w")?;
+    fn open_write(&mut self, fname: impl AsRef<Path>) -> Result<(), XtcHandlerError> {
+        self.handle = get_xdr_handle(fname.as_ref().to_str().unwrap(), "w")?;
         Ok(())
     }
 
-    pub fn open(fname: &str) -> Result<Self, XtcHandlerError> {
+    pub fn open(fname: impl AsRef<Path>) -> Result<Self, XtcHandlerError> {
         let mut instance = Self::default();
-        instance.open_read(fname)?;
+        instance.open_read(fname.as_ref().to_str().unwrap())?;
         Ok(instance)
     }
 
-    pub fn create(fname: &str) -> Result<Self, XtcHandlerError> {
+    pub fn create(fname: impl AsRef<Path>) -> Result<Self, XtcHandlerError> {
         let mut instance = Self::default();
         instance.open_write(fname)?;
         Ok(instance)
