@@ -1,3 +1,5 @@
+use std::{marker::PhantomPinned, pin::Pin};
+
 use crate::prelude::*;
 use num_traits::clamp_min;
 use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
@@ -98,9 +100,15 @@ impl std::ops::Index<usize> for SearchConnectivity {
 
 //--------------------------------------------------------------------------------
 
+// For periodic selections Grid is self-referencial and thus 
+// must never be moved! This is not staticaly enforced by Pin but
+// since it is only used locally inside the search functions
+// this should always be fine.
 struct Grid<'a> {
     cells: Vec<Vec<(usize, &'a Pos)>>,
     dims: [usize; 3],
+    wrapped_pos: Vec<Pos>,
+    _pin: PhantomPinned,
 }
 
 static MASK: [([usize; 3], [usize; 3]); 14] = [
@@ -140,10 +148,12 @@ impl<'a> Grid<'a> {
     //     }
     // }
 
-    fn new_with_dims(dims: [usize; 3]) -> Self {
+    pub fn new_with_dims(dims: [usize; 3]) -> Self {
         Self {
             cells: vec![vec![]; dims[0] * dims[1] * dims[2]],
             dims,
+            wrapped_pos: vec![],
+            _pin: Default::default()
         }
     }
 
@@ -162,8 +172,8 @@ impl<'a> Grid<'a> {
         self.cells[i].push(data);
     }
 
-    fn push_ind(&mut self, ind: usize, data: (usize, &'a Pos)) {
-        self.cells[ind].push(data);
+    unsafe fn push_ind(&mut self, ind: usize, data: (usize, *const Pos)) {
+        self.cells[ind].push((data.0, &*data.1));
     }
 
     fn from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> Self {
@@ -213,10 +223,9 @@ impl<'a> Grid<'a> {
         ids: impl Iterator<Item = usize>,
         box_: &PeriodicBox,
         pbc_dims: PbcDims,
-        wrapped_pos: &'a mut Vec<Pos>,
     ) {
         let mut wrapped_ind = vec![];
-        wrapped_pos.clear();
+        self.wrapped_pos.clear();
 
         'outer: for (id, pos) in ids.zip(data) {
             // Relative coordinates
@@ -259,14 +268,18 @@ impl<'a> Grid<'a> {
                     // Accounts for float point errors when loc[d] could be 1.00001
                 }
                 let wp = Pos::from(box_.to_lab_coords(&rel));
-                wrapped_pos.push(wp);
+                self.wrapped_pos.push(wp);
                 wrapped_ind.push((self.loc_to_ind(loc), id));
             }
         }
 
         // Add wrapped points to the grid if any
         for i in 0..wrapped_ind.len() {
-            self.push_ind(wrapped_ind[i].0, (wrapped_ind[i].1, &wrapped_pos[i]));
+            // We need to unsafely get a self-reference to wrapped_pos
+            unsafe {
+                let ptr = self.wrapped_pos.as_ptr().add(i);
+                self.push_ind(wrapped_ind[i].0, (wrapped_ind[i].1, ptr));
+            }
         }
     }
 
@@ -604,13 +617,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_within(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                pair,
-                &mut found
-            );
+            search_cell_pair_within(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
             search_cell_pair_within(
                 cutoff * cutoff,
                 &grid1,
@@ -639,11 +646,8 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    let mut buf1 = vec![];
-    let mut buf2 = vec![];
-
-    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims);
+    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
@@ -652,14 +656,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_within_pbc(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                pair,
-                pbox,
-                &mut found
-            );
+            search_cell_pair_within_pbc(cutoff * cutoff, &grid1, &grid2, pair, pbox, &mut found);
             search_cell_pair_within_pbc(
                 cutoff * cutoff,
                 &grid1,
@@ -746,13 +743,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_double(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                pair,
-                &mut found
-            );
+            search_cell_pair_double(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
             search_cell_pair_double(
                 cutoff * cutoff,
                 &grid1,
@@ -782,11 +773,13 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    let mut buf1 = vec![];
-    let mut buf2 = vec![];
-
-    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims);
+    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims);
+    // At this point grids are self-referencial. We pin it on the stack
+    // to ensure that we don't move or mutate it until it is dorpped.
+    // Normally this should never happen, but better to be safe
+    let grid1 = std::pin::pin!(grid1);
+    let grid2 = std::pin::pin!(grid2);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
@@ -795,14 +788,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_double_pbc(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                pair,
-                pbox,
-                &mut found
-            );
+            search_cell_pair_double_pbc(cutoff * cutoff, &grid1, &grid2, pair, pbox, &mut found);
             search_cell_pair_double_pbc(
                 cutoff * cutoff,
                 &grid1,
@@ -851,14 +837,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_double_vdw(
-                &grid1,
-                &grid2,
-                pair,
-                vdw1,
-                vdw2,
-                &mut found
-            );
+            search_cell_pair_double_vdw(&grid1, &grid2, pair, vdw1, vdw2, &mut found);
             search_cell_pair_double_vdw(
                 &grid1,
                 &grid2,
@@ -896,11 +875,13 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    let mut buf1 = vec![];
-    let mut buf2 = vec![];
-
-    grid1.populate_pbc(data1.iter_pos(), 0..vdw1.len(), pbox, pbc_dims, &mut buf1);
-    grid2.populate_pbc(data2.iter_pos(), 0..vdw2.len(), pbox, pbc_dims, &mut buf2);
+    grid1.populate_pbc(data1.iter_pos(), 0..vdw1.len(), pbox, pbc_dims);
+    grid2.populate_pbc(data2.iter_pos(), 0..vdw2.len(), pbox, pbc_dims);
+    // At this point grids are self-referencial. We pin it on the stack
+    // to ensure that we don't move or mutate it until it is dorpped.
+    // Normally this should never happen, but better to be safe
+    let grid1 = std::pin::pin!(grid1);
+    let grid2 = std::pin::pin!(grid2);
 
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
@@ -909,15 +890,7 @@ where
         .with_min_len(3)
         .map(|pair| {
             let mut found = Vec::new();
-            search_cell_pair_double_vdw_pbc(
-                &grid1,
-                &grid2,
-                pair,
-                vdw1,
-                vdw2,
-                pbox,
-                &mut found
-            );
+            search_cell_pair_double_vdw_pbc(&grid1, &grid2, pair, vdw1, vdw2, pbox, &mut found);
             search_cell_pair_double_vdw_pbc(
                 &grid1,
                 &grid2,
@@ -972,10 +945,11 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     let mut grid = Grid::from_cutoff_and_box(cutoff, pbox);
-
-    let mut buf = vec![];
-
-    grid.populate_pbc(data.iter_pos(), ids, pbox, pbc_dims, &mut buf);
+    grid.populate_pbc(data.iter_pos(), ids, pbox, pbc_dims);
+    // At this point grid is self-referencial. We pin it on the stack
+    // to ensure that we don't move or mutate it until it is dorpped.
+    // Normally this should never happen, but better to be safe
+    let grid = std::pin::pin!(grid);
 
     let plan = search_plan(&grid, None, pbc_dims);
 
