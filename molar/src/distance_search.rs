@@ -962,7 +962,7 @@ where
 
 pub fn distance_search_single_pbc<T, C>(
     cutoff: f32,
-    data: &(impl PosProvider + BoxProvider + ?Sized),
+    data: &(impl PosProvider + ?Sized),
     ids: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
     pbc_dims: PbcDims,

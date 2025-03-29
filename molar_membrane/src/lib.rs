@@ -27,6 +27,9 @@ pub struct Membrane {
     global_normal: Option<Vector3f>,
     order_type: OrderType,
     output_dir: PathBuf,
+
+    // Local patches
+    //patches: Vec<usize>,
 }
 
 impl Membrane {
@@ -171,6 +174,12 @@ impl Membrane {
         }
         Ok(())
     }
+
+    // fn compute_patches(&mut self) {
+    //     let markers: Vec<_> = self.lipids.iter().map(|l| l.mid_marker).collect();
+    //     let ind: Vec<usize> = distance_search_single_pbc(2.0, &markers, 0..self.lipids.len());
+    //     SearchConnectivity
+    // }
 }
 
 pub struct LipidGroup {
