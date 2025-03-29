@@ -757,7 +757,7 @@ fn distance_search<'py>(
             if pbc_dims.any() {
                 res = molar::distance_search::distance_search_single_pbc(
                     d,
-                    sel1,
+                    sel1.iter_pos(),
                     sel1.iter_index(),                    
                     sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
@@ -803,8 +803,8 @@ fn distance_search<'py>(
                 );
             } else {
                 res = molar::distance_search::distance_search_double_vdw_pbc(
-                    sel1,
-                    sel2,
+                    sel1.iter_pos(),
+                    sel2.iter_pos(),
                     //sel1.iter_index(),
                     //sel2.iter_index(),
                     &vdw1,

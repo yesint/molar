@@ -90,10 +90,8 @@ pub(crate) fn command_solvate(
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
     let local_overlap_ind: Vec<usize> =
         distance_search_double_vdw_pbc(
-            &inside_sel, 
-            &solute,
-            //0..inside_sel.len(),
-            //0..solute.len(),
+            inside_sel.iter_pos(), 
+            solute.iter_pos(),
             &vdw1, 
             &vdw2,
             b,
