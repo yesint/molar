@@ -1,4 +1,4 @@
-use std::{marker::PhantomPinned, pin::Pin};
+use std::marker::PhantomPinned;
 
 use crate::prelude::*;
 use num_traits::clamp_min;
@@ -101,9 +101,11 @@ impl std::ops::Index<usize> for SearchConnectivity {
 //--------------------------------------------------------------------------------
 
 // For periodic selections Grid is self-referencial and thus 
-// must never be moved! This is not staticaly enforced by Pin but
-// since it is only used locally inside the search functions
-// this should always be fine.
+// must never be moved! This is staticaly enforced by 
+// manually pinning Grid in populate_pbc() functions that
+// create self-referencial state. 
+// Strictly speaking this is not necessary because Gris is only used
+// inside search_* functions, but we explicitly enforce it to be safe. 
 struct Grid<'a> {
     cells: Vec<Vec<(usize, &'a Pos)>>,
     dims: [usize; 3],
