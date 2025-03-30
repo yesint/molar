@@ -146,7 +146,7 @@ macro_rules! impl_state_traits {
         }
         
         impl PosProvider for $t {
-            fn iter_pos(&self) -> impl super::PosIterator<'_> {
+            fn iter_pos(&self) -> impl super::PosIterator<'_> + Clone {
                 self.get_storage().coords.iter()
             }
         }

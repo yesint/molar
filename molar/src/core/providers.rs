@@ -58,6 +58,10 @@ pub trait AtomProvider {
 
 pub trait BoxProvider {
     fn get_box(&self) -> Option<&PeriodicBox>;
+    
+    fn require_box(&self) -> Result<&PeriodicBox, PeriodicBoxError> {
+        self.get_box().ok_or_else(|| PeriodicBoxError::NoPbc)
+    }
 }
 
 pub trait ParticleProvider: IndexProvider {
@@ -156,13 +160,13 @@ pub trait BoxMutProvider {
 
 //----------------------------------------------------
 impl PosProvider for Vec<Pos> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
+    fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
         self.iter()
     }
 }
 
 impl PosProvider for Pos {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
+    fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
         std::iter::once(self)
     }
 }

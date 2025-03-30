@@ -10,6 +10,8 @@ mod periodic_table;
 mod particle;
 #[allow(dead_code)]
 mod selection_parser;
+mod distance_search;
+mod connectivity;
 
 pub use {
     atom::*, 
@@ -23,6 +25,8 @@ pub use {
     periodic_table::*,
     particle::*,
     selection_parser::SelectionExpr,
+    distance_search::*,
+    connectivity::*,
 };
 
 // Aliases for vector and points
@@ -40,8 +44,8 @@ impl<'a, T> AtomIterator<'a> for T where T: Iterator<Item = &'a Atom> {}
 pub trait AtomMutIterator<'a>: Iterator<Item = &'a mut Atom> {}
 impl<'a, T> AtomMutIterator<'a> for T where T: Iterator<Item = &'a mut Atom> {}
 
-pub trait PosIterator<'a>: Iterator<Item = &'a Pos> {}
-impl<'a, T> PosIterator<'a> for T where T: Iterator<Item = &'a Pos> {}
+pub trait PosIterator<'a>: Iterator<Item = &'a Pos> + Clone {}
+impl<'a, T> PosIterator<'a> for T where T: Iterator<Item = &'a Pos> + Clone {}
 
 pub trait PosMutIterator<'a>: Iterator<Item = &'a mut Pos> {}
 impl<'a, T> PosMutIterator<'a> for T where T: Iterator<Item = &'a mut Pos> {}

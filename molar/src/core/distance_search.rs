@@ -1,5 +1,4 @@
 use std::marker::PhantomPinned;
-
 use crate::prelude::*;
 use num_traits::clamp_min;
 use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
@@ -23,78 +22,6 @@ impl SearchOutputType for (usize, usize) {
 impl SearchOutputType for (usize, usize, f32) {
     fn from_ijd(i: usize, j: usize, d: f32) -> Self {
         (i, j, d)
-    }
-}
-
-//---------------------------------------------------------------
-#[derive(Debug, Default)]
-pub struct SearchConnectivity(rustc_hash::FxHashMap<usize, Vec<usize>>);
-
-impl SearchConnectivity {
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn iter(&self) -> SearchConnectivityIter {
-        SearchConnectivityIter(self.0.iter())
-    }
-
-    fn from_iter(iter: impl IntoIterator<Item = (usize, usize)>) -> Self {
-        let mut res = Self::default();
-        for (i, j) in iter {
-            if res.0.contains_key(&i) {
-                res.0.get_mut(&i).unwrap().push(j);
-            } else {
-                res.0.insert(i, vec![j]);
-            }
-
-            if res.0.contains_key(&j) {
-                res.0.get_mut(&j).unwrap().push(i);
-            } else {
-                res.0.insert(j, vec![i]);
-            }
-        }
-        res
-    }
-}
-
-impl FromIterator<(usize, usize)> for SearchConnectivity {
-    fn from_iter<T: IntoIterator<Item = (usize, usize)>>(iter: T) -> Self {
-        Self::from_iter(iter)
-    }
-}
-
-impl FromParallelIterator<(usize, usize)> for SearchConnectivity {
-    fn from_par_iter<I>(par_iter: I) -> Self
-    where
-        I: IntoParallelIterator<Item = (usize, usize)>,
-    {
-        let v = par_iter.into_par_iter().collect::<Vec<_>>();
-        Self::from_iter(v.iter().cloned())
-    }
-}
-
-pub struct SearchConnectivityIter<'a>(std::collections::hash_map::Iter<'a, usize, Vec<usize>>);
-
-impl<'a> Iterator for SearchConnectivityIter<'a> {
-    type Item = (&'a usize, &'a Vec<usize>);
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-
-impl IntoIterator for SearchConnectivity {
-    type Item = (usize, Vec<usize>);
-    type IntoIter = std::collections::hash_map::IntoIter<usize, Vec<usize>>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl std::ops::Index<usize> for SearchConnectivity {
-    type Output = Vec<usize>;
-    fn index(&self, i: usize) -> &Self::Output {
-        &self.0[&i]
     }
 }
 
@@ -721,10 +648,10 @@ fn compute_bounding_box_single<'a>(
     (l, u)
 }
 
-pub fn distance_search_double<T, C>(
+pub fn distance_search_double<'a, T, C>(
     cutoff: f32,
-    data1: &impl PosProvider,
-    data2: &impl PosProvider,
+    data1: impl PosIterator<'a>,
+    data2: impl PosIterator<'a>,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
 ) -> C
@@ -733,13 +660,13 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // Compute the extents
-    let (lower, upper) = compute_bounding_box_double(cutoff, data1.iter_pos(), data2.iter_pos());
+    let (lower, upper) = compute_bounding_box_double(cutoff, data1.clone(), data2.clone());
 
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1.iter_pos(), ids1, &lower, &upper);
-    grid2.populate(data2.iter_pos(), ids2, &lower, &upper);
+    grid1.populate(data1, ids1, &lower, &upper);
+    grid2.populate(data2, ids2, &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -762,10 +689,10 @@ where
         .collect()
 }
 
-pub fn distance_search_double_pbc<T, C>(
+pub fn distance_search_double_pbc<'a, T, C>(
     cutoff: f32,
-    data1: &impl PosProvider,
-    data2: &impl PosProvider,
+    data1: impl PosIterator<'a>,
+    data2: impl PosIterator<'a>,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
@@ -778,8 +705,8 @@ where
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims);
-    grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims);
+    grid1.populate_pbc(data1, ids1, pbox, pbc_dims);
+    grid2.populate_pbc(data2, ids2, pbox, pbc_dims);
     // At this point grids are self-referencial. We pin it on the stack
     // to ensure that we don't move or mutate it until it is dorpped.
     // Normally this should never happen, but better to be safe
@@ -809,9 +736,9 @@ where
 }
 
 // This always returns local idexes
-pub fn distance_search_double_vdw<T, C>(
-    data1: &impl PosProvider,
-    data2: &impl PosProvider,
+pub fn distance_search_double_vdw<'a, T, C>(
+    data1: impl PosIterator<'a>,
+    data2: impl PosIterator<'a>,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
 ) -> C
@@ -825,13 +752,13 @@ where
         + f32::EPSILON;
 
     // Compute the extents
-    let (lower, upper) = compute_bounding_box_double(cutoff, data1.iter_pos(), data2.iter_pos());
+    let (lower, upper) = compute_bounding_box_double(cutoff, data1.clone(), data2.clone());
 
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1.iter_pos(), 0..vdw1.len(), &lower, &upper);
-    grid2.populate(data2.iter_pos(), 0..vdw2.len(), &lower, &upper);
+    grid1.populate(data1, 0..vdw1.len(), &lower, &upper);
+    grid2.populate(data2, 0..vdw2.len(), &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -911,8 +838,7 @@ where
 
 pub fn distance_search_single<'a, T, C>(
     cutoff: f32,
-    data: &impl PosProvider,
-    //data: impl PosIterator<'a> + Clone,
+    data: impl PosIterator<'a>,
     ids: impl Iterator<Item = usize>,
 ) -> C
 where
@@ -920,10 +846,10 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // Compute the extents
-    let (lower, upper) = compute_bounding_box_single(cutoff, data.iter_pos());
+    let (lower, upper) = compute_bounding_box_single(cutoff, data.clone());
 
     let mut grid = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
-    grid.populate(data.iter_pos(), ids, &lower, &upper);
+    grid.populate(data, ids, &lower, &upper);
 
     let plan = search_plan(&grid, None, PBC_NONE);
 

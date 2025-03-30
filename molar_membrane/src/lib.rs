@@ -1,7 +1,7 @@
-use anyhow::{bail,Context};
+use anyhow::{bail, Context};
 use molar::prelude::*;
 use std::{
-    collections::HashMap, path::{Path, PathBuf}, sync::Arc
+    any, collections::HashMap, path::{Path, PathBuf}, sync::Arc
 };
 
 #[cfg(not(test))]
@@ -29,7 +29,7 @@ pub struct Membrane {
     output_dir: PathBuf,
 
     // Local patches
-    //patches: Vec<usize>,
+    patches: Vec<usize>,
 }
 
 impl Membrane {
@@ -94,6 +94,7 @@ impl Membrane {
             global_normal: None,
             order_type: OrderType::ScdCorr,
             output_dir: PathBuf::from("membrane_results"),
+            patches: vec![],
         })
     }
 
@@ -111,10 +112,11 @@ impl Membrane {
         // Check if we can access this directory or create it if needed
         let path = output_dir.as_ref();
         if !path.exists() {
-            std::fs::create_dir_all(path)
-                .with_context(|| format!("Failed to create output directory '{}'", path.display()))?;
+            std::fs::create_dir_all(path).with_context(|| {
+                format!("Failed to create output directory '{}'", path.display())
+            })?;
         }
-        
+
         self.output_dir = path.to_path_buf();
         info!("will use output directory '{}'", path.display());
         Ok(self)
@@ -157,29 +159,40 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn finalize(&self) -> anyhow::Result<()> {        
-        info!("Writing results to directory '{}'", self.output_dir.display());
+    pub fn finalize(&self) -> anyhow::Result<()> {
+        info!(
+            "Writing results to directory '{}'",
+            self.output_dir.display()
+        );
         // Write results for groups
-        for (gr_name,gr) in &self.groups {
+        for (gr_name, gr) in &self.groups {
             info!("\tGroup '{gr_name}'...");
-            gr.stats.save_order_to_file(self.output_dir.as_path(), gr_name)?;
+            gr.stats
+                .save_order_to_file(self.output_dir.as_path(), gr_name)?;
         }
         Ok(())
     }
-    
-    pub fn set_state(&mut self, st: Holder<State,MutableSerial>) -> anyhow::Result<()> {
+
+    pub fn set_state(&mut self, st: Holder<State, MutableSerial>) -> anyhow::Result<()> {
         for lip in &mut self.lipids {
-            lip.set_state(st.clone())?;            
+            lip.set_state(st.clone())?;
             lip.update_markers()?;
         }
         Ok(())
     }
 
-    // fn compute_patches(&mut self) {
-    //     let markers: Vec<_> = self.lipids.iter().map(|l| l.mid_marker).collect();
-    //     let ind: Vec<usize> = distance_search_single_pbc(2.0, &markers, 0..self.lipids.len());
-    //     SearchConnectivity
-    // }
+    fn compute_patches(&mut self) -> anyhow::Result<()>{
+        let ind: Vec<(usize,usize)> = distance_search_single_pbc(
+            2.0,
+            self.lipids.iter().map(|l| &l.mid_marker),
+            0..self.lipids.len(),
+            self.lipids[0].sel.require_box()?,
+            PBC_FULL,
+        );
+        let conn = LocalConnectivity::from_iter(ind, self.lipids.len());
+        println!("{:?}",conn);
+        Ok(())
+    }
 }
 
 pub struct LipidGroup {
@@ -344,7 +357,7 @@ mod tests {
             memb.set_state(st.into())?;
             memb.compute()?;
         }
-        
+
         memb.finalize()?;
 
         Ok(())
