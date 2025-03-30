@@ -1,4 +1,4 @@
-use super::{providers::*, PeriodicBoxError};
+use super::providers::*;
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
