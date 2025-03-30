@@ -43,10 +43,7 @@ pub trait ModifyPos: PosMutProvider + PosProvider {
 /// Trait for modification requiring positions and pbc
 pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
     fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<(), MeasureError> {
-        let b = self
-            .get_box()
-            .ok_or_else(|| MeasureError::NoPbc)?
-            .to_owned();
+        let b = self.require_box()?.to_owned();
         let mut iter = self.iter_pos_mut();
         if self.len() > 0 {
             let p0 = iter.next().unwrap();
@@ -69,10 +66,7 @@ pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + Rando
     }
 
     fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
-        let b = self
-            .get_box()
-            .ok_or_else(|| MeasureError::NoPbc)?
-            .to_owned();
+        let b = self.require_box()?.to_owned();
         let conn: SearchConnectivity =
             distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.num_coords(), &b, dims);
 

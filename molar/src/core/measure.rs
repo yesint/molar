@@ -1,4 +1,4 @@
-use super::providers::*;
+use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
@@ -27,8 +27,8 @@ pub enum MeasureError {
     Svd,
 
     /// Operation requires periodic boundary conditions but none are defined
-    #[error("no periodic box")]
-    NoPbc,
+    #[error(transparent)]
+    Pbc(#[from] PeriodicBoxError),
 
     /// Cannot unwrap coordinates due to disjoint pieces
     #[error("can't unwrap disjoint pieces")]
@@ -192,7 +192,7 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
 /// Trait for analysis requiring positions, masses and periodic boundary conditions
 pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvider {
     fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
         let mut mass_iter = self.iter_masses();
 
@@ -214,7 +214,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 
     fn center_of_mass_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
         let mut mass_iter = self.iter_masses();
 
@@ -236,7 +236,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 
     fn center_of_geometry_pbc(&self) -> Result<Pos, MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
 
         let p0 = pos_iter.next().unwrap();
@@ -250,7 +250,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 
     fn center_of_geometry_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
 
         let p0 = pos_iter.next().unwrap();
@@ -264,7 +264,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 
     fn gyration_pbc(&self) -> Result<f32, MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let c = self.center_of_mass_pbc()?;
         Ok(do_gyration(
             self.iter_pos().map(|pos| b.shortest_vector(&(pos - c))),
@@ -273,7 +273,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 
     fn inertia_pbc(&self) -> Result<(Vector3f, Matrix3f), MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let c = self.center_of_mass_pbc()?;
         Ok(do_inertia(
             self.iter_pos().map(|pos| b.shortest_vector(&(pos - c))),
@@ -282,7 +282,7 @@ pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvi
     }
 
     fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<f32>, MeasureError> {
-        let b = self.get_box().ok_or_else(|| MeasureError::NoPbc)?;
+        let b = self.require_box()?;
         let c = self.center_of_mass_pbc()?;
         let (_, axes) = do_inertia(
             self.iter_pos().map(|pos| b.shortest_vector(&(pos - c))),
