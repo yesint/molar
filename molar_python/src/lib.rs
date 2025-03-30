@@ -735,27 +735,27 @@ fn distance_search<'py>(
         if let Some(d2) = data2 {
             let sel2 = &d2.borrow().0;
             if pbc_dims.any() {
-                res = molar::distance_search::distance_search_double_pbc(
+                res = molar::core::distance_search_double_pbc(
                     d,
-                    sel1,
-                    sel2,
+                    sel1.iter_pos(),
+                    sel2.iter_pos(),
                     sel1.iter_index(),
                     sel2.iter_index(),
                     sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             } else {
-                res = molar::distance_search::distance_search_double(
+                res = molar::core::distance_search_double(
                     d,
-                    sel1,
-                    sel2,
+                    sel1.iter_pos(),
+                    sel2.iter_pos(),
                     sel1.iter_index(),
                     sel2.iter_index(),
                 );
             }
         } else {
             if pbc_dims.any() {
-                res = molar::distance_search::distance_search_single_pbc(
+                res = molar::core::distance_search_single_pbc(
                     d,
                     sel1.iter_pos(),
                     sel1.iter_index(),                    
@@ -763,9 +763,9 @@ fn distance_search<'py>(
                     pbc_dims,
                 );
             } else {
-                res = molar::distance_search::distance_search_single(
+                res = molar::core::distance_search_single(
                     d,
-                    sel1,
+                    sel1.iter_pos(),
                     sel1.iter_index(),                    
                 );
             }
@@ -793,20 +793,16 @@ fn distance_search<'py>(
             }
 
             if pbc_dims.any() {
-                res = molar::distance_search::distance_search_double_vdw(
-                    sel1,
-                    sel2,
-                    //sel1.iter_index(),
-                    //sel2.iter_index(),
+                res = molar::core::distance_search_double_vdw(
+                    sel1.iter_pos(),
+                    sel2.iter_pos(),
                     &vdw1,
                     &vdw2,
                 );
             } else {
-                res = molar::distance_search::distance_search_double_vdw_pbc(
+                res = molar::core::distance_search_double_vdw_pbc(
                     sel1.iter_pos(),
                     sel2.iter_pos(),
-                    //sel1.iter_index(),
-                    //sel2.iter_index(),
                     &vdw1,
                     &vdw2,
                     sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
