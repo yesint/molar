@@ -1,8 +1,9 @@
 use anyhow::{bail, Context};
 use molar::prelude::*;
 use std::{
-    any, collections::HashMap, path::{Path, PathBuf}, sync::Arc
+    any, collections::HashMap, f32::consts::FRAC_PI_2, fmt::write, path::{Path, PathBuf}, sync::Arc
 };
+use std::fmt::Write;
 
 #[cfg(not(test))]
 use log::{info, warn}; // Use log crate when building application
@@ -29,7 +30,7 @@ pub struct Membrane {
     output_dir: PathBuf,
 
     // Local patches
-    patches: Vec<usize>,
+    patches: Vec<Vec<usize>>,
 }
 
 impl Membrane {
@@ -79,6 +80,8 @@ impl Membrane {
                         mid_marker,
                         tail_marker,
                         stats: SingleLipidProperties::new(&sp),
+                        tail_head_vec: Vector3f::zeros(),
+                        normal: Vector3f::zeros(),
                     });
                 }
             } else {
@@ -148,6 +151,43 @@ impl Membrane {
     }
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
+        // Compute patches
+        self.compute_patches()?;
+
+        //=========================
+        // Compute initial normals
+        //=========================
+
+        // Compute tail-to-head vectors for all lipids
+        for lip in &mut self.lipids {
+            lip.tail_head_vec = lip.head_marker - lip.tail_marker;
+        }
+
+        // First pass - average of tail-to-head distances in each patch
+        for i in 0..self.lipids.len() {
+            self.lipids[i].normal = self.patches[i]
+                .iter()
+                .map(|l| &self.lipids[*l].tail_head_vec)
+                .sum::<Vector3f>()
+                .normalize();
+        }
+
+        // Second pass - average of vectors from the first pass in eac patch
+        for i in 0..self.lipids.len() {
+            self.lipids[i].normal = self.patches[i]
+                .iter()
+                .map(|l| &self.lipids[*l].normal)
+                .sum::<Vector3f>()
+                .normalize();
+        }
+
+        // Correct normal orientations if needed
+        for lip in self.lipids.iter_mut() {
+            if lip.normal.angle(&lip.tail_head_vec) > FRAC_PI_2 {
+                lip.normal *= -1.0;
+            }
+        }
+
         // Compute order for all lipids
         for lip in &mut self.lipids {
             lip.compute_order(self.order_type.clone(), &self.global_normal.unwrap());
@@ -176,13 +216,14 @@ impl Membrane {
     pub fn set_state(&mut self, st: Holder<State, MutableSerial>) -> anyhow::Result<()> {
         for lip in &mut self.lipids {
             lip.set_state(st.clone())?;
+            lip.sel.unwrap_simple()?;
             lip.update_markers()?;
         }
         Ok(())
     }
 
-    fn compute_patches(&mut self) -> anyhow::Result<()>{
-        let ind: Vec<(usize,usize)> = distance_search_single_pbc(
+    fn compute_patches(&mut self) -> anyhow::Result<()> {
+        let ind: Vec<(usize, usize)> = distance_search_single_pbc(
             2.0,
             self.lipids.iter().map(|l| &l.mid_marker),
             0..self.lipids.len(),
@@ -190,10 +231,75 @@ impl Membrane {
             PBC_FULL,
         );
         let conn = LocalConnectivity::from_iter(ind, self.lipids.len());
-        println!("{:?}",conn);
+        self.patches = conn.0;
+        Ok(())
+    }
+
+    pub fn write_vmd_visualization(&self, fname: impl AsRef<Path>) -> anyhow::Result<()> {
+        let mut vis = VmdVisual::new();
+
+        for lip in self.lipids.iter() {
+            // Lipid marker
+            vis.sphere(&lip.head_marker, 0.8, "white");
+            // tail-head vector
+            vis.arrow(&lip.head_marker, &lip.tail_head_vec, "yellow");
+            // normal
+            vis.arrow(&lip.head_marker, &lip.normal, "cyan");
+        }
+
+        vis.save_to_file(fname)?;
+
         Ok(())
     }
 }
+
+struct VmdVisual {
+    buf: String,
+}
+
+impl VmdVisual {
+    fn new() -> Self {
+        Self {buf: String::new()}
+    }
+
+    fn save_to_file(&self, fname: impl AsRef<Path>) -> anyhow::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(fname)?;
+        writeln!(f, "{}", self.buf)?;
+        Ok(())
+    }
+
+    fn sphere(&mut self, point: &Pos, radius: f32, color: &str) {    
+        writeln!(self.buf, "draw color {color}").unwrap();
+        writeln!(
+            self.buf,
+            "draw sphere \"{} {} {}\" radius {radius} resolution 12",
+            point.x*10.0, point.y*10.0, point.z*10.0
+        ).unwrap();
+    }
+
+    fn arrow(&mut self, point: &Pos, dir: &Vector3f, color: &str) {
+        use std::fmt::Write;
+    
+        let p2 = point*10.0 + dir * 0.5;
+        let p3 = point*10.0 + dir * 0.7;
+    
+        writeln!(self.buf, "draw color {color}").unwrap();
+
+        writeln!(
+            self.buf,
+            "draw cylinder \"{} {} {}\" \"{} {} {}\" radius 0.2 resolution 12",
+            point.x, point.y, point.z, p2.x, p2.y, p2.z
+        ).unwrap();
+    
+        writeln!(
+            self.buf,
+            "draw cone \"{} {} {}\" \"{} {} {}\" radius 0.3 resolution 12\n",
+            p2.x, p2.y, p2.z, p3.x, p3.y, p3.z
+        ).unwrap();
+    }
+}
+
 
 pub struct LipidGroup {
     lipid_ids: Vec<usize>,

@@ -38,6 +38,9 @@ pub struct LipidMolecule {
     pub(super) mid_marker: Pos,
     pub(super) tail_marker: Pos,
     pub(super) stats: SingleLipidProperties,
+
+    pub(super) tail_head_vec: Vector3f,
+    pub(super) normal: Vector3f,
 }
 
 impl LipidMolecule {
