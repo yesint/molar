@@ -1,16 +1,25 @@
 use molar::prelude::*;
-use nalgebra::DVector;
+use nalgebra::{DVector, SMatrix, SVector};
 use std::sync::Arc;
 
 use crate::lipid_species::LipidSpecies;
 
-#[derive(Debug)]
+#[derive(Debug,Default)]
 pub struct SingleLipidProperties {
-    pub(super) normal: Vector3f,
     pub(super) area: f32,
     pub(super) tilt: f32,
     pub(super) order: Vec<DVector<f32>>,
+
+    pub(super) tail_head_vec: Vector3f,
+    pub(super) init_normal: Vector3f,
+    pub(super) fitted_normal: Vector3f,
+    pub(super) fitted_marker: Pos,
+    pub(super) mean_curv: f32,
+    pub(super) gaussian_curv: f32,
+    pub(super) princ_dirs: SMatrix<f32,3,2>,
+    pub(super) princ_curvs: SVector<f32,2>,
 }
+
 
 impl SingleLipidProperties {
     pub fn new(species: &LipidSpecies) -> Self {
@@ -19,10 +28,8 @@ impl SingleLipidProperties {
             order.push(DVector::from_element(t.bond_orders.len() - 1, 0.0));
         }
         Self {
-            normal: Default::default(),
-            area: Default::default(),
-            tilt: Default::default(),
             order,
+            ..Default::default()
         }
     }
 }
@@ -37,11 +44,10 @@ pub struct LipidMolecule {
     pub(super) head_marker: Pos,
     pub(super) mid_marker: Pos,
     pub(super) tail_marker: Pos,
+    
     pub(super) stats: SingleLipidProperties,
-
-    pub(super) tail_head_vec: Vector3f,
-    pub(super) normal: Vector3f,
 }
+    
 
 impl LipidMolecule {
     pub fn update_markers(&mut self) -> anyhow::Result<()> {
