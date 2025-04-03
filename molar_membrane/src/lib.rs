@@ -1,5 +1,6 @@
 use anyhow::{bail, Context};
 use molar::prelude::*;
+use molar::voronoi_cell::{Vector2f, VoronoiCell};
 use nalgebra::{zero, Const, DMatrix, Dyn, Matrix, OMatrix, SMatrix, SVector};
 use std::fmt::Write;
 use std::{
@@ -34,9 +35,6 @@ pub struct Membrane {
     global_normal: Option<Vector3f>,
     order_type: OrderType,
     output_dir: PathBuf,
-
-    // Local patches
-    patches: Vec<Vec<usize>>,
 }
 
 impl Membrane {
@@ -85,7 +83,7 @@ impl Membrane {
                         head_marker,
                         mid_marker,
                         tail_marker,
-                        stats: SingleLipidProperties::new(&sp),
+                        props: SingleLipidProperties::new(&sp),
                     });
                 }
             } else {
@@ -101,7 +99,6 @@ impl Membrane {
             global_normal: None,
             order_type: OrderType::ScdCorr,
             output_dir: PathBuf::from("membrane_results"),
-            patches: vec![],
         })
     }
 
@@ -158,52 +155,57 @@ impl Membrane {
         // Compute patches
         self.compute_patches()?;
 
-        //=========================
-        // Compute initial normals
-        //=========================
-
-        // Compute tail-to-head vectors for all lipids
-        // This is unwrapped with the same lipid
-        for lip in &mut self.lipids {
-            lip.stats.tail_head_vec = (lip.head_marker - lip.tail_marker).normalize();
-        }
-
-        // First pass - average of tail-to-head distances in each patch
-        for i in 0..self.lipids.len() {
-            self.lipids[i].stats.init_normal = self.patches[i]
-                .iter()
-                .map(|l| &self.lipids[*l].stats.tail_head_vec)
-                .sum::<Vector3f>()
-                .normalize();
-        }
-
-        // Second pass - average of vectors from the first pass in eac patch
-        for i in 0..self.lipids.len() {
-            self.lipids[i].stats.init_normal = self.patches[i]
-                .iter()
-                .map(|l| &self.lipids[*l].stats.init_normal)
-                .sum::<Vector3f>()
-                .normalize();
-        }
-
-        // Correct normal orientations if needed
-        for lip in self.lipids.iter_mut() {
-            if lip.stats.init_normal.angle(&lip.stats.tail_head_vec) > FRAC_PI_2 {
-                lip.stats.init_normal *= -1.0;
-            }
-        }
+        // Get initial normals
+        self.compute_initial_normals();
 
         // Initialize fitted_marker and fitted_normal
         for lip in self.lipids.iter_mut() {
-            lip.stats.fitted_marker = lip.head_marker;
-            lip.stats.fitted_normal = lip.stats.init_normal;
+            lip.props.fitted_marker = lip.head_marker;
+            lip.props.fitted_normal = lip.props.init_normal;
         }
 
-        //=========================
-        // Compute Voronoi
-        //=========================
+        // periodic box
+        let pbox = self.lipids[0].sel.require_box()?.clone();
+
+        // Compute fitted markers for each lipid
         for i in 0..self.lipids.len() {
-            self.compute_voronoi(i);
+            // Get local-to-lab transform
+            let to_lab = self.get_to_lab_transform(i);
+            // Inverse transform
+            let to_local = to_lab.try_inverse().unwrap();
+            // Local points
+            // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
+            // Central point is assumed to be at local zero.
+            let p0 = &self.lipids[i].props.fitted_marker;
+            let local_points = self.lipids[i]
+                .props
+                .patch
+                .iter()
+                .map(|j| to_local * pbox.shortest_vector(&(self.lipids[*j].props.fitted_marker - p0)))
+                .collect::<Vec<_>>();
+
+
+            // Compute fitted surface coefs (lab-to-local transform computed inside
+            // and not needed outside this function)
+            let quad_coefs = self.get_quad_coefs(&local_points);
+
+            // Compute curvatures and fitted normal
+            self.lipids[i].props.compute_curvature_and_normal(&quad_coefs, &to_lab);
+
+            // Update fitted marker
+            // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+            // but x=y=0, so z_local = f = quad_coefs[5]
+            self.lipids[i].props.fitted_marker +=
+                to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
+
+            // Construct Voronoi cell
+            let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
+            for j in 0..local_points.len() {
+                let p = local_points[j];
+                vc.add_point(&Vector2f::new(p.x,p.y), self.lipids[i].props.patch[j]);
+            }
+            self.lipids[i].props.area = vc.area();
+            
         }
 
         // Compute order for all lipids
@@ -217,40 +219,54 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn smooth(&mut self) {
-        // Array of current smoothed points.
-        // Initialized from the lipid head groups
-        let points = self.lipids.iter().map(|l| l.head_marker).collect::<Vec<_>>();
+    fn compute_initial_normals(&mut self) {
+        // Compute tail-to-head vectors for all lipids
+        // This is unwrapped with the same lipid
+        for lip in &mut self.lipids {
+            lip.props.tail_head_vec = (lip.head_marker - lip.tail_marker).normalize();
+        }
 
+        // First pass - average of tail-to-head distances in each patch
+        for i in 0..self.lipids.len() {
+            self.lipids[i].props.init_normal = self.lipids[i]
+                .props
+                .patch
+                .iter()
+                .map(|l| &self.lipids[*l].props.tail_head_vec)
+                .sum::<Vector3f>()
+                .normalize();
+        }
+
+        // Second pass - average of vectors from the first pass in eac patch
+        for i in 0..self.lipids.len() {
+            self.lipids[i].props.init_normal = self.lipids[i]
+                .props
+                .patch
+                .iter()
+                .map(|l| &self.lipids[*l].props.init_normal)
+                .sum::<Vector3f>()
+                .normalize();
+        }
+
+        // Correct normal orientations if needed
+        for lip in self.lipids.iter_mut() {
+            if lip.props.init_normal.angle(&lip.props.tail_head_vec) > FRAC_PI_2 {
+                lip.props.init_normal *= -1.0;
+            }
+        }
     }
 
     pub fn get_to_lab_transform(&mut self, lip_id: usize) -> Matrix3f {
         let mut to_lab = Matrix3f::zeros();
         // Set axes as two perpendicular vectors
-        let n = &self.lipids[lip_id].stats.fitted_normal;
+        let n = &self.lipids[lip_id].props.fitted_normal;
         to_lab.set_column(0, &n.cross(&Vector3f::x()));
         to_lab.set_column(1, &n.cross(&to_lab.column(0)));
         to_lab.set_column(2, &-n);
         to_lab
     }
 
-    pub fn get_quad_coefs(&mut self, lip_id: usize, to_lab: &Matrix3f) -> SVector<f32,6> {
-        // Inverse transform
-        let to_local = to_lab.try_inverse().unwrap();
-
-        //============================
-        // Points in local basis
-        //============================
-        let pbox = self.lipids[0].sel.require_box().unwrap();
-        // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
-        // Central point is assumed to be at local zero.
-        let p0 = &self.lipids[lip_id].stats.fitted_marker;
-
-        let local_points = self.patches[lip_id]
-            .iter()
-            .map(|i| to_local*pbox.shortest_vector(&(self.lipids[*i].stats.fitted_marker - p0)))
-            .collect::<Vec<_>>();
-
+    pub fn get_quad_coefs<'a>(&mut self, local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
         //============================
         // Fitting polynomial
         //============================
@@ -262,8 +278,7 @@ impl Membrane {
 
         let mut powers = nalgebra::SVector::<f32, 6>::zeros();
         powers[5] = 1.0; //free term, the same everywhere
-        for loc in local_points.iter()
-        {
+        for loc in local_points {
             // Compute powers
             powers[0] = loc[0] * loc[0]; //xx
             powers[1] = loc[1] * loc[1]; //yy
@@ -278,25 +293,6 @@ impl Membrane {
 
         // Now solve and returs coeffs
         m.solve_lower_triangular(&rhs).unwrap()
-    }
-
-
-    pub fn compute_voronoi(&mut self, lip_id: usize) {
-        // Get local-to-lab transform
-        let to_lab = self.get_to_lab_transform(lip_id);
-        // Compute fitted surface coefs (lab-to-local transform computed inside 
-        // and not needed outside this function)
-        let quad_coefs = self.get_quad_coefs(lip_id, &to_lab);
-
-        //=====================================
-        // Compute curvatures and fitted normal
-        //=====================================
-        compute_curvature_and_normal(&quad_coefs, &to_lab, &mut self.lipids[lip_id].stats);
-
-        // Update fitted marker
-        // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
-        // but x=y=0, so z_local = f = quad_coefs[5]
-        self.lipids[lip_id].stats.fitted_marker += to_lab*Vector3f::new(0.0,0.0,quad_coefs[5]);
     }
 
     pub fn finalize(&self) -> anyhow::Result<()> {
@@ -331,7 +327,9 @@ impl Membrane {
             PBC_FULL,
         );
         let conn = LocalConnectivity::from_iter(ind, self.lipids.len());
-        self.patches = conn.0;
+        for (i, v) in conn.0.into_iter().enumerate() {
+            self.lipids[i].props.patch = v;
+        }
         Ok(())
     }
 
@@ -342,14 +340,14 @@ impl Membrane {
             // Initial lipid marker
             vis.sphere(&lip.head_marker, 0.8, "white");
             // tail-head vector
-            vis.arrow(&lip.head_marker, &lip.stats.tail_head_vec, "yellow");
+            vis.arrow(&lip.head_marker, &lip.props.tail_head_vec, "yellow");
             // initial normal
-            vis.arrow(&lip.head_marker, &lip.stats.init_normal, "cyan");
-            
+            vis.arrow(&lip.head_marker, &lip.props.init_normal, "cyan");
+
             // Fitted lipid marker
-            vis.sphere(&lip.stats.fitted_marker, 0.8, "red");
+            vis.sphere(&lip.props.fitted_marker, 0.8, "red");
             // fitted normal
-            vis.arrow(&lip.stats.fitted_marker, &lip.stats.fitted_normal, "orange");
+            vis.arrow(&lip.props.fitted_marker, &lip.props.fitted_normal, "orange");
         }
 
         vis.save_to_file(fname)?;
@@ -359,92 +357,6 @@ impl Membrane {
 }
 
 //===========================================
-#[allow(non_snake_case)]
-fn compute_curvature_and_normal(
-    coefs: &SVector<f32, 6>,
-    to_lab: &SMatrix<f32, 3, 3>,
-    out_props: &mut SingleLipidProperties,
-) {
-    /* Compute the curvatures
-
-    First fundamental form:  I = E du^2 + 2F du dv + G dv^2
-    E= r_u dot r_u, F= r_u dot r_v, G= r_v dot r_v
-
-    For us parametric variables (u,v) are just (x,y) in local space.
-    Derivatives:
-        r_u = {1, 0, 2Ax+Cy+D}
-        r_v = {0, 1, 2By+Cx+E}
-
-    In central point x=0, y=0 so:
-        r_u={1,0,D}
-        r_v={0,1,E}
-
-    Thus: E_ =1+D^2; F_ = D*E; G_ = 1+E^2;
-
-    Second fundamental form: II = L du2 + 2M du dv + N dv2
-    L = r_uu dot n, M = r_uv dot n, N = r_vv dot n
-
-    Normal is just  n = {0, 0, 1}
-    Derivatives:
-        r_uu = {0, 0, 2A}
-        r_uv = {0 ,0, C}
-        r_vv = {0, 0, 2B}
-
-    Thus: L_ = 2A; M_ = C; N_ = 2B;
-    */
-    let a = &coefs[0];
-    let b = &coefs[1];
-    let c = &coefs[2];
-    let d = &coefs[3];
-    let e = &coefs[4];
-    // F is not used;
-
-    let E = 1.0 + d * d;
-    let F = d * e;
-    let G = 1.0 + e * e;
-
-    let L = 2.0 * a;
-    let M = c;
-    let N = 2.0 * b;
-
-    //Curvatures:
-    out_props.gaussian_curv = (L * N - M * M) / (E * G - F * F);
-    out_props.mean_curv = 0.5 * (E * N - 2.0 * F * M + G * L) / (E * G - F * F);
-
-    // Compute normal of the fitted surface at central point
-    // dx = 2Ax+Cy+D
-    // dy = 2By+Cx+E
-    // dz = -1
-    // Since we are evaluating at x=y=0:
-    // norm = {D,E,1}
-    out_props.fitted_normal = to_lab * Vector3f::new(*d, *e, -1.0).normalize();
-    // Orientation of the normal could be wrong!
-    // Have to be flipped according to lipid orientation later
-
-    /* Principal curvatures
-        The principal curvatures k1 and k2 are the eigenvalues
-        and the principal directions are eigenvectors
-        of the shape operator W:
-        W = [I]^-1 * [II]
-        W = 1/(EG - F^2) * [E L - F M, E M - F N]
-                            [G M - F L, G N - F M]
-    */
-    let mut W = SMatrix::<f32, 2, 2>::zeros();
-    W[(0, 0)] = E * L - F * M;
-    W[(0, 1)] = E * M - F * N;
-    W[(1, 0)] = G * M - F * L;
-    W[(1, 1)] = G * N - F * M;
-    W *= 1.0 / (E * G - F * F);
-    // W is symmetric despite the equations seems to be not!
-    let eig = W.symmetric_eigen();
-
-    out_props.princ_dirs = SMatrix::<f32, 3, 2>::from_columns(&[
-        to_lab * Vector3f::new(eig.eigenvectors[(0, 0)], eig.eigenvectors[(1, 0)], 0.0),
-        to_lab * Vector3f::new(eig.eigenvectors[(0, 1)], eig.eigenvectors[(1, 1)], 0.0),
-    ]);
-
-    out_props.princ_curvs = eig.eigenvalues;
-}
 
 //===========================================
 struct VmdVisual {
