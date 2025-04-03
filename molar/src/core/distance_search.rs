@@ -166,6 +166,7 @@ impl<'a> Grid<'a> {
             for d in 0..3 {
                 if rel[d] < 0.0 || rel[d] >= 1.0 {
                     if !pbc_dims.get_dim(d) {
+                        // Non-pbc dim is out of bound, so skip the point entirely
                         continue 'outer;
                     } else {
                         correct = false;
@@ -189,13 +190,14 @@ impl<'a> Grid<'a> {
                         // For each periodic dim
                         rel[d] = rel[d].fract();
                         if rel[d] < 0.0 {
-                            rel[d] = 1.0 - rel[d]
+                            rel[d] = 1.0 + rel[d] // red[d]<0, so add it, not substract!
                         }
                     }
                     loc[d] = ((rel[d] * self.dims[d] as f32).floor() as usize)
                         .clamp(0, self.dims[d] - 1);
                     // Accounts for float point errors when loc[d] could be 1.00001
                 }
+
                 let wp = Pos::from(box_.to_lab_coords(&rel));
                 self.wrapped_pos.push(wp);
                 wrapped_ind.push((self.loc_to_ind(loc), id));
@@ -248,7 +250,7 @@ fn search_plan(
                             }
                         }
                     }
-                    // If we are here we need to add the cell pair to then plan
+                    // If we are here we need to add the cell pair to the plan
                     let i1 = grid1.loc_to_ind(c[0]);
                     let i2 = grid1.loc_to_ind(c[1]);
 

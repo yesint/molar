@@ -152,6 +152,7 @@ impl Membrane {
     }
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
+        use std::io::Write;
         // Compute patches
         self.compute_patches()?;
 
@@ -181,31 +182,45 @@ impl Membrane {
                 .props
                 .patch
                 .iter()
-                .map(|j| to_local * pbox.shortest_vector(&(self.lipids[*j].props.fitted_marker - p0)))
+                .map(|j| {
+                    to_local * pbox.shortest_vector(&(self.lipids[*j].props.fitted_marker - p0))
+                })
                 .collect::<Vec<_>>();
-
 
             // Compute fitted surface coefs (lab-to-local transform computed inside
             // and not needed outside this function)
             let quad_coefs = self.get_quad_coefs(&local_points);
 
             // Compute curvatures and fitted normal
-            self.lipids[i].props.compute_curvature_and_normal(&quad_coefs, &to_lab);
+            self.lipids[i]
+                .props
+                .compute_curvature_and_normal(&quad_coefs, &to_lab);
 
             // Update fitted marker
             // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
             // but x=y=0, so z_local = f = quad_coefs[5]
-            self.lipids[i].props.fitted_marker +=
-                to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
+            self.lipids[i].props.fitted_marker += to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
 
             // Construct Voronoi cell
             let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
             for j in 0..local_points.len() {
                 let p = local_points[j];
-                vc.add_point(&Vector2f::new(p.x,p.y), self.lipids[i].props.patch[j]);
+                vc.add_point(&Vector2f::new(p.x, p.y), self.lipids[i].props.patch[j]);
             }
-            self.lipids[i].props.area = vc.area();
-            
+            //self.lipids[i].props.area = vc.area();
+            //vc.write_to_file(&format!("/home/semen/work/Projects/Misha/PG_flipping/lip_{}.dat",self.lipids[i].sel.first_atom().resid));
+
+            if self.lipids[i].sel.first_atom().resid == 162 || self.lipids[i].sel.first_atom().resid == 107 {
+                for l in &self.lipids[i].props.patch {
+                    print!("{} ",self.lipids[*l].sel.first_atom().resid);
+                }
+                println!("");
+            }
+
+            // Project vertexes into the surface and convert to lab space
+            self.lipids[i].props.vertexes = vc.iter_vertex().map(|v|
+                Pos::from(self.lipids[i].props.fitted_marker + to_lab * project_to_surf(v.get_pos(),&quad_coefs))
+            ).collect::<Vec<_>>();
         }
 
         // Compute order for all lipids
@@ -319,16 +334,27 @@ impl Membrane {
     }
 
     fn compute_patches(&mut self) -> anyhow::Result<()> {
-        let ind: Vec<(usize, usize)> = distance_search_single_pbc(
-            2.0,
-            self.lipids.iter().map(|l| &l.mid_marker),
-            0..self.lipids.len(),
-            self.lipids[0].sel.require_box()?,
-            PBC_FULL,
+        // let ind: Vec<(usize, usize)> = distance_search_single_pbc(
+        //     2.5,
+        //     self.lipids.iter().map(|l| &l.head_marker),
+        //     0..self.lipids.len(),
+        //     self.lipids[0].sel.require_box()?,
+        //     PBC_FULL,
+        // );
+
+        let ind: Vec<(usize, usize)> = distance_search_double_pbc(
+                2.5,
+                self.lipids.iter().map(|l| &l.head_marker),
+                self.lipids.iter().map(|l| &l.head_marker),
+                0..self.lipids.len(),
+                0..self.lipids.len(),
+                self.lipids[0].sel.require_box()?,
+                PBC_FULL,
         );
-        let conn = LocalConnectivity::from_iter(ind, self.lipids.len());
-        for (i, v) in conn.0.into_iter().enumerate() {
-            self.lipids[i].props.patch = v;
+        
+        for (i,j) in ind {
+            self.lipids[i].props.patch.push(j);
+            self.lipids[j].props.patch.push(i);
         }
         Ok(())
     }
@@ -348,6 +374,15 @@ impl Membrane {
             vis.sphere(&lip.props.fitted_marker, 0.8, "red");
             // fitted normal
             vis.arrow(&lip.props.fitted_marker, &lip.props.fitted_normal, "orange");
+
+            // Voronoi cell
+            let n = lip.props.vertexes.len();
+            for i in 0..n-1 {
+                let p1 = lip.props.vertexes[i];
+                let p2 = lip.props.vertexes[i+1];
+                vis.cylinder(&p1, &p2, "green");
+            }
+            vis.cylinder(&lip.props.vertexes[n-1], &lip.props.vertexes[0], "green");
         }
 
         vis.save_to_file(fname)?;
@@ -357,6 +392,16 @@ impl Membrane {
 }
 
 //===========================================
+fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
+    // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+    let z = coefs[0] * p.x * p.x
+        + coefs[1] * p.y * p.y
+        + coefs[2] * p.x * p.y
+        + coefs[3] * p.x
+        + coefs[4] * p.y
+        + coefs[5];
+    Vector3f::new(p.x, p.y, z)
+}
 
 //===========================================
 struct VmdVisual {
@@ -409,6 +454,22 @@ impl VmdVisual {
             self.buf,
             "draw cone \"{} {} {}\" \"{} {} {}\" radius 0.4 resolution 12\n",
             p2.x, p2.y, p2.z, p3.x, p3.y, p3.z
+        )
+        .unwrap();
+    }
+
+    fn cylinder(&mut self, point1: &Pos, point2: &Pos, color: &str) {
+        use std::fmt::Write;
+
+        let p1 = point1 * 10.0;
+        let p2 = point2 * 10.0;
+
+        writeln!(self.buf, "draw color {color}").unwrap();
+
+        writeln!(
+            self.buf,
+            "draw cylinder \"{} {} {}\" \"{} {} {}\" radius 0.2 resolution 12",
+            p1.x, p1.y, p1.z, p2.x, p2.y, p2.z
         )
         .unwrap();
     }
@@ -612,5 +673,24 @@ mod tests {
         memb.write_vmd_visualization(path.join("vis.tcl"))?;
 
         Ok(())
+    }
+
+    #[test]
+    fn periodic_sel_test() {
+        let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping/");
+        let src = Source::serial_from_file(path.join("last.pdb")).unwrap();
+        let pbox = src.get_box().unwrap();
+
+        let p = src.select("name P").unwrap();
+        let pairs: Vec<(usize,usize)> = distance_search_single_pbc(2.5, p.iter_pos(), p.iter_index(), pbox, PBC_FULL);
+
+        let r162 = src.select("resid 162 and name P").unwrap();
+        let p1= r162.first_particle().pos;
+        let r123 = src.select("resid 123 and name P").unwrap();
+        let p2 = r123.first_particle().pos;
+        
+        let d = pbox.distance(p1, p2, PBC_FULL);
+        println!("d={d}");
+        
     }
 }
