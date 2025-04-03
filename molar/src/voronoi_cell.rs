@@ -217,7 +217,7 @@ impl VoronoiCell {
             let v1 = self.vertex(i);
             i = v1.ccw_neib;
             let v2 = self.vertex(i);
-            a += 0.5*v1.pos.cross(&v2.pos).norm();
+            a += (v1.pos.x * v2.pos.y - v1.pos.y * v2.pos.x).abs() / 2.0;
             if i == self.init_vert {break}
         }
         a
