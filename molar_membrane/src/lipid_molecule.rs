@@ -20,6 +20,7 @@ pub struct SingleLipidProperties {
     pub(super) princ_curvs: SVector<f32, 2>,
 
     pub(super) patch: Vec<usize>,
+    pub(super) vertexes: Vec<Pos>,
 }
 
 impl SingleLipidProperties {

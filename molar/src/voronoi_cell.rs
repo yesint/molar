@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 
+use crate::core::Vector3f;
 pub type Vector2f = nalgebra::Vector2<f32>;
 const TOL: f32 = 1e-10;
 
@@ -12,6 +13,20 @@ pub struct Vertex {
     // ID of point that created the ccw edge
     // Negative numbers are reserved for the walls
     edge_id: i32, 
+}
+
+impl Vertex {
+    pub fn get_id(&self) -> i32 {
+        self.edge_id
+    }
+
+    pub fn get_pos(&self) -> Vector2f {
+        self.pos
+    }
+
+    pub fn get_pos_3d(&self) -> Vector3f {
+        Vector3f::new(self.pos.x, self.pos.y, 0.0)
+    }
 }
 
 struct CuttingLine {
