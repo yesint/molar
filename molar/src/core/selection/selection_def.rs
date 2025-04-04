@@ -26,7 +26,7 @@ impl SelectionDef for &SelectionExpr {
             Some(sub) => self.apply_subset(top, st, sub)?,
         };
         if ind.is_empty() {
-            Err(SelectionError::Empty)
+            Err(SelectionError::EmptyExpr(self.get_str().to_string()))
         } else {
             Ok(ind)
         }
@@ -99,7 +99,7 @@ impl SelectionDef for std::ops::RangeInclusive<usize> {
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {
         if self.is_empty() {
-            Err(SelectionError::Empty)
+            Err(SelectionError::EmptyRange(*self.start(),*self.end()))
         } else {
             let (b, e) = self.into_inner();
             (b..e + 1).into_sel_index(top, st, subset)
@@ -115,7 +115,7 @@ impl SelectionDef for &[usize] {
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {
         if self.is_empty() {
-            Err(SelectionError::Empty)
+            Err(SelectionError::EmptySlice)
         } else {            
             match subset {
                 None => {
@@ -163,7 +163,7 @@ impl SelectionDef for SVec {
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {
         if self.is_empty() {
-            Err(SelectionError::Empty)
+            Err(SelectionError::EmptySlice)
         } else {            
             match subset {
                 None => {                    

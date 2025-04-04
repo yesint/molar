@@ -88,8 +88,14 @@ pub enum SelectionError {
     #[error("can't release source: multiple references are active")]
     Release,
 
-    #[error("selection is empty")]
-    Empty,
+    #[error("selection from vector slice is empty")]
+    EmptySlice,
+
+    #[error("selection range {0}:{1} is empty")]
+    EmptyRange(usize, usize),
+
+    #[error("selection '{0}' is empty")]
+    EmptyExpr(String),
 
     #[error("splitting produced no selections")]
     EmptySplit,
