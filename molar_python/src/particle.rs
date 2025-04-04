@@ -30,6 +30,10 @@ impl Particle {
         }
     }
 
+    fn get_id(&self) -> usize {
+        self.id
+    }
+
     #[getter(x)]
     fn get_x(&self) -> f32 {
         unsafe { *(*self.pos).data.cast() }
@@ -107,12 +111,12 @@ impl Particle {
     // resindex
     #[getter(resindex)]
     fn get_resindex(&self, _py: Python) -> usize {
-        self.id
+        self.atom.resindex
     }
 
     #[setter(resindex)]
     fn set_resindex(&mut self, value: usize) {
-        self.id = value;
+        self.atom.resindex = value;
     }
 
     // atomic_number

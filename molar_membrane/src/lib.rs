@@ -153,7 +153,6 @@ impl Membrane {
     }
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
-        use std::io::Write;
         // Compute patches
         self.compute_patches(3.0)?;
 
