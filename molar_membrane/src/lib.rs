@@ -2,6 +2,7 @@ use anyhow::{bail, Context};
 use molar::prelude::*;
 use molar::voronoi_cell::{Vector2f, VoronoiCell};
 use nalgebra::{zero, Const, DMatrix, Dyn, Matrix, OMatrix, SMatrix, SVector};
+use std::char::MAX;
 use std::fmt::Write;
 use std::{
     any,
@@ -154,7 +155,7 @@ impl Membrane {
     pub fn compute(&mut self) -> anyhow::Result<()> {
         use std::io::Write;
         // Compute patches
-        self.compute_patches()?;
+        self.compute_patches(3.0)?;
 
         // Get initial normals
         self.compute_initial_normals();
@@ -168,59 +169,139 @@ impl Membrane {
         // periodic box
         let pbox = self.lipids[0].sel.require_box()?.clone();
 
-        // Compute fitted markers for each lipid
-        for i in 0..self.lipids.len() {
-            // Get local-to-lab transform
-            let to_lab = self.get_to_lab_transform(i);
-            // Inverse transform
-            let to_local = to_lab.try_inverse().unwrap();
-            // Local points
-            // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
-            // Central point is assumed to be at local zero.
-            let p0 = &self.lipids[i].props.fitted_marker;
-            let local_points = self.lipids[i]
-                .props
-                .patch
-                .iter()
-                .map(|j| {
-                    to_local * pbox.shortest_vector(&(self.lipids[*j].props.fitted_marker - p0))
-                })
-                .collect::<Vec<_>>();
+        // Do smoothing
+        let mut iter = 0;
+        const TOL: f32 = 1e-3;
+        const MAX_ITER: u8 = 5;
 
-            // Compute fitted surface coefs (lab-to-local transform computed inside
-            // and not needed outside this function)
-            let quad_coefs = self.get_quad_coefs(&local_points);
+        loop {
+            for i in 0..self.lipids.len() {
+                // Get local-to-lab transform
+                let to_lab = self.get_to_lab_transform(i, 0);
+                // Inverse transform
+                let to_local = to_lab.try_inverse().unwrap();
+                // Local points
+                // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
+                // Central point is assumed to be at local zero.
+                let p0 = &self.lipids[i].props.fitted_marker;
+                let local_points = self.lipids[i]
+                    .props
+                    .patch
+                    .iter()
+                    .map(|j| {
+                        to_local * pbox.shortest_vector(&(self.lipids[*j].props.fitted_marker - p0))
+                    })
+                    .collect::<Vec<_>>();
 
-            // Compute curvatures and fitted normal
-            self.lipids[i]
-                .props
-                .compute_curvature_and_normal(&quad_coefs, &to_lab);
+                // Compute fitted surface coefs
+                let quad_coefs = self.get_quad_coefs(&local_points);
 
-            // Update fitted marker
-            // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
-            // but x=y=0, so z_local = f = quad_coefs[5]
-            self.lipids[i].props.fitted_marker += to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
+                // Compute curvatures and fitted normal
+                self.lipids[i]
+                    .props
+                    .compute_curvature_and_normal(&quad_coefs, &to_lab);
 
-            // Construct Voronoi cell
-            let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
-            for j in 0..local_points.len() {
-                let p = local_points[j];
-                vc.add_point(&Vector2f::new(p.x, p.y), self.lipids[i].props.patch[j]);
-            }
-            //self.lipids[i].props.area = vc.area();
-            //vc.write_to_file(&format!("/home/semen/work/Projects/Misha/PG_flipping/lip_{}.dat",self.lipids[i].sel.first_atom().resid));
-
-            if self.lipids[i].sel.first_atom().resid == 162 || self.lipids[i].sel.first_atom().resid == 107 {
-                for l in &self.lipids[i].props.patch {
-                    print!("{} ",self.lipids[*l].sel.first_atom().resid);
+                // Do Voronoi stuff now
+                let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
+                for j in 0..local_points.len() {
+                    let p = local_points[j];
+                    vc.add_point(&Vector2f::new(p.x, p.y), self.lipids[i].props.patch[j]);
                 }
-                println!("");
+
+                // Project vertexes into the surface and convert to lab space
+                self.lipids[i].props.vertexes = vc
+                    .iter_vertex()
+                    .map(|v| {
+                        // For now we save only an offset here because
+                        // Final posiion of the marker is not yet known 
+                        Pos::from(to_lab * project_to_surf(v.get_pos(), &quad_coefs))
+                    })
+                    .collect::<Vec<_>>();
+
+                // Find direct neighbours
+                self.lipids[i].props.neib = vc
+                    .iter_vertex()
+                    .filter_map(|v| {
+                        let id = v.get_id();
+                        if id >= 0 {
+                            Some(id as usize)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                //Save fitted positions of patch markers
+                self.lipids[i].props.fitted_patch_points = local_points
+                    .iter()
+                    .zip(&self.lipids[i].props.patch)
+                    .map(|(p, id)| {
+                        self.lipids[*id].props.fitted_marker
+                            + to_lab * Vector3f::new(0.0,0.0,z_surf(p.x, p.y, &quad_coefs)-p.z)
+                    })
+                    .collect();
+
+                // Update fitted marker
+                // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+                // but x=y=0, so z_local = f = quad_coefs[5]
+                self.lipids[i].props.fitted_marker +=
+                    to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
+            } //lipids
+
+            // Smooth
+            // We start from fitted markers themselves
+            let mut smooth_n = vec![1.0; self.lipids.len()];
+            let mut smooth_p = self
+                .lipids
+                .iter()
+                .map(|l| l.props.fitted_marker)
+                .collect::<Vec<_>>();
+            // Add projected patch points
+            for i in 0..self.lipids.len() {
+                for (id, p) in self.lipids[i]
+                    .props
+                    .patch
+                    .iter()
+                    .zip(self.lipids[i].props.fitted_patch_points.iter())
+                {
+                    smooth_n[*id] += 1.0;
+                    smooth_p[*id] += 1.0 * p.coords;
+                }
+            }
+            // Compute averages
+            for i in 0..self.lipids.len() {
+                self.lipids[i].props.fitted_marker = smooth_p[i] / smooth_n[i];
             }
 
-            // Project vertexes into the surface and convert to lab space
-            self.lipids[i].props.vertexes = vc.iter_vertex().map(|v|
-                Pos::from(self.lipids[i].props.fitted_marker + to_lab * project_to_surf(v.get_pos(),&quad_coefs))
-            ).collect::<Vec<_>>();
+            // Now compute actual positions of the Voronoi vertices by adding
+            // actual position of the marker
+            for lip in &mut self.lipids {
+                for v in &mut lip.props.vertexes {
+                    *v += lip.props.fitted_marker.coords;
+                }
+            }
+
+            // Find neighbours of order 2
+            // for i in 0..self.lipids.len() {
+            //     let mut neib2 = self.lipids[i].props.neib.clone();
+            //     for n1 in &self.lipids[i].props.neib {
+            //         neib2.extend(&self.lipids[*n1].props.neib);
+            //     }
+            //     neib2.sort();
+            //     neib2.dedup();
+            //     self.lipids[i].props.neib = neib2;
+            // }
+
+            self.write_vmd_visualization(format!(
+                "/home/semen/work/Projects/Misha/PG_flipping/iter_{iter}.tcl"
+            ))
+            .unwrap();
+
+            iter += 1;
+
+            if iter >= MAX_ITER {
+                break;
+            }
         }
 
         // Compute order for all lipids
@@ -271,13 +352,20 @@ impl Membrane {
         }
     }
 
-    pub fn get_to_lab_transform(&mut self, lip_id: usize) -> Matrix3f {
+    pub fn get_to_lab_transform(&mut self, lip_id: usize, iter: u8) -> Matrix3f {
         let mut to_lab = Matrix3f::zeros();
-        // Set axes as two perpendicular vectors
         let n = &self.lipids[lip_id].props.fitted_normal;
-        to_lab.set_column(0, &n.cross(&Vector3f::x()));
-        to_lab.set_column(1, &n.cross(&to_lab.column(0)));
-        to_lab.set_column(2, &-n);
+        if iter == 0 {
+            // On initial iteration set X and Y axes as two perpendicular vectors
+            to_lab.set_column(0, &n.cross(&Vector3f::x()));
+            to_lab.set_column(1, &n.cross(&to_lab.column(0)));
+            to_lab.set_column(2, &-n);
+        } else {
+            // Otherwise reuse computed principal curvature axes
+            to_lab.set_column(0, &self.lipids[lip_id].props.princ_dirs.column(0));
+            to_lab.set_column(1, &self.lipids[lip_id].props.princ_dirs.column(1));
+            to_lab.set_column(2, &-n);
+        }
         to_lab
     }
 
@@ -333,26 +421,16 @@ impl Membrane {
         Ok(())
     }
 
-    fn compute_patches(&mut self) -> anyhow::Result<()> {
-        // let ind: Vec<(usize, usize)> = distance_search_single_pbc(
-        //     2.5,
-        //     self.lipids.iter().map(|l| &l.head_marker),
-        //     0..self.lipids.len(),
-        //     self.lipids[0].sel.require_box()?,
-        //     PBC_FULL,
-        // );
-
-        let ind: Vec<(usize, usize)> = distance_search_double_pbc(
-                2.5,
-                self.lipids.iter().map(|l| &l.head_marker),
-                self.lipids.iter().map(|l| &l.head_marker),
-                0..self.lipids.len(),
-                0..self.lipids.len(),
-                self.lipids[0].sel.require_box()?,
-                PBC_FULL,
+    fn compute_patches(&mut self, d: f32) -> anyhow::Result<()> {
+        let ind: Vec<(usize, usize)> = distance_search_single_pbc(
+            d,
+            self.lipids.iter().map(|l| &l.head_marker),
+            0..self.lipids.len(),
+            self.lipids[0].sel.require_box()?,
+            PBC_FULL,
         );
-        
-        for (i,j) in ind {
+
+        for (i, j) in ind {
             self.lipids[i].props.patch.push(j);
             self.lipids[j].props.patch.push(i);
         }
@@ -377,12 +455,17 @@ impl Membrane {
 
             // Voronoi cell
             let n = lip.props.vertexes.len();
-            for i in 0..n-1 {
+            for i in 0..n - 1 {
                 let p1 = lip.props.vertexes[i];
-                let p2 = lip.props.vertexes[i+1];
+                let p2 = lip.props.vertexes[i + 1];
                 vis.cylinder(&p1, &p2, "green");
             }
-            vis.cylinder(&lip.props.vertexes[n-1], &lip.props.vertexes[0], "green");
+            vis.cylinder(&lip.props.vertexes[n - 1], &lip.props.vertexes[0], "green");
+
+            // // Fitted patch
+            // for p in &lip.props.fitted_patch_points {
+            //     vis.sphere(p, 0.5, "green");
+            // }
         }
 
         vis.save_to_file(fname)?;
@@ -401,6 +484,17 @@ fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
         + coefs[4] * p.y
         + coefs[5];
     Vector3f::new(p.x, p.y, z)
+}
+
+fn z_surf(x: f32, y: f32, coefs: &SVector<f32, 6>) -> f32 {
+    // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+    let z = coefs[0] * x * x
+        + coefs[1] * y * y
+        + coefs[2] * x * y
+        + coefs[3] * x
+        + coefs[4] * y
+        + coefs[5];
+    z
 }
 
 //===========================================
@@ -682,15 +776,15 @@ mod tests {
         let pbox = src.get_box().unwrap();
 
         let p = src.select("name P").unwrap();
-        let pairs: Vec<(usize,usize)> = distance_search_single_pbc(2.5, p.iter_pos(), p.iter_index(), pbox, PBC_FULL);
+        let pairs: Vec<(usize, usize)> =
+            distance_search_single_pbc(2.5, p.iter_pos(), p.iter_index(), pbox, PBC_FULL);
 
         let r162 = src.select("resid 162 and name P").unwrap();
-        let p1= r162.first_particle().pos;
+        let p1 = r162.first_particle().pos;
         let r123 = src.select("resid 123 and name P").unwrap();
         let p2 = r123.first_particle().pos;
-        
+
         let d = pbox.distance(p1, p2, PBC_FULL);
         println!("d={d}");
-        
     }
 }
