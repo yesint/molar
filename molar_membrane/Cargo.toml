@@ -24,4 +24,5 @@ nalgebra = {workspace = true, features = ["serde-serialize"]}
 sorted-vec.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+rayon = "1.10"
 
