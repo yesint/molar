@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use molar::{
     core::{Matrix3f, PeriodicBox, Pos, Vector3f},
     voronoi_cell::{Vector2f, VoronoiCell},
@@ -7,10 +9,12 @@ use rayon::prelude::*;
 
 pub(super) struct Surface {
     pub(super) pbox: PeriodicBox,
-    pub(super) lipids: Vec<SurfNode>,
+    pub(super) nodes: Vec<SurfNode>,
 }
+
 #[derive(Default)]
 pub(super) struct SurfNode {
+    pub(super) valid: bool,
     pub(super) marker: Pos,
     pub(super) normal: Vector3f,
     pub(super) patch: Vec<usize>,
@@ -21,6 +25,7 @@ pub(super) struct SurfNode {
     pub(super) gaussian_curv: f32,
     pub(super) princ_dirs: SMatrix<f32, 3, 2>,
     pub(super) princ_curvs: SVector<f32, 2>,
+    pub(super) area: f32,
 }
 
 impl SurfNode {
@@ -110,121 +115,182 @@ impl SurfNode {
 
         self.princ_curvs = eig.eigenvalues;
     }
+
+    pub fn get_to_lab_transform(&self) -> Matrix3f {
+        let mut to_lab = Matrix3f::zeros();
+        to_lab.set_column(0, &self.normal.cross(&Vector3f::x()));
+        to_lab.set_column(1, &self.normal.cross(&to_lab.column(0)));
+        to_lab.set_column(2, &-self.normal);
+        to_lab
+    }    
 }
 
 impl Surface {
     pub(super) fn smooth(&mut self) {
         // Save current positions of markers to randomly access from the parallel loop
-        let saved_markers = self.lipids.iter().map(|l| l.marker).collect::<Vec<_>>();
+        let saved_markers = self.nodes.iter().map(|l| l.marker).collect::<Vec<_>>();
 
-        self.lipids.par_iter_mut().for_each(|lip| {
-            // Get local-to-lab transform
-            let to_lab = get_to_lab_transform(lip, 0);
-            // Inverse transform
-            let to_local = to_lab.try_inverse().unwrap();
-            // Local points
-            // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
-            // Central point is assumed to be at local zero.
-            let p0 = lip.marker;
-            let local_points = lip
-                .patch
-                .iter()
-                .map(|j| to_local * self.pbox.shortest_vector(&(saved_markers[*j] - p0)))
-                .collect::<Vec<_>>();
+        self.nodes
+            .par_iter_mut()
+            .filter(|node| node.valid)
+            .for_each(|node| {
+                // Get local-to-lab transform
+                let to_lab = node.get_to_lab_transform();
+                // Inverse transform
+                let to_local = to_lab.try_inverse().unwrap();
+                // Local points
+                // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
+                // Central point is assumed to be at local zero.
+                let p0 = node.marker;
+                let local_points = node
+                    .patch
+                    .iter()
+                    .map(|j| to_local * self.pbox.shortest_vector(&(saved_markers[*j] - p0)))
+                    .collect::<Vec<_>>();
 
-            // Compute fitted surface coefs
-            let quad_coefs = get_quad_coefs(&local_points);
+                // Compute fitted surface coefs
+                let quad_coefs = get_quad_coefs(&local_points);
 
-            // Compute curvatures and fitted normal
-            lip.compute_curvature_and_normal(&quad_coefs, &to_lab);
+                // Do Voronoi stuff
+                let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
+                for j in 0..local_points.len() {
+                    let p = local_points[j];
+                    vc.add_point(&Vector2f::new(p.x, p.y), node.patch[j]);
+                }
 
-            // Do Voronoi stuff now
-            let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
-            for j in 0..local_points.len() {
-                let p = local_points[j];
-                vc.add_point(&Vector2f::new(p.x, p.y), lip.patch[j]);
-            }
+                // Find direct neighbours
+                let mut n_vert = 0;
+                node.neib = vc
+                    .iter_vertex()
+                    .filter_map(|v| {
+                        n_vert += 1;
+                        let id = v.get_id();
+                        if id >= 0 {
+                            Some(id as usize)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-            // Project vertexes into the surface and convert to lab space
-            lip.vertexes = vc
-                .iter_vertex()
-                .map(|v| {
-                    // For now we save only an offset here because
-                    // Final posiion of the marker is not yet known
-                    Pos::from(to_lab * project_to_surf(v.get_pos(), &quad_coefs))
-                })
-                .collect::<Vec<_>>();
+                // Check if node is valid (there are no wall points)
+                // If not valid return and don't do extar work
+                if node.neib.len() < n_vert {
+                    node.valid = false;
+                    return;
+                }
 
-            // Find direct neighbours
-            lip.neib = vc
-                .iter_vertex()
-                .filter_map(|v| {
-                    let id = v.get_id();
-                    if id >= 0 {
-                        Some(id as usize)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+                // Compute curvatures and fitted normal
+                node.compute_curvature_and_normal(&quad_coefs, &to_lab);
 
-            //Save fitted positions of patch markers
-            lip.fitted_patch_points = local_points
-                .iter()
-                .zip(&lip.patch)
-                .map(|(p, id)| {
-                    saved_markers[*id]
-                        + to_lab * Vector3f::new(0.0, 0.0, z_surf(p.x, p.y, &quad_coefs) - p.z)
-                })
-                .collect();
+                // Project vertexes into the surface and convert to lab space
+                node.vertexes = vc
+                    .iter_vertex()
+                    .map(|v| {
+                        // For now we save only an offset here because
+                        // final posiion of the marker is not yet known
+                        Pos::from(to_lab * project_to_surf(v.get_pos(), &quad_coefs))
+                    })
+                    .collect::<Vec<_>>();
 
-            // Update fitted marker
-            // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
-            // but x=y=0, so z_local = f = quad_coefs[5]
-            lip.marker += to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
-        }); //lipids
+                // Compute area. 
+                // Central point is still in origin since we didn't translate yet.
+                // Thus we can just use vertex vectors as sides of triangles in a triangle fan.
+                let n = node.vertexes.len();
+                for i in 0..n {
+                    node.area += 0.5*node.vertexes[i].coords.cross(&node.vertexes[(i+1)%n].coords).norm();
+                }
+
+                //Save fitted positions of patch markers
+                node.fitted_patch_points = local_points
+                    .iter()
+                    .zip(&node.patch)
+                    .map(|(p, id)| {
+                        saved_markers[*id]
+                            + to_lab * Vector3f::new(0.0, 0.0, z_surf(p.x, p.y, &quad_coefs) - p.z)
+                    })
+                    .collect();
+
+                // Update fitted marker
+                // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+                // but x=y=0, so z_local = f = quad_coefs[5]
+                node.marker += to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
+            }); //nodes
 
         // Smooth
         // We start from fitted markers themselves
-        let mut smooth_n = vec![1.0; self.lipids.len()];
-        let mut smooth_p = self.lipids.iter().map(|l| l.marker).collect::<Vec<_>>();
+        let mut smooth_n = vec![1.0; self.nodes.len()];
+        let mut smooth_p = self.nodes.iter().map(|l| l.marker).collect::<Vec<_>>();
         // Add projected patch points
-        for lip in &self.lipids {
+        for lip in &self.nodes {
             for (id, p) in lip.patch.iter().zip(lip.fitted_patch_points.iter()) {
                 smooth_n[*id] += 1.0;
                 smooth_p[*id] += 1.0 * p.coords;
             }
         }
         // Compute averages
-        for i in 0..self.lipids.len() {
-            self.lipids[i].marker = smooth_p[i] / smooth_n[i];
+        for i in 0..self.nodes.len() {
+            self.nodes[i].marker = smooth_p[i] / smooth_n[i];
         }
 
         // Now compute actual positions of the Voronoi vertices by adding
         // actual position of the marker
-        for lip in &mut self.lipids {
-            for v in &mut lip.vertexes {
-                *v += lip.marker.coords;
+        for node in &mut self.nodes {
+            for v in &mut node.vertexes {
+                *v += node.marker.coords;
             }
         }
+
+        //self.triangulate();
     }
+
+    // fn triangulate(&self) {
+    //     let mut points = HashMap::<[usize;3],Vec<TriangulationPoint>>::new();
+    //     let mut np = 0;
+    //     for cur in 0..self.nodes.len() {
+    //         if !self.nodes[cur].valid {
+    //             continue;
+    //         }
+    //         // Neighbours are in a ccw direction
+    //         let n = self.nodes[cur].neib.len();
+    //         for i in 0..n {
+    //             // For point i+1 the parents are:
+    //             let a = cur;
+    //             let b = self.nodes[cur].neib[i]; // i -> i+1
+    //             let c = self.nodes[cur].neib[(i+1)%n]; // i+1 -> i+2
+    //             let mut parents = [a,b,c];
+    //             parents.sort();
+                
+    //             let new_point = TriangulationPoint{
+    //                 pos: self.nodes[cur].vertexes[(i+1)%n],
+    //                 node_id: cur,
+    //                 neib_id: (i+1)%n,
+    //                 glob_ind: np,
+    //             };
+
+    //             if points.contains_key(&parents) {
+    //                 points.get_mut(&parents).unwrap().push(new_point);
+    //             } else {
+    //                 points.insert(parents, vec![new_point]);
+    //             }
+                
+    //             np += 1;
+    //         }
+    //     }
+
+    //     for (id,p) in &points {
+    //         println!("{:?}: {}",id,p.len());
+    //     }
+
+
+    // }
 }
 
-pub fn get_to_lab_transform(lip: &SurfNode, iter: u8) -> Matrix3f {
-    let mut to_lab = Matrix3f::zeros();
-    let n = lip.normal;
-    if iter == 0 {
-        // On initial iteration set X and Y axes as two perpendicular vectors
-        to_lab.set_column(0, &n.cross(&Vector3f::x()));
-        to_lab.set_column(1, &n.cross(&to_lab.column(0)));
-        to_lab.set_column(2, &-n);
-    } else {
-        // Otherwise reuse computed principal curvature axes
-        to_lab.set_column(0, &lip.princ_dirs.column(0));
-        to_lab.set_column(1, &lip.princ_dirs.column(1));
-        to_lab.set_column(2, &-n);
-    }
-    to_lab
+struct TriangulationPoint {
+    pos: Pos,
+    node_id: usize,
+    neib_id: usize,
+    glob_ind: usize,
 }
 
 pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
@@ -258,7 +324,7 @@ pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
 
 fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
     // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
-    Vector3f::new(p.x, p.y, z_surf(p.x,p.y,coefs))
+    Vector3f::new(p.x, p.y, z_surf(p.x, p.y, coefs))
 }
 
 fn z_surf(x: f32, y: f32, coefs: &SVector<f32, 6>) -> f32 {

@@ -102,7 +102,7 @@ impl Membrane {
         // We need parallel-friendly data structure for surface computations
         let surface = Surface {
             pbox: lipids[0].sel.require_box()?.clone(),
-            lipids: lipids.iter().map(|l| {
+            nodes: lipids.iter().map(|l| {
                 SurfNode {
                     marker: l.head_marker,
                     ..Default::default()
@@ -178,14 +178,15 @@ impl Membrane {
         // Get initial normals
         self.compute_initial_normals();
 
-        // Initialize markers
+        // Initialize markers and set all points as valid
         for i in 0..self.lipids.len() {
-            self.surface.lipids[i].marker = self.lipids[i].head_marker;
+            self.surface.nodes[i].marker = self.lipids[i].head_marker;
+            self.surface.nodes[i].valid = true;
         }
 
         // Do smoothing
         let mut iter = 0;
-        const TOL: f32 = 1e-3;
+        //const TOL: f32 = 1e-3;
         const MAX_ITER: u8 = 5;
 
         loop {
@@ -201,6 +202,12 @@ impl Membrane {
             if iter >= MAX_ITER {
                 break;
             }
+        }
+
+        // Set curvature-related properties for all lipids
+        for i in 0..self.lipids.len() {
+            self.lipids[i].props.area = self.surface.nodes[i].area;
+            self.lipids[i].props.mean_curv = self.surface.nodes[i].mean_curv;
         }
 
         // Compute order for all lipids
@@ -223,7 +230,7 @@ impl Membrane {
 
         // First pass - average of tail-to-head distances in each patch
         for i in 0..self.lipids.len() {
-            self.surface.lipids[i].normal = self.surface.lipids[i]
+            self.surface.nodes[i].normal = self.surface.nodes[i]
                 .patch
                 .iter()
                 .map(|l| &self.lipids[*l].props.tail_head_vec)
@@ -233,18 +240,18 @@ impl Membrane {
 
         // Second pass - average of vectors from the first pass in eac patch
         for i in 0..self.lipids.len() {
-            self.surface.lipids[i].normal = self.surface.lipids[i]
+            self.surface.nodes[i].normal = self.surface.nodes[i]
                 .patch
                 .iter()
-                .map(|l| &self.surface.lipids[*l].normal)
+                .map(|l| &self.surface.nodes[*l].normal)
                 .sum::<Vector3f>()
                 .normalize();
         }
 
         // Correct normal orientations if needed
         for i in 0..self.lipids.len() {
-            if self.surface.lipids[i].normal.angle(&self.lipids[i].props.tail_head_vec) > FRAC_PI_2 {
-                self.surface.lipids[i].normal *= -1.0;
+            if self.surface.nodes[i].normal.angle(&self.lipids[i].props.tail_head_vec) > FRAC_PI_2 {
+                self.surface.nodes[i].normal *= -1.0;
             }
         }
     }
@@ -284,8 +291,8 @@ impl Membrane {
         );
 
         for (i, j) in ind {
-            self.surface.lipids[i].patch.push(j);
-            self.surface.lipids[j].patch.push(i);
+            self.surface.nodes[i].patch.push(j);
+            self.surface.nodes[j].patch.push(i);
         }
         Ok(())
     }
@@ -294,7 +301,7 @@ impl Membrane {
         let mut vis = VmdVisual::new();
 
         for i in 0..self.lipids.len() {
-            let lip = &self.surface.lipids[i];
+            let lip = &self.surface.nodes[i];
             // Initial lipid marker
             vis.sphere(&self.lipids[i].head_marker, 0.8, "white");
             // tail-head vector

@@ -10,6 +10,8 @@ pub struct SingleLipidProperties {
     pub(super) tilt: f32,
     pub(super) order: Vec<DVector<f32>>,
     pub(super) tail_head_vec: Vector3f,
+    pub(super) mean_curv: f32,
+    pub(super) gaussian_curv: f32,
 }
 
 impl SingleLipidProperties {
