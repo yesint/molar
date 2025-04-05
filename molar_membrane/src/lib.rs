@@ -33,15 +33,14 @@ mod surface;
 use surface::*;
 
 pub struct Membrane {
-    // source: Source<MutableSerial>,
-    //species: Vec<(String, LipidSpecies)>,
+    source: Source<MutableSerial>,
     lipids: Vec<LipidMolecule>,
+    surface: Surface,
     groups: HashMap<String, LipidGroup>,
+    // Options
     global_normal: Option<Vector3f>,
     order_type: OrderType,
     output_dir: PathBuf,
-
-    surface: Surface,
 }
 
 impl Membrane {
@@ -111,8 +110,7 @@ impl Membrane {
         };
 
         Ok(Self {
-            // source,
-            // species,
+            source,
             lipids,
             groups: Default::default(),
             global_normal: None,
@@ -204,12 +202,6 @@ impl Membrane {
             }
         }
 
-        // Set curvature-related properties for all lipids
-        for i in 0..self.lipids.len() {
-            self.lipids[i].props.area = self.surface.nodes[i].area;
-            self.lipids[i].props.mean_curv = self.surface.nodes[i].mean_curv;
-        }
-
         // Compute order for all lipids
         for lip in &mut self.lipids {
             lip.compute_order(self.order_type.clone(), &self.global_normal.unwrap());
@@ -231,7 +223,7 @@ impl Membrane {
         // First pass - average of tail-to-head distances in each patch
         for i in 0..self.lipids.len() {
             self.surface.nodes[i].normal = self.surface.nodes[i]
-                .patch
+                .patch_ids
                 .iter()
                 .map(|l| &self.lipids[*l].props.tail_head_vec)
                 .sum::<Vector3f>()
@@ -241,7 +233,7 @@ impl Membrane {
         // Second pass - average of vectors from the first pass in eac patch
         for i in 0..self.lipids.len() {
             self.surface.nodes[i].normal = self.surface.nodes[i]
-                .patch
+                .patch_ids
                 .iter()
                 .map(|l| &self.surface.nodes[*l].normal)
                 .sum::<Vector3f>()
@@ -272,12 +264,13 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: Holder<State, MutableSerial>) -> anyhow::Result<()> {
-        for lip in &mut self.lipids {
-            lip.set_state(st.clone())?;
-            lip.sel.unwrap_simple()?;
-            lip.update_markers()?;
-        }
+    pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
+        self.source.set_state(st)?;
+        // for lip in &mut self.lipids {
+        //     lip.set_state(st.clone())?;
+        //     lip.sel.unwrap_simple()?;
+        //     lip.update_markers()?;
+        // }
         Ok(())
     }
 
@@ -291,8 +284,8 @@ impl Membrane {
         );
 
         for (i, j) in ind {
-            self.surface.nodes[i].patch.push(j);
-            self.surface.nodes[j].patch.push(i);
+            self.surface.nodes[i].patch_ids.push(j);
+            self.surface.nodes[j].patch_ids.push(i);
         }
         Ok(())
     }
@@ -313,13 +306,13 @@ impl Membrane {
             vis.arrow(&lip.marker, &lip.normal, "orange");
 
             // Voronoi cell
-            let n = lip.vertexes.len();
+            let n = lip.voro_vertexes.len();
             for i in 0..n - 1 {
-                let p1 = lip.vertexes[i];
-                let p2 = lip.vertexes[i + 1];
+                let p1 = lip.voro_vertexes[i];
+                let p2 = lip.voro_vertexes[i + 1];
                 vis.cylinder(&p1, &p2, "green");
             }
-            vis.cylinder(&lip.vertexes[n - 1], &lip.vertexes[0], "green");
+            vis.cylinder(&lip.voro_vertexes[n - 1], &lip.voro_vertexes[0], "green");
 
             // Fitted patch
             for p in &lip.fitted_patch_points {

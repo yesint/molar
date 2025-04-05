@@ -14,13 +14,16 @@ pub(super) struct Surface {
 
 #[derive(Default)]
 pub(super) struct SurfNode {
+    // Computation-related 
     pub(super) valid: bool,
     pub(super) marker: Pos,
-    pub(super) normal: Vector3f,
-    pub(super) patch: Vec<usize>,
+    pub(super) patch_ids: Vec<usize>,
     pub(super) fitted_patch_points: Vec<Pos>,
-    pub(super) neib: Vec<usize>,
-    pub(super) vertexes: Vec<Pos>,
+    // Neighbours
+    pub(super) neib_ids: Vec<usize>,
+    pub(super) voro_vertexes: Vec<Pos>,
+    // Curvature
+    pub(super) normal: Vector3f,
     pub(super) mean_curv: f32,
     pub(super) gaussian_curv: f32,
     pub(super) princ_dirs: SMatrix<f32, 3, 2>,
@@ -143,7 +146,7 @@ impl Surface {
                 // Central point is assumed to be at local zero.
                 let p0 = node.marker;
                 let local_points = node
-                    .patch
+                    .patch_ids
                     .iter()
                     .map(|j| to_local * self.pbox.shortest_vector(&(saved_markers[*j] - p0)))
                     .collect::<Vec<_>>();
@@ -155,12 +158,12 @@ impl Surface {
                 let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
                 for j in 0..local_points.len() {
                     let p = local_points[j];
-                    vc.add_point(&Vector2f::new(p.x, p.y), node.patch[j]);
+                    vc.add_point(&Vector2f::new(p.x, p.y), node.patch_ids[j]);
                 }
 
                 // Find direct neighbours
                 let mut n_vert = 0;
-                node.neib = vc
+                node.neib_ids = vc
                     .iter_vertex()
                     .filter_map(|v| {
                         n_vert += 1;
@@ -175,7 +178,7 @@ impl Surface {
 
                 // Check if node is valid (there are no wall points)
                 // If not valid return and don't do extar work
-                if node.neib.len() < n_vert {
+                if node.neib_ids.len() < n_vert {
                     node.valid = false;
                     return;
                 }
@@ -184,7 +187,7 @@ impl Surface {
                 node.compute_curvature_and_normal(&quad_coefs, &to_lab);
 
                 // Project vertexes into the surface and convert to lab space
-                node.vertexes = vc
+                node.voro_vertexes = vc
                     .iter_vertex()
                     .map(|v| {
                         // For now we save only an offset here because
@@ -196,15 +199,15 @@ impl Surface {
                 // Compute area. 
                 // Central point is still in origin since we didn't translate yet.
                 // Thus we can just use vertex vectors as sides of triangles in a triangle fan.
-                let n = node.vertexes.len();
+                let n = node.voro_vertexes.len();
                 for i in 0..n {
-                    node.area += 0.5*node.vertexes[i].coords.cross(&node.vertexes[(i+1)%n].coords).norm();
+                    node.area += 0.5*node.voro_vertexes[i].coords.cross(&node.voro_vertexes[(i+1)%n].coords).norm();
                 }
 
                 //Save fitted positions of patch markers
                 node.fitted_patch_points = local_points
                     .iter()
-                    .zip(&node.patch)
+                    .zip(&node.patch_ids)
                     .map(|(p, id)| {
                         saved_markers[*id]
                             + to_lab * Vector3f::new(0.0, 0.0, z_surf(p.x, p.y, &quad_coefs) - p.z)
@@ -223,7 +226,7 @@ impl Surface {
         let mut smooth_p = self.nodes.iter().map(|l| l.marker).collect::<Vec<_>>();
         // Add projected patch points
         for lip in &self.nodes {
-            for (id, p) in lip.patch.iter().zip(lip.fitted_patch_points.iter()) {
+            for (id, p) in lip.patch_ids.iter().zip(lip.fitted_patch_points.iter()) {
                 smooth_n[*id] += 1.0;
                 smooth_p[*id] += 1.0 * p.coords;
             }
@@ -236,7 +239,7 @@ impl Surface {
         // Now compute actual positions of the Voronoi vertices by adding
         // actual position of the marker
         for node in &mut self.nodes {
-            for v in &mut node.vertexes {
+            for v in &mut node.voro_vertexes {
                 *v += node.marker.coords;
             }
         }
