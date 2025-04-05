@@ -69,8 +69,8 @@ impl StatProperties {
     pub fn add_single_lipid_stats(&mut self, lip: &LipidMolecule) -> anyhow::Result<()> {
         // self.area.add(lip.props.area);
         // self.tilt.add(lip.props.tilt);
-        for tail in 0..lip.props.order.len() {
-            self.order[tail].add(&lip.props.order[tail])?;
+        for tail in 0..lip.order.len() {
+            self.order[tail].add(&lip.order[tail])?;
         }
         Ok(())
     }

@@ -1,29 +1,8 @@
 use molar::prelude::*;
-use nalgebra::{DVector, SMatrix, SVector};
+use nalgebra::DVector;
 use std::sync::Arc;
 
 use crate::lipid_species::LipidSpecies;
-
-#[derive(Debug, Default)]
-pub struct SingleLipidProperties {
-    pub(super) order: Vec<DVector<f32>>,
-    pub(super) tail_head_vec: Vector3f,
-}
-
-impl SingleLipidProperties {
-    pub fn new(species: &LipidSpecies) -> Self {
-        let mut order = Vec::with_capacity(species.tails.len());
-        for t in &species.tails {
-            order.push(DVector::from_element(t.bond_orders.len() - 1, 0.0));
-        }
-        Self {
-            order,
-            ..Default::default()
-        }
-    }
-
-    
-}
 
 pub struct LipidMolecule {
     pub(super) sel: Sel<MutableSerial>,
@@ -36,7 +15,9 @@ pub struct LipidMolecule {
     pub(super) mid_marker: Pos,
     pub(super) tail_marker: Pos,
 
-    pub(super) props: SingleLipidProperties,
+    //pub(super) props: SingleLipidProperties,
+    pub(super) order: Vec<DVector<f32>>,
+    pub(super) tail_head_vec: Vector3f,
 }
 
 impl LipidMolecule {
@@ -49,7 +30,7 @@ impl LipidMolecule {
 
     pub fn compute_order(&mut self, order_type: OrderType, normal: &Vector3f) {
         for i in 0..self.tail_sels.len() {
-            self.props.order[i] = self.tail_sels[i]
+            self.order[i] = self.tail_sels[i]
                 .lipid_tail_order(
                     order_type.clone(),
                     &vec![normal.clone()],

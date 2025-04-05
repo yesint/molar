@@ -1,7 +1,7 @@
 use anyhow::{bail, Context};
 use molar::prelude::*;
 use molar::voronoi_cell::{Vector2f, VoronoiCell};
-use nalgebra::{zero, Const, DMatrix, Dyn, Matrix, OMatrix, SMatrix, SVector};
+use nalgebra::{zero, Const, DMatrix, DVector, Dyn, Matrix, OMatrix, SMatrix, SVector};
 use std::char::MAX;
 use std::fmt::Write;
 use std::{
@@ -24,7 +24,7 @@ mod stats;
 use stats::{GroupProperties, StatProperties};
 
 mod lipid_molecule;
-use lipid_molecule::{LipidMolecule, SingleLipidProperties};
+use lipid_molecule::LipidMolecule;
 
 mod lipid_species;
 use lipid_species::{LipidSpecies, LipidSpeciesDescr};
@@ -79,6 +79,13 @@ impl Membrane {
                     let mid_marker = mid_sel.center_of_mass()?;
                     let tail_marker = tail_end_sel.center_of_mass()?;
 
+                    let mut order = Vec::with_capacity(sp.tails.len());
+                    for t in &sp.tails {
+                        order.push(DVector::from_element(t.bond_orders.len() - 1, 0.0));
+                    }
+
+                    let tail_head_vec = tail_marker-head_marker;
+
                     lipids.push(LipidMolecule {
                         sel: lip, // Selection is moved to the lipid
                         species: Arc::clone(&sp),
@@ -89,7 +96,8 @@ impl Membrane {
                         head_marker,
                         mid_marker,
                         tail_marker,
-                        props: SingleLipidProperties::new(&sp),
+                        order,
+                        tail_head_vec,
                     });
                 }
             } else {
@@ -217,7 +225,7 @@ impl Membrane {
         // Compute tail-to-head vectors for all lipids
         // This is unwrapped with the same lipid
         for lip in &mut self.lipids {
-            lip.props.tail_head_vec = (lip.head_marker - lip.tail_marker).normalize();
+            lip.tail_head_vec = (lip.head_marker - lip.tail_marker).normalize();
         }
 
         // First pass - average of tail-to-head distances in each patch
@@ -225,7 +233,7 @@ impl Membrane {
             self.surface.nodes[i].normal = self.surface.nodes[i]
                 .patch_ids
                 .iter()
-                .map(|l| &self.lipids[*l].props.tail_head_vec)
+                .map(|l| &self.lipids[*l].tail_head_vec)
                 .sum::<Vector3f>()
                 .normalize();
         }
@@ -242,7 +250,7 @@ impl Membrane {
 
         // Correct normal orientations if needed
         for i in 0..self.lipids.len() {
-            if self.surface.nodes[i].normal.angle(&self.lipids[i].props.tail_head_vec) > FRAC_PI_2 {
+            if self.surface.nodes[i].normal.angle(&self.lipids[i].tail_head_vec) > FRAC_PI_2 {
                 self.surface.nodes[i].normal *= -1.0;
             }
         }
@@ -298,7 +306,7 @@ impl Membrane {
             // Initial lipid marker
             vis.sphere(&self.lipids[i].head_marker, 0.8, "white");
             // tail-head vector
-            vis.arrow(&lip.marker, &self.lipids[i].props.tail_head_vec, "yellow");
+            vis.arrow(&lip.marker, &self.lipids[i].tail_head_vec, "yellow");
             
             // Fitted lipid marker
             vis.sphere(&lip.marker, 0.8, "red");
@@ -307,12 +315,12 @@ impl Membrane {
 
             // Voronoi cell
             let n = lip.voro_vertexes.len();
-            for i in 0..n - 1 {
+            for i in 0..n {
                 let p1 = lip.voro_vertexes[i];
-                let p2 = lip.voro_vertexes[i + 1];
+                let p2 = lip.voro_vertexes[(i + 1)%n];
                 vis.cylinder(&p1, &p2, "green");
             }
-            vis.cylinder(&lip.voro_vertexes[n - 1], &lip.voro_vertexes[0], "green");
+            //vis.cylinder(&lip.voro_vertexes[n - 1], &lip.voro_vertexes[0], "green");
 
             // Fitted patch
             for p in &lip.fitted_patch_points {
