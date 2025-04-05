@@ -539,8 +539,8 @@ mod tests {
 
     #[test]
     fn test_whole() -> anyhow::Result<()> {
-        let path = PathBuf::from("/home/semen/work/Projects/Misha/balanced/not_depleted");
-        let src = Source::serial_from_file(path.join("inp_7.gro"))?;
+        let path = PathBuf::from("tests");
+        let src = Source::serial_from_file(path.join("membr.gro"))?;
         let z0 = src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
@@ -576,8 +576,8 @@ mod tests {
 
     #[test]
     fn test_vmd_vis() -> anyhow::Result<()> {
-        let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping/");
-        let src = Source::serial_from_file(path.join("last.gro"))?;
+        let path = PathBuf::from("tests");
+        let src = Source::serial_from_file(path.join("membr.gro"))?;
         let z0 = src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
@@ -601,15 +601,15 @@ mod tests {
 
         memb.compute()?;
         memb.finalize()?;
-        memb.write_vmd_visualization(path.join("vis.tcl"))?;
+        memb.write_vmd_visualization("../target/vis.tcl")?;
 
         Ok(())
     }
 
     #[test]
     fn periodic_sel_test() {
-        let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping/");
-        let src = Source::serial_from_file(path.join("last.pdb")).unwrap();
+        let path = PathBuf::from("tests");
+        let src = Source::serial_from_file(path.join("membr.gro")).unwrap();
         let pbox = src.get_box().unwrap();
 
         let p = src.select("name P").unwrap();
