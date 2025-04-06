@@ -206,13 +206,14 @@ mod internal_tpr_enabled {
 
 #[cfg(not(gromacs))]
 mod internal_tpr_disabled {
+    use std::path::Path;
     use thiserror::Error;
     use crate::core::{State, Topology};
 
     pub struct TprFileHandler {}
 
     impl TprFileHandler {
-        pub fn open(_fname: &str) -> Result<Self, TprHandlerError> {
+        pub fn open(_fname: impl AsRef<Path>) -> Result<Self, TprHandlerError> {
             Err(TprHandlerError::GromacsDisabled)
         }
 

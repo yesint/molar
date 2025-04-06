@@ -1,18 +1,12 @@
 use anyhow::{bail, Context};
 use molar::prelude::*;
-use molar::voronoi_cell::{Vector2f, VoronoiCell};
-use nalgebra::{zero, Const, DMatrix, DVector, Dyn, Matrix, OMatrix, SMatrix, SVector};
-use std::char::MAX;
-use std::fmt::Write;
+use nalgebra::DVector;
 use std::{
-    any,
     collections::HashMap,
     f32::consts::FRAC_PI_2,
-    fmt::write,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use rayon::prelude::*;
 
 #[cfg(not(test))]
 use log::{info, warn}; // Use log crate when building application
@@ -84,7 +78,7 @@ impl Membrane {
                         order.push(DVector::from_element(t.bond_orders.len() - 1, 0.0));
                     }
 
-                    let tail_head_vec = tail_marker-head_marker;
+                    let tail_head_vec = tail_marker - head_marker;
 
                     lipids.push(LipidMolecule {
                         sel: lip, // Selection is moved to the lipid
@@ -109,12 +103,13 @@ impl Membrane {
         // We need parallel-friendly data structure for surface computations
         let surface = Surface {
             pbox: lipids[0].sel.require_box()?.clone(),
-            nodes: lipids.iter().map(|l| {
-                SurfNode {
+            nodes: lipids
+                .iter()
+                .map(|l| SurfNode {
                     marker: l.head_marker,
                     ..Default::default()
-                }
-            }).collect(),
+                })
+                .collect(),
         };
 
         Ok(Self {
@@ -211,12 +206,19 @@ impl Membrane {
         }
 
         // Compute order for all lipids
-        for lip in &mut self.lipids {
-            lip.compute_order(self.order_type.clone(), &self.global_normal.unwrap());
+        for i in 0..self.lipids.len() {
+            let norm = if let Some(n) = &self.global_normal {
+                n
+            } else {
+                &self.surface.nodes[i].normal
+            };
+            self.lipids[i].compute_order(self.order_type.clone(), norm);
         }
         // Add stats to groups
         for gr in self.groups.values_mut() {
-            gr.add_lipid_stats(&self.lipids)?;
+            for lip_id in &gr.lipid_ids {
+                gr.stats.add_single_lipid_stats(&self.lipids[*lip_id], &self.surface.nodes[*lip_id])?;
+            }
         }
         Ok(())
     }
@@ -250,13 +252,15 @@ impl Membrane {
 
         // Correct normal orientations if needed
         for i in 0..self.lipids.len() {
-            if self.surface.nodes[i].normal.angle(&self.lipids[i].tail_head_vec) > FRAC_PI_2 {
+            if self.surface.nodes[i]
+                .normal
+                .angle(&self.lipids[i].tail_head_vec)
+                > FRAC_PI_2
+            {
                 self.surface.nodes[i].normal *= -1.0;
             }
         }
     }
-
-    
 
     pub fn finalize(&self) -> anyhow::Result<()> {
         info!(
@@ -307,7 +311,7 @@ impl Membrane {
             vis.sphere(&self.lipids[i].head_marker, 0.8, "white");
             // tail-head vector
             vis.arrow(&lip.marker, &self.lipids[i].tail_head_vec, "yellow");
-            
+
             // Fitted lipid marker
             vis.sphere(&lip.marker, 0.8, "red");
             // fitted normal
@@ -317,7 +321,7 @@ impl Membrane {
             let n = lip.voro_vertexes.len();
             for i in 0..n {
                 let p1 = lip.voro_vertexes[i];
-                let p2 = lip.voro_vertexes[(i + 1)%n];
+                let p2 = lip.voro_vertexes[(i + 1) % n];
                 vis.cylinder(&p1, &p2, "green");
             }
             //vis.cylinder(&lip.voro_vertexes[n - 1], &lip.voro_vertexes[0], "green");
@@ -333,7 +337,6 @@ impl Membrane {
         Ok(())
     }
 }
-
 
 //===========================================
 struct VmdVisual {
@@ -353,6 +356,7 @@ impl VmdVisual {
     }
 
     fn sphere(&mut self, point: &Pos, radius: f32, color: &str) {
+        use std::fmt::Write;
         writeln!(self.buf, "draw color {color}").unwrap();
         writeln!(
             self.buf,
@@ -423,6 +427,7 @@ impl LipidGroup {
             } else {
                 let sp = &memb.lipids[*id].species;
                 stats.per_species.insert(name, StatProperties::new(sp));
+                stats.per_species.get_mut(&memb.lipids[*id].species.name).unwrap().num_lip += 1;
             }
         }
 
@@ -430,12 +435,6 @@ impl LipidGroup {
             info!("\t{}: {}", sp, stats.num_lip);
         }
         Self { lipid_ids, stats }
-    }
-
-    fn add_lipid_stats(&mut self, all_lipids: &Vec<LipidMolecule>) -> anyhow::Result<()> {
-        self.stats
-            .add_lipid_stats(self.lipid_ids.iter().map(|id| &all_lipids[*id]))?;
-        Ok(())
     }
 }
 
@@ -540,9 +539,13 @@ mod tests {
 
     #[test]
     fn test_whole() -> anyhow::Result<()> {
-        let path = PathBuf::from("tests");
-        let src = Source::serial_from_file(path.join("membr.gro"))?;
-        let z0 = src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
+        // let path = PathBuf::from("tests");
+        // let src = Source::serial_from_file(path.join("membr.gro"))?;
+
+        let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping");
+        let src = Source::serial_from_file(path.join("inp_7.gro"))?;
+        
+        let z0 = 5.6;//src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
         let mut memb = Membrane::new(src, &toml)?
@@ -565,7 +568,7 @@ mod tests {
 
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
         for st in traj.into_iter().take(10) {
-            //println!(">> {}",st.get_time());
+            println!(">> {}", st.get_time());
             memb.set_state(st.into())?;
             memb.compute()?;
         }

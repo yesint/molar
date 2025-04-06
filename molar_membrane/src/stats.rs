@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::lipid_species::LipidSpecies;
-use crate::LipidMolecule;
+use crate::{LipidMolecule, SurfNode};
 
 #[derive(Default, Debug)]
 pub struct GroupProperties {
@@ -14,17 +14,30 @@ pub struct GroupProperties {
 }
 
 impl GroupProperties {
-    pub fn add_lipid_stats<'a>(
-        &'a mut self,
-        gr_lipids: impl Iterator<Item = &'a LipidMolecule>,
+    // pub fn add_lipids_stats<'a>(
+    //     &'a mut self,
+    //     gr_lipids: impl Iterator<Item = &'a LipidMolecule>,
+    // ) -> anyhow::Result<()> {
+    //     for lip in gr_lipids {
+    //         let sp_name = &lip.species.name;
+    //         self.per_species
+    //             .get_mut(sp_name)
+    //             .unwrap()
+    //             .add_single_lipid_stats(lip)?;
+    //     }
+    //     Ok(())
+    // }
+
+    pub fn add_single_lipid_stats(
+        &mut self,
+        lip: &LipidMolecule,
+        surf: &SurfNode,
     ) -> anyhow::Result<()> {
-        for lip in gr_lipids {
-            let sp_name = &lip.species.name;
-            self.per_species
-                .get_mut(sp_name)
-                .unwrap()
-                .add_single_lipid_stats(lip)?;
-        }
+        let sp_name = &lip.species.name;
+        self.per_species
+            .get_mut(sp_name)
+            .unwrap()
+            .add_single_lipid_stats(lip,surf)?;
         Ok(())
     }
 
@@ -41,6 +54,10 @@ impl GroupProperties {
             )?;
         }
         Ok(())
+    }
+
+    pub fn save_group_stats(dir: &Path, gr_name: impl AsRef<str>) -> anyhow::Result<()> {
+        todo!()
     }
 }
 
@@ -66,13 +83,21 @@ impl StatProperties {
         }
     }
 
-    pub fn add_single_lipid_stats(&mut self, lip: &LipidMolecule) -> anyhow::Result<()> {
-        // self.area.add(lip.props.area);
-        // self.tilt.add(lip.props.tilt);
+    pub fn add_single_lipid_stats(&mut self, lip: &LipidMolecule, surf: &SurfNode) -> anyhow::Result<()> {
+        self.area.add(surf.area);
+        self.tilt.add(surf.normal.angle(&lip.tail_head_vec));
         for tail in 0..lip.order.len() {
             self.order[tail].add(&lip.order[tail])?;
         }
         Ok(())
+    }
+
+    pub fn save_stats_to_file(
+        &self,
+        dir: &Path,
+        fname: impl AsRef<str>,
+    ) -> anyhow::Result<()> {
+        todo!()
     }
 
     pub fn save_order_to_file(

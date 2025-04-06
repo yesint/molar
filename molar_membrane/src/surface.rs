@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use molar::{
     core::{Matrix3f, PeriodicBox, Pos, Vector3f},
     voronoi_cell::{Vector2f, VoronoiCell},
