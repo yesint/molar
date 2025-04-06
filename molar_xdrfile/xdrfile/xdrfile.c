@@ -862,7 +862,7 @@ xdrfile_decompress_coord_float(float     *ptr,
 	}
 	
 	if (xdrfile_read_int(&smallidx,1,xfp) == 0)	{
-	    fprintf(stderr,"(xdrfile error) Undocumented error 1");
+	    fprintf(stderr,"(xdrfile error) Undocumented error 1.\n");
 		return 0; /* not sure what has happened here or why we return... */
 	}
 	tmp=smallidx+8;
@@ -878,11 +878,11 @@ xdrfile_decompress_coord_float(float     *ptr,
 	/* buf2[0] holds the length in bytes */
   
 	if (xdrfile_read_int(buf2,1,xfp) == 0) {
-	    fprintf(stderr, "(xdrfile error) Undocumented error 2");
+	    fprintf(stderr, "(xdrfile error) Undocumented error 2.\n");
 		return 0;
 	}
 	if (xdrfile_read_opaque((char *)&(buf2[3]),(unsigned int)buf2[0],xfp) == 0) {
-	    fprintf(stderr, "(xdrfile error) Undocumented error 3");
+	    fprintf(stderr, "(xdrfile error) Undocumented error 3.\n");
         return 0;
 	}
 	buf2[0] = buf2[1] = buf2[2] = 0;

@@ -1,8 +1,11 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
-use log::debug;
-use std::{fmt::Display, path::{Path, PathBuf}};
+use log::{debug, error, warn};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 mod gro_handler;
@@ -38,7 +41,7 @@ pub use xtc_handler::XtcFileHandler;
 //=======================================================================
 pub struct IoStateIterator {
     //reader: FileHandler,
-    receiver: std::sync::mpsc::Receiver<Option<State>>,
+    receiver: std::sync::mpsc::Receiver< Result<Option<State>,FileIoError> >,
 }
 
 impl IoStateIterator {
@@ -50,21 +53,20 @@ impl IoStateIterator {
 
         // Spawn reading thread
         thread::spawn(move || {
-            let mut ok = true;
-            while ok {
-                let res = fh
-                    .read_state()
-                    .map_err(|e| panic!("error reading next state: {}", e))
-                    .unwrap();
-                // If None returned exit reading loop
-                if res.is_none() {
-                    ok = false;
-                }
-                // Send state to channel. 
-                // An error means that the reciever has closed the channel already. 
-                // This is fine, just exit.
+            loop {
+                let res = fh.read_state();
+                let terminate = res.is_err();
+
+                // Send to channel.
+                // An error means that the reciever has closed the channel already.
+                // This is fine, just exit in this case.
                 if let Err(_) = sender.send(res) {
-                    ok = false;
+                    break;
+                }
+                
+                // If error returned when reading terminate reading thread
+                if terminate {
+                    break;
                 }
             }
         });
@@ -76,7 +78,23 @@ impl IoStateIterator {
 impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
-        self.receiver.recv().unwrap()
+        match self.receiver.recv() {
+            Ok(res) => {
+                // We got the result, but it might be a read error
+                match res {
+                    Ok(opt_st) => opt_st,
+                    Err(e) => {
+                        error!("reader thread can't read state from '{}'. Trajectory file is likely corrupted.",e.0.display());
+                        None
+                    }
+                }
+            },
+            Err(e) => {
+                // Something bad happened with the reader thread.
+                // We have no other choice than to crash
+                panic!("reader thread failed unexpectedly: {e}");
+            }
+        }
     }
 }
 
@@ -94,7 +112,7 @@ enum FileFormat {
     Pdb(VmdMolFileHandler),
     Dcd(VmdMolFileHandler),
     Xyz(VmdMolFileHandler),
-    Xtc(XtcFileHandler),    
+    Xtc(XtcFileHandler),
     Tpr(TprFileHandler),
     Gro(GroFileHandler),
     Itp(ItpFileHandler),
@@ -124,9 +142,9 @@ impl FileFormat {
             "gro" => Ok(FileFormat::Gro(GroFileHandler::open(fname)?)),
 
             "itp" => Ok(FileFormat::Itp(ItpFileHandler::open(fname)?)),
-            
+
             "tpr" => Ok(FileFormat::Tpr(TprFileHandler::open(fname)?)),
-            
+
             _ => Err(FileFormatError::NotReadable),
         }
     }
@@ -239,7 +257,7 @@ impl FileFormat {
                 let (_, st) = h.read()?;
                 Some(st)
             }
-            
+
             FileFormat::Tpr(ref mut h) => {
                 let (_, st) = h.read()?;
                 Some(st)
@@ -559,7 +577,11 @@ impl FileHandler {
 
 impl Drop for FileHandler {
     fn drop(&mut self) {
-        debug!("Done with file '{}': {}", self.file_name.display(), self.stats);
+        debug!(
+            "Done with file '{}': {}",
+            self.file_name.display(),
+            self.stats
+        );
     }
 }
 
@@ -587,7 +609,7 @@ macro_rules! impl_io_traits_for_tuples {
                 self.0.nth_atom_unchecked(i)
             }
         }
-        
+
         impl AtomProvider for ($t, $s) {
             fn iter_atoms(&self) -> impl AtomIterator<'_> {
                 self.0.iter_atoms()
@@ -598,26 +620,26 @@ macro_rules! impl_io_traits_for_tuples {
             fn num_molecules(&self) -> usize {
                 self.0.num_molecules()
             }
-        
+
             fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
                 self.0.iter_molecules()
             }
-        
-            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+
+            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.0.nth_molecule_unchecked(i)
             }
         }
-        
+
         impl BondsProvider for ($t, $s) {
             fn num_bonds(&self) -> usize {
                 self.0.num_bonds()
             }
-        
+
             fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
                 self.0.iter_bonds()
             }
-        
-            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+
+            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.0.nth_bond_unchecked(i)
             }
         }
@@ -712,7 +734,7 @@ pub enum FileFormatError {
 
     #[error("not a random access format")]
     NotRandomAccessFormat,
-    
+
     #[error("unexpected end of file")]
     UnexpectedEof,
 

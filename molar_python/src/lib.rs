@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{any, path::{Path, PathBuf}};
 
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
@@ -65,27 +65,32 @@ impl State {
 }
 
 #[pyclass(unsendable)]
-struct FileHandler(molar::io::FileHandler);
+struct FileHandler(Option<molar::io::FileHandler>);
+
+const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state iterator";
 
 #[pymethods]
 impl FileHandler {
     #[new]
     fn new(fname: &str) -> anyhow::Result<Self> {
-        Ok(FileHandler(molar::io::FileHandler::open(fname)?))
+        Ok(FileHandler(Some(molar::io::FileHandler::open(fname)?)))
     }
 
     fn read(&mut self) -> anyhow::Result<(Topology, State)> {
-        let (top, st) = self.0.read()?;
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        let (top, st) = h.read()?;
         Ok((Topology(top.into()), State(st.into())))
     }
 
     fn read_topology(&mut self) -> anyhow::Result<Topology> {
-        let top = self.0.read_topology()?;
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        let top = h.read_topology()?;
         Ok(Topology(top.into()))
     }
 
     fn read_state(&mut self) -> anyhow::Result<State> {
-        if let Some(st) = self.0.read_state()? {
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        if let Some(st) = h.read_state()? {
             Ok(State(st.into()))
         } else {
             Err(anyhow!("can't read state"))
@@ -93,10 +98,11 @@ impl FileHandler {
     }
 
     fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
-            self.0.write(&s.0)?;
+            h.write(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
-            self.0.write(&s.0)?;
+            h.write(&s.0)?;
         } else if let Ok(s) = data.downcast::<PyTuple>() {
             if s.len() != 2 {
                 return Err(anyhow!("Tuple must have two elements"));
@@ -107,7 +113,7 @@ impl FileHandler {
                 .unwrap()
                 .extract::<PyRefMut<'_, Topology>>()?;
             let st = s.iter().next().unwrap().extract::<PyRefMut<'_, State>>()?;
-            self.0.write(&(top.0.clone(), st.0.clone()))?;
+            h.write(&(top.0.clone(), st.0.clone()))?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -118,12 +124,13 @@ impl FileHandler {
     }
 
     fn write_topology(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
-            self.0.write_topology(&s.0)?;
+            h.write_topology(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
-            self.0.write_topology(&s.0)?;
+            h.write_topology(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, Topology>>() {
-            self.0.write_topology(&s.0)?;
+            h.write_topology(&s.0)?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -134,12 +141,13 @@ impl FileHandler {
     }
 
     fn write_state(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
-            self.0.write_state(&s.0)?;
+            h.write_state(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
-            self.0.write_state(&s.0)?;
+            h.write_state(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, State>>() {
-            self.0.write_state(&s.0)?;
+            h.write_state(&s.0)?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -165,35 +173,49 @@ impl FileHandler {
     }
 
     fn skip_to_frame(&mut self, fr: usize) -> PyResult<()> {
-        self.0.skip_to_frame(fr).map_err(|e| anyhow!(e))?;
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        h.skip_to_frame(fr).map_err(|e| anyhow!(e))?;
         Ok(())
     }
 
     fn skip_to_time(&mut self, t: f32) -> anyhow::Result<()> {
-        self.0.skip_to_time(t)?;
+        let h = self.0.as_mut().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        h.skip_to_time(t)?;
         Ok(())
     }
 
     fn tell_first(&self) -> anyhow::Result<(usize, f32)> {
-        Ok(self.0.tell_first()?)
+        let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        Ok(h.tell_first()?)
     }
 
     fn tell_current(&self) -> anyhow::Result<(usize, f32)> {
-        Ok(self.0.tell_current()?)
+        let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        Ok(h.tell_current()?)
     }
 
     fn tell_last(&self) -> anyhow::Result<(usize, f32)> {
-        Ok(self.0.tell_last()?)
+        let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        Ok(h.tell_last()?)
     }
 
     #[getter]
-    fn stats(&self) -> FileStats {
-        FileStats(self.0.stats.clone())
+    fn stats(&self) -> anyhow::Result<FileStats> {
+        let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        Ok(FileStats(h.stats.clone()))
     }
 
     #[getter]
-    fn file_name(&self) -> &Path {
-        &self.0.file_name
+    fn file_name(&self) -> anyhow::Result<PathBuf> {
+        let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        Ok(h.file_name.clone())
+    }
+
+    fn _into_par_reader(&mut self) -> anyhow::Result<_ParTrajReader> {
+        let h = self.0.take().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+        Ok(_ParTrajReader {
+            iter: h.into_iter()
+        })
     }
 }
 
@@ -204,12 +226,6 @@ struct _ParTrajReader {
 
 #[pymethods]
 impl _ParTrajReader {
-    #[new]
-    fn new(fname: &str) -> anyhow::Result<Self> {
-        let iter = molar::io::FileHandler::open(fname)?.into_iter();
-        Ok(Self { iter })
-    }
-
     fn next_state(&mut self) -> Option<State> {
         self.iter.next().map(|st| State(st.into()))
     }
