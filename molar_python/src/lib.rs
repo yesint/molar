@@ -65,7 +65,7 @@ impl State {
 }
 
 #[pyclass(unsendable)]
-struct FileHandler(Option<molar::io::FileHandler>);
+struct FileHandler(Option<molar::io::FileHandler>, Option<molar::io::IoStateIterator>);
 
 const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state iterator";
 
@@ -73,7 +73,7 @@ const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state 
 impl FileHandler {
     #[new]
     fn new(fname: &str) -> anyhow::Result<Self> {
-        Ok(FileHandler(Some(molar::io::FileHandler::open(fname)?)))
+        Ok(FileHandler(Some(molar::io::FileHandler::open(fname)?),None))
     }
 
     fn read(&mut self) -> anyhow::Result<(Topology, State)> {
@@ -162,13 +162,26 @@ impl FileHandler {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        let st = slf.read_state();
-        if st.is_ok() {
-            Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
-                .unwrap()
-                .ok()
+        // Serial variant
+        if slf.1.is_none() {
+            let st = slf.read_state();
+            if st.is_ok() {
+                Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
+                    .unwrap()
+                    .ok()
+            } else {
+                None
+            }
         } else {
-            None
+            // Parallel variant
+            let st = slf.1.as_mut().unwrap().next().map(|st| State(st.into()));
+            if st.is_some() {
+                Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
+                    .unwrap()
+                    .ok()
+            } else {
+                None
+            }        
         }
     }
 
@@ -211,23 +224,10 @@ impl FileHandler {
         Ok(h.file_name.clone())
     }
 
-    fn _into_par_reader(&mut self) -> anyhow::Result<_ParTrajReader> {
+    fn into_par_state_reader(&mut self) -> anyhow::Result<()> {
         let h = self.0.take().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        Ok(_ParTrajReader {
-            iter: h.into_iter()
-        })
-    }
-}
-
-#[pyclass(unsendable)]
-struct _ParTrajReader {
-    iter: molar::io::IoStateIterator,
-}
-
-#[pymethods]
-impl _ParTrajReader {
-    fn next_state(&mut self) -> Option<State> {
-        self.iter.next().map(|st| State(st.into()))
+        self.1 = Some(h.into_iter());
+        Ok(())
     }
 }
 
@@ -877,7 +877,6 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;
     m.add_class::<SasaResults>()?;
-    m.add_class::<_ParTrajReader>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;

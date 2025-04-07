@@ -54,26 +54,23 @@ class AnalysisTask:
 
         # Read trajectories and call process_frame on each frame
         self.consumed_frames = 0
-        begin_skipped = False
         valid_frames = 0
         
         for trj_file in self.args.files[1:]:
             logging.info(f'Processing trajectory "{trj_file}"...')
-            trj_handler = FileHandler(trj_file)
+            trj_handler = FileHandler(trj_file)    
             
-            if not begin_skipped:
-                if bfr:
-                    trj_handler.skip_to_frame(bfr)
-                elif bt:
-                    trj_handler.skip_to_time(bt)
-                begin_skipped = True
+            if bfr:
+                trj_handler.skip_to_frame(bfr)
+            elif bt:
+                trj_handler.skip_to_time(bt)
             
             # Convert to parallel reader
-            par_handler = trj_handler._into_par_reader()
+            trj_handler.into_par_state_reader()
 
             while True:
                 # Read next frame
-                st = par_handler.next_state()
+                st = trj_handler.__next__()
                 # If None returned exit
                 if st == None:
                     break
