@@ -68,13 +68,8 @@ class AnalysisTask:
             # Convert to parallel reader
             trj_handler.into_par_state_reader()
 
-            while True:
-                # Read next frame
-                st = trj_handler.__next__()
-                # If None returned exit
-                if st == None:
-                    break
-
+            # Read next frame untill available
+            for st in trj_handler:
                 # See if end is reached
                 if efr and self.consumed_frames >= efr:
                     break
