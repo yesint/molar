@@ -157,31 +157,22 @@ impl FileHandler {
         Ok(())
     }
 
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+    fn __iter__(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
+        if slf.1.is_none() {
+            let h = slf.0.take().unwrap();
+            slf.1 = Some(h.into_iter());
+        }
         slf
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        // Serial variant
-        if slf.1.is_none() {
-            let st = slf.read_state();
-            if st.is_ok() {
-                Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
-                    .unwrap()
-                    .ok()
-            } else {
-                None
-            }
+        let st = slf.1.as_mut().unwrap().next().map(|st| State(st.into()));
+        if st.is_some() {
+            Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
+                .unwrap()
+                .ok()
         } else {
-            // Parallel variant
-            let st = slf.1.as_mut().unwrap().next().map(|st| State(st.into()));
-            if st.is_some() {
-                Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
-                    .unwrap()
-                    .ok()
-            } else {
-                None
-            }        
+            None
         }
     }
 
@@ -224,11 +215,11 @@ impl FileHandler {
         Ok(h.file_name.clone())
     }
 
-    fn into_par_state_reader(&mut self) -> anyhow::Result<()> {
-        let h = self.0.take().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        self.1 = Some(h.into_iter());
-        Ok(())
-    }
+    // fn into_par_state_reader(&mut self) -> anyhow::Result<()> {
+    //     let h = self.0.take().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+    //     self.1 = Some(h.into_iter());
+    //     Ok(())
+    // }
 }
 
 #[pyclass]

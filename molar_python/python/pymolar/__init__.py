@@ -65,9 +65,6 @@ class AnalysisTask:
             elif bt:
                 trj_handler.skip_to_time(bt)
             
-            # Convert to parallel reader
-            trj_handler.into_par_state_reader()
-
             # Read next frame untill available
             for st in trj_handler:
                 # See if end is reached
