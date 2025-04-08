@@ -72,7 +72,7 @@ In `src/main.rs` add needed boilerplate:
 ```rust,ignore
 // For processing command line arguments
 use std::env;
-// Import all baic things from molar
+// Import all basic things from molar
 use molar::prelude::*;
 // For error handling
 use anyhow::Result;
@@ -121,7 +121,7 @@ We selected all water molecules as a single selection but we need to loop over i
 
 ```rust,ignore
 // Go over water molecules one by one                   
-for mol in water.into_iter_contig_resindex() {
+for mol in water.split_resindex_into_iter() {
     // Do something with mol
 }
 ```
@@ -175,7 +175,7 @@ let src = Source::serial_from_file(&args[0])?;
 let out = Source::empty_builder();
 ```
 
-Here we are creating new empty `Source` of kind `builder`. This means that we will be able to add and delete the atoms to this source. Conventional `serial` source can access and alter existing atoms, but can't add or delete them. Such a distinction is dictated by performance and memory safety reasons - `builder` sources and selections require additional range checks, which make them a bit slower, so it only makes sense to use them when you actually need to add or delete the atoms.
+Here we are creating new empty `Source` of kind `builder`. This means that we will be able to add and delete the atoms to this source. Conventional `serial` source can access and alter existing atoms, but can't add or delete them. Such a distinction is dictated by performance and memory safety reasons - `builder` sources and selections require additional range checks, which make them a tiny bit slower, so it only makes sense to use them when you actually need to add or delete the atoms.
 
 The first thing that we add to out new empty system is all non-water atoms:
 ```rust,ignore
