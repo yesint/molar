@@ -369,10 +369,6 @@ impl VmdMolFileHandler {
             _ => Err(VmdHandlerError::WriteState),
         }
     }
-
-    // pub fn get_file_name(&self) -> &str {
-    //     &self.file_name
-    // }
 }
 
 impl Drop for VmdMolFileHandler {

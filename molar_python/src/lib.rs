@@ -214,12 +214,6 @@ impl FileHandler {
         let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         Ok(h.file_name.clone())
     }
-
-    // fn into_par_state_reader(&mut self) -> anyhow::Result<()> {
-    //     let h = self.0.take().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-    //     self.1 = Some(h.into_iter());
-    //     Ok(())
-    // }
 }
 
 #[pyclass]

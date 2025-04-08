@@ -1,10 +1,8 @@
-use sync_unsafe_cell::SyncUnsafeCell;
 use crate::prelude::*;
-//use super::handle::{SharedHandle, Handle};
-
+use sync_unsafe_cell::SyncUnsafeCell;
 
 #[doc(hidden)]
-#[derive(Debug, Default,Clone)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct StateStorage {
     pub coords: Vec<Pos>,
     pub time: f32,
@@ -16,15 +14,22 @@ impl StateStorage {
         self.coords.extend(pos);
     }
 
-    pub fn remove_coords(&mut self, removed: impl Iterator<Item = usize>) -> Result<(),BuilderError> {
+    pub fn remove_coords(
+        &mut self,
+        removed: impl Iterator<Item = usize>,
+    ) -> Result<(), BuilderError> {
         let mut ind = removed.collect::<Vec<_>>();
-        if ind.len()==0 {
+        if ind.len() == 0 {
             return Ok(());
         }
         ind.sort_unstable();
         ind.dedup();
-        if ind[0] >= self.coords.len() || ind[ind.len()-1] >= self.coords.len() {
-            return Err(BuilderError::RemoveIndexes(ind[0],ind[ind.len()-1],self.coords.len()));
+        if ind[0] >= self.coords.len() || ind[ind.len() - 1] >= self.coords.len() {
+            return Err(BuilderError::RemoveIndexes(
+                ind[0],
+                ind[ind.len() - 1],
+                self.coords.len(),
+            ));
         }
 
         // for i in ind.iter().rev().cloned() {
@@ -47,9 +52,9 @@ impl StateStorage {
     }
 }
 
-/// State of molecular system including its coordinates, time stamp 
+/// State of molecular system including its coordinates, time stamp
 /// and [periodic box](super::PeriodicBox).
-/// 
+///
 /// [State] is typically read from structure of trajectory file and is not intended
 /// to be manipulated directly by the user. Insead [State] and [Topology](super::Topology)
 /// are used to create atom selections, which give an access to the properties of
@@ -68,7 +73,6 @@ impl std::fmt::Debug for State {
     }
 }
 
-
 impl Clone for State {
     fn clone(&self) -> Self {
         Self(SyncUnsafeCell::new(self.get_storage().clone()))
@@ -85,14 +89,14 @@ impl State {
     // Private convenience accessors
     #[inline(always)]
     pub(crate) fn get_storage(&self) -> &StateStorage {
-        unsafe {&*self.0.get()}
+        unsafe { &*self.0.get() }
     }
 
     #[inline(always)]
     pub(crate) fn get_storage_mut(&self) -> &mut StateStorage {
-        unsafe {&mut *self.0.get()}
+        unsafe { &mut *self.0.get() }
     }
-    
+
     #[inline(always)]
     pub unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         self.get_storage().coords.get_unchecked(i)
@@ -125,11 +129,16 @@ impl State {
 
     pub fn interchangeable(&self, other: &State) -> bool {
         self.get_storage().coords.len() == other.get_storage().coords.len()
+            && (
+                (self.get_storage().pbox.is_none() && other.get_storage().pbox.is_none())
+                || 
+                (self.get_storage().pbox.is_some() && other.get_storage().pbox.is_some())
+            )
     }
 
     pub fn new_fake(n: usize) -> Self {
-        Self(SyncUnsafeCell::new(StateStorage{
-            coords: vec![Pos::origin();n],
+        Self(SyncUnsafeCell::new(StateStorage {
+            coords: vec![Pos::origin(); n],
             pbox: None,
             time: 0.0,
         }))
@@ -144,7 +153,7 @@ macro_rules! impl_state_traits {
                 self.get_storage().time
             }
         }
-        
+
         impl PosProvider for $t {
             fn iter_pos(&self) -> impl super::PosIterator<'_> + Clone {
                 self.get_storage().coords.iter()
@@ -160,13 +169,13 @@ macro_rules! impl_state_traits {
                 self.get_storage().coords.get_unchecked(i)
             }
         }
-        
+
         impl BoxProvider for $t {
             fn get_box(&self) -> Option<&PeriodicBox> {
                 self.get_storage().pbox.as_ref()
             }
         }
-        
+
         impl PosMutProvider for $t {
             fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
                 self.get_storage_mut().coords.iter_mut()
@@ -191,7 +200,7 @@ macro_rules! impl_state_traits {
 
         impl MeasurePos for $t {}
         impl MeasureRandomAccess for $t {}
-    }
+    };
 }
 
 // Impls for State itself

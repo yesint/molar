@@ -41,31 +41,29 @@ pub use xtc_handler::XtcFileHandler;
 //=======================================================================
 pub struct IoStateIterator {
     //reader: FileHandler,
-    receiver: std::sync::mpsc::Receiver< Result<Option<State>,FileIoError> >,
+    receiver: std::sync::mpsc::Receiver<Result<Option<State>, FileIoError>>,
 }
 
 impl IoStateIterator {
     fn new(mut fh: FileHandler) -> Self {
         use std::sync::mpsc::sync_channel;
-        use std::thread;
-
         let (sender, receiver) = sync_channel(10);
 
         // Spawn reading thread
-        thread::spawn(move || {
-            loop {
+        std::thread::spawn(move || {
+            let mut terminate = false;
+            while !terminate {
                 let res = fh.read_state();
-                let terminate = res.is_err();
+                terminate = match res.as_ref() {
+                    Err(_) => true,   // terminate is reading failed
+                    Ok(None) => true, // terminate is none is returned (trajectory done)
+                    _ => false,       // otherwise continut reading
+                };
 
                 // Send to channel.
                 // An error means that the reciever has closed the channel already.
                 // This is fine, just exit in this case.
                 if let Err(_) = sender.send(res) {
-                    break;
-                }
-                
-                // If error returned when reading terminate reading thread
-                if terminate {
                     break;
                 }
             }
@@ -78,21 +76,13 @@ impl IoStateIterator {
 impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.receiver.recv() {
-            Ok(res) => {
-                // We got the result, but it might be a read error
-                match res {
-                    Ok(opt_st) => opt_st,
-                    Err(e) => {
-                        error!("reader thread can't read state from '{}'. Trajectory file is likely corrupted.",e.0.display());
-                        None
-                    }
-                }
-            },
+        // Reader thread should never crash since it catches errors and ends on them.
+        // If it does this something is horrible anyway, so unwrap is fine here.
+        match self.receiver.recv().unwrap() {
+            Ok(opt_st) => opt_st,
             Err(e) => {
-                // Something bad happened with the reader thread.
-                // We have no other choice than to crash
-                panic!("reader thread failed unexpectedly: {e}");
+                error!("reader thread can't read state from '{}'. Trajectory file is likely corrupted.",e.0.display());
+                None
             }
         }
     }
