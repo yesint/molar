@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
-use log::{debug, error, warn};
+use log::{debug, error};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},

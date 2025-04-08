@@ -47,24 +47,7 @@ impl TopologyStorage {
                 self.atoms.len(),
             ));
         }
-        // for i in ind.iter().rev().cloned() {
-        //     self.atoms.remove(i);
-        //     // Remove affected bonds
-        //     self.bonds.retain(|b| b[0] != i && b[1] != i);
-        //     // Modify molecules and remove those, which become invalid
-        //     self.molecules.retain_mut(|m| {
-        //         if m[0]==i {m[0] += 1}
-        //         if m[1]==i {
-        //             if m[1]>0 {
-        //                 m[0] -= 1
-        //             } else {
-        //                 // Remove whole molecule
-        //                 return false
-        //             }
-        //         }
-        //         m[1]>=m[0]
-        //     });
-        // }
+        
         let mut it = ind.iter().cloned();
         let mut to_remove = it.next().unwrap_or(usize::MAX);
         let mut i = 0;
