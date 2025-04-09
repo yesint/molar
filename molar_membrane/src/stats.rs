@@ -14,59 +14,74 @@ pub struct GroupProperties {
 }
 
 impl GroupProperties {
-    // pub fn add_lipids_stats<'a>(
-    //     &'a mut self,
-    //     gr_lipids: impl Iterator<Item = &'a LipidMolecule>,
-    // ) -> anyhow::Result<()> {
-    //     for lip in gr_lipids {
-    //         let sp_name = &lip.species.name;
-    //         self.per_species
-    //             .get_mut(sp_name)
-    //             .unwrap()
-    //             .add_single_lipid_stats(lip)?;
-    //     }
-    //     Ok(())
-    // }
-
     pub fn add_single_lipid_stats(
         &mut self,
-        lip: &LipidMolecule,
+        id: usize,
+        lipids: &Vec<LipidMolecule>,
         surf: &SurfNode,
     ) -> anyhow::Result<()> {
-        let sp_name = &lip.species.name;
+        let sp_name = &lipids[id].species.name;
         self.per_species
             .get_mut(sp_name)
             .unwrap()
-            .add_single_lipid_stats(lip,surf)?;
+            .add_single_lipid_stats(id, &lipids, surf)?;
         Ok(())
     }
 
-    pub fn save_order_to_file(
-        &self,
-        dir: &Path,
-        gr_name: impl AsRef<str>,
-    ) -> anyhow::Result<()> {
+    pub fn save_order_to_file(&self, dir: &Path, gr_name: impl AsRef<str>) -> anyhow::Result<()> {
         for (sp, stat) in &self.per_species {
             info!("\tWriting order for '{sp}'");
-            stat.save_order_to_file(
-                dir,
-                format!("gr_{}_order_{}.dat", gr_name.as_ref(), sp),
-            )?;
+            stat.save_order_to_file(dir, format!("gr_{}_order_{}.dat", gr_name.as_ref(), sp))?;
         }
         Ok(())
     }
 
-    pub fn save_group_stats(dir: &Path, gr_name: impl AsRef<str>) -> anyhow::Result<()> {
-        todo!()
+    pub fn save_group_stats(&self, dir: &Path, gr_name: impl AsRef<str>) -> anyhow::Result<()> {
+        use std::fmt::Write as FmtWrite;
+        use std::io::Write as StdWrite;
+
+        // Write basic statistsics
+        info!("\tWriting basic statistics...");
+        let mut s = "#species\tnum\tnum_std\tarea\tarea_std\ttilt\ttilt_std\n".to_string();
+        for (sp, stat) in &self.per_species {
+            let area = stat.area.compute()?;
+            let tilt = stat.tilt.compute()?;
+            let num = stat.num_lip.compute()?;
+            writeln!(
+                s,
+                "{sp}\t{}\t{}\t{}\t{}\t{}\t{}",
+                num.mean, num.stddev, area.mean, area.stddev, tilt.mean, tilt.stddev
+            )?;
+        }
+
+        let mut f = std::fs::File::create(dir.join(format!("gr_{}_stats.dat", gr_name.as_ref(),)))?;
+        write!(f, "{}", s)?;
+
+        // Write neighbours frequencies
+        s = "".to_string();
+        for (sp, stat) in &self.per_species {
+            writeln!(s, "{sp}:")?;
+            for (nsp,val) in &stat.neib_species {
+                let res = val.compute()?;
+                writeln!(s, "\t{nsp} {} {}",res.mean,res.stddev)?;
+            }
+            s.push('\n');
+        }
+
+        let mut f = std::fs::File::create(dir.join(format!("gr_{}_neib_stats.dat", gr_name.as_ref(),)))?;
+        write!(f, "{}", s)?;
+
+        Ok(())
     }
 }
 
 #[derive(Default, Debug)]
 pub struct StatProperties {
-    pub num_lip: usize,
+    pub num_lip: MeanStd,
     pub area: MeanStd,
     pub tilt: MeanStd,
     pub order: Vec<MeanStdVec>,
+    pub neib_species: HashMap<String,MeanStd>,
 }
 
 impl StatProperties {
@@ -79,32 +94,38 @@ impl StatProperties {
             area: Default::default(),
             tilt: Default::default(),
             order,
-            num_lip: 0,
+            num_lip: Default::default(),
+            neib_species: Default::default(),
         }
     }
 
-    pub fn add_single_lipid_stats(&mut self, lip: &LipidMolecule, surf: &SurfNode) -> anyhow::Result<()> {
+    pub fn add_single_lipid_stats(
+        &mut self,
+        id: usize,
+        lipids: &Vec<LipidMolecule>,
+        surf: &SurfNode,
+    ) -> anyhow::Result<()> {
         self.area.add(surf.area);
-        self.tilt.add(surf.normal.angle(&lip.tail_head_vec));
-        for tail in 0..lip.order.len() {
-            self.order[tail].add(&lip.order[tail])?;
+        self.tilt.add(surf.normal.angle(&lipids[id].tail_head_vec));
+        for tail in 0..lipids[id].order.len() {
+            self.order[tail].add(&lipids[id].order[tail])?;
+        }
+
+        // Collect neighbours
+        for nid in &surf.neib_ids {
+            let neib_sp_name = &lipids[*nid].species.name;
+            if !self.neib_species.contains_key(neib_sp_name) {
+                self.neib_species.insert(neib_sp_name.to_string(), Default::default());
+            }
+            self.neib_species.get_mut(neib_sp_name).unwrap().add(1.0);
+        }
+        for el in self.neib_species.values_mut() {
+            el.add_count(1.0);
         }
         Ok(())
     }
 
-    pub fn save_stats_to_file(
-        &self,
-        dir: &Path,
-        fname: impl AsRef<str>,
-    ) -> anyhow::Result<()> {
-        todo!()
-    }
-
-    pub fn save_order_to_file(
-        &self,
-        dir: &Path,
-        fname: impl AsRef<str>,
-    ) -> anyhow::Result<()> {
+    pub fn save_order_to_file(&self, dir: &Path, fname: impl AsRef<str>) -> anyhow::Result<()> {
         // We need Write traits from both fmt and io, so rewrite the imports
         // to avoid name clash
         use std::fmt::Write as FmtWrite;
@@ -184,20 +205,36 @@ impl MeanStd {
         self.n += 1.0;
     }
 
+    pub fn add_value(&mut self, val: f32) {
+        self.x += val;
+        self.x2 += val * val;
+    }
+
+    pub fn add_count(&mut self, n: f32) {
+        self.n += n;
+    }
+
     pub fn compute(&self) -> anyhow::Result<MeanStdResult> {
         if self.n == 0.0 {
             bail!("no values accumulated in MeanStd");
         }
+
+        println!("{} {} {}",self.x,self.x2,self.n);
+
         let mean = self.x / self.n;
-        let stddev = ((self.x2 / self.n) - (mean * mean)).sqrt();
+        let stddev = if self.x != self.x2 {
+            ((self.x2 / self.n) - (mean * mean)).sqrt()
+        } else {
+            0.0
+        };
         Ok(MeanStdResult { mean, stddev })
     }
 }
 
 #[derive(Serialize, Debug, Clone)]
 pub struct MeanStdResult {
-    mean: f32,
-    stddev: f32,
+    pub mean: f32,
+    pub stddev: f32,
 }
 
 impl Serialize for MeanStd {

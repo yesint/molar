@@ -123,6 +123,14 @@ impl Membrane {
         })
     }
 
+    pub fn with_groups(mut self, group_names: &[impl AsRef<str>]) -> Self {
+        for gr in group_names {
+            self.groups
+                .insert(gr.as_ref().to_string(), Default::default());
+        }
+        self
+    }
+
     pub fn with_global_normal(mut self, global_normal: impl Into<Option<Vector3f>>) -> Self {
         self.global_normal = global_normal.into();
         self
@@ -151,24 +159,34 @@ impl Membrane {
         self.lipids.iter().enumerate()
     }
 
-    pub fn add_group(&mut self, gr_name: impl AsRef<str>, ids: Vec<usize>) -> anyhow::Result<()> {
+    pub fn reset_groups(&mut self) {
+        for gr in self.groups.values_mut() {
+            gr.lipid_ids.clear();
+            gr.stats.per_species.clear();
+        }
+    }
+
+    pub fn add_lipids_to_group(
+        &mut self,
+        gr_name: impl AsRef<str>,
+        ids: Vec<usize>,
+    ) -> anyhow::Result<()> {
         let gr_name = gr_name.as_ref();
-        for id in &ids {
-            if *id >= self.lipids.len() {
-                bail!(
-                    "lipid id {} is out of bounds 0:{}",
-                    id,
-                    self.lipids.len() - 1
-                );
+        if let Some(gr) = self.groups.get_mut(gr_name) {
+            for id in ids {
+                if id >= self.lipids.len() {
+                    bail!(
+                        "lipid id {} is out of bounds 0:{}",
+                        id,
+                        self.lipids.len() - 1
+                    );
+                }
+                gr.lipid_ids.push(id);
             }
-        }
-        if self.groups.contains_key(gr_name) {
-            bail!("group '{}' already exists", gr_name);
         } else {
-            info!("Creating group '{}' with {} lipids", gr_name, ids.len());
-            self.groups
-                .insert(gr_name.to_owned(), LipidGroup::new(&self, ids));
+            bail!("No such group: {gr_name}");
         }
+
         Ok(())
     }
 
@@ -214,10 +232,15 @@ impl Membrane {
             };
             self.lipids[i].compute_order(self.order_type.clone(), norm);
         }
+
         // Add stats to groups
         for gr in self.groups.values_mut() {
+            // Initialize group stats
+            gr.init_stats(&self.lipids);
+            // Add lipid stats
             for lip_id in &gr.lipid_ids {
-                gr.stats.add_single_lipid_stats(&self.lipids[*lip_id], &self.surface.nodes[*lip_id])?;
+                gr.stats
+                    .add_single_lipid_stats(*lip_id,&self.lipids, &self.surface.nodes[*lip_id])?;
             }
         }
         Ok(())
@@ -270,8 +293,8 @@ impl Membrane {
         // Write results for groups
         for (gr_name, gr) in &self.groups {
             info!("\tGroup '{gr_name}'...");
-            gr.stats
-                .save_order_to_file(self.output_dir.as_path(), gr_name)?;
+            gr.stats.save_group_stats(self.output_dir.as_path(), gr_name)?;
+            gr.stats.save_order_to_file(self.output_dir.as_path(), gr_name)?;
         }
         Ok(())
     }
@@ -411,30 +434,37 @@ impl VmdVisual {
     }
 }
 
+#[derive(Default)]
 pub struct LipidGroup {
     lipid_ids: Vec<usize>,
     stats: GroupProperties,
 }
 
 impl LipidGroup {
-    fn new(memb: &Membrane, lipid_ids: Vec<usize>) -> Self {
-        let mut stats = GroupProperties::default();
-        for id in lipid_ids.iter() {
-            let name = memb.lipids[*id].species.name.clone();
+    fn init_stats(&mut self, lipids: &Vec<LipidMolecule>) {
+        for id in self.lipid_ids.iter() {
+            let sp_name = &lipids[*id].species.name;
 
-            if let Some(el) = stats.per_species.get_mut(&name) {
-                el.num_lip += 1;
+            if let Some(el) = self.stats.per_species.get_mut(sp_name) {
+                el.num_lip.add_value(1.0);
             } else {
-                let sp = &memb.lipids[*id].species;
-                stats.per_species.insert(name, StatProperties::new(sp));
-                stats.per_species.get_mut(&memb.lipids[*id].species.name).unwrap().num_lip += 1;
+                let sp = &lipids[*id].species;
+                self.stats
+                    .per_species
+                    .insert(sp_name.to_string(), StatProperties::new(sp));
+
+                self.stats
+                    .per_species
+                    .get_mut(&lipids[*id].species.name)
+                    .unwrap()
+                    .num_lip
+                    .add_value(1.0);
             }
         }
-
-        for (sp, stats) in &stats.per_species {
-            info!("\t{}: {}", sp, stats.num_lip);
+        // Update species counts
+        for sp_st in self.stats.per_species.values_mut() {
+            sp_st.num_lip.add_count(1.0);
         }
-        Self { lipid_ids, stats }
     }
 }
 
@@ -544,14 +574,15 @@ mod tests {
 
         let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping");
         let src = Source::serial_from_file(path.join("inp_7.gro"))?;
-        
-        let z0 = 5.6;//src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
+
+        let z0 = 5.6; //src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
         let mut memb = Membrane::new(src, &toml)?
             .with_global_normal(Vector3f::z())
             .with_order_type(OrderType::ScdCorr)
-            .with_output_dir("../target/membr_test_results")?;
+            .with_output_dir("../target/membr_test_results")?
+            .with_groups(&["upper", "lower"]);
 
         let mut upper = vec![];
         let mut lower = vec![];
@@ -563,8 +594,8 @@ mod tests {
             }
         }
 
-        memb.add_group("upper", upper)?;
-        memb.add_group("lower", lower)?;
+        memb.add_lipids_to_group("upper", upper)?;
+        memb.add_lipids_to_group("lower", lower)?;
 
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
         for st in traj.into_iter().take(10) {
@@ -600,8 +631,8 @@ mod tests {
             }
         }
 
-        memb.add_group("upper", upper)?;
-        memb.add_group("lower", lower)?;
+        memb.add_lipids_to_group("upper", upper)?;
+        memb.add_lipids_to_group("lower", lower)?;
 
         memb.compute()?;
         memb.finalize()?;
