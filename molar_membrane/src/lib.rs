@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -31,6 +32,7 @@ pub struct Membrane {
     lipids: Vec<LipidMolecule>,
     surface: Surface,
     groups: HashMap<String, LipidGroup>,
+    species: Vec<Rc<LipidSpecies>>,
     // Options
     global_normal: Option<Vector3f>,
     order_type: OrderType,
@@ -43,14 +45,15 @@ impl Membrane {
         let species_descr: HashMap<String, LipidSpeciesDescr> = toml::from_str(defstr)?;
 
         // Load lipids from provided source
-        //let mut species: HashMap<String, Arc<LipidSpecies>> = Default::default();
         let mut lipids = vec![];
+        let mut species = vec![];
         for (name, descr) in species_descr.iter() {
             if let Ok(lips) = source.select(&descr.whole) {
                 let lips = lips.split_resindex::<Vec<_>>()?;
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
-                let sp = Arc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
+                let sp = Rc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
+                species.push(Rc::clone(&sp));
 
                 // Now create individual lipids
                 for lip in lips {
@@ -82,7 +85,7 @@ impl Membrane {
 
                     lipids.push(LipidMolecule {
                         sel: lip, // Selection is moved to the lipid
-                        species: Arc::clone(&sp),
+                        species: Rc::clone(&sp),
                         head_sel,
                         mid_sel,
                         tail_end_sel,
@@ -120,6 +123,7 @@ impl Membrane {
             order_type: OrderType::ScdCorr,
             output_dir: PathBuf::from("membrane_results"),
             surface,
+            species,
         })
     }
 
@@ -174,6 +178,7 @@ impl Membrane {
         let gr_name = gr_name.as_ref();
         if let Some(gr) = self.groups.get_mut(gr_name) {
             for id in ids {
+                // Check if lipid id is in range
                 if id >= self.lipids.len() {
                     bail!(
                         "lipid id {} is out of bounds 0:{}",
@@ -181,7 +186,19 @@ impl Membrane {
                         self.lipids.len() - 1
                     );
                 }
+                // Add this lipid id
                 gr.lipid_ids.push(id);
+                // Initialize statistics for this lipid species if not yet done
+                let sp = &self.lipids[id].species.name;
+                if !gr.stats.per_species.contains_key(sp) {
+                    gr.stats.per_species.insert(
+                        sp.to_string(),
+                        StatProperties::new(
+                            &self.lipids[id].species,
+                            self.species.iter().map(|sp| sp.name.to_owned()),
+                        ),
+                    );
+                }
             }
         } else {
             bail!("No such group: {gr_name}");
@@ -235,12 +252,17 @@ impl Membrane {
 
         // Add stats to groups
         for gr in self.groups.values_mut() {
-            // Initialize group stats
-            gr.init_stats(&self.lipids);
-            // Add lipid stats
+            // Add individual lipid stats
             for lip_id in &gr.lipid_ids {
-                gr.stats
-                    .add_single_lipid_stats(*lip_id,&self.lipids, &self.surface.nodes[*lip_id])?;
+                gr.stats.add_single_lipid_stats(
+                    *lip_id,
+                    &self.lipids,
+                    &self.surface.nodes[*lip_id],
+                )?;
+            }
+            
+            for st in gr.stats.per_species.values_mut() {
+                st.num_lip.incr_count();
             }
         }
         Ok(())
@@ -293,8 +315,10 @@ impl Membrane {
         // Write results for groups
         for (gr_name, gr) in &self.groups {
             info!("\tGroup '{gr_name}'...");
-            gr.stats.save_group_stats(self.output_dir.as_path(), gr_name)?;
-            gr.stats.save_order_to_file(self.output_dir.as_path(), gr_name)?;
+            gr.stats
+                .save_group_stats(self.output_dir.as_path(), gr_name)?;
+            gr.stats
+                .save_order_to_file(self.output_dir.as_path(), gr_name)?;
         }
         Ok(())
     }
@@ -441,31 +465,31 @@ pub struct LipidGroup {
 }
 
 impl LipidGroup {
-    fn init_stats(&mut self, lipids: &Vec<LipidMolecule>) {
-        for id in self.lipid_ids.iter() {
-            let sp_name = &lipids[*id].species.name;
+    // fn init_stats(&mut self, lipids: &Vec<LipidMolecule>) {
+    //     for id in self.lipid_ids.iter() {
+    //         let sp_name = &lipids[*id].species.name;
 
-            if let Some(el) = self.stats.per_species.get_mut(sp_name) {
-                el.num_lip.add_value(1.0);
-            } else {
-                let sp = &lipids[*id].species;
-                self.stats
-                    .per_species
-                    .insert(sp_name.to_string(), StatProperties::new(sp));
+    //         if let Some(el) = self.stats.per_species.get_mut(sp_name) {
+    //             el.num_lip.add_value(1.0);
+    //         } else {
+    //             let sp = &lipids[*id].species;
+    //             self.stats
+    //                 .per_species
+    //                 .insert(sp_name.to_string(), StatProperties::new(sp));
 
-                self.stats
-                    .per_species
-                    .get_mut(&lipids[*id].species.name)
-                    .unwrap()
-                    .num_lip
-                    .add_value(1.0);
-            }
-        }
-        // Update species counts
-        for sp_st in self.stats.per_species.values_mut() {
-            sp_st.num_lip.add_count(1.0);
-        }
-    }
+    //             self.stats
+    //                 .per_species
+    //                 .get_mut(&lipids[*id].species.name)
+    //                 .unwrap()
+    //                 .num_lip
+    //                 .add_value(1.0);
+    //         }
+    //     }
+    //     // Update species counts
+    //     for sp_st in self.stats.per_species.values_mut() {
+    //         sp_st.num_lip.add_count(1.0);
+    //     }
+    // }
 }
 
 #[cfg(test)]

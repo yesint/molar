@@ -49,7 +49,7 @@ impl GroupProperties {
             let num = stat.num_lip.compute()?;
             writeln!(
                 s,
-                "{sp}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{sp}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}",
                 num.mean, num.stddev, area.mean, area.stddev, tilt.mean, tilt.stddev
             )?;
         }
@@ -61,41 +61,47 @@ impl GroupProperties {
         s = "".to_string();
         for (sp, stat) in &self.per_species {
             writeln!(s, "{sp}:")?;
-            for (nsp,val) in &stat.neib_species {
+            for (nsp, val) in &stat.neib_species {
                 let res = val.compute()?;
-                writeln!(s, "\t{nsp} {} {}",res.mean,res.stddev)?;
+                writeln!(s, "\t{nsp}\t{:>8.3}\t{:>8.3}", res.mean, res.stddev)?;
             }
             s.push('\n');
         }
 
-        let mut f = std::fs::File::create(dir.join(format!("gr_{}_neib_stats.dat", gr_name.as_ref(),)))?;
+        let mut f =
+            std::fs::File::create(dir.join(format!("gr_{}_neib_stats.dat", gr_name.as_ref(),)))?;
         write!(f, "{}", s)?;
 
         Ok(())
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct StatProperties {
     pub num_lip: MeanStd,
     pub area: MeanStd,
     pub tilt: MeanStd,
     pub order: Vec<MeanStdVec>,
-    pub neib_species: HashMap<String,MeanStd>,
+    pub neib_species: HashMap<String, MeanStd>,
 }
 
 impl StatProperties {
-    pub fn new(species: &LipidSpecies) -> Self {
-        let mut order = Vec::with_capacity(species.tails.len());
-        for t in &species.tails {
+    pub fn new(cur_species: &LipidSpecies, all_species_names: impl Iterator<Item=String>) -> Self {
+        let mut order = Vec::with_capacity(cur_species.tails.len());
+        for t in &cur_species.tails {
             order.push(MeanStdVec::new(t.bond_orders.len() - 1));
         }
+
+        let neib_species = all_species_names
+            .map(|sp| (sp.to_owned(), MeanStd::default()))
+            .collect::<HashMap<_, _>>();
+
         Self {
-            area: Default::default(),
-            tilt: Default::default(),
+            area: MeanStd::default(),
+            tilt: MeanStd::default(),
             order,
-            num_lip: Default::default(),
-            neib_species: Default::default(),
+            num_lip: MeanStd::default(),
+            neib_species,
         }
     }
 
@@ -111,16 +117,20 @@ impl StatProperties {
             self.order[tail].add(&lipids[id].order[tail])?;
         }
 
+        // Update lipid counter
+        self.num_lip.add_value(1.0);
+
         // Collect neighbours
         for nid in &surf.neib_ids {
             let neib_sp_name = &lipids[*nid].species.name;
             if !self.neib_species.contains_key(neib_sp_name) {
-                self.neib_species.insert(neib_sp_name.to_string(), Default::default());
+                self.neib_species
+                    .insert(neib_sp_name.to_string(), Default::default());
             }
             self.neib_species.get_mut(neib_sp_name).unwrap().add(1.0);
         }
         for el in self.neib_species.values_mut() {
-            el.add_count(1.0);
+            el.incr_count();
         }
         Ok(())
     }
@@ -210,16 +220,14 @@ impl MeanStd {
         self.x2 += val * val;
     }
 
-    pub fn add_count(&mut self, n: f32) {
-        self.n += n;
+    pub fn incr_count(&mut self) {
+        self.n += 1.0;
     }
 
     pub fn compute(&self) -> anyhow::Result<MeanStdResult> {
         if self.n == 0.0 {
             bail!("no values accumulated in MeanStd");
         }
-
-        println!("{} {} {}",self.x,self.x2,self.n);
 
         let mean = self.x / self.n;
         let stddev = if self.x != self.x2 {

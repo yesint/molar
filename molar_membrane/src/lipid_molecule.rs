@@ -1,12 +1,12 @@
 use molar::prelude::*;
 use nalgebra::DVector;
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule {
     pub(super) sel: Sel<MutableSerial>,
-    pub(super) species: Arc<LipidSpecies>,
+    pub(super) species: Rc<LipidSpecies>,
     pub(super) head_sel: Sel<MutableSerial>,
     pub(super) mid_sel: Sel<MutableSerial>,
     pub(super) tail_end_sel: Sel<MutableSerial>,
