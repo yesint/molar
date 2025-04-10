@@ -6,7 +6,6 @@ use std::{
     f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::Arc,
 };
 
 #[cfg(not(test))]
@@ -37,6 +36,8 @@ pub struct Membrane {
     global_normal: Option<Vector3f>,
     order_type: OrderType,
     output_dir: PathBuf,
+    max_smooth_iter: usize,
+    cutoff: f32,
 }
 
 impl Membrane {
@@ -124,6 +125,8 @@ impl Membrane {
             output_dir: PathBuf::from("membrane_results"),
             surface,
             species,
+            max_smooth_iter: 1,
+            cutoff: 2.5,
         })
     }
 
@@ -157,6 +160,16 @@ impl Membrane {
         self.output_dir = path.to_path_buf();
         info!("will use output directory '{}'", path.display());
         Ok(self)
+    }
+
+    pub fn with_cutoff(mut self, cutoff: f32) -> Self {
+        self.cutoff = cutoff;
+        self
+    }
+
+    pub fn with_max_iter(mut self, max_iter: usize) -> Self {
+        self.max_smooth_iter = max_iter;
+        self
     }
 
     pub fn iter_lipids(&self) -> impl Iterator<Item = (usize, &LipidMolecule)> {
@@ -209,7 +222,7 @@ impl Membrane {
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
         // Compute patches
-        self.compute_patches(2.5)?;
+        self.compute_patches(self.cutoff)?;
 
         // Get initial normals
         self.compute_initial_normals();
@@ -222,20 +235,17 @@ impl Membrane {
 
         // Do smoothing
         let mut iter = 0;
-        //const TOL: f32 = 1e-3;
-        const MAX_ITER: u8 = 5;
-
         loop {
             self.surface.smooth();
 
-            self.write_vmd_visualization(format!(
-                "/home/semen/work/Projects/Misha/PG_flipping/iter_{iter}.tcl"
-            ))
-            .unwrap();
+            // self.write_vmd_visualization(format!(
+            //     "/home/semen/work/Projects/Misha/PG_flipping/iter_{iter}.tcl"
+            // ))
+            // .unwrap();
 
             iter += 1;
 
-            if iter >= MAX_ITER {
+            if iter >= self.max_smooth_iter {
                 break;
             }
         }
@@ -325,11 +335,6 @@ impl Membrane {
 
     pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
         self.source.set_state(st)?;
-        // for lip in &mut self.lipids {
-        //     lip.set_state(st.clone())?;
-        //     lip.sel.unwrap_simple()?;
-        //     lip.update_markers()?;
-        // }
         Ok(())
     }
 
@@ -342,6 +347,11 @@ impl Membrane {
             PBC_FULL,
         );
 
+        // Clear all patches first!
+        for node in self.surface.nodes.iter_mut() {
+            node.patch_ids.clear();
+        }
+        // Add ids to patches
         for (i, j) in ind {
             self.surface.nodes[i].patch_ids.push(j);
             self.surface.nodes[j].patch_ids.push(i);
@@ -593,11 +603,11 @@ mod tests {
 
     #[test]
     fn test_whole() -> anyhow::Result<()> {
-        // let path = PathBuf::from("tests");
-        // let src = Source::serial_from_file(path.join("membr.gro"))?;
+        let path = PathBuf::from("tests");
+        let src = Source::serial_from_file(path.join("membr.gro"))?;
 
-        let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping");
-        let src = Source::serial_from_file(path.join("inp_7.gro"))?;
+        // let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping");
+        // let src = Source::serial_from_file(path.join("inp_7.gro"))?;
 
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
         let mut toml = String::new();
@@ -606,7 +616,9 @@ mod tests {
             .with_global_normal(Vector3f::z())
             .with_order_type(OrderType::ScdCorr)
             .with_output_dir("../target/membr_test_results")?
-            .with_groups(&["upper", "lower"]);
+            .with_groups(&["upper", "lower"])
+            .with_cutoff(2.5)
+            .with_max_iter(1);
 
         let mut upper = vec![];
         let mut lower = vec![];
