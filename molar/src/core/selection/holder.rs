@@ -66,7 +66,7 @@ impl<T,K: SelectionKind> Holder<T, K> {
     // Clone has limited visibility and can clone to other kinds
     pub(super) fn clone_with_kind<KO: SelectionKind>(&self) -> Holder<T,KO> {
         Holder {
-            arc: self.arc.clone(),
+            arc: triomphe::Arc::clone(&self.arc),
             _kind: Default::default(),
         }
     }
@@ -88,7 +88,6 @@ impl<T,K: SelectionKind> Holder<T, K> {
     pub unsafe fn replace_arc<KO: SelectionKind>(&mut self, other: Holder<T,KO>) {
         self.arc = other.arc;
     }
-
 }
 
 /// Holders are dereferenced as usual smart pointers

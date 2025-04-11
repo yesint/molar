@@ -198,12 +198,11 @@ impl<K: UserCreatableKind> Source<K> {
     ///
     /// Returns [Holder] with old state, so it could be reused if needed.
     pub fn set_state(&self, state: State) -> Result<State, SelectionError> {
-        //let state: Holder<State, K>  = Holder::new(state);
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);
         }
         let p = self.state.arc.as_ptr() as *mut State;
-        // We physically spap memory at these locations
+        // We physically spap memory in Arc allocation
         // this is cheap because coordinates are allocated on heap
         // and only pointers to allocations are swapped
         Ok(unsafe { std::ptr::replace(p, state) })
@@ -228,9 +227,7 @@ impl<K: UserCreatableKind> Source<K> {
             return Err(SelectionError::IncompatibleTopology);
         }
         let p = self.topology.arc.as_ptr() as *mut Topology;
-        // We physically spap memory at these locations
-        // this is cheap because coordinates are allocated on heap
-        // and only pointers to allocations are swapped
+        // We physically spap memory in Arc allocation
         Ok(unsafe { std::ptr::replace(p, topology) })
     }
 

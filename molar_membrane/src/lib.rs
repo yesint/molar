@@ -332,16 +332,21 @@ impl Membrane {
     }
 
     pub fn set_state(&mut self, st: impl Into<Holder<State,MutableSerial>>) -> anyhow::Result<()> {
-        let hst: Holder<State,_> = st.into();
-        //self.source.set_state(st)?;
-        for lip in self.lipids.iter_mut() {
-            lip.sel.set_state(hst.clone())?;
-            lip.head_sel.set_state(hst.clone())?;
-            lip.mid_sel.set_state(hst.clone())?;
-            for t in lip.tail_sels.iter_mut() {
-                t.set_state(hst.clone())?;
-            }
+        let mut st: Holder<State,_> = st.into();
+        let mut cur = self.lipids.first().unwrap().sel.get_state();
+        if cur.interchangeable(&st) {
+            unsafe {cur.swap_unchecked(&mut st)};
         }
+
+        // //self.source.set_state(st)?;
+        // for lip in self.lipids.iter_mut() {
+        //     lip.sel.set_state(hst.clone())?;
+        //     lip.head_sel.set_state(hst.clone())?;
+        //     lip.mid_sel.set_state(hst.clone())?;
+        //     for t in lip.tail_sels.iter_mut() {
+        //         t.set_state(hst.clone())?;
+        //     }
+        // }
         Ok(())
     }
 
