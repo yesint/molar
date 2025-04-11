@@ -203,7 +203,6 @@ impl<K: UserCreatableKind> Source<K> {
             return Err(SelectionError::IncompatibleState);
         }
         let p = self.state.arc.as_ptr() as *mut State;
-        //let mut p2 = state.arc.as_ptr() as *mut State;
         // We physically spap memory at these locations
         // this is cheap because coordinates are allocated on heap
         // and only pointers to allocations are swapped
@@ -222,14 +221,17 @@ impl<K: UserCreatableKind> Source<K> {
     /// inconsistent results may be produced, however this should never lead to issues with memory safety.
     pub fn set_topology(
         &mut self,
-        topology: Holder<Topology, K>,
-    ) -> Result<Holder<Topology, K>, SelectionError> {
+        topology: Topology,
+    ) -> Result<Topology, SelectionError> {
         // Check if the states are compatible
         if !self.topology.interchangeable(&topology) {
             return Err(SelectionError::IncompatibleTopology);
         }
-
-        Ok(std::mem::replace(&mut self.topology, topology))
+        let p = self.topology.arc.as_ptr() as *mut Topology;
+        // We physically spap memory at these locations
+        // this is cheap because coordinates are allocated on heap
+        // and only pointers to allocations are swapped
+        Ok(unsafe { std::ptr::replace(p, topology) })
     }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {

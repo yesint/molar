@@ -26,8 +26,7 @@ use lipid_species::{LipidSpecies, LipidSpeciesDescr};
 mod surface;
 use surface::*;
 
-pub struct Membrane<'a> {
-    source: &'a Source<MutableSerial>,
+pub struct Membrane {
     lipids: Vec<LipidMolecule>,
     surface: Surface,
     groups: HashMap<String, LipidGroup>,
@@ -40,8 +39,8 @@ pub struct Membrane<'a> {
     cutoff: f32,
 }
 
-impl<'a> Membrane<'a> {
-    pub fn new(source: &'a Source<MutableSerial>, defstr: &str) -> anyhow::Result<Self> {
+impl Membrane {
+    pub fn new(source: &Source<MutableSerial>, defstr: &str) -> anyhow::Result<Self> {
         // Load species descriptions
         let species_descr: HashMap<String, LipidSpeciesDescr> = toml::from_str(defstr)?;
 
@@ -117,7 +116,6 @@ impl<'a> Membrane<'a> {
         };
 
         Ok(Self {
-            source,
             lipids,
             groups: Default::default(),
             global_normal: None,
@@ -333,8 +331,17 @@ impl<'a> Membrane<'a> {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
-        self.source.set_state(st)?;
+    pub fn set_state(&mut self, st: impl Into<Holder<State,MutableSerial>>) -> anyhow::Result<()> {
+        let hst: Holder<State,_> = st.into();
+        //self.source.set_state(st)?;
+        for lip in self.lipids.iter_mut() {
+            lip.sel.set_state(hst.clone())?;
+            lip.head_sel.set_state(hst.clone())?;
+            lip.mid_sel.set_state(hst.clone())?;
+            for t in lip.tail_sels.iter_mut() {
+                t.set_state(hst.clone())?;
+            }
+        }
         Ok(())
     }
 
@@ -615,7 +622,7 @@ mod tests {
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
         for st in traj.into_iter().take(10) {
             println!(">> {}", st.get_time());
-            memb.set_state(st.into())?;
+            memb.set_state(st)?;
             memb.compute()?;
         }
 

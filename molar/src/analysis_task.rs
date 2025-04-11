@@ -92,26 +92,27 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
     Ok((frame, time))
 }
 
-pub trait AnalysisTask {
-    type Options: clap::Args;
+pub trait AnalysisTask<A: clap::Args> {
+    //type Options: clap::Args;
+    fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self> where Self: Sized;
 
-    fn pre_process(&mut self, context: &AnalysisContext<Self::Options>) -> anyhow::Result<()>;
+    //fn pre_process(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
 
-    fn process_frame(&mut self, context: &AnalysisContext<Self::Options>) -> anyhow::Result<()>;
+    fn process_frame(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
 
-    fn post_process(&mut self, context: &AnalysisContext<Self::Options>) -> anyhow::Result<()>;
+    fn post_process(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
     
-    fn run(&mut self) -> Result<(), AnalysisError> {
+    fn run() -> Result<(), AnalysisError> where Self: Sized {
         // Get the generic command line arguments
         let mut cmd = AnalysisArgs::command();
         // Add custom arguments from the implementor
-        cmd = Self::Options::augment_args(cmd);
+        cmd = A::augment_args(cmd);
         
         let matches = cmd.get_matches();
         // Trajectory processing arguments
         let traj_args = AnalysisArgs::from_arg_matches(&matches)?;
         // Custom arguments
-        let custom_args = Self::Options::from_arg_matches(&matches)?;
+        let custom_args = A::from_arg_matches(&matches)?;
         
         // Greeting
         crate::greeting("molar_bin");
@@ -120,6 +121,9 @@ pub trait AnalysisTask {
             panic!("At least one trajectory file is required");
         }
     
+        // Instance of implementing class to be created later
+        let mut inst: Option<Self> = None;
+        
         // Read topology
         let top: Holder<Topology, MutableSerial> =
             FileHandler::open(&traj_args.files[0])?.read_topology()?.into();
@@ -176,23 +180,23 @@ pub trait AnalysisTask {
                 context.src.set_state(state)?;
     
                 if context.consumed_frames == 0 {
-                    self.pre_process(&context).map_err(AnalysisError::PreProcess)?;
+                    inst = Some(Self::new(&context).map_err(AnalysisError::PreProcess)?);
+                    //inst.unwrap().pre_process(&context).map_err(AnalysisError::PreProcess)?;
                 }
     
                 context.consumed_frames += 1;
     
-                self.process_frame(&context).map_err(AnalysisError::ProcessFrame)?;
+                inst.as_mut().unwrap().process_frame(&context).map_err(AnalysisError::ProcessFrame)?;
             }
         }
     
-        self.post_process(&context).map_err(AnalysisError::PostProcess)?;
+        if let Some(i) = inst.as_mut() {
+            i.post_process(&context).map_err(AnalysisError::PostProcess)?;
+        }
         Ok(())
     }
 }
 
-fn run_analysis_task<T: AnalysisTask>() -> anyhow::Result<()> {
-    Ok(())
-}
 
 pub struct AnalysisContext<A> {
     pub src: Source<MutableSerial>,
