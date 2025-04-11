@@ -26,8 +26,8 @@ use lipid_species::{LipidSpecies, LipidSpeciesDescr};
 mod surface;
 use surface::*;
 
-pub struct Membrane {
-    source: Source<MutableSerial>,
+pub struct Membrane<'a> {
+    source: &'a Source<MutableSerial>,
     lipids: Vec<LipidMolecule>,
     surface: Surface,
     groups: HashMap<String, LipidGroup>,
@@ -40,8 +40,8 @@ pub struct Membrane {
     cutoff: f32,
 }
 
-impl Membrane {
-    pub fn new(source: Source<MutableSerial>, defstr: &str) -> anyhow::Result<Self> {
+impl<'a> Membrane<'a> {
+    pub fn new(source: &'a Source<MutableSerial>, defstr: &str) -> anyhow::Result<Self> {
         // Load species descriptions
         let species_descr: HashMap<String, LipidSpeciesDescr> = toml::from_str(defstr)?;
 
@@ -474,37 +474,9 @@ pub struct LipidGroup {
     stats: GroupProperties,
 }
 
-impl LipidGroup {
-    // fn init_stats(&mut self, lipids: &Vec<LipidMolecule>) {
-    //     for id in self.lipid_ids.iter() {
-    //         let sp_name = &lipids[*id].species.name;
-
-    //         if let Some(el) = self.stats.per_species.get_mut(sp_name) {
-    //             el.num_lip.add_value(1.0);
-    //         } else {
-    //             let sp = &lipids[*id].species;
-    //             self.stats
-    //                 .per_species
-    //                 .insert(sp_name.to_string(), StatProperties::new(sp));
-
-    //             self.stats
-    //                 .per_species
-    //                 .get_mut(&lipids[*id].species.name)
-    //                 .unwrap()
-    //                 .num_lip
-    //                 .add_value(1.0);
-    //         }
-    //     }
-    //     // Update species counts
-    //     for sp_st in self.stats.per_species.values_mut() {
-    //         sp_st.num_lip.add_count(1.0);
-    //     }
-    // }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::{io::Read, path::PathBuf};
+    use std::{collections::HashMap, default, io::Read, path::PathBuf};
 
     use molar::prelude::*;
 
@@ -574,11 +546,18 @@ mod tests {
         Ok(())
     }
 
+    #[derive(Clone, Debug, serde::Deserialize)]
+    struct TestInp {
+        cutoff: f32,
+        lipids: HashMap<String,LipidSpeciesDescr>,
+    }
+
     #[test]
     fn test_toml2() -> anyhow::Result<()> {
-        let toml: PredefinedLipidSpecies = toml::from_str(
+        let toml: TestInp = toml::from_str(
             r#"
-            [POPC]
+            cutoff = 2.5
+            [lipids.POPC]
             whole = "resname POPE"
             head = "name P N"
             mid = "name C21 C22"
@@ -587,7 +566,7 @@ mod tests {
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316"
             ]
 
-            [POPE]
+            [lipids.POPE]
             whole = "resname POPE"
             head = "name P N"
             mid = "name C21 C22"
@@ -612,7 +591,7 @@ mod tests {
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
-        let mut memb = Membrane::new(src, &toml)?
+        let mut memb = Membrane::new(&src, &toml)?
             .with_global_normal(Vector3f::z())
             .with_order_type(OrderType::ScdCorr)
             .with_output_dir("../target/membr_test_results")?
@@ -652,7 +631,7 @@ mod tests {
         let z0 = src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
-        let mut memb = Membrane::new(src, &toml)?
+        let mut memb = Membrane::new(&src, &toml)?
             .with_global_normal(Vector3f::z())
             .with_order_type(OrderType::ScdCorr)
             .with_output_dir("../target/membr_test_results")?;

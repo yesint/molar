@@ -129,11 +129,11 @@ impl State {
 
     pub fn interchangeable(&self, other: &State) -> bool {
         self.get_storage().coords.len() == other.get_storage().coords.len()
-            && (
-                (self.get_storage().pbox.is_none() && other.get_storage().pbox.is_none())
-                || 
-                (self.get_storage().pbox.is_some() && other.get_storage().pbox.is_some())
-            )
+            // && (
+            //     (self.get_storage().pbox.is_none() && other.get_storage().pbox.is_none())
+            //     || 
+            //     (self.get_storage().pbox.is_some() && other.get_storage().pbox.is_some())
+            // )
     }
 
     pub fn new_fake(n: usize) -> Self {

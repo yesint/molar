@@ -197,7 +197,7 @@ impl<K: UserCreatableKind> Source<K> {
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     ///
     /// Returns [Holder] with old state, so it could be reused if needed.
-    pub fn set_state(&mut self, state: State) -> Result<State, SelectionError> {
+    pub fn set_state(&self, state: State) -> Result<State, SelectionError> {
         //let state: Holder<State, K>  = Holder::new(state);
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);

@@ -5,15 +5,15 @@ use std::{rc::Rc, sync::Arc};
 use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule {
-    pub(super) sel: Sel<MutableSerial>,
-    pub(super) species: Rc<LipidSpecies>,
-    pub(super) head_sel: Sel<MutableSerial>,
-    pub(super) mid_sel: Sel<MutableSerial>,
-    pub(super) tail_end_sel: Sel<MutableSerial>,
-    pub(super) tail_sels: Vec<Sel<MutableSerial>>,
-    pub(super) head_marker: Pos,
-    pub(super) mid_marker: Pos,
-    pub(super) tail_marker: Pos,
+    pub sel: Sel<MutableSerial>,
+    pub species: Rc<LipidSpecies>,
+    pub head_sel: Sel<MutableSerial>,
+    pub mid_sel: Sel<MutableSerial>,
+    pub tail_end_sel: Sel<MutableSerial>,
+    pub tail_sels: Vec<Sel<MutableSerial>>,
+    pub head_marker: Pos,
+    pub mid_marker: Pos,
+    pub tail_marker: Pos,
 
     //pub(super) props: SingleLipidProperties,
     pub(super) order: Vec<DVector<f32>>,
