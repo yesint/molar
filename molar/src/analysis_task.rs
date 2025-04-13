@@ -99,7 +99,6 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
 }
 
 pub trait AnalysisTask<A: clap::Args> {
-    //type Options: clap::Args;
     fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self>
     where
         Self: Sized;
@@ -107,6 +106,8 @@ pub trait AnalysisTask<A: clap::Args> {
     fn process_frame(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
 
     fn post_process(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
+
+    fn task_name() -> String;
 
     fn run() -> Result<(), AnalysisError>
     where
@@ -122,7 +123,7 @@ pub trait AnalysisTask<A: clap::Args> {
         let traj_args = AnalysisArgs::from_arg_matches(&matches)?;
 
         // Greeting
-        crate::greeting("molar_bin");
+        crate::greeting(Self::task_name());
 
         if !traj_args.use_struct_file && traj_args.files.len() < 2 {
             return Err(AnalysisError::NoTraj);

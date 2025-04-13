@@ -1,5 +1,3 @@
-//#![doc = include_str!("../../README.md")]
-
 pub mod core;
 pub mod io;
 pub mod voronoi_cell;
@@ -12,7 +10,7 @@ pub mod prelude {
     pub use rayon::iter::ParallelIterator;
 }
 
-pub fn greeting(tool: &str) {
+pub fn greeting(tool: impl AsRef<str>) {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL;
     use comfy_table::{Attribute, Cell, Table};
@@ -31,7 +29,7 @@ pub fn greeting(tool: &str) {
         )])
         .add_row(vec![format!("MolAR version: {}", env!("CARGO_PKG_VERSION"))])
         .add_row(vec![format!(
-            "Tool: {tool}"
+            "Tool: {}",tool.as_ref()
         )]);
     println!("{table}");
 }

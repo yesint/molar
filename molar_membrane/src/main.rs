@@ -18,6 +18,10 @@ struct MembraneBilayerTask {
 }
 
 impl AnalysisTask<Flags> for MembraneBilayerTask {
+    fn task_name() -> String {
+        "Bilayer analysis".to_owned()
+    }
+
     fn new(context: &AnalysisContext<Flags>) -> anyhow::Result<Self> {
         let z0 = context
             .src
