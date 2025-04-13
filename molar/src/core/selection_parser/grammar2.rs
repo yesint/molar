@@ -2,6 +2,8 @@
 //#  Selection grammar - alternative
 //##############################
 
+use crate::core::Vector3f;
+
 struct AstNode {
     id: NodeId,
     payload: Payload,
@@ -22,6 +24,8 @@ enum Payload {
     Uint(usize),
     Float(f32),
     Char(char),
+    Vec3(Vector3f),
+    None,
 }
 
 enum NodeId {
@@ -47,6 +51,37 @@ enum NodeId {
     Or,
     And,
     Not,
+
+    SameResidue,
+    SameChain,
+    SameMolecule,
+    Around,
+
+    CmpEq,
+    CmpNeq,
+    CmpLt,
+    CmpLeq,
+    CmpGt,
+    CmpGeq,
+    CmpLtLt,
+    CmpLeqLt,
+    CmpLtLeq,
+    CmpLeqLeq,
+    CmpGtGt,
+    CmpGeqGt,
+    CmpGtGeq,
+    CmpGeqGeq,
+
+    Plus,
+    Minus,
+    UnaryMinus,
+    Mul,
+    Div,
+    Pow,
+    Rem,
+    Abs,
+
+    Vec3,
 }
 
 peg::parser! {
@@ -161,21 +196,31 @@ peg::parser! {
         rule char_arg() -> AstNode
             = c:['a'..='z' | 'A'..='Z' | '0'..='9']
             { AstNode::new(NodeId::ArgChar, Payload::Char(c)) }
-
-        // // Modifiers - "methods" of functions called with ".method()", could be chained
-        // rule modifier_chain() -> AstNode
-        //     = f:logical() "." m:(modifier() ++ ".") 
-        //     {
-        //         todo!("implement modifiers");
-        //         let mut v = vec![f];
-        //         v.extend(m);
-        //         AstNode::new(NodeId::FnModified, Payload::Children(v))
-                
-        //     }
+    
+        // Modifiers - "methods" of functions called with ".method()", could be chained
 
         rule modifier() -> AstNode
-        = "mod"
-        { AstNode::new(NodeId::ArgChar, Payload::Char('a')) }
+        = same_modifier() / around_modifier();
+
+        rule same_modifier() -> AstNode
+        = "same(" _ id:(same_residue() / same_chain() / same_molecule()) _ ")" 
+        { AstNode::new(id, Payload::None) }
+
+        rule same_residue() -> NodeId
+        = "residue" { NodeId::SameResidue }
+
+        rule same_chain() -> NodeId
+        = "chain" { NodeId::SameChain }
+
+        rule same_molecule() -> NodeId
+        = "molecule" { NodeId::SameMolecule }
+
+        rule around_modifier() -> AstNode
+        = "around(" d:float_val() ")"
+        { AstNode::new(NodeId::Around, Payload::Float(d)) }
+
+        // Comparisons
+
 
         // Logic
         pub rule logical() -> AstNode
@@ -211,7 +256,7 @@ mod tests {
 
     #[test]
     fn test1() {
-        let _ast = logical("(resid(1 2 5:6 >=100) || !name(CA).mod).mod")
+        let _ast = logical("(resid(1 2 5:6 >=100) || !name(CA).same(residue).around(2.5)).same(molecule)")
             .expect("Error generating AST");
     }
 }
