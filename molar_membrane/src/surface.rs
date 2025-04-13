@@ -292,12 +292,12 @@ impl Surface {
     // }
 }
 
-struct TriangulationPoint {
-    pos: Pos,
-    node_id: usize,
-    neib_id: usize,
-    glob_ind: usize,
-}
+// struct TriangulationPoint {
+//     pos: Pos,
+//     node_id: usize,
+//     neib_id: usize,
+//     glob_ind: usize,
+// }
 
 pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
     //============================

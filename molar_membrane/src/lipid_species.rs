@@ -2,10 +2,7 @@ use anyhow::bail;
 use molar::prelude::*;
 use serde::Deserialize;
 use sorted_vec::SortedSet;
-use std::collections::HashMap;
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct PredefinedLipidSpecies(pub(super) HashMap<String, LipidSpeciesDescr>);
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct LipidSpeciesDescr {
@@ -18,7 +15,7 @@ pub struct LipidSpeciesDescr {
 #[derive(Debug)]
 pub struct LipidSpecies {
     pub(super) name: String,
-    pub(super) descr: LipidSpeciesDescr,
+    //pub(super) descr: LipidSpeciesDescr,
     pub(super) head_marker_offsets: SortedSet<usize>,
     pub(super) mid_marker_offsets: SortedSet<usize>,
     pub(super) tails: Vec<LipidTail>,
@@ -26,7 +23,7 @@ pub struct LipidSpecies {
 
 #[derive(Debug)]
 pub struct LipidTail {
-    pub(super) descr: String,
+    //pub(super) descr: String,
     pub(super) offsets: Vec<usize>,
     pub(super) bond_orders: Vec<u8>,
 }
@@ -75,7 +72,7 @@ impl LipidSpecies {
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             tails.push(LipidTail {
-                descr: t.to_owned(),
+                //descr: t.to_owned(),
                 offsets,
                 bond_orders,
             });
@@ -83,7 +80,7 @@ impl LipidSpecies {
 
         Ok(Self {
             name,
-            descr: descr.clone(),
+            //descr: descr.clone(),
             head_marker_offsets: SortedSet::from_unsorted(
                 lipid.subsel(descr.head)?
                     .iter_index()

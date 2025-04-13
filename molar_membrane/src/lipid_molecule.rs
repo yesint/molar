@@ -1,6 +1,6 @@
 use molar::prelude::*;
 use nalgebra::DVector;
-use std::{rc::Rc, sync::Arc};
+use std::rc::Rc;
 
 use crate::lipid_species::LipidSpecies;
 

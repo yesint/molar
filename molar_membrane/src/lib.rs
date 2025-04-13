@@ -512,7 +512,7 @@ mod tests {
 
     use molar::prelude::*;
 
-    use crate::{lipid_species::PredefinedLipidSpecies, LipidSpecies, LipidSpeciesDescr, Membrane};
+    use crate::{LipidSpecies, LipidSpeciesDescr, Membrane};
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
@@ -569,15 +569,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_toml_descr() -> anyhow::Result<()> {
-        let mut toml = String::new();
-        std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
-        let descr: PredefinedLipidSpecies = toml::from_str(&toml)?;
-        println!("{descr:?}");
-        Ok(())
-    }
-
+    #[allow(dead_code)]
     #[derive(Clone, Debug, serde::Deserialize)]
     struct TestInp {
         cutoff: f32,
@@ -700,7 +692,7 @@ mod tests {
         let pbox = src.get_box().unwrap();
 
         let p = src.select("name P").unwrap();
-        let pairs: Vec<(usize, usize)> =
+        let _pairs: Vec<(usize, usize)> =
             distance_search_single_pbc(2.5, p.iter_pos(), p.iter_index(), pbox, PBC_FULL);
 
         let r162 = src.select("resid 162 and name P").unwrap();
