@@ -320,7 +320,7 @@ impl Source {
         // Python object. To do this firt swap it with new dummy Holder
         // which is uniquilly owned and then release it from this holder
         let mut dum_holder = Holder::new(molar::core::State::default());
-        unsafe { dum_holder.swap_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
+        unsafe { dum_holder.swap_allocations_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
                                                              // dum_holder is uniquelly owned, so this never fails
         let dum_st = dum_holder.release().unwrap();
         // Now call set_state as usual

@@ -1,3 +1,4 @@
+use anyhow::bail;
 use clap::{CommandFactory, FromArgMatches, Parser, Args};
 use log::info;
 use std::num::{ParseFloatError, ParseIntError};
@@ -13,7 +14,7 @@ use crate::io::{FileHandler, FileIoError};
 #[derive(Parser)]
 #[command(name = "analysis")]
 pub struct AnalysisArgs {
-    /// Input files (topology and trajectory)
+    /// Input files (topology and at least one trajectory)
     #[clap(short = 'f', long = "files", required = true, num_args = 2..)]
     pub files: Vec<PathBuf>,
 
@@ -44,6 +45,9 @@ pub enum AnalysisError {
 
     #[error("invalid time suffix, 'fr', 'ps', 'ns', 'us' allowed")]
     InvalidSuffix,
+
+    #[error("no frames consumed")]
+    NoFramesConsumed,
 
     #[error(transparent)]
     FileIo(#[from] FileIoError),
@@ -111,87 +115,90 @@ pub trait AnalysisTask<A: clap::Args> {
         let matches = cmd.get_matches();
         // Trajectory processing arguments
         let traj_args = AnalysisArgs::from_arg_matches(&matches)?;
-        // Custom arguments
-        let custom_args = A::from_arg_matches(&matches)?;
         
         // Greeting
         crate::greeting("molar_bin");
     
-        if traj_args.files.len() < 2 {
-            panic!("At least one trajectory file is required");
-        }
-    
-        // Instance of implementing class to be created later
+        // Instance of implementing class (to be created on first valid frame)
         let mut inst: Option<Self> = None;
+
+        // Analysis context (to be created on first valid frame)
+        let mut context: Option<AnalysisContext<A>> = None;
         
-        // Read topology
-        let top: Holder<Topology, MutableSerial> =
-            FileHandler::open(&traj_args.files[0])?.read_topology()?.into();
-    
         let (begin_frame, begin_time) = process_suffix(&traj_args.begin)?;
         let (end_frame, end_time) = process_suffix(&traj_args.end)?;
     
-        let n = top.num_atoms();
-        let mut context = AnalysisContext {
-            consumed_frames: 0,
-            src: Source::new(top, State::new_fake(n))?,
-            args: custom_args,
-        };
-    
-        let mut begin_skipped = false;
-    
         // Process trajectory files
+        let mut consumed_frames = 0;
+
+        // Cycle over trajectory files (file 0 is structure)
         for trj_file in &traj_args.files[1..] {
             info!("Processing trajectory '{}'...", trj_file.display());
             let mut trj_handler = FileHandler::open(trj_file)?;
     
-            if !begin_skipped {
-                if let Some(fr) = begin_frame {
-                    trj_handler.skip_to_frame(fr)?;
-                } else if let Some(t) = begin_time {
-                    trj_handler.skip_to_time(t)?;
-                }
-                begin_skipped = true;
+            // Skip frames in the beginning if asked
+            if let Some(fr) = begin_frame {
+                trj_handler.skip_to_frame(fr)?;
+            } else if let Some(t) = begin_time {
+                trj_handler.skip_to_time(t)?;
             }
     
             let mut trj_iter = trj_handler.into_iter();
-    
+            
             while let Some(state) = trj_iter.next() {
                 // Check if end is reached
-                if end_frame.map_or(false, |ef| context.consumed_frames >= ef)
+                if end_frame.map_or(false, |ef| consumed_frames >= ef)
                     || end_time.map_or(false, |et| state.get_time() > et)
                 {
                     break;
                 }
     
                 // Skip frames if needed
-                if context.consumed_frames >0 && (context.consumed_frames - 1) % traj_args.skip > 0 {
+                if consumed_frames >0 && (consumed_frames - 1) % traj_args.skip > 0 {
                     continue;
                 }
     
-                if context.consumed_frames % traj_args.log == 0 {
+                if consumed_frames % traj_args.log == 0 {
                     info!(
                         "At frame {}, time {}",
-                        context.consumed_frames,
+                        consumed_frames,
                         get_log_time(&state)
                     );
                 }
     
-                context.src.set_state(state)?;
-    
-                if context.consumed_frames == 0 {
-                    inst = Some(Self::new(&context).map_err(AnalysisError::PreProcess)?);
-                    //inst.unwrap().pre_process(&context).map_err(AnalysisError::PreProcess)?;
+                // If we are here than the frame is valid
+                if consumed_frames == 0 {
+                    // Time for initialization. It only happens ones on the first frame 
+                    // of the first trajectory.
+                    
+                    // Read topology
+                    let top = FileHandler::open(&traj_args.files[0])?.read_topology()?;
+                    // Custom instance arguments
+                    let args = A::from_arg_matches(&matches)?;
+                    // Create context
+                    context = Some(AnalysisContext {
+                        args,
+                        consumed_frames,
+                        src: Source::new(top, state)?,
+                    });
+                    
+                    // Create analysis object instance
+                    inst = Some(Self::new(&context.as_ref().unwrap()).map_err(AnalysisError::PreProcess)?);
+                } else if let Some(ref ctx) = context {
+                    // Not the first frame. Update the context and call process_frame
+                    // of the analysis instance
+                    ctx.src.set_state(state)?;
+                    inst.as_mut().unwrap().process_frame(ctx).map_err(AnalysisError::ProcessFrame)?;
                 }
-    
-                context.consumed_frames += 1;
-    
-                inst.as_mut().unwrap().process_frame(&context).map_err(AnalysisError::ProcessFrame)?;
+                // Update frame counter
+                consumed_frames += 1;
             }
-        }
+        } // trajectories
     
         if let Some(i) = inst.as_mut() {
-            i.post_process(&context).map_err(AnalysisError::PostProcess)?;
+            i.post_process(&context.as_ref().unwrap()).map_err(AnalysisError::PostProcess)?;
+        } else {
+            return Err(AnalysisError::NoFramesConsumed);
         }
         Ok(())
     }
@@ -203,7 +210,6 @@ pub struct AnalysisContext<A> {
     pub consumed_frames: usize,
     pub args: A,
 }
-
 
 fn get_log_time(state: &State) -> String {
     if state.get_time() < 1000.0 {

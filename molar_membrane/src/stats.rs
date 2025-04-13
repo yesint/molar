@@ -10,7 +10,7 @@ use crate::{LipidMolecule, SurfNode};
 
 #[derive(Default, Debug)]
 pub struct GroupProperties {
-    pub per_species: HashMap<String, StatProperties>,
+    pub per_species: HashMap<String, SpeciesStats>,
 }
 
 impl GroupProperties {
@@ -77,7 +77,7 @@ impl GroupProperties {
 }
 
 #[derive(Debug)]
-pub struct StatProperties {
+pub struct SpeciesStats {
     pub num_lip: MeanStd,
     pub area: MeanStd,
     pub tilt: MeanStd,
@@ -85,7 +85,7 @@ pub struct StatProperties {
     pub neib_species: HashMap<String, MeanStd>,
 }
 
-impl StatProperties {
+impl SpeciesStats {
     pub fn new(cur_species: &LipidSpecies, all_species_names: impl Iterator<Item=String>) -> Self {
         let mut order = Vec::with_capacity(cur_species.tails.len());
         for t in &cur_species.tails {

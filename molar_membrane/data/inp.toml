@@ -1,4 +1,10 @@
-output = ""
+#global_normal = [0.0,0.0,1.0]
+sel = "not same residue as ((4.6<z and z<6.6) and resname POGL and name O11)"
+order_type = "ScdCorr"
+output_dir = "../target/membr_test_results"
+max_smooth_iter = 1
+cutoff = 2.5
+groups = ["upper","lower"]
 
 [lipids.POPC]
 whole = "resname POPC"
@@ -51,4 +57,13 @@ tails = [
     "C53-C54-C55-C56-C57-C58-C59-C510-C511-C512-C513-C514",
     "C81-C82-C83-C84-C85-C86-C87-C88-C89-C810-C811-C812",
     "C73-C74-C75-C76-C77-C78-C79-C710-C711-C712-C713-C714",
+]
+
+[lipids.POGL]
+whole = "resname POGL"
+head = "name O11"
+mid = "name O21"
+tails = [
+    "C21-C22-C23-C24-C25-C26-C27-C28-C29=C210-C211-C212-C213-C214-C215-C216-C217-C218",
+    "C31-C32-C33-C34-C35-C36-C37-C38-C39-C310-C311-C312-C313-C314-C315-C316",
 ]

@@ -6,6 +6,7 @@ use num_traits::Bounded;
 use std::f32::consts::PI;
 use std::iter::zip;
 use thiserror::Error;
+use serde::Deserialize;
 
 //==============================================================
 // Traits for measuring (immutable access)
@@ -563,7 +564,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
 }
 
 /// Type of order parameter calculation
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Deserialize)]
 pub enum OrderType {
     // Sz order parameter identical to gromacs -szonly option
     Sz,

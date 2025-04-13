@@ -38,7 +38,8 @@ triomphe = { version = "0.1.14", default-features = false, features = ["std"] }
 sorted-vec.workspace = true
 anyhow.workspace = true
 #nalgebra-lapack = "0.24"
-clap = {version = "4.5.34", features = ["derive"]}
+clap.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

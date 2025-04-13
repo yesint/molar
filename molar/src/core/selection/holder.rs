@@ -31,7 +31,7 @@ macro_rules! impl_clone_for_holder {
         impl<T> Clone for Holder<T, $k> {
             fn clone(&self) -> Self {
                 Self {
-                    arc: self.arc.clone(),
+                    arc: triomphe::Arc::clone(&self.arc),
                     _kind: Default::default(),
                 }
             }
@@ -72,7 +72,7 @@ impl<T,K: SelectionKind> Holder<T, K> {
     }
 
     /// Unsafely swaps allocations of two holders without any checks
-    pub unsafe fn swap_unchecked(
+    pub unsafe fn swap_allocations_unchecked(
         &mut self,
         other: &mut Self,
     ) {

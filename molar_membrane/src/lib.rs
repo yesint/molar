@@ -1,6 +1,7 @@
 use anyhow::{bail, Context};
 use molar::prelude::*;
 use nalgebra::DVector;
+use serde::Deserialize;
 use std::{
     collections::HashMap,
     f32::consts::FRAC_PI_2,
@@ -15,7 +16,7 @@ use log::{info, warn}; // Use log crate when building application
 use std::{println as info, println as warn};
 
 mod stats;
-use stats::{GroupProperties, StatProperties};
+use stats::{GroupProperties, SpeciesStats};
 
 mod lipid_molecule;
 use lipid_molecule::LipidMolecule;
@@ -32,23 +33,50 @@ pub struct Membrane {
     groups: HashMap<String, LipidGroup>,
     species: Vec<Rc<LipidSpecies>>,
     // Options
+    options: MembraneOptions,
+}
+
+#[derive(Deserialize)]
+#[serde(default)]
+struct MembraneOptions {
     global_normal: Option<Vector3f>,
     order_type: OrderType,
     output_dir: PathBuf,
     max_smooth_iter: usize,
     cutoff: f32,
+    lipids: HashMap<String, LipidSpeciesDescr>,
+    groups: Vec<String>,
+    sel: String,
+}
+
+impl Default for MembraneOptions {
+    fn default() -> Self {
+        MembraneOptions {
+            global_normal: None,
+            cutoff: 2.5,
+            max_smooth_iter: 1,
+            order_type: OrderType::ScdCorr,
+            output_dir: ".".into(),
+            lipids: Default::default(),
+            groups: vec![],
+            sel: "all".into(),
+        }
+    }
 }
 
 impl Membrane {
-    pub fn new(source: &Source<MutableSerial>, defstr: &str) -> anyhow::Result<Self> {
-        // Load species descriptions
-        let species_descr: HashMap<String, LipidSpeciesDescr> = toml::from_str(defstr)?;
+    pub fn new(source: &Source<MutableSerial>, optstr: &str) -> anyhow::Result<Self> {
+        // Load options
+        let options: MembraneOptions = toml::from_str(optstr)?;
+
+        // Create working selection
+        let source_sel = source.select(&options.sel)?;
 
         // Load lipids from provided source
         let mut lipids = vec![];
         let mut species = vec![];
-        for (name, descr) in species_descr.iter() {
-            if let Ok(lips) = source.select(&descr.whole) {
+        for (name, descr) in options.lipids.iter() {
+            if let Ok(lips) = source_sel.subsel(&descr.whole) {
                 let lips = lips.split_resindex::<Vec<_>>()?;
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
@@ -115,16 +143,18 @@ impl Membrane {
                 .collect(),
         };
 
+        // If there are any groups in the input toml, create them
+        let mut groups: HashMap<String,LipidGroup> = Default::default();
+        for gr in &options.groups {
+            groups.insert(gr.to_string(), Default::default());
+        }
+
         Ok(Self {
             lipids,
-            groups: Default::default(),
-            global_normal: None,
-            order_type: OrderType::ScdCorr,
-            output_dir: PathBuf::from("membrane_results"),
+            groups,
             surface,
             species,
-            max_smooth_iter: 1,
-            cutoff: 2.5,
+            options,
         })
     }
 
@@ -137,12 +167,12 @@ impl Membrane {
     }
 
     pub fn with_global_normal(mut self, global_normal: impl Into<Option<Vector3f>>) -> Self {
-        self.global_normal = global_normal.into();
+        self.options.global_normal = global_normal.into();
         self
     }
 
     pub fn with_order_type(mut self, order_type: OrderType) -> Self {
-        self.order_type = order_type;
+        self.options.order_type = order_type;
         self
     }
 
@@ -155,18 +185,18 @@ impl Membrane {
             })?;
         }
 
-        self.output_dir = path.to_path_buf();
+        self.options.output_dir = path.to_path_buf();
         info!("will use output directory '{}'", path.display());
         Ok(self)
     }
 
     pub fn with_cutoff(mut self, cutoff: f32) -> Self {
-        self.cutoff = cutoff;
+        self.options.cutoff = cutoff;
         self
     }
 
     pub fn with_max_iter(mut self, max_iter: usize) -> Self {
-        self.max_smooth_iter = max_iter;
+        self.options.max_smooth_iter = max_iter;
         self
     }
 
@@ -204,7 +234,7 @@ impl Membrane {
                 if !gr.stats.per_species.contains_key(sp) {
                     gr.stats.per_species.insert(
                         sp.to_string(),
-                        StatProperties::new(
+                        SpeciesStats::new(
                             &self.lipids[id].species,
                             self.species.iter().map(|sp| sp.name.to_owned()),
                         ),
@@ -220,7 +250,7 @@ impl Membrane {
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
         // Compute patches
-        self.compute_patches(self.cutoff)?;
+        self.compute_patches(self.options.cutoff)?;
 
         // Get initial normals
         self.compute_initial_normals();
@@ -243,19 +273,19 @@ impl Membrane {
 
             iter += 1;
 
-            if iter >= self.max_smooth_iter {
+            if iter >= self.options.max_smooth_iter {
                 break;
             }
         }
 
         // Compute order for all lipids
         for i in 0..self.lipids.len() {
-            let norm = if let Some(n) = &self.global_normal {
+            let norm = if let Some(n) = &self.options.global_normal {
                 n
             } else {
                 &self.surface.nodes[i].normal
             };
-            self.lipids[i].compute_order(self.order_type.clone(), norm);
+            self.lipids[i].compute_order(self.options.order_type.clone(), norm);
         }
 
         // Add stats to groups
@@ -318,15 +348,15 @@ impl Membrane {
     pub fn finalize(&self) -> anyhow::Result<()> {
         info!(
             "Writing results to directory '{}'",
-            self.output_dir.display()
+            self.options.output_dir.display()
         );
         // Write results for groups
         for (gr_name, gr) in &self.groups {
             info!("\tGroup '{gr_name}'...");
             gr.stats
-                .save_group_stats(self.output_dir.as_path(), gr_name)?;
+                .save_group_stats(self.options.output_dir.as_path(), gr_name)?;
             gr.stats
-                .save_order_to_file(self.output_dir.as_path(), gr_name)?;
+                .save_order_to_file(self.options.output_dir.as_path(), gr_name)?;
         }
         Ok(())
     }
@@ -335,18 +365,8 @@ impl Membrane {
         let mut st: Holder<State,_> = st.into();
         let mut cur = self.lipids.first().unwrap().sel.get_state();
         if cur.interchangeable(&st) {
-            unsafe {cur.swap_unchecked(&mut st)};
+            unsafe {cur.swap_allocations_unchecked(&mut st)};
         }
-
-        // //self.source.set_state(st)?;
-        // for lip in self.lipids.iter_mut() {
-        //     lip.sel.set_state(hst.clone())?;
-        //     lip.head_sel.set_state(hst.clone())?;
-        //     lip.mid_sel.set_state(hst.clone())?;
-        //     for t in lip.tail_sels.iter_mut() {
-        //         t.set_state(hst.clone())?;
-        //     }
-        // }
         Ok(())
     }
 
@@ -488,7 +508,7 @@ pub struct LipidGroup {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, default, io::Read, path::PathBuf};
+    use std::{collections::HashMap, io::Read, path::PathBuf};
 
     use molar::prelude::*;
 
@@ -602,21 +622,21 @@ mod tests {
 
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
         let mut toml = String::new();
-        std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
-        let mut memb = Membrane::new(&src, &toml)?
-            .with_global_normal(Vector3f::z())
-            .with_order_type(OrderType::ScdCorr)
-            .with_output_dir("../target/membr_test_results")?
-            .with_groups(&["upper", "lower"])
-            .with_cutoff(2.5)
-            .with_max_iter(1);
+        std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
+        let mut memb = Membrane::new(&src, &toml)?;
+            //.with_groups(&["upper", "lower"]);
+            // .with_global_normal(Vector3f::z())
+            // .with_order_type(OrderType::ScdCorr)
+            // .with_output_dir("../target/membr_test_results")?
+            // .with_cutoff(2.5)
+            // .with_max_iter(1);
 
         let mut upper = vec![];
         let mut lower = vec![];
         for (id, lip) in memb.iter_lipids() {
-            if lip.head_marker.z > z0 {
+            if lip.head_marker.z > z0+1.0 {
                 upper.push(id);
-            } else {
+            } else if lip.head_marker.z < z0-1.0 {
                 lower.push(id);
             }
         }
@@ -640,21 +660,26 @@ mod tests {
     fn test_vmd_vis() -> anyhow::Result<()> {
         let path = PathBuf::from("tests");
         let src = Source::serial_from_file(path.join("membr.gro"))?;
-        let z0 = src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
+        let z0 = 5.6; //src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
-        std::fs::File::open("data/lipid_species.toml")?.read_to_string(&mut toml)?;
+        std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
+        
         let mut memb = Membrane::new(&src, &toml)?
-            .with_global_normal(Vector3f::z())
-            .with_order_type(OrderType::ScdCorr)
-            .with_output_dir("../target/membr_test_results")?;
+        .with_max_iter(1);
+            // .with_global_normal(Vector3f::z())
+            // .with_order_type(OrderType::ScdCorr)
+            // .with_output_dir("../target/membr_test_results")?;
 
         let mut upper = vec![];
         let mut lower = vec![];
         for (id, lip) in memb.iter_lipids() {
-            if lip.head_marker.z > z0 {
+            if lip.head_marker.z > z0+1.0 {
                 upper.push(id);
-            } else {
+            } else if lip.head_marker.z < z0-1.0 {
                 lower.push(id);
+            }
+            if lip.sel.first_atom().resname == "POGL" {
+                println!("{}",lip.head_marker);
             }
         }
 

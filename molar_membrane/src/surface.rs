@@ -215,6 +215,11 @@ impl Surface {
                 // Update fitted marker
                 // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
                 // but x=y=0, so z_local = f = quad_coefs[5]
+                // If local height is too large mark point as invalid
+                if quad_coefs[5].abs() > 0.5 {
+                    node.valid = false;
+                    return;
+                }
                 node.marker += to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
             }); //nodes
 
