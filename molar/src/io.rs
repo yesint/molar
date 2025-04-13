@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
-use log::{debug, error};
+use log::{debug, error, warn};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -81,7 +81,7 @@ impl Iterator for IoStateIterator {
         match self.receiver.recv().unwrap() {
             Ok(opt_st) => opt_st,
             Err(e) => {
-                error!("reader thread can't read state from '{}'. Trajectory file is likely corrupted.",e.0.display());
+                warn!("reader thread can't read state from '{}'. File is likely corrupted, reading stopped.",e.0.display());
                 None
             }
         }

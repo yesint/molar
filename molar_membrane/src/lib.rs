@@ -67,6 +67,7 @@ impl Default for MembraneOptions {
 impl Membrane {
     pub fn new(source: &Source<MutableSerial>, optstr: &str) -> anyhow::Result<Self> {
         // Load options
+        info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
 
         // Create working selection
@@ -683,24 +684,5 @@ mod tests {
         memb.write_vmd_visualization("../target/vis.tcl")?;
 
         Ok(())
-    }
-
-    #[test]
-    fn periodic_sel_test() {
-        let path = PathBuf::from("tests");
-        let src = Source::serial_from_file(path.join("membr.gro")).unwrap();
-        let pbox = src.get_box().unwrap();
-
-        let p = src.select("name P").unwrap();
-        let _pairs: Vec<(usize, usize)> =
-            distance_search_single_pbc(2.5, p.iter_pos(), p.iter_index(), pbox, PBC_FULL);
-
-        let r162 = src.select("resid 162 and name P").unwrap();
-        let p1 = r162.first_particle().pos;
-        let r123 = src.select("resid 123 and name P").unwrap();
-        let p2 = r123.first_particle().pos;
-
-        let d = pbox.distance(p1, p2, PBC_FULL);
-        println!("d={d}");
     }
 }

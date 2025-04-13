@@ -1,25 +1,20 @@
-use anyhow::bail;
-use clap::{CommandFactory, FromArgMatches, Parser, Args};
+use clap::{CommandFactory, FromArgMatches, Parser};
 use log::info;
 use std::num::{ParseFloatError, ParseIntError};
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::core::{
-    Holder, MutableSerial, RandomAtomProvider, SelectionError, Source, State, StateProvider,
-    Topology,
-};
-use crate::io::{FileHandler, FileIoError};
+use crate::prelude::*;
 
 #[derive(Parser)]
 #[command(name = "analysis")]
 pub struct AnalysisArgs {
     /// Input files (topology and at least one trajectory)
-    #[clap(short = 'f', long = "files", required = true, num_args = 2..)]
+    #[clap(short = 'f', long = "files", required = true, num_args = 1..)]
     pub files: Vec<PathBuf>,
 
     /// Logging frequency
-    #[clap(long = "log", default_value = "100")]
+    #[clap(long = "log", default_value_t = 100)]
     pub log: usize,
 
     /// Begin time/frame
@@ -31,8 +26,12 @@ pub struct AnalysisArgs {
     pub end: String,
 
     /// Frame skip interval
-    #[clap(long = "skip", default_value = "1")]
+    #[clap(long = "skip", default_value_t = 1)]
     pub skip: usize,
+
+    /// Use coordinates in structure file for analysis
+    #[clap(long = "use_struct_file", default_value_t = false)]
+    pub use_struct_file: bool,
 }
 
 #[derive(Error, Debug)]
@@ -65,7 +64,10 @@ pub enum AnalysisError {
     PostProcess(#[source] anyhow::Error),
 
     #[error("argument parsing")]
-    Arg(#[from] clap::Error)
+    Arg(#[from] clap::Error),
+
+    #[error("at least one trajectory required if 'use_struct_file' is not set")]
+    NoTraj,
 }
 
 fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError> {
@@ -98,53 +100,71 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
 
 pub trait AnalysisTask<A: clap::Args> {
     //type Options: clap::Args;
-    fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self> where Self: Sized;
-
-    //fn pre_process(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
+    fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self>
+    where
+        Self: Sized;
 
     fn process_frame(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
 
     fn post_process(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
-    
-    fn run() -> Result<(), AnalysisError> where Self: Sized {
+
+    fn run() -> Result<(), AnalysisError>
+    where
+        Self: Sized,
+    {
         // Get the generic command line arguments
         let mut cmd = AnalysisArgs::command();
         // Add custom arguments from the implementor
         cmd = A::augment_args(cmd);
-        
+
         let matches = cmd.get_matches();
         // Trajectory processing arguments
         let traj_args = AnalysisArgs::from_arg_matches(&matches)?;
-        
+
         // Greeting
         crate::greeting("molar_bin");
-    
+
+        if !traj_args.use_struct_file && traj_args.files.len() < 2 {
+            return Err(AnalysisError::NoTraj);
+        }
+
         // Instance of implementing class (to be created on first valid frame)
         let mut inst: Option<Self> = None;
-
         // Analysis context (to be created on first valid frame)
         let mut context: Option<AnalysisContext<A>> = None;
-        
+
         let (begin_frame, begin_time) = process_suffix(&traj_args.begin)?;
         let (end_frame, end_time) = process_suffix(&traj_args.end)?;
-    
-        // Process trajectory files
+
         let mut consumed_frames = 0;
+
+        // Process state from structure file if asked
+        if traj_args.use_struct_file {
+            info!("Using structure file for task initialization");
+            // Read both topology and state
+            let (top, state) = FileHandler::open(&traj_args.files[0])?.read()?;
+            // Custom instance arguments
+            let args = A::from_arg_matches(&matches)?;
+            // Do init
+            (inst, context) = init_context_and_process_first_frame(args, top, state)?;
+            // One frame is consumed
+            consumed_frames += 1;
+        }
 
         // Cycle over trajectory files (file 0 is structure)
         for trj_file in &traj_args.files[1..] {
             info!("Processing trajectory '{}'...", trj_file.display());
             let mut trj_handler = FileHandler::open(trj_file)?;
-    
+
             // Skip frames in the beginning if asked
             if let Some(fr) = begin_frame {
                 trj_handler.skip_to_frame(fr)?;
             } else if let Some(t) = begin_time {
                 trj_handler.skip_to_time(t)?;
             }
-    
+
             let mut trj_iter = trj_handler.into_iter();
-            
+
             while let Some(state) = trj_iter.next() {
                 // Check if end is reached
                 if end_frame.map_or(false, |ef| consumed_frames >= ef)
@@ -152,12 +172,12 @@ pub trait AnalysisTask<A: clap::Args> {
                 {
                     break;
                 }
-    
+
                 // Skip frames if needed
-                if consumed_frames >0 && (consumed_frames - 1) % traj_args.skip > 0 {
+                if consumed_frames > 0 && (consumed_frames - 1) % traj_args.skip > 0 {
                     continue;
                 }
-    
+
                 if consumed_frames % traj_args.log == 0 {
                     info!(
                         "At frame {}, time {}",
@@ -165,38 +185,37 @@ pub trait AnalysisTask<A: clap::Args> {
                         get_log_time(&state)
                     );
                 }
-    
+
                 // If we are here than the frame is valid
-                if consumed_frames == 0 {
-                    // Time for initialization. It only happens ones on the first frame 
-                    // of the first trajectory.
-                    
-                    // Read topology
+                if let Some(ref ctx) = context {
+                    // Context is initialized already, update it with current state
+                    ctx.src.set_state(state)?;
+                    // Process frame
+                    inst.as_mut()
+                        .unwrap()
+                        .process_frame(ctx)
+                        .map_err(AnalysisError::ProcessFrame)?;
+                } else {
+                    info!("Using first trajectory frame for task initialization");
+                    // Time for context initialization
+                    // Read topology, state is read from trajectory already
                     let top = FileHandler::open(&traj_args.files[0])?.read_topology()?;
                     // Custom instance arguments
                     let args = A::from_arg_matches(&matches)?;
-                    // Create context
-                    context = Some(AnalysisContext {
-                        args,
-                        consumed_frames,
-                        src: Source::new(top, state)?,
-                    });
-                    
-                    // Create analysis object instance
-                    inst = Some(Self::new(&context.as_ref().unwrap()).map_err(AnalysisError::PreProcess)?);
-                } else if let Some(ref ctx) = context {
-                    // Not the first frame. Update the context and call process_frame
-                    // of the analysis instance
-                    ctx.src.set_state(state)?;
-                    inst.as_mut().unwrap().process_frame(ctx).map_err(AnalysisError::ProcessFrame)?;
+                    // Do init
+                    (inst, context) = init_context_and_process_first_frame(args, top, state)?;
                 }
+
                 // Update frame counter
                 consumed_frames += 1;
             }
+            info!("Finished with '{}'.", trj_file.display());
         } // trajectories
-    
-        if let Some(i) = inst.as_mut() {
-            i.post_process(&context.as_ref().unwrap()).map_err(AnalysisError::PostProcess)?;
+
+        if let Some(inst) = inst.as_mut() {
+            info!("Post-processing...");
+            inst.post_process(&context.as_ref().unwrap())
+                .map_err(AnalysisError::PostProcess)?;
         } else {
             return Err(AnalysisError::NoFramesConsumed);
         }
@@ -204,6 +223,31 @@ pub trait AnalysisTask<A: clap::Args> {
     }
 }
 
+fn init_context_and_process_first_frame<A, T>(
+    args: A,
+    top: Topology,
+    state: State,
+) -> Result<(Option<T>, Option<AnalysisContext<A>>), AnalysisError>
+where
+    A: clap::Args,
+    T: AnalysisTask<A>,
+{
+    info!("Initializing analysis task instance");
+    // Create context
+    let context = AnalysisContext {
+        args,
+        consumed_frames: 0,
+        src: Source::new(top, state)?,
+    };
+
+    // Create analysis object instance
+    let mut inst = T::new(&context).map_err(AnalysisError::PreProcess)?;
+    // Call process frame
+    inst.process_frame(&context)
+        .map_err(AnalysisError::ProcessFrame)?;
+
+    Ok((Some(inst), Some(context)))
+}
 
 pub struct AnalysisContext<A> {
     pub src: Source<MutableSerial>,
