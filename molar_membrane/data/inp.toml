@@ -1,10 +1,17 @@
 #global_normal = [0.0,0.0,1.0]
 sel = "not same residue as ((4.6<z and z<6.6) and resname POGL and name O11)"
+
 order_type = "ScdCorr"
 output_dir = "../target/membr_test_results"
 max_smooth_iter = 1
 cutoff = 2.5
 groups = ["upper","lower"]
+
+# [group.upper]
+# sel = "$head.z > $membr.z"
+
+# [group.lower]
+# sel = "$head.z < $membr.z"
 
 [lipids.POPC]
 whole = "resname POPC"
