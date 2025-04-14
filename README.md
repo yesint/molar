@@ -54,10 +54,6 @@ GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
 ```
 You may use a template: `mv config.toml.template config.toml`.
 
-<div class="warning">
-If you see weird bugs with incorrect coordinates read
-</div>
-
 # Tutorial
 We will write an example program that reads a file of some molecular system containing TIP3P water molecules, convert all water to TIP4P and saves this as a new file. TIP3P water has 3 particles (oxygen and two hydrogens), while TIP4P [has 4]((http://www.sklogwiki.org/SklogWiki/index.php/TIP4P/2005_model_of_water)) (oxygen, two hydrogens and a dummy particle). Our goal is to add these dummy particles to each water molecule.
 
