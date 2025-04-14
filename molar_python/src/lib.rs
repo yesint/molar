@@ -8,7 +8,7 @@ use numpy::{
 };
 use pyo3::{
     prelude::*,
-    types::PyTuple,
+    types::{PyList, PyTuple},
     IntoPyObjectExt,
 };
 
@@ -270,7 +270,10 @@ impl Source {
                     .map_err(|e| anyhow!(e))?,
             ))
         } else {
-            Err(anyhow!("wrong number of arguments: 1 or 2 reqired")).map_err(|e| anyhow!(e))?
+            // Empty builder
+            Ok(Source(
+                molar::core::Source::empty_builder(),
+            ))
         }
     }
 
@@ -346,6 +349,8 @@ impl Source {
         } else if let Ok(sel_str) = arg.extract::<String>() {
             let sel = self.0.select(sel_str)?;
             Ok(self.0.remove(&sel)?)
+        } else if let Ok(list) = arg.extract::<Vec<usize>>() {
+            Ok(self.0.remove(&list)?)
         } else {
             unreachable!()
         }
@@ -436,6 +441,10 @@ impl Sel {
         )
         .unwrap()
         .borrow()
+    }
+
+    fn get_index<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1::<usize>> {
+        numpy::PyArray1::from_iter(py,self.0.iter_index())        
     }
 
     fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2::<f32>> {

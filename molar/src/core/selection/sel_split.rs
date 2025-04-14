@@ -160,13 +160,29 @@ impl<'a,S: SelectionKind> Iterator for MoleculesIterator<'a,S> {
     type Item = Sel<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur < self.sel.num_molecules() {
+        if self.cur < self.sel.num_molecules() {            
             let [i,j] = unsafe{self.sel.nth_molecule_unchecked(self.cur).to_owned()};
-            let index = (i..=j).collect();
-            self.cur += 1;
-            unsafe{ Some(self.sel.subsel_from_sorted_vec_unchecked(index).unwrap()) }
-        } else {
-            None
+            self.cur +=1;
+            // Check if molecule is within selection at least partially
+            let b = self.sel.first_index();
+            let e = self.sel.last_index();
+
+            let index: Vec<usize> = if i<b && j>=b && j<=e {
+                (b..=j).collect()
+            } else if i>=b && i<=e && j>=b && j<=e {
+                (i..=j).collect()
+            } else if i>=b && i<=e && j>e {
+                (i..=e).collect()
+            } else {
+                vec![]
+            };
+            
+            if !index.is_empty() {
+                return unsafe{ Some(self.sel.subsel_from_sorted_vec_unchecked(index).unwrap()) };
+            } else {
+                return None;
+            };            
         }
+        return None;
     }
 }

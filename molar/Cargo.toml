@@ -45,8 +45,7 @@ serde.workspace = true
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
-#default = ["gromacs"]
-#gromacs = ["dep:molar_gromacs"]
+gen_bindings = ["molar_gromacs/gen_bindings"]
 
 [[bench]]
 name = "fit_benchmark"

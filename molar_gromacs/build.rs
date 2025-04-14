@@ -36,7 +36,7 @@ fn main() {
         #[cfg(feature = "gen_bindings")]
         {
             // Generate the bindings
-            let out_path = std::path::PathBuf::from(env::var("OUT_DIR").unwrap());
+            let out_path = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
             let bindings = bindgen::Builder::default()
                 .header("gromacs/wrapper.hpp")
                 // Tell cargo to invalidate the built crate whenever any of the
@@ -57,7 +57,7 @@ fn main() {
                 .clang_arg(format!("-I{src_env}/src/gromacs/topology/include"))
                 .clang_arg(format!("-I{src_env}/api/legacy/include"))
                 .clang_arg(format!("-I{src_env}/src/external"))
-                .clang_arg(format!("-I{bin_env}/api/legacy/include"))
+                .clang_arg(format!("-I{bld_env}/api/legacy/include"))
                 .layout_tests(false)
                 // Finish the builder and generate the bindings.
                 .generate()
