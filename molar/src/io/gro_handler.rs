@@ -68,7 +68,7 @@ impl GroFileHandler {
 
             writeln!(
                 buf,
-                "{:>5}{:<5}{:>5}{:>5}{:>8.3}{:>8.3}{:>8.3}",
+                "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}",
                 resid, at.resname, at.name, ind, pos.x, pos.y, pos.z
             )?;
         }

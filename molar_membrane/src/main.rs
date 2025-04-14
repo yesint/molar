@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use molar::prelude::*;
 use molar_membrane::Membrane;
-use std::{io::Read, path::PathBuf};
+use std::io::Read;
 
 #[derive(Args, Debug, Default)]
 struct Flags {
