@@ -2,36 +2,42 @@
 //#  Selection grammar - alternative
 //##############################
 
-use rayon::vec;
+use crate::core::{PbcDims, Vector3f, PBC_NONE};
 
-use crate::core::{PbcDims, Vector3f, PBC_FULL, PBC_NONE};
-
+#[derive(Clone)]
 struct AstNode {
     id: NodeId,
     children: Vec<AstNode>,
 }
 
 impl AstNode {
-    fn new(id: NodeId, children: Vec<AstNode>) -> Self {
-        Self {id, children}
+    fn new(id: impl Into<NodeId>, children: Vec<AstNode>) -> Self {
+        Self { id: id.into(), children }
     }
 }
 
+#[derive(Clone)]
 enum NodeId {
+    Index(IndexNodeId),
+    Float(FloatNodeId),
+    Vec(VecNodeId),
+}
+
+#[derive(Clone)]
+enum IndexNodeId {
     FnName,
     FnResname,
     FnResid,
     FnResindex,
     FnIndex,
     FnChain,
-
     FnModified,
 
     ArgStr(String),
     ArgRegex(regex::bytes::Regex),
     ArgChar(char),
     ArgInt(i32),
-    ArgIntRange(i32,i32),
+    ArgIntRange(i32, i32),
     ArgIntLt(i32),
     ArgIntGt(i32),
     ArgIntLeq(i32),
@@ -41,10 +47,8 @@ enum NodeId {
     And,
     Not,
 
-    SameResidue,
-    SameChain,
-    SameMolecule,
-    Around(f32,PbcDims,bool),
+    Around(f32, PbcDims, bool),
+    AroundPoint,
 
     CmpEq,
     CmpNeq,
@@ -61,6 +65,15 @@ enum NodeId {
     CmpGtGeq,
     CmpGeqGeq,
 
+    SameResidue,
+    SameChain,
+    SameMolecule,
+}
+
+#[derive(Clone)]
+enum FloatNodeId {
+    FoldFloat,
+    
     Plus,
     Minus,
     UnaryMinus,
@@ -71,14 +84,44 @@ enum NodeId {
     Abs,
 
     Float(f32),
-    Vec3(Vector3f),
     Vdw,
     Mass,
     Charge,
     X,
     Y,
     Z,
+    VecElement(usize),
+
+    Line,
+    Plane,
 }
+
+#[derive(Clone)]
+enum VecNodeId {
+    FoldVec3,
+    Com(PbcDims),
+    Cog(PbcDims),
+    Vec3(Vector3f),
+}
+
+impl From<IndexNodeId> for NodeId {
+    fn from(value: IndexNodeId) -> Self {
+        Self::Index(value)
+    }
+}
+
+impl From<FloatNodeId> for NodeId {
+    fn from(value: FloatNodeId) -> Self {
+        Self::Float(value)
+    }
+}
+
+impl From<VecNodeId> for NodeId {
+    fn from(value: VecNodeId) -> Self {
+        Self::Vec(value)
+    }
+}
+
 
 peg::parser! {
     pub(super) grammar selection_parser() for str {
@@ -103,18 +146,18 @@ peg::parser! {
 
 
         //================================================================
-        
+
         // functions - rules that evaluate to list of indexes
-        rule function() -> AstNode 
+        rule function() -> AstNode
         = function_str() / function_int() / function_char()
 
         // Function names
-        rule fn_name()      -> NodeId = "name"      {NodeId::FnName}
-        rule fn_resname()   -> NodeId = "resname"   {NodeId::FnResname}
-        rule fn_resid()     -> NodeId = "resid"     {NodeId::FnResid}
-        rule fn_resindex()  -> NodeId = "resindex"  {NodeId::FnResindex}
-        rule fn_index()     -> NodeId = "index"     {NodeId::FnIndex}
-        rule fn_chain()     -> NodeId = "chain"     {NodeId::FnChain}
+        rule fn_name()      -> IndexNodeId = "name"      {IndexNodeId::FnName}
+        rule fn_resname()   -> IndexNodeId = "resname"   {IndexNodeId::FnResname}
+        rule fn_resid()     -> IndexNodeId = "resid"     {IndexNodeId::FnResid}
+        rule fn_resindex()  -> IndexNodeId = "resindex"  {IndexNodeId::FnResindex}
+        rule fn_index()     -> IndexNodeId = "index"     {IndexNodeId::FnIndex}
+        rule fn_chain()     -> IndexNodeId = "chain"     {IndexNodeId::FnChain}
 
         rule arg_delim()
         = __ / _ "," _ ;
@@ -126,15 +169,15 @@ peg::parser! {
             AstNode::new(id, args)
         }
 
-        rule function_args_str() -> Vec<AstNode> 
+        rule function_args_str() -> Vec<AstNode>
         = (str_arg() / regex_arg()) ++ arg_delim();
-        
+
         rule regex_arg() -> AstNode
         = "/" s:$((!"/" [_])+) "/"
         {?
             match regex::bytes::Regex::new(&format!("^{s}$")) {
                 Ok(r) => Ok(
-                    AstNode::new(NodeId::ArgRegex(r),vec![])
+                    AstNode::new(IndexNodeId::ArgRegex(r),vec![])
                 ),
                 Err(_) => Err("Invalid regex value"),
             }
@@ -142,8 +185,8 @@ peg::parser! {
 
         rule str_arg() -> AstNode
         = s:$((![' '|'/'|')'] [_])+)
-        { 
-            AstNode::new(NodeId::ArgStr(s.to_owned()),vec![])
+        {
+            AstNode::new(IndexNodeId::ArgStr(s.to_owned()),vec![])
         }
 
         // Int functions
@@ -153,34 +196,34 @@ peg::parser! {
             AstNode::new(id, args)
         }
 
-        rule function_args_int() -> Vec<AstNode> 
-        = (int_range_arg() / int_arg() 
-        / int_lt_arg() / int_leq_arg() 
+        rule function_args_int() -> Vec<AstNode>
+        = (int_range_arg() / int_arg()
+        / int_lt_arg() / int_leq_arg()
         / int_gt_arg() / int_geq_arg()) ++ arg_delim();
 
         rule int_range_arg() -> AstNode
             = i1:int() _ ":" _ i2:int()
-            { AstNode::new(NodeId::ArgIntRange(i1,i2),vec![]) }
+            { AstNode::new(IndexNodeId::ArgIntRange(i1,i2),vec![]) }
 
         rule int_arg() -> AstNode
             = i:int()
-            { AstNode::new(NodeId::ArgInt(i), vec![]) }
+            { AstNode::new(IndexNodeId::ArgInt(i), vec![]) }
 
         rule int_lt_arg() -> AstNode
             = "<" _ i:int()
-            { AstNode::new(NodeId::ArgIntLt(i), vec![]) }
+            { AstNode::new(IndexNodeId::ArgIntLt(i), vec![]) }
 
         rule int_leq_arg() -> AstNode
             = "<=" _ i:int()
-            { AstNode::new(NodeId::ArgIntLeq(i), vec![]) }
+            { AstNode::new(IndexNodeId::ArgIntLeq(i), vec![]) }
 
         rule int_gt_arg() -> AstNode
             = ">" _ i:int()
-            { AstNode::new(NodeId::ArgIntGt(i), vec![]) }
+            { AstNode::new(IndexNodeId::ArgIntGt(i), vec![]) }
 
         rule int_geq_arg() -> AstNode
             = ">=" _ i:int()
-            { AstNode::new(NodeId::ArgIntGeq(i), vec![]) }
+            { AstNode::new(IndexNodeId::ArgIntGeq(i), vec![]) }
 
         // Character functions
         rule function_char() -> AstNode
@@ -189,41 +232,62 @@ peg::parser! {
             AstNode::new(id, args)
         }
 
-        rule function_args_char() -> Vec<AstNode> 
+        rule function_args_char() -> Vec<AstNode>
         = char_arg() ++ arg_delim();
 
         rule char_arg() -> AstNode
             = c:['a'..='z' | 'A'..='Z' | '0'..='9']
-            { AstNode::new(NodeId::ArgChar(c), vec![]) }
-    
+            { AstNode::new(IndexNodeId::ArgChar(c), vec![]) }
+
         // Modifiers - "methods" of functions called with ".method()", could be chained
 
         rule modifier() -> AstNode
         = same_modifier() / around_modifier();
 
         rule same_modifier() -> AstNode
-        = "same(" _ id:(same_residue() / same_chain() / same_molecule()) _ ")" 
+        = "same(" _ id:(same_residue() / same_chain() / same_molecule()) _ ")"
         { AstNode::new(id, vec![]) }
 
-        rule same_residue() -> NodeId
-        = "residue" { NodeId::SameResidue }
+        rule same_residue() -> IndexNodeId
+        = "residue" { IndexNodeId::SameResidue }
 
-        rule same_chain() -> NodeId
-        = "chain" { NodeId::SameChain }
+        rule same_chain() -> IndexNodeId
+        = "chain" { IndexNodeId::SameChain }
 
-        rule same_molecule() -> NodeId
-        = "molecule" { NodeId::SameMolecule }
+        rule same_molecule() -> IndexNodeId
+        = "molecule" { IndexNodeId::SameMolecule }
 
         rule around_modifier() -> AstNode
         = "around(" d:float() pbc:arg_pbc()? slf:arg_self()? ")"
         {
             let pbc = pbc.unwrap_or(PBC_NONE);
             let slf = slf.unwrap_or(true);
-            AstNode::new(NodeId::Around(d,pbc,slf), vec![])
+            AstNode::new(IndexNodeId::Around(d,pbc,slf), vec![])
+        }
+
+        // Aggregators - compute a float or vector from indexes
+        rule fold_to_vec3() -> AstNode
+        = com() / cog()
+
+        rule com() -> AstNode
+        = "com(" pbc:pbc_dims()? ")"
+        {
+            let pbc = pbc.unwrap_or(PBC_NONE);
+            AstNode::new(VecNodeId::Com(pbc), vec![])
+        }
+
+        rule cog() -> AstNode
+        = "cog(" pbc:pbc_dims()? ")"
+        {
+            let pbc = pbc.unwrap_or(PBC_NONE);
+            AstNode::new(VecNodeId::Cog(pbc), vec![])
         }
 
         rule arg_pbc() -> PbcDims
-        = arg_delim() p:pbc_dim()*<3> { PbcDims::new(p[0],p[1],p[2]) }
+        = arg_delim() p:pbc_dims() { p }
+
+        rule pbc_dims() -> PbcDims
+        = p:pbc_dim()*<3> { PbcDims::new(p[0],p[1],p[2]) }
 
         rule pbc_dim() -> bool
         = v:$(['1'|'y'|'0'|'n']) {
@@ -235,7 +299,7 @@ peg::parser! {
         }
 
         rule arg_self() -> bool
-        = arg_delim() s:(self_literal() / noself_literal()) 
+        = arg_delim() s:(self_literal() / noself_literal())
         { s }
 
         rule self_literal() -> bool
@@ -244,72 +308,98 @@ peg::parser! {
         rule noself_literal() -> bool
         = "noself" { false }
 
+        // Vectors
+        #[cache_left_rec]
+        rule vec3() -> AstNode
+        = vec3_lit() / vec3_folded() 
+
+        rule vec3_lit() -> AstNode
+        = "[" v:(float()**<3> arg_delim()) "]"
+        {
+            AstNode::new(VecNodeId::Vec3(Vector3f::new(v[0],v[1],v[2])), vec![])
+        }
+
+        rule line() -> AstNode
+        = "line(" p1:vec3() arg_delim() p2:vec3() ")"
+        { AstNode::new(FloatNodeId::Line, vec![p1,p2]) }
+
+        #[cache_left_rec]
+        rule vec3_folded() -> AstNode
+        = l:logical() "." f:fold_to_vec3()
+        { AstNode::new(VecNodeId::FoldVec3, vec![l,f]) }
+
         // Comparisons - expressions evaluating to the list indexes
-        rule cmp_op_eq() ->  NodeId = "==" {NodeId::CmpEq}
-        rule cmp_op_neq() -> NodeId = "!=" {NodeId::CmpNeq}
-        rule cmp_op_leq() -> NodeId = "<=" {NodeId::CmpLeq}
-        rule cmp_op_lt() ->  NodeId = "<"  {NodeId::CmpLt}
-        rule cmp_op_geq() -> NodeId = ">=" {NodeId::CmpGeq}
-        rule cmp_op_gt() ->  NodeId = ">"  {NodeId::CmpGt}
+        rule cmp_op_eq() ->  IndexNodeId = "==" {IndexNodeId::CmpEq}
+        rule cmp_op_neq() -> IndexNodeId = "!=" {IndexNodeId::CmpNeq}
+        rule cmp_op_leq() -> IndexNodeId = "<=" {IndexNodeId::CmpLeq}
+        rule cmp_op_lt() ->  IndexNodeId = "<"  {IndexNodeId::CmpLt}
+        rule cmp_op_geq() -> IndexNodeId = ">=" {IndexNodeId::CmpGeq}
+        rule cmp_op_gt() ->  IndexNodeId = ">"  {IndexNodeId::CmpGt}
 
         // Simple comparison
+        #[cache_left_rec]
         rule cmp_expr() -> AstNode =
             a:math_expr() _
             op:(cmp_op_eq() /cmp_op_neq()/
                 cmp_op_leq()/cmp_op_lt() /
                 cmp_op_geq()/cmp_op_gt() ) _
-            b:math_expr() 
+            b:math_expr()
             {
-                AstNode::new(op, vec![a,b])    
+                AstNode::new(op, vec![a,b])
             }
-        
-        // Math expressions on float or Vec3 arguments
+
+        // Math expressions on float arguments
+        #[cache_left_rec]
         rule math_expr() -> AstNode
         = precedence!{
-            x:(@) _ "+" _ y:@ { AstNode::new(NodeId::Plus,vec![x,y]) }
-            x:(@) _ "-" _ y:@ { AstNode::new(NodeId::Minus,vec![x,y]) }
+            x:(@) _ "+" _ y:@ { AstNode::new(FloatNodeId::Plus,vec![x,y]) }
+            x:(@) _ "-" _ y:@ { AstNode::new(FloatNodeId::Minus,vec![x,y]) }
             --
-            x:(@) _ "*" _ y:@ { AstNode::new(NodeId::Mul,vec![x,y]) }
-            x:(@) _ "/" _ y:@ { AstNode::new(NodeId::Div,vec![x,y]) }
+            x:(@) _ "*" _ y:@ { AstNode::new(FloatNodeId::Mul,vec![x,y]) }
+            x:(@) _ "/" _ y:@ { AstNode::new(FloatNodeId::Div,vec![x,y]) }
             --
-            x:@ _ "^" _ y:(@) { AstNode::new(NodeId::Pow,vec![x,y]) }
+            x:@ _ "^" _ y:(@) { AstNode::new(FloatNodeId::Pow,vec![x,y]) }
             --
-            "-" _ v:@ { AstNode::new(NodeId::UnaryMinus,vec![v]) }
+            "-" _ v:@ { AstNode::new(FloatNodeId::UnaryMinus,vec![v]) }
             --
-            v:float() { AstNode::new(NodeId::Float(v), vec![]) }
-            ['x'|'X'] { AstNode::new(NodeId::X,        vec![]) }
-            ['y'|'Y'] { AstNode::new(NodeId::Y,        vec![]) }
-            ['z'|'Z'] { AstNode::new(NodeId::Z,        vec![]) }
-            "vdw"     { AstNode::new(NodeId::Vdw,      vec![]) }
-            "mass"    { AstNode::new(NodeId::Mass,     vec![]) }
-            "charge"  { AstNode::new(NodeId::Charge,   vec![]) }
-            // d:distance() {MathNode::Dist(d)}
-            // keyword_occupancy() { MathNode::Occupancy }
-            // keyword_bfactor() { MathNode::Bfactor }
-            // f:math_function_name() _ "(" _ e:math_expr() _ ")" {
-            //     MathNode::Function(f,Box::new(e))
-            // }
+            v:float() { AstNode::new(FloatNodeId::Float(v), vec![]) }
+            ['x'|'X'] { AstNode::new(FloatNodeId::X,        vec![]) }
+            ['y'|'Y'] { AstNode::new(FloatNodeId::Y,        vec![]) }
+            ['z'|'Z'] { AstNode::new(FloatNodeId::Z,        vec![]) }
+            "vdw"     { AstNode::new(FloatNodeId::Vdw,      vec![]) }
+            "mass"    { AstNode::new(FloatNodeId::Mass,     vec![]) }
+            "charge"  { AstNode::new(FloatNodeId::Charge,   vec![]) }
+            v:vec3() ".x" {  AstNode::new(FloatNodeId::VecElement(0),vec![v])  }
+            v:vec3() ".y" {  AstNode::new(FloatNodeId::VecElement(1),vec![v])  }
+            v:vec3() ".z" {  AstNode::new(FloatNodeId::VecElement(2),vec![v])  }
+
             "(" _ e:math_expr() _ ")" { e }
         }
-        
 
         // Logic
+        #[cache_left_rec]
         pub rule logical() -> AstNode
         = precedence!{
             // Binary
-            x:(@) (_ "||" _ / _ "or" ___) y:@ { AstNode::new(NodeId::Or, vec![x,y]) }
-            x:(@) (_ "&&" _ / _ "and" ___) y:@ { AstNode::new(NodeId::And, vec![x,y]) }
-            
+            x:(@) (_ "||" _ / _ "or" ___) y:@ { AstNode::new(IndexNodeId::Or, vec![x,y]) }
+            x:(@) (_ "&&" _ / _ "and" ___) y:@ { AstNode::new(IndexNodeId::And, vec![x,y]) }
+
             // Unary prefixes
-            ("!" _ / "not" ___) v:@ { AstNode::new(NodeId::Not, vec![v]) }
-            x:@ "." m:modifier() { AstNode::new(NodeId::FnModified, vec![x,m]) }
-            //t:same_expr() ___ v:@ { LogicalNode::Same(t,Box::new(v)) }
-            // Within from inner selection
-            //p:within_expr() ___ v:@ {LogicalNode::Within(p,Box::new(v))}
+            ("!" _ / "not" ___) v:@ { AstNode::new(IndexNodeId::Not, vec![v]) }
+
+            x:@ "." f:fold_to_vec3() "." a:around_modifier() {
+                AstNode::new(
+                    IndexNodeId::AroundPoint,
+                    vec![AstNode::new(VecNodeId::FoldVec3, vec![x,f]), a]
+                )
+            }
+
+            x:@ "." m:modifier() { AstNode::new(IndexNodeId::FnModified, vec![x,m]) }
             --
-            //v:modifier_chain() {v}
-            v:function() {v}
-            //v:comparison_expr() { LogicalNode::Comparison(v) }
+
+            v:function() { v }
+            v:cmp_expr() { v }
+
             //v:comparison_expr_chained() { LogicalNode::Comparison(v) }
             //v:compound() {LogicalNode::Compound(v)}
             // Within from point
@@ -320,14 +410,26 @@ peg::parser! {
     } // grammar
 } // parser
 
-
 #[cfg(test)]
 mod tests {
-    use super::selection_parser::{logical};
+    use super::selection_parser::logical;
+
+    // resid[1,2 5:6,>=100] || !name[CA CB].same(residue).around(2.5,yyy,self)).same(molecule)
 
     #[test]
     fn test1() {
-        let _ast = logical("(resid(1 2 5:6 >=100) || !name(CA).same(residue).around(2.5)).same(molecule)")
-            .expect("Error generating AST");
+        let _ast =
+            logical("(resid(1 2 5:6 >=100) || !name(CA).same(residue).around(2.5)).same(molecule)")
+                .expect("Error generating AST");
+    }
+
+    #[test]
+    fn test2() {
+        let _ast = logical("name(A).com().around(2.5).same(chain)").expect("Error generating AST");
+    }
+
+    #[test]
+    fn test3() {
+        let _ast = logical("((x < name(A).com().x + 2) || name(A)).around(2.5)").expect("Error generating AST");
     }
 }
