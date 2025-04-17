@@ -113,7 +113,7 @@ peg::parser! {
                 Some(dims) => dims,
                 None => PBC_NONE,
             };
-            VectorNode::Com(Box::new(v),pbc)
+            VectorNode::Com(v.into(),pbc)
         }
 
         rule vec3_cog() -> VectorNode
@@ -122,7 +122,7 @@ peg::parser! {
                 Some(dims) => dims,
                 None => PBC_NONE,
             };
-            VectorNode::Cog(Box::new(v),pbc)
+            VectorNode::Cog(v.into(),pbc)
         }
 
         //rule nth_of() -> Pos
@@ -140,22 +140,22 @@ peg::parser! {
 
         rule distance_line_2points() -> DistanceNode
         = "dist" __ b:pbc_expr()? "line" __ p1:vec3() __ p2:vec3() {
-            DistanceNode::Line(p1,p2,b.unwrap_or(PBC_NONE))
+            DistanceNode::Line(p1.into(),p2.into(),b.unwrap_or(PBC_NONE))
         }
 
         rule distance_line_point_dir() -> DistanceNode
         = "dist" __ b:pbc_expr()? "line" __ p:vec3() __ "dir" __ dir:vec3() {
-            DistanceNode::LineDir(p,dir,b.unwrap_or(PBC_NONE))
+            DistanceNode::LineDir(p.into(),dir.into(),b.unwrap_or(PBC_NONE))
         }
 
         rule distance_plane_3points() -> DistanceNode
         = "dist" __ b:pbc_expr()? "plane" __ p1:vec3() __ p2:vec3() __ p3:vec3() {
-            DistanceNode::Plane(p1,p2,p3,b.unwrap_or(PBC_NONE))
+            DistanceNode::Plane(p1.into(),p2.into(),p3.into(),b.unwrap_or(PBC_NONE))
         }
 
         rule distance_plane_point_normal() -> DistanceNode
         = "dist" __ b:pbc_expr()? "plane" __ p:vec3() __ "normal" __ n:vec3() {
-            DistanceNode::PlaneNormal(p,n,b.unwrap_or(PBC_NONE))
+            DistanceNode::PlaneNormal(p.into(),n.into(),b.unwrap_or(PBC_NONE))
         }
 
         rule abs_function() -> MathFunctionName = "abs" {MathFunctionName::Abs}
@@ -169,14 +169,14 @@ peg::parser! {
         // Math
         rule math_expr() -> MathNode
         = precedence!{
-            x:(@) _ "+" _ y:@ { MathNode::Plus(Box::new(x),Box::new(y)) }
-            x:(@) _ "-" _ y:@ { MathNode::Minus(Box::new(x),Box::new(y)) }
-                    "-" _ v:@ { MathNode::Neg(Box::new(v)) }
+            x:(@) _ "+" _ y:@ { MathNode::Plus(x.into(), y.into()) }
+            x:(@) _ "-" _ y:@ { MathNode::Minus(x.into(), y.into()) }
+                    "-" _ v:@ { MathNode::Neg(v.into()) }
             --
-            x:(@) _ "*" _ y:@ { MathNode::Mul(Box::new(x),Box::new(y)) }
-            x:(@) _ "/" _ y:@ { MathNode::Div(Box::new(x),Box::new(y)) }
+            x:(@) _ "*" _ y:@ { MathNode::Mul(x.into(), y.into()) }
+            x:(@) _ "/" _ y:@ { MathNode::Div(x.into(), y.into()) }
             --
-            x:@ _ "^" _ y:(@) { MathNode::Pow(Box::new(x),Box::new(y)) }
+            x:@ _ "^" _ y:(@) { MathNode::Pow(x.into(), y.into()) }
             --
             v:float() {v}
             ['x'|'X'] { MathNode::X }
@@ -189,7 +189,7 @@ peg::parser! {
             keyword_occupancy() { MathNode::Occupancy }
             keyword_bfactor() { MathNode::Bfactor }
             f:math_function_name() _ "(" _ e:math_expr() _ ")" {
-                MathNode::Function(f,Box::new(e))
+                MathNode::Function(f, e.into())
             }
             "(" _ e:math_expr() _ ")" { e }
         }
@@ -341,13 +341,13 @@ peg::parser! {
         pub rule logical_expr() -> LogicalNode
         = precedence!{
             // Binary
-            x:(@) _ "or" _ y:@ { LogicalNode::Or(Box::new(x),Box::new(y)) }
-            x:(@) _ "and" _ y:@ { LogicalNode::And(Box::new(x),Box::new(y)) }
+            x:(@) _ "or" _ y:@ { LogicalNode::Or(x.into(), y.into()) }
+            x:(@) _ "and" _ y:@ { LogicalNode::And(x.into(), y.into()) }
             // Unary prefixes
-            "not" ___ v:@ { LogicalNode::Not(Box::new(v)) }
-            t:same_expr() ___ v:@ { LogicalNode::Same(t,Box::new(v)) }
+            "not" ___ v:@ { LogicalNode::Not(v.into()) }
+            t:same_expr() ___ v:@ { LogicalNode::Same(t, v.into()) }
             // Within from inner selection
-            p:within_expr() ___ v:@ {LogicalNode::Within(p,Box::new(v))}
+            p:within_expr() ___ v:@ {LogicalNode::Within(p, v.into())}
             --
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
