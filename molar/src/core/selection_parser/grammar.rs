@@ -52,13 +52,13 @@ peg::parser! {
                 }
             }
 
-        rule int_range() -> IntKeywordValue
+        rule int_range() -> IntKeywordArg
             = i1:int() _ ":" _ i2:int()
-            { IntKeywordValue::IntRange(i1,i2) }
+            { IntKeywordArg::IntRange(i1,i2) }
 
-        rule int_single() -> IntKeywordValue
+        rule int_single() -> IntKeywordArg
             = i:int()
-            { IntKeywordValue::Int(i) }
+            { IntKeywordArg::Int(i) }
 
         rule chain_keyword_expr() -> KeywordNode
         = s:keyword_chain() __ v:(['a'..='z' | 'A'..='Z' | '0'..='9'] ++ __)
@@ -80,18 +80,18 @@ peg::parser! {
         rule keyword_expr() -> KeywordNode
         = v:(int_keyword_expr() / str_keyword_expr() / chain_keyword_expr()) {v}
 
-        rule regex_value() -> StrKeywordValue
+        rule regex_value() -> StrKeywordArg
         = "/" s:$((!"/" [_])+) "/"
         {?
             match regex::bytes::Regex::new(&format!("^{s}$")) {
-                Ok(r) => Ok(StrKeywordValue::Regex(r)),
+                Ok(r) => Ok(StrKeywordArg::Regex(r)),
                 Err(_) => Err("Invalid regex value"),
             }
         }
 
-        rule str_value() -> StrKeywordValue
+        rule str_value() -> StrKeywordArg
         = !("and"/"or") s:$((![' '|'/'|')'] [_])+)
-        { StrKeywordValue::Str(s.to_owned()) }
+        { StrKeywordArg::Str(s.to_owned()) }
 
 
         // 3-vector value
@@ -169,8 +169,8 @@ peg::parser! {
         // Math
         rule math_expr() -> MathNode
         = precedence!{
-            x:(@) _ "+" _ y:@ { MathNode::Plus(x.into(), y.into()) }
-            x:(@) _ "-" _ y:@ { MathNode::Minus(x.into(), y.into()) }
+            x:(@) _ "+" _ y:@ { MathNode::Add(x.into(), y.into()) }
+            x:(@) _ "-" _ y:@ { MathNode::Sub(x.into(), y.into()) }
                     "-" _ v:@ { MathNode::Neg(v.into()) }
             --
             x:(@) _ "*" _ y:@ { MathNode::Mul(x.into(), y.into()) }

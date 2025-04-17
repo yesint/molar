@@ -10,13 +10,13 @@ use crate::prelude::*;
 //##############################
 
 #[derive(Debug)]
-pub(super) enum IntKeywordValue {
+pub(super) enum IntKeywordArg {
     Int(i32),
     IntRange(i32, i32),
 }
 
 #[derive(Debug)]
-pub(super) enum StrKeywordValue {
+pub(super) enum StrKeywordArg {
     Str(String),
     Regex(Regex),
 }
@@ -33,8 +33,8 @@ pub(super) enum MathNode {
     Vdw,
     Mass,
     Charge,
-    Plus(Box<Self>, Box<Self>),
-    Minus(Box<Self>, Box<Self>),
+    Add(Box<Self>, Box<Self>),
+    Sub(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
     Div(Box<Self>, Box<Self>),
     Pow(Box<Self>, Box<Self>),
@@ -93,13 +93,13 @@ pub(super) enum ComparisonNode {
 
 #[derive(Debug)]
 pub(super) enum KeywordNode {
-    Name(Vec<StrKeywordValue>),
-    Resname(Vec<StrKeywordValue>),
+    Name(Vec<StrKeywordArg>),
+    Resname(Vec<StrKeywordArg>),
     Chain(Vec<char>),
 
-    Resid(Vec<IntKeywordValue>),
-    Resindex(Vec<IntKeywordValue>),
-    Index(Vec<IntKeywordValue>),
+    Resid(Vec<IntKeywordArg>),
+    Resindex(Vec<IntKeywordArg>),
+    Index(Vec<IntKeywordArg>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -172,11 +172,10 @@ pub(super) struct EvaluationContext<'a> {
     // selection is completely within it
     // Parser is not changing subset
     global_subset: &'a [usize],
-    // This is a context-dependent subset
-    // (created for example by AND operation)
-    // Selection can extend out of it
-    // (like with WITHIN of BY)
+    // This is a context-dependent subset created by AND operation
     local_subset: Option<&'a [usize]>,
+    // Current atom index
+    cur: usize,
 }
 
 impl<'a> EvaluationContext<'a> {
@@ -192,10 +191,11 @@ impl<'a> EvaluationContext<'a> {
             state,
             global_subset,
             local_subset: None,
+            cur: 0,
         })
     }
 
-    fn active_subset(&self) -> ActiveSubset {
+    fn current_subset(&self) -> ActiveSubset {
         ActiveSubset {
             topology: &self.topology,
             state: &self.state,
@@ -228,7 +228,7 @@ impl<'a> EvaluationContext<'a> {
 }
 
 // Auxiliary struct representing a current active subset
-// Created by ApplyData and contains eithr global or context subset
+// Created by ApplyData and contains either global or local subset
 struct ActiveSubset<'a> {
     topology: &'a Topology,
     state: &'a State,
@@ -657,7 +657,7 @@ impl CompoundNode {
     }
 
     pub fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
-        let sub = data.active_subset();
+        let sub = data.current_subset();
         match self {
             Self::Protein => {
                 let mut res = Vec::<usize>::new();
@@ -750,24 +750,24 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
 }
 
 impl KeywordNode {
-    fn map_str_values(
+    fn map_str_args(
         &self,
         data: &EvaluationContext,
-        values: &Vec<StrKeywordValue>,
+        args: &Vec<StrKeywordArg>,
         f: fn(&Atom) -> &String,
     ) -> Vec<usize> {
         let mut res = Vec::<usize>::default();
-        let sub = data.active_subset();
+        let sub = data.current_subset();
         for (ind, a) in sub.iter_ind_atom() {
-            for val in values {
-                match val {
-                    StrKeywordValue::Str(s) => {
+            for arg in args {
+                match arg {
+                    StrKeywordArg::Str(s) => {
                         if s == f(a) {
                             res.push(ind);
                             break;
                         }
                     }
-                    StrKeywordValue::Regex(r) => {
+                    StrKeywordArg::Regex(r) => {
                         if r.is_match(f(a).as_bytes()) {
                             res.push(ind);
                             break;
@@ -779,24 +779,24 @@ impl KeywordNode {
         res
     }
 
-    fn map_int_values(
+    fn map_int_args(
         &self,
         data: &EvaluationContext,
-        values: &Vec<IntKeywordValue>,
+        args: &Vec<IntKeywordArg>,
         f: fn(&Atom, usize) -> i32,
     ) -> Vec<usize> {
         let mut res = vec![];
-        let sub = data.active_subset();
+        let sub = data.current_subset();
         for (ind, a) in sub.iter_ind_atom() {
-            for val in values {
-                match *val {
-                    IntKeywordValue::Int(v) => {
+            for arg in args {
+                match *arg {
+                    IntKeywordArg::Int(v) => {
                         if v == f(a, ind) {
                             res.push(ind);
                             break;
                         }
                     }
-                    IntKeywordValue::IntRange(b, e) => {
+                    IntKeywordArg::IntRange(b, e) => {
                         let val = f(a, ind);
                         if b <= val && val <= e {
                             res.push(ind);
@@ -811,18 +811,18 @@ impl KeywordNode {
 
     fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         match self {
-            Self::Name(values) => Ok(self.map_str_values(data, values, |a| &a.name)),
-            Self::Resname(values) => Ok(self.map_str_values(data, values, |a| &a.resname)),
-            Self::Resid(values) => Ok(self.map_int_values(data, values, |a, _i| a.resid)),
-            Self::Resindex(values) => {
-                Ok(self.map_int_values(data, values, |a, _i| a.resindex as i32))
+            Self::Name(args) => Ok(self.map_str_args(data, args, |a| &a.name)),
+            Self::Resname(args) => Ok(self.map_str_args(data, args, |a| &a.resname)),
+            Self::Resid(args) => Ok(self.map_int_args(data, args, |a, _i| a.resid)),
+            Self::Resindex(args) => {
+                Ok(self.map_int_args(data, args, |a, _i| a.resindex as i32))
             }
-            Self::Index(values) => Ok(self.map_int_values(data, values, |_a, i| i as i32)),
-            Self::Chain(values) => {
+            Self::Index(args) => Ok(self.map_int_args(data, args, |_a, i| i as i32)),
+            Self::Chain(args) => {
                 let mut res = vec![];
-                let sub = data.active_subset();
+                let sub = data.current_subset();
                 for (i, a) in sub.iter_ind_atom() {
-                    for c in values {
+                    for c in args {
                         if c == &a.chain {
                             res.push(i);
                         }
@@ -872,8 +872,8 @@ impl MathNode {
             Self::Vdw => Ok(atom.vdw()),
             Self::Mass => Ok(atom.mass),
             Self::Charge => Ok(atom.charge),
-            Self::Plus(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
-            Self::Minus(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
+            Self::Add(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
+            Self::Sub(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
             Self::Mul(a, b) => Ok(a.eval(atom, pos)? * b.eval(atom, pos)?),
             Self::Div(a, b) => {
                 let b_val = b.eval(atom, pos)?;
@@ -885,17 +885,18 @@ impl MathNode {
             Self::Pow(a, b) => Ok(a.eval(atom, pos)?.powf(b.eval(atom, pos)?)),
             Self::Neg(v) => Ok(-v.eval(atom, pos)?),
             Self::Function(func, v) => {
+                use MathFunctionName as M;
                 let val = v.eval(atom, pos)?;
                 match func {
-                    MathFunctionName::Abs => Ok(val.abs()),
-                    MathFunctionName::Sqrt => {
+                    M::Abs => Ok(val.abs()),
+                    M::Sqrt => {
                         if val < 0.0 {
                             return Err(SelectionParserError::NegativeSqrt);
                         }
                         Ok(val.sqrt())
                     }
-                    MathFunctionName::Sin => Ok(val.sin()),
-                    MathFunctionName::Cos => Ok(val.cos()),
+                    M::Sin => Ok(val.sin()),
+                    M::Cos => Ok(val.cos()),
                 }
             }
             Self::Dist(d) => {
@@ -936,8 +937,8 @@ impl MathNode {
     fn is_coord_dependent(&self) -> bool {
         match self {
             Self::X | Self::Y | Self::Z | Self::Dist(_) => true,
-            Self::Plus(a, b)
-            | Self::Minus(a, b)
+            Self::Add(a, b)
+            | Self::Sub(a, b)
             | Self::Mul(a, b)
             | Self::Div(a, b)
             | Self::Pow(a, b) => {
@@ -968,7 +969,7 @@ impl ComparisonNode {
     ) -> Result<Vec<usize>, SelectionParserError> {
         let mut res = vec![];
         let b = data.state.get_box();
-        let sub = data.active_subset();
+        let sub = data.current_subset();
 
         for p in sub.iter_particle() {
             let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
@@ -991,7 +992,7 @@ impl ComparisonNode {
     ) -> Result<Vec<usize>, SelectionParserError> {
         let mut res = vec![];
         let b = data.state.get_box();
-        let sub = data.active_subset();
+        let sub = data.current_subset();
 
         for p in sub.iter_particle() {
             let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
