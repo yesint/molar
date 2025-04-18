@@ -50,7 +50,6 @@ impl SelectionExpr {
         let subset = (0..topology.num_atoms()).collect::<Vec<_>>();
         let data = EvaluationContext::new(topology, state, &subset)?;
         let mut ast = self.ast.borrow_mut();
-        ast.precompute(&data)?;
         Ok(ast.apply(&data)?.into())
     }
 
@@ -62,7 +61,6 @@ impl SelectionExpr {
     ) -> Result<SortedSet<usize>, SelectionParserError> {
         let data = EvaluationContext::new(topology, state, subset)?;
         let mut ast = self.ast.borrow_mut();
-        ast.precompute(&data)?;
         Ok(ast.apply(&data)?.into())
     }
 }

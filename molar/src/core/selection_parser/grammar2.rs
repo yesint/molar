@@ -2,7 +2,7 @@
 //#  Selection grammar - alternative
 //##############################
 
-use std::{cell::{OnceCell, RefCell}, collections::{HashMap, HashSet}, sync::{LazyLock, OnceLock, RwLock}};
+use std::{cell::RefCell, collections::HashMap};
 
 use crate::core::{PbcDims, Vector3f, PBC_NONE};
 

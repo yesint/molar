@@ -175,7 +175,9 @@ pub(super) struct EvaluationContext<'a> {
     // This is a context-dependent subset created by AND operation
     local_subset: Option<&'a [usize]>,
     // Current atom index
-    cur: usize,
+    //cur: usize,
+    // Pbc dimensions
+    //pbc_dims: PbcDims,
 }
 
 impl<'a> EvaluationContext<'a> {
@@ -191,7 +193,8 @@ impl<'a> EvaluationContext<'a> {
             state,
             global_subset,
             local_subset: None,
-            cur: 0,
+            //cur: 0,
+            //pbc_dims: PBC_NONE,
         })
     }
 
@@ -272,7 +275,7 @@ impl RandomPosProvider for ActiveSubset<'_> {
     fn num_coords(&self) -> usize {
         self.subset.len()
     }
-    
+
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.subset.get(i).unwrap();
         self.state.nth_pos_unchecked(ind)
@@ -291,7 +294,7 @@ impl RandomAtomProvider for ActiveSubset<'_> {
     fn num_atoms(&self) -> usize {
         self.subset.len()
     }
-    
+
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = *self.subset.get(i).unwrap();
         self.topology.nth_atom_unchecked(ind)
@@ -319,34 +322,64 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //###################################
 //#  AST nodes logic implementation
 //###################################
+impl DistanceNode {
+    fn closest_image(
+        &mut self,
+        point: &Pos,
+        data: &EvaluationContext,
+    ) -> Pos {
+        if let Some(pbox) = data.state.get_box() {
+            match self {
+                Self::Point(target, dims)
+                | Self::Line(target, _, dims)
+                | Self::LineDir(target, _, dims)
+                | Self::Plane(target, _, _, dims)
+                | Self::PlaneNormal(target, _, dims) => {
+                    if dims.any() {
+                        pbox.closest_image_dims(
+                            point,
+                            target.get_vec(data).unwrap(),
+                            *dims,
+                        )
+                    } else {
+                        *point
+                    }
+                }
+            }
+        } else {
+            *point
+        }
+    }
+}
+
 impl VectorNode {
-    fn get_vec(&self) -> &Pos {
+    fn get_vec(&mut self, data: &EvaluationContext) -> Result<&Pos, SelectionParserError> {
         match self {
-            Self::Const(v) => v,
-            _ => unreachable!(),
-        }
-    }
-
-    fn get_unit_vec(&self) -> &Pos {
-        match self {
-            Self::UnitConst(v) => v,
-            _ => unreachable!(),
-        }
-    }
-
-    fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
-        match self {
+            Self::Const(v) => Ok(v),
+            Self::UnitConst(v) => Ok(v),
             Self::Com(inner, dims) => {
                 let res = inner.apply(data)?;
-                let v = data.custom_subset(&res).center_of_mass_pbc_dims(*dims)?;
+                let v = if *dims == PBC_NONE {
+                    data.custom_subset(&res).center_of_mass()?
+                } else {
+                    data.custom_subset(&res).center_of_mass_pbc_dims(*dims)?
+                };
                 *self = Self::Const(v);
+                self.get_vec(data)
             }
             Self::Cog(inner, dims) => {
                 let res = inner.apply(data)?;
-                let v = data
+                let v = if *dims == PBC_NONE {
+                    data
                     .custom_subset(&res)
-                    .center_of_geometry_pbc_dims(*dims)?;
+                    .center_of_geometry()
+                } else {
+                    data
+                    .custom_subset(&res)
+                    .center_of_geometry_pbc_dims(*dims)?
+                };
                 *self = Self::Const(v);
+                self.get_vec(data)
             }
             Self::NthAtomOf(inner, i) => {
                 let res = inner.apply(data)?;
@@ -355,50 +388,19 @@ impl VectorNode {
                     .nth_pos(*i)
                     .ok_or_else(|| SelectionParserError::OutOfBounds(*i, res.len()))?;
                 *self = Self::Const(*v);
+                self.get_vec(data)
             }
-            _ => (),
         }
-        Ok(())
     }
 
-    fn precompute_unit(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
+    fn get_unit_vec(&mut self, data: &EvaluationContext) -> Result<&Pos, SelectionParserError> {
         match self {
-            Self::Const(v) => {
-                *self = Self::Const(Pos::from(v.coords.normalize()));
-            }
-            Self::UnitConst(_) => (),
+            Self::UnitConst(v) => Ok(v),
             _ => {
-                self.precompute(data)?;
-                self.precompute_unit(data)?;
-            }
+                *self = Self::UnitConst(Pos::from(self.get_vec(data)?.coords.normalize()));
+                self.get_unit_vec(data)
+            },
         }
-        Ok(())
-    }
-}
-
-impl DistanceNode {
-    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
-        match self {
-            Self::Point(v1, _) => v1.precompute(data)?,
-            Self::Line(v1, v2, _) => {
-                v1.precompute(data)?;
-                v2.precompute(data)?;
-            }
-            Self::Plane(v1, v2, v3, _) => {
-                v1.precompute(data)?;
-                v2.precompute(data)?;
-                v3.precompute(data)?;
-            }
-            Self::LineDir(v, dir, _) => {
-                v.precompute(data)?;
-                dir.precompute_unit(data)?;
-            }
-            Self::PlaneNormal(v, n, _) => {
-                v.precompute(data)?;
-                n.precompute_unit(data)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -433,7 +435,7 @@ impl LogicalNode {
         res
     }
 
-    pub fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
+    pub fn apply(&mut self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         use rustc_hash::FxHashSet;
         match self {
             Self::Not(node) => {
@@ -488,13 +490,13 @@ impl LogicalNode {
                     upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
 
                     distance_search_within(
-                        prop.cutoff, 
+                        prop.cutoff,
                         &sub1,
                         &sub2,
                         sub1.subset.iter().cloned(),
                         sub2.subset.iter().cloned(),
                         &lower,
-                        &upper
+                        &upper,
                     )
                 } else {
                     // Periodic variant
@@ -518,7 +520,7 @@ impl LogicalNode {
 
             Self::WithinPoint(prop, point) => {
                 let sub1 = data.global_subset();
-                let pvec = point.get_vec();
+                let pvec = point.get_vec(data)?;
                 // Perform distance search
                 let res: Vec<usize> = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
@@ -527,13 +529,13 @@ impl LogicalNode {
                     let upper = pvec.coords.add_scalar(prop.cutoff + f32::EPSILON);
 
                     distance_search_within(
-                        prop.cutoff, 
-                        &sub1, 
-                        pvec, 
+                        prop.cutoff,
+                        &sub1,
+                        pvec,
                         sub1.subset.iter().cloned(),
                         0..1,
-                        &lower, 
-                        &upper
+                        &lower,
+                        &upper,
                     )
                 } else {
                     // Periodic variant
@@ -557,28 +559,16 @@ impl LogicalNode {
         }
     }
 
-    pub fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
-        match self {
-            Self::WithinPoint(_, p) => p.precompute(data)?,
-            Self::Comparison(c) => c.precompute(data)?,
-            _ => (),
-        }
-        Ok(())
-    }
-
     pub fn is_coord_dependent(&self) -> bool {
         match self {
-            Self::Not(node)
-            | Self::Same(_, node) => node.is_coord_dependent(),
-            
+            Self::Not(node) | Self::Same(_, node) => node.is_coord_dependent(),
+
             Self::Comparison(node) => node.is_coord_dependent(),
 
-            Self::Or(a, b)
-            | Self::And(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
+            Self::Or(a, b) | Self::And(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
 
-            Self::Within(_, _) 
-            | Self::WithinPoint(_, _) => true,
-                
+            Self::Within(_, _) | Self::WithinPoint(_, _) => true,
+
             // All always works for global subset
             _ => false,
         }
@@ -814,9 +804,7 @@ impl KeywordNode {
             Self::Name(args) => Ok(self.map_str_args(data, args, |a| &a.name)),
             Self::Resname(args) => Ok(self.map_str_args(data, args, |a| &a.resname)),
             Self::Resid(args) => Ok(self.map_int_args(data, args, |a, _i| a.resid)),
-            Self::Resindex(args) => {
-                Ok(self.map_int_args(data, args, |a, _i| a.resindex as i32))
-            }
+            Self::Resindex(args) => Ok(self.map_int_args(data, args, |a, _i| a.resindex as i32)),
             Self::Index(args) => Ok(self.map_int_args(data, args, |_a, i| i as i32)),
             Self::Chain(args) => {
                 let mut res = vec![];
@@ -835,33 +823,9 @@ impl KeywordNode {
 }
 
 impl MathNode {
-    fn closest_image(
-        &self,
-        point: &Pos,
-        pbox: Option<&PeriodicBox>,
-    ) -> Result<Option<Pos>, SelectionParserError> {
-        match self {
-            Self::Dist(d) => match d {
-                DistanceNode::Point(target, dims)
-                | DistanceNode::Line(target, _, dims)
-                | DistanceNode::LineDir(target, _, dims)
-                | DistanceNode::Plane(target, _, _, dims)
-                | DistanceNode::PlaneNormal(target, _, dims) => {
-                    if dims.any() {
-                        Ok(Some(
-                            pbox.ok_or_else(|| SelectionParserError::PbcUnwrap)?
-                                .closest_image_dims(point, target.get_vec(), *dims),
-                        ))
-                    } else {
-                        Ok(None)
-                    }
-                }
-            },
-            _ => Ok(None),
-        }
-    }
-
-    fn eval(&self, atom: &Atom, pos: &Pos) -> Result<f32, SelectionParserError> {
+    fn eval(&mut self, at: usize, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
+        let pos = unsafe { data.state.nth_pos_unchecked(at) };
+        let atom = unsafe { data.topology.nth_atom_unchecked(at) };
         match self {
             Self::Float(v) => Ok(*v),
             Self::X => Ok(pos[0]),
@@ -872,21 +836,21 @@ impl MathNode {
             Self::Vdw => Ok(atom.vdw()),
             Self::Mass => Ok(atom.mass),
             Self::Charge => Ok(atom.charge),
-            Self::Add(a, b) => Ok(a.eval(atom, pos)? + b.eval(atom, pos)?),
-            Self::Sub(a, b) => Ok(a.eval(atom, pos)? - b.eval(atom, pos)?),
-            Self::Mul(a, b) => Ok(a.eval(atom, pos)? * b.eval(atom, pos)?),
+            Self::Add(a, b) => Ok(a.eval(at, data)? + b.eval(at, data)?),
+            Self::Sub(a, b) => Ok(a.eval(at, data)? - b.eval(at, data)?),
+            Self::Mul(a, b) => Ok(a.eval(at, data)? * b.eval(at, data)?),
             Self::Div(a, b) => {
-                let b_val = b.eval(atom, pos)?;
+                let b_val = b.eval(at, data)?;
                 if b_val == 0.0 {
                     return Err(SelectionParserError::DivisionByZero);
                 }
-                Ok(a.eval(atom, pos)? / b_val)
+                Ok(a.eval(at, data)? / b_val)
             }
-            Self::Pow(a, b) => Ok(a.eval(atom, pos)?.powf(b.eval(atom, pos)?)),
-            Self::Neg(v) => Ok(-v.eval(atom, pos)?),
+            Self::Pow(a, b) => Ok(a.eval(at, data)?.powf(b.eval(at, data)?)),
+            Self::Neg(v) => Ok(-v.eval(at, data)?),
             Self::Function(func, v) => {
                 use MathFunctionName as M;
-                let val = v.eval(atom, pos)?;
+                let val = v.eval(at, data)?;
                 match func {
                     M::Abs => Ok(val.abs()),
                     M::Sqrt => {
@@ -900,34 +864,36 @@ impl MathNode {
                 }
             }
             Self::Dist(d) => {
-                // Points are considered correctly unwrapped!
+                // Point should unwrapped first!
+                let pos = d.closest_image(pos, data);
+
                 match d {
-                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec()).norm()),
+                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
                     DistanceNode::Line(p1, p2, _) => {
-                        let p1 = p1.get_vec();
-                        let p2 = p2.get_vec();
+                        let p1 = p1.get_vec(data)?;
+                        let p2 = p2.get_vec(data)?;
                         let v = p2 - p1;
                         let w = pos - p1;
                         Ok((w - v * (w.dot(&v) / v.norm_squared())).norm())
                     }
                     DistanceNode::LineDir(p, dir, _) => {
-                        let w = pos - p.get_vec();
-                        let dir = dir.get_unit_vec();
-                        Ok((w - dir.coords * w.dot(&dir.coords)).norm())
+                        let w = pos - p.get_vec(data)?;
+                        let dir = dir.get_unit_vec(data)?.coords;
+                        Ok((w - dir * w.dot(&dir)).norm())
                     }
                     DistanceNode::Plane(p1, p2, p3, _) => {
-                        let p1 = p1.get_vec();
-                        let p2 = p2.get_vec();
-                        let p3 = p3.get_vec();
+                        let p1 = p1.get_vec(data)?;
+                        let p2 = p2.get_vec(data)?;
+                        let p3 = p3.get_vec(data)?;
                         // Plane normal
                         let n = (p2 - p1).cross(&(p3 - p1));
                         let w = pos - p1;
                         Ok((n * (w.dot(&n) / n.norm_squared())).norm())
                     }
                     DistanceNode::PlaneNormal(p, n, _) => {
-                        let w = pos - p.get_vec();
-                        let n = n.get_unit_vec();
-                        Ok((n.coords * w.dot(&n.coords)).norm())
+                        let w = pos - p.get_vec(data)?;
+                        let n = n.get_unit_vec(data)?.coords;
+                        Ok((n * w.dot(&n)).norm())
                     }
                 }
             }
@@ -941,41 +907,25 @@ impl MathNode {
             | Self::Sub(a, b)
             | Self::Mul(a, b)
             | Self::Div(a, b)
-            | Self::Pow(a, b) => {
-                a.is_coord_dependent() || b.is_coord_dependent()
-            },
-            Self::Neg(v) | Self::Function(_, v) => {
-                v.is_coord_dependent()
-            },
+            | Self::Pow(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
+            Self::Neg(v) | Self::Function(_, v) => v.is_coord_dependent(),
             _ => false,
         }
-    }
-
-    fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
-        match self {
-            Self::Dist(p) => p.precompute(data)?,
-            _ => (),
-        }
-        Ok(())
     }
 }
 
 impl ComparisonNode {
     fn eval_op(
         data: &EvaluationContext,
-        v1: &MathNode,
-        v2: &MathNode,
+        v1: &mut MathNode,
+        v2: &mut MathNode,
         op: fn(f32, f32) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> {
         let mut res = vec![];
-        let b = data.state.get_box();
         let sub = data.current_subset();
 
         for p in sub.iter_particle() {
-            let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-            let pt2 = &v2.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-
-            if op(v1.eval(p.atom, pt1)?, v2.eval(p.atom, pt2)?) {
+            if op(v1.eval(p.id, data)?, v2.eval(p.id, data)?) {
                 res.push(p.id);
             }
         }
@@ -984,30 +934,25 @@ impl ComparisonNode {
 
     fn eval_op_chained(
         data: &EvaluationContext,
-        v1: &MathNode,
-        v2: &MathNode,
-        v3: &MathNode,
+        v1: &mut MathNode,
+        v2: &mut MathNode,
+        v3: &mut MathNode,
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> {
         let mut res = vec![];
-        let b = data.state.get_box();
         let sub = data.current_subset();
 
         for p in sub.iter_particle() {
-            let pt1 = &v1.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-            let pt2 = &v2.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-            let pt3 = &v3.closest_image(p.pos, b)?.unwrap_or(*p.pos);
-
-            let mid = v2.eval(p.atom, pt2)?;
-            if op1(v1.eval(p.atom, pt1)?, mid) && op2(mid, v3.eval(p.atom, pt3)?) {
+            let mid = v2.eval(p.id, data)?;
+            if op1(v1.eval(p.id, data)?, mid) && op2(mid, v3.eval(p.id, data)?) {
                 res.push(p.id);
             }
         }
         Ok(res)
     }
 
-    fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
+    fn apply(&mut self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
         match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
@@ -1045,35 +990,6 @@ impl ComparisonNode {
         }
     }
 
-    fn precompute(&mut self, data: &EvaluationContext) -> Result<(), SelectionParserError> {
-        match self {
-            // Simple
-            Self::Eq(v1, v2)
-            | Self::Neq(v1, v2)
-            | Self::Gt(v1, v2)
-            | Self::Geq(v1, v2)
-            | Self::Lt(v1, v2)
-            | Self::Leq(v1, v2) => {
-                v1.precompute(data)?;
-                v2.precompute(data)?;
-            }
-            // Chained
-            Self::LtLt(v1, v2, v3)
-            | Self::LtLeq(v1, v2, v3)
-            | Self::LeqLt(v1, v2, v3)
-            | Self::LeqLeq(v1, v2, v3)
-            | Self::GtGt(v1, v2, v3)
-            | Self::GtGeq(v1, v2, v3)
-            | Self::GeqGt(v1, v2, v3)
-            | Self::GeqGeq(v1, v2, v3) => {
-                v1.precompute(data)?;
-                v2.precompute(data)?;
-                v3.precompute(data)?;
-            }
-        }
-        Ok(())
-    }
-    
     fn is_coord_dependent(&self) -> bool {
         match self {
             // Simple
@@ -1091,7 +1007,9 @@ impl ComparisonNode {
             | Self::GtGt(v1, v2, v3)
             | Self::GtGeq(v1, v2, v3)
             | Self::GeqGt(v1, v2, v3)
-            | Self::GeqGeq(v1, v2, v3) => v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent(),
+            | Self::GeqGeq(v1, v2, v3) => {
+                v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent()
+            }
         }
     }
 }
@@ -1104,8 +1022,8 @@ pub enum SelectionParserError {
     #[error(transparent)]
     DifferentSizes(#[from] TopologyStateSizes),
 
-    #[error("no periodic box for pbc unwrapping")]
-    PbcUnwrap,
+    #[error(transparent)]
+    PbcUnwrap(#[from] PeriodicBoxError),
 
     #[error("division by zero in math node eval")]
     DivisionByZero,
