@@ -2,7 +2,6 @@ use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::collections::HashSet;
 use thiserror::Error;
-
 use crate::prelude::*;
 
 //##############################
@@ -325,29 +324,25 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 impl DistanceNode {
     fn closest_image(
         &mut self,
-        point: &Pos,
+        point: &mut Pos,
         data: &EvaluationContext,
-    ) -> Pos {
+    ) {
         if let Some(pbox) = data.state.get_box() {
             match self {
-                Self::Point(target, dims)
+                  Self::Point(target, dims)
                 | Self::Line(target, _, dims)
                 | Self::LineDir(target, _, dims)
                 | Self::Plane(target, _, _, dims)
                 | Self::PlaneNormal(target, _, dims) => {
                     if dims.any() {
-                        pbox.closest_image_dims(
+                        *point = pbox.closest_image_dims(
                             point,
                             target.get_vec(data).unwrap(),
                             *dims,
                         )
-                    } else {
-                        *point
                     }
                 }
             }
-        } else {
-            *point
         }
     }
 }
@@ -506,7 +501,7 @@ impl LogicalNode {
                         &sub2,
                         sub1.subset.iter().cloned(),
                         sub2.subset.iter().cloned(),
-                        data.state.get_box().unwrap(),
+                        data.state.require_box()?,
                         prop.pbc,
                     )
                 };
@@ -545,7 +540,7 @@ impl LogicalNode {
                         pvec,
                         sub1.subset.iter().cloned(),
                         0..1,
-                        data.state.get_box().unwrap(),
+                        data.state.require_box()?,
                         prop.pbc,
                     )
                 };
@@ -574,34 +569,6 @@ impl LogicalNode {
         }
     }
 }
-
-// impl VectorNode {
-//     pub fn eval(&self, data: &ApplyData) -> Result<Pos, SelectionParserError> {
-//         match self {
-//             Self::Const(p) => Ok(*p),
-
-//             Self::Com(pbc,node) => {
-//                 let inner = node.apply(data)?;
-//                 let c = if *pbc {
-//                     data.custom_subset(&inner).center_of_mass().unwrap()
-//                 } else {
-//                     data.custom_subset(&inner).center_of_mass_pbc().unwrap()
-//                 };
-//                 Ok(c)
-//             },
-
-//             Self::Cog(pbc,node) => {
-//                 let inner = node.apply(data)?;
-//                 let c = if *pbc {
-//                     data.custom_subset(&inner).center_of_geometry()
-//                 } else {
-//                     data.custom_subset(&inner).center_of_geometry_pbc()
-//                 };
-//                 Ok(c)
-//             }
-//         }
-//     }
-// }
 
 impl CompoundNode {
     fn is_protein(atom: &Atom) -> bool {
@@ -824,7 +791,7 @@ impl KeywordNode {
 
 impl MathNode {
     fn eval(&mut self, at: usize, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
-        let pos = unsafe { data.state.nth_pos_unchecked(at) };
+        let pos = unsafe { data.state.nth_pos_mut_unchecked(at) };
         let atom = unsafe { data.topology.nth_atom_unchecked(at) };
         match self {
             Self::Float(v) => Ok(*v),
@@ -864,20 +831,20 @@ impl MathNode {
                 }
             }
             Self::Dist(d) => {
-                // Point should unwrapped first!
-                let pos = d.closest_image(pos, data);
+                // Point should be unwrapped first!
+                d.closest_image(pos, data);
 
                 match d {
-                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
+                    DistanceNode::Point(p, _) => Ok((*pos - p.get_vec(data)?).norm()),
                     DistanceNode::Line(p1, p2, _) => {
                         let p1 = p1.get_vec(data)?;
                         let p2 = p2.get_vec(data)?;
                         let v = p2 - p1;
-                        let w = pos - p1;
+                        let w = *pos - p1;
                         Ok((w - v * (w.dot(&v) / v.norm_squared())).norm())
                     }
                     DistanceNode::LineDir(p, dir, _) => {
-                        let w = pos - p.get_vec(data)?;
+                        let w = *pos - p.get_vec(data)?;
                         let dir = dir.get_unit_vec(data)?.coords;
                         Ok((w - dir * w.dot(&dir)).norm())
                     }
@@ -887,11 +854,11 @@ impl MathNode {
                         let p3 = p3.get_vec(data)?;
                         // Plane normal
                         let n = (p2 - p1).cross(&(p3 - p1));
-                        let w = pos - p1;
+                        let w = *pos - p1;
                         Ok((n * (w.dot(&n) / n.norm_squared())).norm())
                     }
                     DistanceNode::PlaneNormal(p, n, _) => {
-                        let w = pos - p.get_vec(data)?;
+                        let w = *pos - p.get_vec(data)?;
                         let n = n.get_unit_vec(data)?.coords;
                         Ok((n * w.dot(&n)).norm())
                     }
@@ -1016,24 +983,24 @@ impl ComparisonNode {
 
 #[derive(Error, Debug)]
 pub enum SelectionParserError {
-    #[error("synatx error: {0}")]
+    #[error("selection syntax error: {0}")]
     SyntaxError(String),
 
     #[error(transparent)]
     DifferentSizes(#[from] TopologyStateSizes),
 
-    #[error(transparent)]
+    #[error("periodic selection for non-periodic system: {0}")]
     PbcUnwrap(#[from] PeriodicBoxError),
 
-    #[error("division by zero in math node eval")]
+    #[error("division by zero")]
     DivisionByZero,
 
-    #[error("sqrt of negative number in math node eval")]
+    #[error("sqrt of negative number")]
     NegativeSqrt,
 
     #[error(transparent)]
     Measure(#[from] MeasureError),
 
-    #[error("asked for atom {0} while inner expression selects {1} atoms")]
+    #[error("asked for atom {0} while inner expression has {1} atoms")]
     OutOfBounds(usize, usize),
 }
