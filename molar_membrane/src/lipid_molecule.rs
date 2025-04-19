@@ -4,13 +4,13 @@ use std::rc::Rc;
 
 use crate::lipid_species::LipidSpecies;
 
-pub struct LipidMolecule {
-    pub sel: Sel<MutableSerial>,
+pub struct LipidMolecule<K> {
+    pub sel: Sel<K>,
     pub species: Rc<LipidSpecies>,
-    pub head_sel: Sel<MutableSerial>,
-    pub mid_sel: Sel<MutableSerial>,
-    pub tail_end_sel: Sel<MutableSerial>,
-    pub tail_sels: Vec<Sel<MutableSerial>>,
+    pub head_sel: Sel<K>,
+    pub mid_sel: Sel<K>,
+    pub tail_end_sel: Sel<K>,
+    pub tail_sels: Vec<Sel<K>>,
     pub head_marker: Pos,
     pub mid_marker: Pos,
     pub tail_marker: Pos,
@@ -20,7 +20,7 @@ pub struct LipidMolecule {
     pub(super) tail_head_vec: Vector3f,
 }
 
-impl LipidMolecule {
+impl<K: UserCreatableKind+MutableKind> LipidMolecule<K> {
     pub fn update_markers(&mut self) -> anyhow::Result<()> {
         self.head_marker = self.head_sel.center_of_mass_pbc()?;
         self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
@@ -44,7 +44,7 @@ impl LipidMolecule {
         self.tail_sels.len()
     }
 
-    pub fn set_state(&mut self, st: Holder<State, MutableSerial>) -> anyhow::Result<()> {
+    pub fn set_state(&mut self, st: Holder<State, K>) -> anyhow::Result<()> {
         self.sel.set_state(st.clone())?;
         self.head_sel.set_state(st.clone())?;
         self.mid_sel.set_state(st.clone())?;

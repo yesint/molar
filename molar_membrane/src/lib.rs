@@ -16,10 +16,10 @@ use log::{info, warn}; // Use log crate when building application
 use std::{println as info, println as warn};
 
 mod stats;
-use stats::{GroupProperties, SpeciesStats};
+use stats::SpeciesStats;
 
 mod lipid_molecule;
-use lipid_molecule::LipidMolecule;
+pub use lipid_molecule::LipidMolecule;
 
 mod lipid_species;
 use lipid_species::{LipidSpecies, LipidSpeciesDescr};
@@ -27,8 +27,14 @@ use lipid_species::{LipidSpecies, LipidSpeciesDescr};
 mod surface;
 use surface::*;
 
-pub struct Membrane {
-    lipids: Vec<LipidMolecule>,
+mod vmd_visual;
+use vmd_visual::VmdVisual;
+
+mod lipid_group;
+use lipid_group::LipidGroup;
+
+pub struct Membrane<K> {
+    lipids: Vec<LipidMolecule<K>>,
     surface: Surface,
     groups: HashMap<String, LipidGroup>,
     species: Vec<Rc<LipidSpecies>>,
@@ -64,8 +70,8 @@ impl Default for MembraneOptions {
     }
 }
 
-impl Membrane {
-    pub fn new(source: &Source<MutableSerial>, optstr: &str) -> anyhow::Result<Self> {
+impl<K: MutableKind+UserCreatableKind> Membrane<K> {
+    pub fn new(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
@@ -201,7 +207,7 @@ impl Membrane {
         self
     }
 
-    pub fn iter_lipids(&self) -> impl Iterator<Item = (usize, &LipidMolecule)> {
+    pub fn iter_lipids(&self) -> impl Iterator<Item = (usize, &LipidMolecule<K>)> {
         self.lipids.iter().enumerate()
     }
 
@@ -215,13 +221,13 @@ impl Membrane {
     pub fn add_lipids_to_group(
         &mut self,
         gr_name: impl AsRef<str>,
-        ids: Vec<usize>,
+        ids: &Vec<usize>,
     ) -> anyhow::Result<()> {
         let gr_name = gr_name.as_ref();
         if let Some(gr) = self.groups.get_mut(gr_name) {
             for id in ids {
                 // Check if lipid id is in range
-                if id >= self.lipids.len() {
+                if *id >= self.lipids.len() {
                     bail!(
                         "lipid id {} is out of bounds 0:{}",
                         id,
@@ -229,14 +235,14 @@ impl Membrane {
                     );
                 }
                 // Add this lipid id
-                gr.lipid_ids.push(id);
+                gr.lipid_ids.push(*id);
                 // Initialize statistics for this lipid species if not yet done
-                let sp = &self.lipids[id].species.name;
+                let sp = &self.lipids[*id].species.name;
                 if !gr.stats.per_species.contains_key(sp) {
                     gr.stats.per_species.insert(
                         sp.to_string(),
                         SpeciesStats::new(
-                            &self.lipids[id].species,
+                            &self.lipids[*id].species,
                             self.species.iter().map(|sp| sp.name.to_owned()),
                         ),
                     );
@@ -352,7 +358,7 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: impl Into<Holder<State, MutableSerial>>) -> anyhow::Result<()> {
+    pub fn set_state(&mut self, st: impl Into<Holder<State, K>>) -> anyhow::Result<()> {
         let mut st: Holder<State, _> = st.into();
         let mut cur = self.lipids.first().unwrap().sel.get_state();
         if cur.interchangeable(&st) {
@@ -414,114 +420,6 @@ impl Membrane {
 
         vis.save_to_file(fname)?;
 
-        Ok(())
-    }
-}
-
-//===========================================
-struct VmdVisual {
-    buf: String,
-}
-
-impl VmdVisual {
-    fn new() -> Self {
-        Self { buf: String::new() }
-    }
-
-    fn save_to_file(&self, fname: impl AsRef<Path>) -> anyhow::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::File::create(fname)?;
-        writeln!(f, "{}", self.buf)?;
-        Ok(())
-    }
-
-    fn sphere(&mut self, point: &Pos, radius: f32, color: &str) {
-        use std::fmt::Write;
-        writeln!(self.buf, "draw color {color}").unwrap();
-        writeln!(
-            self.buf,
-            "draw sphere \"{} {} {}\" radius {radius} resolution 12",
-            point.x * 10.0,
-            point.y * 10.0,
-            point.z * 10.0
-        )
-        .unwrap();
-    }
-
-    fn arrow(&mut self, point: &Pos, dir: &Vector3f, color: &str) {
-        use std::fmt::Write;
-
-        const LENGTH: f32 = 5.0;
-
-        let p1 = point * 10.0;
-        let p2 = p1 + dir * 0.5 * LENGTH;
-        let p3 = p1 + dir * 0.7 * LENGTH;
-
-        writeln!(self.buf, "draw color {color}").unwrap();
-
-        writeln!(
-            self.buf,
-            "draw cylinder \"{} {} {}\" \"{} {} {}\" radius 0.2 resolution 12",
-            p1.x, p1.y, p1.z, p2.x, p2.y, p2.z
-        )
-        .unwrap();
-
-        writeln!(
-            self.buf,
-            "draw cone \"{} {} {}\" \"{} {} {}\" radius 0.4 resolution 12\n",
-            p2.x, p2.y, p2.z, p3.x, p3.y, p3.z
-        )
-        .unwrap();
-    }
-
-    fn cylinder(&mut self, point1: &Pos, point2: &Pos, color: &str) {
-        use std::fmt::Write;
-
-        let p1 = point1 * 10.0;
-        let p2 = point2 * 10.0;
-
-        writeln!(self.buf, "draw color {color}").unwrap();
-
-        writeln!(
-            self.buf,
-            "draw cylinder \"{} {} {}\" \"{} {} {}\" radius 0.2 resolution 12",
-            p1.x, p1.y, p1.z, p2.x, p2.y, p2.z
-        )
-        .unwrap();
-    }
-}
-
-#[derive(Default)]
-pub struct LipidGroup {
-    lipid_ids: Vec<usize>,
-    stats: GroupProperties,
-}
-
-impl LipidGroup {
-    pub(crate) fn frame_update(
-        &mut self,
-        lipids: &Vec<LipidMolecule>,
-        surf: &Surface,
-    ) -> anyhow::Result<()> {
-        // Init update
-        for psp in self.stats.per_species.values_mut() {
-            psp.init_frame_update();
-        }
-        // Update group by adding individual lipid stats
-        for lip_id in &self.lipid_ids {
-            // Get species name
-            let sp_name = &lipids[*lip_id].species.name;
-            // Update stats for this species
-            self.stats
-                .per_species
-                .get_mut(sp_name)
-                .unwrap()
-                .add_single_lipid_stats(*lip_id, &lipids, &surf)?;
-        }
-        // Finish update
-        for psp in self.stats.per_species.values_mut() {
-            psp.finish_frame_update();
-        }
         Ok(())
     }
 }
@@ -653,8 +551,8 @@ mod tests {
             }
         }
 
-        memb.add_lipids_to_group("upper", upper)?;
-        memb.add_lipids_to_group("lower", lower)?;
+        memb.add_lipids_to_group("upper", &upper)?;
+        memb.add_lipids_to_group("lower", &lower)?;
 
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
         for st in traj.into_iter().take(10) {
@@ -694,8 +592,8 @@ mod tests {
             }
         }
 
-        memb.add_lipids_to_group("upper", upper)?;
-        memb.add_lipids_to_group("lower", lower)?;
+        memb.add_lipids_to_group("upper", &upper)?;
+        memb.add_lipids_to_group("lower", &lower)?;
 
         memb.compute()?;
         memb.finalize()?;

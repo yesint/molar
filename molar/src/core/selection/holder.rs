@@ -1,5 +1,5 @@
 use std::{marker::PhantomData, ops::Deref};
-use super::{BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, SelectionError, SelectionKind};
+use super::{BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, SelectionError, SelectionKind, UserCreatableKind};
 
 /// Smart pointer wrapper for sharing [Topology] and [State] between serial selections.
 /// Acts like Rc parameterized by selection kind, so the user can't accidentally mix incompatible
@@ -13,15 +13,24 @@ pub struct Holder<T, K> {
 }
 
 // Conversion from T to Holder<T,K>
-macro_rules! impl_from_t_for_holder {
-    ( $k:ty ) => {
-        impl<T> From<T> for Holder<T, $k> {
-            fn from(value: T) -> Self {
-                Self {
-                    arc: triomphe::Arc::new(value),
-                    _kind: Default::default(),
-                }
-            }
+// macro_rules! impl_from_t_for_holder {
+//     ( $k:ty ) => {
+//         impl<T> From<T> for Holder<T, $k> {
+//             fn from(value: T) -> Self {
+//                 Self {
+//                     arc: triomphe::Arc::new(value),
+//                     _kind: Default::default(),
+//                 }
+//             }
+//         }
+//     }
+// }
+
+impl<T,K: UserCreatableKind> From<T> for Holder<T,K> {
+    fn from(value: T) -> Self {
+        Self {
+            arc: triomphe::Arc::new(value),
+            _kind: Default::default(),
         }
     }
 }
@@ -39,10 +48,10 @@ macro_rules! impl_clone_for_holder {
     };
 }
 
-impl_from_t_for_holder!(MutableSerial);
-impl_from_t_for_holder!(BuilderSerial);
-impl_from_t_for_holder!(MutableParallel);
-impl_from_t_for_holder!(ImmutableParallel);
+// impl_from_t_for_holder!(MutableSerial);
+// impl_from_t_for_holder!(BuilderSerial);
+// impl_from_t_for_holder!(MutableParallel);
+// impl_from_t_for_holder!(ImmutableParallel);
 
 impl_clone_for_holder!(MutableSerial);
 impl_clone_for_holder!(BuilderSerial);

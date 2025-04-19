@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
-    nalgebra::{self, Const, Dyn, VectorView},
+    nalgebra::{self, Const, Dyn, Owned, VectorView},
     PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
 use pyo3::{
@@ -23,6 +23,10 @@ use particle::Particle;
 
 mod periodic_box;
 use periodic_box::PeriodicBox;
+
+mod membrane;
+use membrane::*;
+
 
 //-------------------------------------------
 
@@ -102,7 +106,7 @@ impl FileHandler {
         if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
             h.write(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
-            h.write(&s.0)?;
+            h.write(s.get())?;
         } else if let Ok(s) = data.downcast::<PyTuple>() {
             if s.len() != 2 {
                 return Err(anyhow!("Tuple must have two elements"));
@@ -128,7 +132,7 @@ impl FileHandler {
         if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
             h.write_topology(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
-            h.write_topology(&s.0)?;
+            h.write_topology(s.get())?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, Topology>>() {
             h.write_topology(&s.0)?;
         } else {
@@ -145,7 +149,7 @@ impl FileHandler {
         if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
             h.write_state(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
-            h.write_state(&s.0)?;
+            h.write_state(s.get())?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, State>>() {
             h.write_state(&s.0)?;
         } else {
@@ -282,11 +286,11 @@ impl Source {
     }
 
     fn select_all(&mut self) -> PyResult<Sel> {
-        Ok(Sel(self.0.select_all().map_err(|e| anyhow!(e))?))
+        Ok(Sel::new_owned(self.0.select_all().map_err(|e| anyhow!(e))?))
     }
 
     fn select(&mut self, sel_str: &str) -> PyResult<Sel> {
-        Ok(Sel(self.0.select(sel_str).map_err(|e| anyhow!(e))?))
+        Ok(Sel::new_owned(self.0.select(sel_str).map_err(|e| anyhow!(e))?))
     }
 
     #[pyo3(signature = (arg=None))]
@@ -294,17 +298,17 @@ impl Source {
         if let Some(arg) = arg {
             if let Ok(val) = arg.extract::<String>() {
                 if val.is_empty() {
-                    Ok(Sel(self.0.select_all().map_err(|e| anyhow!(e))?))
+                    Ok(Sel::new_owned(self.0.select_all().map_err(|e| anyhow!(e))?))
                 } else {
-                    Ok(Sel(self.0.select(val).map_err(|e| anyhow!(e))?))
+                    Ok(Sel::new_owned(self.0.select(val).map_err(|e| anyhow!(e))?))
                 }
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
-                Ok(Sel(self
+                Ok(Sel::new_owned(self
                     .0
                     .select(val.0..val.1)
                     .map_err(|e| anyhow!(e))?))
             } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-                Ok(Sel(self.0.select(val).map_err(|e| anyhow!(e))?))
+                Ok(Sel::new_owned(self.0.select(val).map_err(|e| anyhow!(e))?))
             } else {
                 Err(anyhow!(
                     "Invalid argument type {} when creating selection",
@@ -313,7 +317,7 @@ impl Source {
                 .into())
             }
         } else {
-            Ok(Sel(self.0.select_all().map_err(|e| anyhow!(e))?))
+            Ok(Sel::new_owned(self.0.select_all().map_err(|e| anyhow!(e))?))
         }
     }
 
@@ -345,7 +349,7 @@ impl Source {
     fn remove(&self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
-            Ok(self.0.remove(&sel.borrow().0)?)
+            Ok(self.0.remove(sel.borrow().get())?)
         } else if let Ok(sel_str) = arg.extract::<String>() {
             let sel = self.0.select(sel_str)?;
             Ok(self.0.remove(&sel)?)
@@ -359,7 +363,7 @@ impl Source {
     fn append(&self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
-            self.0.append(&sel.borrow().0);
+            self.0.append(sel.borrow().get());
         } else if let Ok(sel) = arg.downcast::<Source>() {
             self.0.append(&sel.borrow().0);
         } else {
@@ -371,26 +375,55 @@ impl Source {
 
 //====================================
 
+enum SelType {
+    Owned(molar::core::Sel<BuilderSerial>),
+    Ptr(*mut molar::core::Sel<BuilderSerial>),
+}
+
 #[pyclass(sequence, unsendable)]
-struct Sel(molar::core::Sel<BuilderSerial>);
+struct Sel(SelType);
+
+impl Sel {
+    fn new_owned(sel: molar::core::Sel<BuilderSerial>) -> Self {
+        Self(SelType::Owned(sel))
+    }
+
+    fn new_ref(sel: &molar::core::Sel<BuilderSerial>) -> Self {
+        Self(SelType::Ptr(sel as *const molar::core::Sel<BuilderSerial> as *mut molar::core::Sel<BuilderSerial>))
+    }
+
+    fn get_mut(&mut self) -> &mut molar::core::Sel<BuilderSerial> {
+        match self.0 {
+            SelType::Owned(ref mut sel) => sel,
+            SelType::Ptr(p) => unsafe {&mut *p},
+        }
+    }
+
+    fn get(&self) -> &molar::core::Sel<BuilderSerial> {
+        match self.0 {
+            SelType::Owned(ref sel) => sel,
+            SelType::Ptr(p) => unsafe {&*p},
+        }
+    }
+}
 
 #[pymethods]
 impl Sel {
     fn __len__(&self) -> usize {
-        self.0.len()
+        self.get().len()
     }
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {
         if let Ok(val) = arg.extract::<String>() {
-            Ok(Sel(self.0.subsel(val).map_err(|e| anyhow!(e))?))
+            Ok(Sel::new_owned(self.get().subsel(val).map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
-            Ok(Sel(self
-                .0
+            Ok(Sel::new_owned(self
+                .get()
                 .subsel(val.0..=val.1)
                 .map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-            Ok(Sel(self
-                .0
+            Ok(Sel::new_owned(self
+                .get()
                 .subsel(val)
                 .map_err(|e| anyhow!(e))?))
         } else {
@@ -421,7 +454,7 @@ impl Sel {
         };
 
         // Call Rust function
-        let p = s.0.nth_particle_mut(ind).unwrap();
+        let p = s.get().nth_particle_mut(ind).unwrap();
         Ok(Particle {
             atom: unsafe { &mut *(p.atom as *mut molar::core::Atom) },
             pos: map_pyarray_to_pos(slf.py(), p.pos, &slf),
@@ -444,17 +477,17 @@ impl Sel {
     }
 
     fn get_index<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1::<usize>> {
-        numpy::PyArray1::from_iter(py,self.0.iter_index())        
+        numpy::PyArray1::from_iter(py,self.get().iter_index())        
     }
 
     fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2::<f32>> {
         // Instead we allocate an uninitialized PyArray manually and fill it by data.
         // By doing this we save on unnecessary initiallization and extra allocation
         unsafe {
-            let arr = numpy::PyArray2::<f32>::new(py,[3,self.0.len()],true);
+            let arr = numpy::PyArray2::<f32>::new(py,[3,self.get().len()],true);
             let arr_ptr = arr.data();
-            for i in 0..self.0.len() {
-                let pos_ptr = self.0.nth_pos_unchecked(i).coords.as_ptr();
+            for i in 0..self.get().len() {
+                let pos_ptr = self.get().nth_pos_unchecked(i).coords.as_ptr();
                 // This is faster than copying by element with uget_raw()
                 std::ptr::copy_nonoverlapping(pos_ptr,arr_ptr.offset(i as isize * 3), 3);
             }
@@ -475,7 +508,7 @@ impl Sel {
 
         unsafe {
             for i in 0..self.__len__() {
-                let pos_ptr = self.0.nth_pos_mut_unchecked(i).coords.as_mut_ptr();
+                let pos_ptr = self.get().nth_pos_mut_unchecked(i).coords.as_mut_ptr();
                 std::ptr::copy_nonoverlapping(ptr.offset(i as isize * 3), pos_ptr, 3);
             }
         }
@@ -485,7 +518,7 @@ impl Sel {
 
     fn set_state(&mut self, st: Bound<'_, State>) -> PyResult<()> {
         let _ = self
-            .0
+            .get_mut()
             .set_state(st.try_borrow_mut()?.0.clone())
             .map_err(|e| anyhow!(e));
         Ok(())
@@ -500,7 +533,7 @@ impl Sel {
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
             &self
-                .0
+                .get()
                 .center_of_mass_pbc_dims(pbc_dims)
                 .map_err(|e| anyhow!(e))?
                 .coords,
@@ -517,7 +550,7 @@ impl Sel {
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
             &self
-                .0
+                .get()
                 .center_of_geometry_pbc_dims(pbc_dims)
                 .map_err(|e| anyhow!(e))?
                 .coords,
@@ -526,25 +559,25 @@ impl Sel {
     }
 
     fn principal_transform(&self) -> anyhow::Result<IsometryTransform> {
-        let tr = self.0.principal_transform()?;
+        let tr = self.get().principal_transform()?;
         Ok(IsometryTransform(tr))
     }
 
     fn principal_transform_pbc(&self) -> anyhow::Result<IsometryTransform> {
-        let tr = self.0.principal_transform_pbc()?;
+        let tr = self.get().principal_transform_pbc()?;
         Ok(IsometryTransform(tr))
     }
 
     fn apply_transform(&self, tr: &IsometryTransform) {
-        self.0.apply_transform(&tr.0);
+        self.get().apply_transform(&tr.0);
     }
 
     fn gyration(&self) -> anyhow::Result<f32> {
-        Ok(self.0.gyration()?)
+        Ok(self.get().gyration()?)
     }
 
     fn gyration_pbc(&self) -> anyhow::Result<f32> {
-        Ok(self.0.gyration_pbc()?)
+        Ok(self.get().gyration_pbc()?)
     }
 
     fn inertia<'py>(
@@ -554,7 +587,7 @@ impl Sel {
         Bound<'py, numpy::PyArray1<f32>>,
         Bound<'py, numpy::PyArray2<f32>>,
     )> {
-        let (moments, axes) = self.0.inertia()?;
+        let (moments, axes) = self.get().inertia()?;
         let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
         Ok((mom, ax))
@@ -567,44 +600,44 @@ impl Sel {
         Bound<'py, numpy::PyArray1<f32>>,
         Bound<'py, numpy::PyArray2<f32>>,
     )> {
-        let (moments, axes) = self.0.inertia_pbc()?;
+        let (moments, axes) = self.get().inertia_pbc()?;
         let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
         Ok((mom, ax))
     }
 
     fn save(&self, fname: &str) -> anyhow::Result<()> {
-        Ok(self.0.save(fname)?)
+        Ok(self.get().save(fname)?)
     }
 
     fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> anyhow::Result<()> {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
             .ok_or_else(|| anyhow!("conversion to Vector3 has failed"))?;
-        self.0.translate(&vec);
+        self.get().translate(&vec);
         Ok(())
     }
 
     fn split_resindex(&self) -> anyhow::Result<Vec<Sel>> {
-        Ok(self.0.split_resindex_iter()?.map(|sel| Sel(sel)).collect())
+        Ok(self.get().split_resindex_iter()?.map(|sel| Sel::new_owned(sel)).collect())
     }
 
     fn split_chain(&self) -> anyhow::Result<Vec<Sel>> {
-        Ok(self.0.split_iter(|p| Some(p.atom.chain))?.map(|sel| Sel(sel)).collect())
+        Ok(self.get().split_iter(|p| Some(p.atom.chain))?.map(|sel| Sel::new_owned(sel)).collect())
     }
 
     fn split_molecule(&self) -> anyhow::Result<Vec<Sel>> {
-        Ok(self.0.split_molecules_iter()?.map(|sel| Sel(sel)).collect())
+        Ok(self.get().split_molecules_iter()?.map(|sel| Sel::new_owned(sel)).collect())
     }
 
     fn to_gromacs_ndx(&self, name: &str) -> String {
-        self.0.to_gromacs_ndx(name)
+        self.get().to_gromacs_ndx(name)
     }
 
     fn add(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
-            self.0.add(&sel.borrow().0)?;
+            self.get_mut().add(sel.borrow().get())?;
         } else {
             anyhow::bail!("Unsupported type to append a Sel")
         }
@@ -618,12 +651,12 @@ impl Sel {
 
     /// Invert in place
     fn invert(&mut self) {
-        self.0.invert();
+        self.get_mut().invert();
     }
 
     /// remove other from self
     fn remove_global(&mut self, other: &Sel) -> anyhow::Result<()> {
-        self.0.remove_global(&other.0)?;
+        self.get_mut().remove_global(other.get())?;
         Ok(())
     }
 
@@ -634,26 +667,26 @@ impl Sel {
 
     /// operator |
     fn __or__(&self, rhs: &Sel) -> Sel {
-        Sel(self.0.union(&rhs.0))
+        Sel::new_owned(self.get().union(rhs.get()))
     }
 
     /// operator &
     fn __and__(&self, rhs: &Sel) -> anyhow::Result<Sel> {
-        Ok(Sel(self.0.intersection(&rhs.0)?))
+        Ok(Sel::new_owned(self.get().intersection(rhs.get())?))
     }
 
     /// -= (remove other from self)
     fn __sub__(&self, rhs: &Sel) -> anyhow::Result<Sel> {
-        Ok(Sel(self.0.difference(&rhs.0)?))
+        Ok(Sel::new_owned(self.get().difference(rhs.get())?))
     }
 
     /// ~ operator
     fn __invert__(&self) -> anyhow::Result<Sel> {
-        Ok(Sel(self.0.complement()?))
+        Ok(Sel::new_owned(self.get().complement()?))
     }
 
     fn sasa(&self) -> SasaResults {
-        SasaResults(self.0.sasa())
+        SasaResults(self.get().sasa())
     }
 }
 
@@ -690,18 +723,18 @@ struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 
 #[pyfunction]
 fn fit_transform(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
-    let tr = molar::core::Sel::fit_transform(&sel1.0, &sel2.0)?;
+    let tr = molar::core::Sel::fit_transform(sel1.get(), sel2.get())?;
     Ok(IsometryTransform(tr))
 }
 
 #[pyfunction]
 fn rmsd(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
-    Ok(molar::core::Sel::rmsd(&sel1.0, &sel2.0)?)
+    Ok(molar::core::Sel::rmsd(sel1.get(), sel2.get())?)
 }
 
 #[pyfunction]
 fn rmsd_mw(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
-    Ok(molar::core::Sel::rmsd_mw(&sel1.0, &sel2.0)?)
+    Ok(molar::core::Sel::rmsd_mw(sel1.get(), sel2.get())?)
 }
 
 #[pyclass]
@@ -738,45 +771,45 @@ fn distance_search<'py>(
 ) -> anyhow::Result<Bound<'py, PyAny>> {
     let mut res: Vec<(usize, usize, f32)>;
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
-    let sel1 = &data1.borrow().0;    
+    let sel1 = data1.borrow();    
 
     if let Ok(d) = cutoff.extract::<f32>() {
         // Distance cutoff
         if let Some(d2) = data2 {
-            let sel2 = &d2.borrow().0;
+            let sel2 = d2.borrow();
             if pbc_dims.any() {
                 res = molar::core::distance_search_double_pbc(
                     d,
-                    sel1.iter_pos(),
-                    sel2.iter_pos(),
-                    sel1.iter_index(),
-                    sel2.iter_index(),
-                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    sel1.get().iter_pos(),
+                    sel2.get().iter_pos(),
+                    sel1.get().iter_index(),
+                    sel2.get().iter_index(),
+                    sel1.get().get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             } else {
                 res = molar::core::distance_search_double(
                     d,
-                    sel1.iter_pos(),
-                    sel2.iter_pos(),
-                    sel1.iter_index(),
-                    sel2.iter_index(),
+                    sel1.get().iter_pos(),
+                    sel2.get().iter_pos(),
+                    sel1.get().iter_index(),
+                    sel2.get().iter_index(),
                 );
             }
         } else {
             if pbc_dims.any() {
                 res = molar::core::distance_search_single_pbc(
                     d,
-                    sel1.iter_pos(),
-                    sel1.iter_index(),                    
-                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    sel1.get().iter_pos(),
+                    sel1.get().iter_index(),                    
+                    sel1.get().get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             } else {
                 res = molar::core::distance_search_single(
                     d,
-                    sel1.iter_pos(),
-                    sel1.iter_index(),                    
+                    sel1.get().iter_pos(),
+                    sel1.get().iter_index(),                    
                 );
             }
         }
@@ -788,42 +821,42 @@ fn distance_search<'py>(
         }
 
         // VdW cutof
-        let vdw1: Vec<f32> = sel1.iter_atoms().map(|a| a.vdw()).collect();
+        let vdw1: Vec<f32> = sel1.get().iter_atoms().map(|a| a.vdw()).collect();
 
-        if sel1.len() != vdw1.len() {
-            bail!("Size mismatch 1: {} {}",sel1.len(),vdw1.len());
+        if sel1.get().len() != vdw1.len() {
+            bail!("Size mismatch 1: {} {}",sel1.get().len(),vdw1.len());
         }
 
         if let Some(d2) = data2 {
-            let sel2 = &d2.borrow().0;
-            let vdw2: Vec<f32> = sel2.iter_atoms().map(|a| a.vdw()).collect();
+            let sel2 = d2.borrow();
+            let vdw2: Vec<f32> = sel2.get().iter_atoms().map(|a| a.vdw()).collect();
 
-            if sel2.len() != vdw2.len() {
-                bail!("Size mismatch 2: {} {}",sel2.len(),vdw2.len());
+            if sel2.get().len() != vdw2.len() {
+                bail!("Size mismatch 2: {} {}",sel2.get().len(),vdw2.len());
             }
 
             if pbc_dims.any() {
                 res = molar::core::distance_search_double_vdw(
-                    sel1.iter_pos(),
-                    sel2.iter_pos(),
+                    sel1.get().iter_pos(),
+                    sel2.get().iter_pos(),
                     &vdw1,
                     &vdw2,
                 );
             } else {
                 res = molar::core::distance_search_double_vdw_pbc(
-                    sel1.iter_pos(),
-                    sel2.iter_pos(),
+                    sel1.get().iter_pos(),
+                    sel2.get().iter_pos(),
                     &vdw1,
                     &vdw2,
-                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    sel1.get().get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             }
             
             // Convert local indices to global
             for el in &mut res {
-                el.0 = sel1.nth_index(el.0).unwrap();
-                el.1 = sel2.nth_index(el.1).unwrap();
+                el.0 = sel1.get().nth_index(el.0).unwrap();
+                el.1 = sel2.get().nth_index(el.1).unwrap();
             }
         } else {
             bail!("VdW distance search is not yet supported for single selection");
@@ -876,5 +909,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd_mw, m)?)?;
     m.add_function(wrap_pyfunction!(distance_search, m)?)?;
+    m.add_class::<LipidMolecule>()?;
+    m.add_class::<Membrane>()?;
     Ok(())
 }

@@ -39,6 +39,44 @@ pub(crate) fn map_pyarray_to_pos<'py>(
     }
 }
 
+// Constructs read-only PyArray backed by existing Pos data.
+pub(crate) fn map_const_pyarray_to_pos<'py>(
+    py: Python<'py>,
+    data: &molar::core::Pos,
+    parent: &Bound<'py, PyAny>,
+) -> *mut npyffi::PyArrayObject {
+    use numpy::Element;
+    use numpy::PyArrayDescrMethods;
+
+    let mut dims = numpy::ndarray::Dim(3);
+
+    unsafe {
+        let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
+            py,
+            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
+            f32::get_dtype(py).into_dtype_ptr(),
+            dims.ndim_cint(),
+            dims.as_dims_ptr(),
+            std::ptr::null_mut(),                    // no strides
+            data.coords.as_ptr() as *mut c_void, // data
+            0,             // no writable flag
+            std::ptr::null_mut(),                    // obj
+        );
+
+        // The following mangling with the ref counting is deduced by
+        // tries and errors and seems to work correctly and keeps the parnet object alive
+        // until any of the referencing PyArray objects is alive.
+
+        // We set the parent as a base object of the PyArray to link them together.
+        PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), parent.as_ptr());
+        // Increase reference count of parent object since
+        // our PyArray is now referencing it!
+        pyo3::ffi::Py_IncRef(parent.as_ptr());
+        ptr.cast()
+    }
+}
+
+
 /// numpy built-in [to_pyarray] method always produces 2D arrays,while we need 1D
 /// arrays when converting from vectors. This is the fork of original method which
 /// does this.
