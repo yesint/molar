@@ -358,13 +358,18 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: impl Into<Holder<State, K>>) -> anyhow::Result<()> {
-        let mut st: Holder<State, _> = st.into();
+    pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
         let mut cur = self.lipids.first().unwrap().sel.get_state();
         if cur.interchangeable(&st) {
-            unsafe { cur.swap_allocations_unchecked(&mut st) };
+            unsafe { cur.replace_deep(st) };
+        } else {
+            bail!("incompatible states");
         }
         Ok(())
+    }
+
+    pub fn get_state(&self) -> Holder<State, K> {
+        self.lipids.first().unwrap().sel.get_state()
     }
 
     fn compute_patches(&mut self, d: f32) -> anyhow::Result<()> {

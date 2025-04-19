@@ -56,7 +56,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
     }
 
     fn process_frame(&mut self, context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
-        self.membr.set_state(context.src.get_state())?;
+        //self.membr.set_state(context.src.get_state())?;
         self.membr.compute()?;
         Ok(())
     }

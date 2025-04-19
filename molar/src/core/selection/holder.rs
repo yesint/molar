@@ -97,6 +97,14 @@ impl<T,K: SelectionKind> Holder<T, K> {
     pub unsafe fn replace_arc<KO: SelectionKind>(&mut self, other: Holder<T,KO>) {
         self.arc = other.arc;
     }
+
+    pub unsafe fn replace_deep(&mut self, other: T) {
+        let p = self.arc.as_ptr() as *mut T;
+        // We physically spap memory in Arc allocation
+        // this is cheap because coordinates are allocated on heap
+        // and only pointers to allocations are swapped
+        unsafe { std::ptr::replace(p, other) };
+    }
 }
 
 /// Holders are dereferenced as usual smart pointers
