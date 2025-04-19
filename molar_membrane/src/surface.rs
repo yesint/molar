@@ -198,6 +198,7 @@ impl Surface {
                 // Central point is still in origin since we didn't translate yet.
                 // Thus we can just use vertex vectors as sides of triangles in a triangle fan.
                 let n = node.voro_vertexes.len();
+                node.area = 0.0;
                 for i in 0..n {
                     node.area += 0.5*node.voro_vertexes[i].coords.cross(&node.voro_vertexes[(i+1)%n].coords).norm();
                 }

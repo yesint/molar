@@ -145,7 +145,7 @@ impl Membrane {
         };
 
         // If there are any groups in the input toml, create them
-        let mut groups: HashMap<String,LipidGroup> = Default::default();
+        let mut groups: HashMap<String, LipidGroup> = Default::default();
         for gr in &options.groups {
             groups.insert(gr.to_string(), Default::default());
         }
@@ -289,21 +289,11 @@ impl Membrane {
             self.lipids[i].compute_order(self.options.order_type.clone(), norm);
         }
 
-        // Add stats to groups
+        // Update group stats
         for gr in self.groups.values_mut() {
-            // Add individual lipid stats
-            for lip_id in &gr.lipid_ids {
-                gr.stats.add_single_lipid_stats(
-                    *lip_id,
-                    &self.lipids,
-                    &self.surface.nodes[*lip_id],
-                )?;
-            }
-            
-            for st in gr.stats.per_species.values_mut() {
-                st.num_lip.incr_count();
-            }
+            gr.frame_update(&self.lipids, &self.surface)?;
         }
+
         Ok(())
     }
 
@@ -362,11 +352,11 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: impl Into<Holder<State,MutableSerial>>) -> anyhow::Result<()> {
-        let mut st: Holder<State,_> = st.into();
+    pub fn set_state(&mut self, st: impl Into<Holder<State, MutableSerial>>) -> anyhow::Result<()> {
+        let mut st: Holder<State, _> = st.into();
         let mut cur = self.lipids.first().unwrap().sel.get_state();
         if cur.interchangeable(&st) {
-            unsafe {cur.swap_allocations_unchecked(&mut st)};
+            unsafe { cur.swap_allocations_unchecked(&mut st) };
         }
         Ok(())
     }
@@ -507,6 +497,35 @@ pub struct LipidGroup {
     stats: GroupProperties,
 }
 
+impl LipidGroup {
+    pub(crate) fn frame_update(
+        &mut self,
+        lipids: &Vec<LipidMolecule>,
+        surf: &Surface,
+    ) -> anyhow::Result<()> {
+        // Init update
+        for psp in self.stats.per_species.values_mut() {
+            psp.init_frame_update();
+        }
+        // Update group by adding individual lipid stats
+        for lip_id in &self.lipid_ids {
+            // Get species name
+            let sp_name = &lipids[*lip_id].species.name;
+            // Update stats for this species
+            self.stats
+                .per_species
+                .get_mut(sp_name)
+                .unwrap()
+                .add_single_lipid_stats(*lip_id, &lipids, &surf)?;
+        }
+        // Finish update
+        for psp in self.stats.per_species.values_mut() {
+            psp.finish_frame_update();
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, io::Read, path::PathBuf};
@@ -574,7 +593,7 @@ mod tests {
     #[derive(Clone, Debug, serde::Deserialize)]
     struct TestInp {
         cutoff: f32,
-        lipids: HashMap<String,LipidSpeciesDescr>,
+        lipids: HashMap<String, LipidSpeciesDescr>,
     }
 
     #[test]
@@ -617,19 +636,19 @@ mod tests {
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
         let mut memb = Membrane::new(&src, &toml)?;
-            //.with_groups(&["upper", "lower"]);
-            // .with_global_normal(Vector3f::z())
-            // .with_order_type(OrderType::ScdCorr)
-            // .with_output_dir("../target/membr_test_results")?
-            // .with_cutoff(2.5)
-            // .with_max_iter(1);
+        //.with_groups(&["upper", "lower"]);
+        // .with_global_normal(Vector3f::z())
+        // .with_order_type(OrderType::ScdCorr)
+        // .with_output_dir("../target/membr_test_results")?
+        // .with_cutoff(2.5)
+        // .with_max_iter(1);
 
         let mut upper = vec![];
         let mut lower = vec![];
         for (id, lip) in memb.iter_lipids() {
-            if lip.head_marker.z > z0+1.0 {
+            if lip.head_marker.z > z0 + 1.0 {
                 upper.push(id);
-            } else if lip.head_marker.z < z0-1.0 {
+            } else if lip.head_marker.z < z0 - 1.0 {
                 lower.push(id);
             }
         }
@@ -656,23 +675,22 @@ mod tests {
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
-        
-        let mut memb = Membrane::new(&src, &toml)?
-        .with_max_iter(1);
-            // .with_global_normal(Vector3f::z())
-            // .with_order_type(OrderType::ScdCorr)
-            // .with_output_dir("../target/membr_test_results")?;
+
+        let mut memb = Membrane::new(&src, &toml)?.with_max_iter(1);
+        // .with_global_normal(Vector3f::z())
+        // .with_order_type(OrderType::ScdCorr)
+        // .with_output_dir("../target/membr_test_results")?;
 
         let mut upper = vec![];
         let mut lower = vec![];
         for (id, lip) in memb.iter_lipids() {
-            if lip.head_marker.z > z0+1.0 {
+            if lip.head_marker.z > z0 + 1.0 {
                 upper.push(id);
-            } else if lip.head_marker.z < z0-1.0 {
+            } else if lip.head_marker.z < z0 - 1.0 {
                 lower.push(id);
             }
             if lip.sel.first_atom().resname == "POGL" {
-                println!("{}",lip.head_marker);
+                println!("{}", lip.head_marker);
             }
         }
 

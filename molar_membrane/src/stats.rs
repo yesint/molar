@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::lipid_species::LipidSpecies;
-use crate::{LipidMolecule, SurfNode};
+use crate::{LipidMolecule, Surface};
 
 #[derive(Default, Debug)]
 pub struct GroupProperties {
@@ -14,21 +14,11 @@ pub struct GroupProperties {
 }
 
 impl GroupProperties {
-    pub fn add_single_lipid_stats(
-        &mut self,
-        id: usize,
-        lipids: &Vec<LipidMolecule>,
-        surf: &SurfNode,
+    pub(crate) fn save_order_to_file(
+        &self,
+        dir: &Path,
+        gr_name: impl AsRef<str>,
     ) -> anyhow::Result<()> {
-        let sp_name = &lipids[id].species.name;
-        self.per_species
-            .get_mut(sp_name)
-            .unwrap()
-            .add_single_lipid_stats(id, &lipids, surf)?;
-        Ok(())
-    }
-
-    pub fn save_order_to_file(&self, dir: &Path, gr_name: impl AsRef<str>) -> anyhow::Result<()> {
         for (sp, stat) in &self.per_species {
             info!("\tWriting order for '{sp}'");
             stat.save_order_to_file(dir, format!("gr_{}_order_{}.dat", gr_name.as_ref(), sp))?;
@@ -60,9 +50,10 @@ impl GroupProperties {
         // Write neighbours frequencies
         s = "".to_string();
         for (sp, stat) in &self.per_species {
-            writeln!(s, "{sp}:")?;
-            for (nsp, val) in &stat.neib_species {
-                let res = val.compute()?;
+            let nneib = stat.num_neib.compute()?;
+            writeln!(s, "{sp}:\t\t{:>8.3}\t{:>8.3}", nneib.mean, nneib.stddev)?;
+            for (nsp, counter) in &stat.neib_species {
+                let res = counter.compute()?;
                 writeln!(s, "\t{nsp}\t{:>8.3}\t{:>8.3}", res.mean, res.stddev)?;
             }
             s.push('\n');
@@ -77,23 +68,35 @@ impl GroupProperties {
 }
 
 #[derive(Debug)]
-pub struct SpeciesStats {
+pub(crate) struct SpeciesStats {
     pub num_lip: MeanStd,
     pub area: MeanStd,
     pub tilt: MeanStd,
     pub order: Vec<MeanStdVec>,
     pub neib_species: HashMap<String, MeanStd>,
+    pub num_neib: MeanStd,
+
+    // Accumulated values for a single frame update
+    num_lip_cur: usize,
+    neib_species_cur: HashMap<String, usize>,
 }
 
 impl SpeciesStats {
-    pub fn new(cur_species: &LipidSpecies, all_species_names: impl Iterator<Item=String>) -> Self {
+    pub fn new(
+        cur_species: &LipidSpecies,
+        all_species_names: impl Iterator<Item = String>,
+    ) -> Self {
         let mut order = Vec::with_capacity(cur_species.tails.len());
         for t in &cur_species.tails {
             order.push(MeanStdVec::new(t.bond_orders.len() - 1));
         }
 
         let neib_species = all_species_names
-            .map(|sp| (sp.to_owned(), MeanStd::default()))
+            .map(|sp| (sp.to_owned(), Default::default()))
+            .collect::<HashMap<_, _>>();
+
+        let neib_species_cur = neib_species.keys()
+            .map(|sp| (sp.to_owned(), 0))
             .collect::<HashMap<_, _>>();
 
         Self {
@@ -101,7 +104,17 @@ impl SpeciesStats {
             tilt: MeanStd::default(),
             order,
             num_lip: MeanStd::default(),
+            num_neib: MeanStd::default(),
             neib_species,
+            num_lip_cur: 0,
+            neib_species_cur,
+        }
+    }
+
+    pub(crate) fn init_frame_update(&mut self) {
+        self.num_lip_cur = 0;
+        for v in self.neib_species_cur.values_mut() {
+            *v = 0;
         }
     }
 
@@ -109,30 +122,52 @@ impl SpeciesStats {
         &mut self,
         id: usize,
         lipids: &Vec<LipidMolecule>,
-        surf: &SurfNode,
+        surf: &Surface,
     ) -> anyhow::Result<()> {
-        self.area.add(surf.area);
-        self.tilt.add(surf.normal.angle(&lipids[id].tail_head_vec));
-        for tail in 0..lipids[id].order.len() {
-            self.order[tail].add(&lipids[id].order[tail])?;
-        }
+        if surf.nodes[id].valid {
+            self.area.add(surf.nodes[id].area);
 
-        // Update lipid counter
-        self.num_lip.add_value(1.0);
+            self.tilt.add(
+                surf.nodes[id]
+                    .normal
+                    .angle(&lipids[id].tail_head_vec)
+                    .to_degrees(),
+            );
 
-        // Collect neighbours
-        for nid in &surf.neib_ids {
-            let neib_sp_name = &lipids[*nid].species.name;
-            if !self.neib_species.contains_key(neib_sp_name) {
-                self.neib_species
-                    .insert(neib_sp_name.to_string(), Default::default());
+            for tail in 0..lipids[id].order.len() {
+                self.order[tail].add(&lipids[id].order[tail])?;
             }
-            self.neib_species.get_mut(neib_sp_name).unwrap().add(1.0);
+
+            self.num_neib.add(surf.nodes[id].neib_ids.len() as f32);
+
+            // Update lipid counter
+            self.num_lip_cur += 1;
+
+            // Update neighbours
+            //let cur_sp_name = &lipids[id].species.name;
+            for nid in &surf.nodes[id].neib_ids {
+                let neib_sp_name = &lipids[*nid].species.name;
+                // Initialize map entry if not yet exists
+                // if !self.neib_species.contains_key(neib_sp_name) {
+                //     self.neib_species
+                //         .insert(neib_sp_name.to_string(), Default::default());
+                // }
+                self.neib_species_cur.get_mut(neib_sp_name).map(|v| *v+=1);
+            }      
         }
-        for el in self.neib_species.values_mut() {
-            el.incr_count();
-        }
+
         Ok(())
+    }
+
+    pub fn finish_frame_update(&mut self) {
+        // Number of lipids have to be counted once per frame
+        self.num_lip.add(self.num_lip_cur as f32);
+        // Take into account the number of lipids of the current type
+        for (sp,val) in self.neib_species_cur.iter() {
+            let v = *val as f32 / self.num_lip_cur as f32;
+            //println!("{} {} {}",self.num_lip_cur,sp,val);
+            self.neib_species.get_mut(sp).unwrap().add(v);
+        }
     }
 
     pub fn save_order_to_file(&self, dir: &Path, fname: impl AsRef<str>) -> anyhow::Result<()> {
@@ -215,23 +250,16 @@ impl MeanStd {
         self.n += 1.0;
     }
 
-    pub fn add_value(&mut self, val: f32) {
-        self.x += val;
-        self.x2 += val * val;
-    }
-
-    pub fn incr_count(&mut self) {
-        self.n += 1.0;
-    }
-
     pub fn compute(&self) -> anyhow::Result<MeanStdResult> {
         if self.n == 0.0 {
             bail!("no values accumulated in MeanStd");
         }
 
         let mean = self.x / self.n;
-        let stddev = if self.x != self.x2 {
-            ((self.x2 / self.n) - (mean * mean)).sqrt()
+        let x2_n = self.x2 / self.n;
+        let m2 = mean * mean;
+        let stddev = if x2_n > m2 {
+            (x2_n - m2).sqrt()
         } else {
             0.0
         };
