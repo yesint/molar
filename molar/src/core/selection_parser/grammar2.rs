@@ -355,9 +355,9 @@ peg::parser! {
         = "noself" { false }
 
         // Vectors
-        #[cache_left_rec]
-        rule vec3() -> AstNode
-        = vec3_lit() / vec3_folded() 
+        // #[cache_left_rec]
+        // rule vec3() -> AstNode
+        // = vec3_lit() / vec3_folded() 
 
         // Literal vector: [1.0 2.0 3.0]
         rule vec3_lit() -> AstNode
@@ -366,13 +366,13 @@ peg::parser! {
             new_node(V::Vec3(Vector3f::new(v[0],v[1],v[2])), vec![])
         }
 
-        rule line() -> AstNode
-        = "line(" p1:vec3() arg_delim() p2:vec3() ")"
-        { new_node(F::Line, vec![p1,p2]) }
+        // rule line() -> AstNode
+        // = "line(" p1:vec3() arg_delim() p2:vec3() ")"
+        // { new_node(F::Line, vec![p1,p2]) }
 
         // Vector obtained by "folding" an index rule: (...).com()
-        #[cache_left_rec]
-        rule vec3_folded() -> AstNode
+        
+        rule logical_folded() -> AstNode
         = l:logical() "." f:fold_to_vec3()
         { new_node(V::FoldVec3, vec![l,f]) }
 
@@ -385,7 +385,7 @@ peg::parser! {
         rule cmp_op_gt()  -> I = ">"  {I::CmpGt}
 
         // Simple comparison
-        #[cache_left_rec]
+        //#[cache_left_rec]
         rule cmp_expr() -> AstNode =
             a:math_expr() _
             op:(cmp_op_eq() /cmp_op_neq()/
@@ -440,7 +440,7 @@ peg::parser! {
             "(" _ e:math_expr() _ ")" { e }
         }
 
-        #[cache_left_rec]
+        //#[cache_left_rec]
         rule vector_math_expr() -> AstNode
         = precedence!{
             x:(@) _ "+" _ y:@ { new_node(V::Add, vec![x,y]) }
@@ -453,11 +453,12 @@ peg::parser! {
             --
             "-" _ v:@ { new_node(V::UnaryMinus,vec![v]) }
             --
-            v:vec3() { v }
+            v:vec3_lit() { v }
             v:var_vec() { v }
-            l:logical() "." f:fold_to_vec3() {
-                new_node(V::FoldVec3, vec![l,f])
-            }
+            
+            // l:logical() "." f:fold_to_vec3() {
+            //     new_node(V::FoldVec3, vec![l,f])
+            // }
 
             "(" _ e:vector_math_expr() _ ")" { e }
         }
@@ -522,13 +523,13 @@ peg::parser! {
             ("!" _ / "not" ___) v:@ { new_node(I::Not, vec![v]) }
             --
             x:@ "." m:modifier() { new_node(I::FnModified, vec![x,m]) }
-            //--
+            --
             v:function() { v }
             v:cmp_expr() { v }
             v:var_index() { v }
-            v:vector_math_expr() "." a:around_modifier() {
-                new_node(I::AroundPoint, vec![v,a])
-            }
+            // v:vector_math_expr() "." a:around_modifier() {
+            //     new_node(I::AroundPoint, vec![v,a])
+            // }
             "(" _ e:logical() _ ")" { e }
         }
 

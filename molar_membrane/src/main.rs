@@ -28,6 +28,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
             .select(&context.args.sel_center)?
             .center_of_mass()?
             .z;
+        
         let mut toml = String::new();
         std::fs::File::open(&context.args.params_file)
             .context(format!(
@@ -35,6 +36,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
                 &context.args.params_file
             ))?
             .read_to_string(&mut toml)?;
+        
         let mut membr = Membrane::new(&context.src, &toml)?;
 
         let mut upper = vec![];
@@ -71,9 +73,6 @@ fn main() -> Result<()> {
         .format_indent(Some(8))
         .filter_level(log::LevelFilter::Info)
         .init();
-
-    // Greeting
-    //molar::greeting("molar_bin");
 
     MembraneBilayerTask::run()?;
     Ok(())
