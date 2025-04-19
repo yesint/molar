@@ -177,11 +177,14 @@ impl<K: SelectionKind> Sel<K> {
         Ok(std::mem::replace(&mut self.topology, topology))
     }
 
+    /// Sets new [State] in [Sel].
+    /// This is "shallow" operation, which doesn't affect other
+    /// [Sel]s that point to the same [State].
     pub fn set_state(
         &mut self,
         state: impl Into<Holder<State, K>>,
     ) -> Result<Holder<State, K>, SelectionError> {
-        let state = state.into();
+        let state: Holder<State,K> = state.into();
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);
         }

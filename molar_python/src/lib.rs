@@ -117,7 +117,7 @@ impl FileHandler {
                 .unwrap()
                 .extract::<PyRefMut<'_, Topology>>()?;
             let st = s.iter().next().unwrap().extract::<PyRefMut<'_, State>>()?;
-            h.write(&(top.0.clone(), st.0.clone()))?;
+            h.write(&(top.0.clone_view(), st.0.clone_view()))?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -270,7 +270,7 @@ impl Source {
                 .try_borrow_mut()?;
             let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
             Ok(Source(
-                molar::core::Source::new_builder(top.0.clone(), st.0.clone())
+                molar::core::Source::new_builder(top.0.clone_view(), st.0.clone_view())
                     .map_err(|e| anyhow!(e))?,
             ))
         } else {
@@ -333,7 +333,7 @@ impl Source {
         // Now call set_state as usual
         let old_st = self.0.set_state(dum_st).map_err(|e| anyhow!(e))?;
         // We should not leave st empty, it should point to the same state as self
-        unsafe { st_ref.0.replace_arc(self.0.get_state()) };
+        unsafe { st_ref.0.replace_arc_unchecked(self.0.get_state()) };
         // Pack old_st and return it
         Bound::new(st.py(), State(old_st.into()))
     }
@@ -519,7 +519,7 @@ impl Sel {
     fn set_state(&mut self, st: Bound<'_, State>) -> PyResult<()> {
         let _ = self
             .get_mut()
-            .set_state(st.try_borrow_mut()?.0.clone())
+            .set_state(st.try_borrow_mut()?.0.clone_view())
             .map_err(|e| anyhow!(e));
         Ok(())
     }

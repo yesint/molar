@@ -191,12 +191,13 @@ impl<K: UserCreatableKind> Source<K> {
     //     self.select_internal(vec)
     // }
 
-    /// Sets new [State] in this source. All selections created from this source will automatically view
-    /// the new state.
+    /// Sets new [State] in this [Source]. 
+    /// This is "deep" otheration! All selections created from this source 
+    /// will automatically view the new state.
     ///
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     ///
-    /// Returns [Holder] with old state, so it could be reused if needed.
+    /// Returns [Holder] with an old state, so it could be reused if needed.
     pub fn set_state(&self, state: State) -> Result<State, SelectionError> {
         if !self.state.interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);

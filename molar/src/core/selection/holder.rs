@@ -1,5 +1,5 @@
 use std::{marker::PhantomData, ops::Deref};
-use super::{BuilderSerial, ImmutableParallel, MutableParallel, MutableSerial, SelectionError, SelectionKind, UserCreatableKind};
+use super::{SelectionError, SelectionKind, UserCreatableKind};
 
 /// Smart pointer wrapper for sharing [Topology] and [State] between serial selections.
 /// Acts like Rc parameterized by selection kind, so the user can't accidentally mix incompatible
@@ -26,7 +26,7 @@ pub struct Holder<T, K> {
 //     }
 // }
 
-impl<T,K: UserCreatableKind> From<T> for Holder<T,K> {
+impl<T,K: SelectionKind> From<T> for Holder<T,K> {
     fn from(value: T) -> Self {
         Self {
             arc: triomphe::Arc::new(value),
@@ -35,17 +35,26 @@ impl<T,K: UserCreatableKind> From<T> for Holder<T,K> {
     }
 }
 
-macro_rules! impl_clone_for_holder {
-    ( $k:ty ) => {
-        impl<T> Clone for Holder<T, $k> {
-            fn clone(&self) -> Self {
-                Self {
-                    arc: triomphe::Arc::clone(&self.arc),
-                    _kind: Default::default(),
-                }
-            }
+// macro_rules! impl_clone_for_holder {
+//     ( $k:ty ) => {
+//         impl<T> Clone for Holder<T, $k> {
+//             fn clone(&self) -> Self {
+//                 Self {
+//                     arc: triomphe::Arc::clone(&self.arc),
+//                     _kind: Default::default(),
+//                 }
+//             }
+//         }
+//     };
+// }
+
+impl<T,K: UserCreatableKind> Holder<T, K> {
+    pub fn clone_view(&self) -> Self {
+        Self {
+            arc: triomphe::Arc::clone(&self.arc),
+            _kind: Default::default(),
         }
-    };
+    }
 }
 
 // impl_from_t_for_holder!(MutableSerial);
@@ -53,9 +62,9 @@ macro_rules! impl_clone_for_holder {
 // impl_from_t_for_holder!(MutableParallel);
 // impl_from_t_for_holder!(ImmutableParallel);
 
-impl_clone_for_holder!(MutableSerial);
-impl_clone_for_holder!(BuilderSerial);
-impl_clone_for_holder!(ImmutableParallel);
+// impl_clone_for_holder!(MutableSerial);
+// impl_clone_for_holder!(BuilderSerial);
+// impl_clone_for_holder!(ImmutableParallel);
 
 
 impl<T,K: SelectionKind> Holder<T, K> {
@@ -81,6 +90,9 @@ impl<T,K: SelectionKind> Holder<T, K> {
     }
 
     /// Unsafely swaps allocations of two holders without any checks
+    /// This function preserves the reference count of both holders
+    /// and only changes their allocations.
+    /// This doesn't affect other holders pointing to the same allocation.
     pub unsafe fn swap_allocations_unchecked(
         &mut self,
         other: &mut Self,
@@ -94,16 +106,19 @@ impl<T,K: SelectionKind> Holder<T, K> {
     }
 
     /// Replace arc in this Holder without any checks
-    pub unsafe fn replace_arc<KO: SelectionKind>(&mut self, other: Holder<T,KO>) {
+    pub unsafe fn replace_arc_unchecked<KO: SelectionKind>(&mut self, other: Holder<T,KO>) {
         self.arc = other.arc;
     }
 
-    pub unsafe fn replace_deep(&mut self, other: T) {
+    /// Sunstitutes object T for *all* holders pointing to the same
+    /// allocation as self ("deep" substitution).
+    /// Old T is returned.
+    pub unsafe fn replace_deep_unchecked(&mut self, other: T) -> T {
         let p = self.arc.as_ptr() as *mut T;
-        // We physically spap memory in Arc allocation
+        // We physically move into the memory in Arc allocation
         // this is cheap because coordinates are allocated on heap
         // and only pointers to allocations are swapped
-        unsafe { std::ptr::replace(p, other) };
+        unsafe { std::ptr::replace(p, other) }
     }
 }
 
@@ -115,7 +130,7 @@ impl<T, K: SelectionKind> Deref for Holder<T, K> {
     }
 }
 
-impl<T: Clone, K: SelectionKind> Holder<T, K> {
+impl<T, K: SelectionKind> Holder<T, K> {
     /// Holder can release a wrapped type if it is uniquesly owned
     pub fn release(self) -> Result<T, SelectionError> {
         Ok( triomphe::Arc::try_unwrap(self.arc).map_err(|_| SelectionError::Release)? )

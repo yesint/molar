@@ -358,12 +358,17 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
-        let mut cur = self.lipids.first().unwrap().sel.get_state();
-        if cur.interchangeable(&st) {
-            unsafe { cur.replace_deep(st) };
-        } else {
-            bail!("incompatible states");
+    pub fn set_state(&mut self, st: impl Into<Holder<State,K>>) -> anyhow::Result<()> {
+        let st: Holder<State,K> = st.into();
+        // Go over all lipids and set their "shallow" states
+        for lip in &mut self.lipids {
+            lip.sel.set_state(st.clone_view())?;
+            lip.head_sel.set_state(st.clone_view())?;
+            lip.mid_sel.set_state(st.clone_view())?;
+            lip.tail_end_sel.set_state(st.clone_view())?;
+            for t in &mut lip.tail_sels {
+                t.set_state(st.clone_view())?;
+            }
         }
         Ok(())
     }

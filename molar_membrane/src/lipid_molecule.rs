@@ -45,11 +45,11 @@ impl<K: UserCreatableKind+MutableKind> LipidMolecule<K> {
     }
 
     pub fn set_state(&mut self, st: Holder<State, K>) -> anyhow::Result<()> {
-        self.sel.set_state(st.clone())?;
-        self.head_sel.set_state(st.clone())?;
-        self.mid_sel.set_state(st.clone())?;
+        self.sel.set_state(st.clone_view())?;
+        self.head_sel.set_state(st.clone_view())?;
+        self.mid_sel.set_state(st.clone_view())?;
         for t in &mut self.tail_sels {
-            t.set_state(st.clone())?;
+            t.set_state(st.clone_view())?;
         }
         self.update_markers()?;
         Ok(())

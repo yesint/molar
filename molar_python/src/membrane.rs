@@ -17,21 +17,9 @@ impl Membrane {
         Ok(self.0.add_lipids_to_group(gr_name, &ids)?)
     }
 
-    fn set_state<'py>(&mut self, st: &Bound<'py, State>) -> PyResult<()> {
-        use molar::core::RandomPosProvider;
-        let mut st_ref = st.borrow_mut();
-        // In Python we can pass by value, so we have to release State from the
-        // Python object. To do this firt swap it with new dummy Holder
-        // which is uniquilly owned and then release it from this holder
-        let mut dum_holder = Holder::new(molar::core::State::new_fake(st_ref.0.num_coords()));
-        unsafe { dum_holder.swap_allocations_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
-                                                                         // dum_holder is uniquelly owned, so this never fails
-        let dum_st = dum_holder.release().unwrap();
-        
-        // Now call set_state as usual
-        self.0.set_state(dum_st).map_err(|e| anyhow!(e))?;
-        // We should not leave st empty, it should point to the same state as self
-        unsafe { st_ref.0.replace_arc(self.0.get_state()) };
+    fn set_state<'py>(&mut self, st: &Bound<'py, crate::State>) -> PyResult<()> {
+        let mut st_ref = &st.borrow_mut().0;
+        todo!("we don't need to release state here, just use existing holder");
         Ok(())
     }
 

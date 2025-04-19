@@ -55,8 +55,9 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
         Ok(Self { membr })
     }
 
-    fn process_frame(&mut self, context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
-        //self.membr.set_state(context.src.get_state())?;
+    fn process_frame(&mut self, _context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
+        // We don't need to update the state since all selections in membr
+        // originate from context.src that is update automatically.
         self.membr.compute()?;
         Ok(())
     }
