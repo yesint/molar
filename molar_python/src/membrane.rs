@@ -17,9 +17,8 @@ impl Membrane {
         Ok(self.0.add_lipids_to_group(gr_name, &ids)?)
     }
 
-    fn set_state<'py>(&mut self, st: &Bound<'py, crate::State>) -> PyResult<()> {
-        let mut st_ref = &st.borrow_mut().0;
-        todo!("we don't need to release state here, just use existing holder");
+    fn set_state(&mut self, st: &crate::State) -> PyResult<()> {
+        self.0.set_state(st.0.new_ref())?;
         Ok(())
     }
 

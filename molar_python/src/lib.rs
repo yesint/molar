@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
-    nalgebra::{self, Const, Dyn, Owned, VectorView},
+    nalgebra::{self, Const, Dyn, VectorView},
     PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
 use pyo3::{
@@ -117,7 +117,7 @@ impl FileHandler {
                 .unwrap()
                 .extract::<PyRefMut<'_, Topology>>()?;
             let st = s.iter().next().unwrap().extract::<PyRefMut<'_, State>>()?;
-            h.write(&(top.0.clone_view(), st.0.clone_view()))?;
+            h.write(&(top.0.new_ref(), st.0.new_ref()))?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -270,7 +270,7 @@ impl Source {
                 .try_borrow_mut()?;
             let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
             Ok(Source(
-                molar::core::Source::new_builder(top.0.clone_view(), st.0.clone_view())
+                molar::core::Source::new_builder(top.0.new_ref(), st.0.new_ref())
                     .map_err(|e| anyhow!(e))?,
             ))
         } else {
@@ -285,30 +285,29 @@ impl Source {
         self.0.len()
     }
 
-    fn select_all(&mut self) -> PyResult<Sel> {
-        Ok(Sel::new_owned(self.0.select_all().map_err(|e| anyhow!(e))?))
+    fn select_all(&mut self) -> anyhow::Result<Sel> {
+        Ok(Sel::new_owned(self.0.select_all()?))
     }
 
-    fn select(&mut self, sel_str: &str) -> PyResult<Sel> {
-        Ok(Sel::new_owned(self.0.select(sel_str).map_err(|e| anyhow!(e))?))
+    fn select(&mut self, sel_str: &str) -> anyhow::Result<Sel> {
+        Ok(Sel::new_owned(self.0.select(sel_str)?))
     }
 
     #[pyo3(signature = (arg=None))]
-    fn __call__(&self, arg: Option<&Bound<'_, PyAny>>) -> PyResult<Sel> {
+    fn __call__(&self, arg: Option<&Bound<'_, PyAny>>) -> anyhow::Result<Sel> {
         if let Some(arg) = arg {
             if let Ok(val) = arg.extract::<String>() {
                 if val.is_empty() {
-                    Ok(Sel::new_owned(self.0.select_all().map_err(|e| anyhow!(e))?))
+                    Ok(Sel::new_owned(self.0.select_all()?))
                 } else {
-                    Ok(Sel::new_owned(self.0.select(val).map_err(|e| anyhow!(e))?))
+                    Ok(Sel::new_owned(self.0.select(val)?))
                 }
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
                 Ok(Sel::new_owned(self
                     .0
-                    .select(val.0..val.1)
-                    .map_err(|e| anyhow!(e))?))
+                    .select(val.0..val.1)?))
             } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-                Ok(Sel::new_owned(self.0.select(val).map_err(|e| anyhow!(e))?))
+                Ok(Sel::new_owned(self.0.select(val)?))
             } else {
                 Err(anyhow!(
                     "Invalid argument type {} when creating selection",
@@ -317,29 +316,26 @@ impl Source {
                 .into())
             }
         } else {
-            Ok(Sel::new_owned(self.0.select_all().map_err(|e| anyhow!(e))?))
+            Ok(Sel::new_owned(self.0.select_all()?))
         }
     }
 
-    fn set_state<'py>(&mut self, st: &Bound<'py, State>) -> PyResult<Bound<'py, State>> {
-        let mut st_ref = st.borrow_mut();
-        // In Python we can pass by value, so we have to release State from the
-        // Python object. To do this firt swap it with new dummy Holder
-        // which is uniquilly owned and then release it from this holder
-        let mut dum_holder = Holder::new(molar::core::State::default());
-        unsafe { dum_holder.swap_allocations_unchecked(&mut st_ref.0) }; // st_ref is empty at this point
-                                                             // dum_holder is uniquelly owned, so this never fails
-        let dum_st = dum_holder.release().unwrap();
-        // Now call set_state as usual
-        let old_st = self.0.set_state(dum_st).map_err(|e| anyhow!(e))?;
-        // We should not leave st empty, it should point to the same state as self
-        unsafe { st_ref.0.replace_arc_unchecked(self.0.get_state()) };
-        // Pack old_st and return it
-        Bound::new(st.py(), State(old_st.into()))
+    fn set_state(&mut self, st: &State) -> anyhow::Result<State> {
+        let old_state = self.0.set_state(st.0.new_ref())?;
+        Ok(State(old_state))
+    }
+
+    fn set_topology(&mut self, st: &Topology) -> anyhow::Result<Topology> {
+        let old_top = self.0.set_topology(st.0.new_ref())?;
+        Ok(Topology(old_top))
     }
 
     fn get_state(&self) -> State {
         State(self.0.get_state())
+    }
+
+    fn get_topology(&self) -> Topology {
+        Topology(self.0.get_topology())
     }
 
     fn save(&self, fname: &str) -> anyhow::Result<()> {
@@ -519,7 +515,7 @@ impl Sel {
     fn set_state(&mut self, st: Bound<'_, State>) -> PyResult<()> {
         let _ = self
             .get_mut()
-            .set_state(st.try_borrow_mut()?.0.clone_view())
+            .set_state(st.try_borrow_mut()?.0.new_ref())
             .map_err(|e| anyhow!(e));
         Ok(())
     }

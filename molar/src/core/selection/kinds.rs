@@ -7,7 +7,7 @@ use super::SelectionError;
 pub trait SelectionKind {
     #[inline(always)]
     #[allow(unused_variables)]
-    fn check_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
+    fn validate_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
         Ok(())
     }
 }
@@ -17,27 +17,30 @@ pub trait MutableKind: SelectionKind {}
 /// Trait marking selections that can be created by user
 pub trait UserCreatableKind: SelectionKind {}
 
-//------------------------------------------------------
-
+//---------------------------------------------------------------------------
 /// Marker type for possibly overlapping mutable selection (single-threaded)
+//---------------------------------------------------------------------------
 pub struct MutableSerial(PhantomData<*const ()>);
 
 impl SelectionKind for MutableSerial {}
 impl MutableKind for MutableSerial {}
 impl UserCreatableKind for MutableSerial {}
 
+//---------------------------------------------------------------------------
 /// Marker type for possibly overlapping builder selection (single-threaded)
+//---------------------------------------------------------------------------
 pub struct BuilderSerial(PhantomData<*const ()>);
 
 impl SelectionKind for BuilderSerial {
     #[inline(always)]
-    fn check_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
+    fn validate_index(index: &SortedSet<usize>, topology: &Topology, state: &State) -> Result<(), SelectionError> {
+        // Index is guaranteed to be non-empty
         let first = unsafe { *index.get_unchecked(0) };
         let last = unsafe { *index.get_unchecked(index.len()-1) };
-        let n1 = topology.num_atoms();
-        let n2 = state.num_coords();
-        if first >= n1 || last >= n1 ||  first >= n2 || last >= n2 {
-            return Err(SelectionError::IndexCheck(first,last,n1));
+        let ntop = topology.num_atoms();
+        let nst = state.num_coords();
+        if first >= ntop || last >= ntop ||  first >= nst || last >= nst {
+            return Err(SelectionError::IndexValidation(first,last,ntop));
         } else {
             Ok(())
         }
@@ -47,14 +50,18 @@ impl SelectionKind for BuilderSerial {
 impl MutableKind for BuilderSerial {}
 impl UserCreatableKind for BuilderSerial {}
 
+//---------------------------------------------------------------------------
 /// Marker type for non-overlapping mutable selection (multi-threaded)
+//---------------------------------------------------------------------------
 pub struct MutableParallel {}
 
 impl SelectionKind for MutableParallel {}
 impl MutableKind for MutableParallel {}
 // Not user creatable!
 
+//---------------------------------------------------------------------------
 /// Marker type for possibly overlapping immutable selection (multi-threaded)
+//---------------------------------------------------------------------------
 pub struct ImmutableParallel {}
 
 impl SelectionKind for ImmutableParallel {}

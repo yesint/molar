@@ -71,7 +71,7 @@ pub enum SelectionError {
     LocalToGlobal(usize, usize),
 
     #[error("selection index {0}:{1} is outside the source range: 0:{2}")]
-    IndexCheck(usize, usize, usize),
+    IndexValidation(usize, usize, usize),
 
     #[error(transparent)]
     FileIo(#[from] FileIoError),

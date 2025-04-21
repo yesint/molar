@@ -15,40 +15,36 @@ use super::{next_split, utils::*, SplitData};
 /// change them in different ways.
 ///
 /// # Kinds of selections
-/// There are three kinds of selections set by the generic marker parameter:
+/// There are four kinds of selections set by the generic marker parameter:
 /// ### Serial mutable (`Sel<MutableSerial>`)
-/// * May overlap
-/// * Mutable
-/// * Could only be accessed from the same thread where
-/// they were created (they are neither [Send] nor [Sync]).
-/// * Manipulated directly by the user.
+/// * May overlap.
+/// * Mutable.
+/// * Could only be accessed from the same thread where they were created (they are neither [Send] nor [Sync]).
+/// ### Builder selections (`Sel<BuilderSerial>`)
+/// * May overlap.
+/// * Mutable.
+/// * Could only be accessed from the same thread where they were created (they are neither [Send] nor [Sync]).
+/// * Should be used together with `Source<BuilderSerial>` to add or delete atoms from the system 
+/// (other selection kinds don't allow this). 
+/// <section class="warning">
+/// This selection kind involves additional checks to ensure that selection
+/// indexes are valid after potential deletion of atoms, so marginally slower than other selection kinds.
+/// </section>
 /// ### Parallel immutable (`Sel<ImmutableParallel>`)
-/// * May overlap
-/// * Immutable
-/// * Could be processed in parallel
-/// * Not accessible directly. Manipulated by the [SourceParallel] object that created them.
+/// * May overlap.
+/// * Immutable.
+/// * Could be processed in parallel from multiple threads and sent between threads.
 /// ### Parallel mutable (`Sel<MutableParallel>`)
 /// * _Can't_ overlap
 /// * Mutable
-/// * Could be processed in parallel.
-/// * Not accessible directly. Manipulated by the [SourceParallel] object that created them.
+/// * Could be processed in parallel from multiple threads and sent between threads.
+/// * Can't be created directly. Obtained by splitting MutableSerial selections only.
 ///
 /// Immutable selections implement the traits that allow to query properties, while
-/// mutable once also implement traits that allow to modify atoms and coordinates.
+/// mutable also implement traits that allow to modify atoms and coordinates.
 ///
 /// # Subselections
-/// It is possible to select within existing selection using `select_from_*` methods.
-/// * For [ImmutableParallel] and [MutableSerial] selections subselectons have the same kind.
-/// * For [MutableParallel] selections subselectons have [MutableSerial] type instead because otherwise
-/// it is impossible to maintain the invariant of non-overlapping mutable access to the underlying data.
-///
-/// # Splitting selections
-/// Selections could be split using the custom closire as a criterion. There are two flavours
-/// of splitting functions:
-/// * `split_*` produce a number of subselections but leaves the parent selection alive.
-/// The parts follow the rules of subselections.
-/// * `split_into_*` consume a parent selection and produce the parts, that always have _the same_
-/// kind as a parent selection.
+/// It is possible to select within existing selection using `subsel` methods.
 
 #[derive(Debug)]
 pub struct Sel<K> {
@@ -68,14 +64,14 @@ pub struct Sel<K> {
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
     pub(super) fn index(&self) -> &SortedSet<usize> {
-        self.check_index().unwrap();
+        self.validate_index().unwrap();
         &self.index_storage
     }
 
     #[inline(always)]
     pub fn len(&self) -> usize {
-        // We need to check index here manually
-        self.check_index().unwrap();
+        // We need to validate index here manually
+        self.validate_index().unwrap();
         self.num_atoms()
     }
 
@@ -83,19 +79,9 @@ impl<K: SelectionKind> Sel<K> {
     // Getters, Setters and Accessors
     //=================================
 
-    pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
-        let ind = *self.index().get(i)?;
-        Some(unsafe { self.state.nth_pos_unchecked(ind) })
-    }
-
-    pub fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        let ind = *self.index().get(i)?;
-        Some(unsafe { self.state.nth_pos_unchecked_mut(ind) })
-    }
-
-    /// Returns a copy of the selection index vector.
-    pub fn get_index_vec(&self) -> SortedSet<usize> {
-        self.index().clone()
+    /// Returns reference to index vector.
+    pub fn get_index_vec(&self) -> &SortedSet<usize> {
+        &self.index()
     }
 
     pub fn first_index(&self) -> usize {
@@ -110,60 +96,41 @@ impl<K: SelectionKind> Sel<K> {
         self.index().get(i).cloned()
     }
 
-    /// Get a Particle for the first selection index.
-    pub fn first_particle(&self) -> Particle {
-        unsafe { self.nth_particle_unchecked(0) }
-    }
+    // pub fn first_particle(&self) -> Particle {
+    //     unsafe { self.nth_particle_unchecked(0) }
+    // }
+
+    // pub fn first_particle_mut(&self) -> ParticleMut {
+    //     unsafe { self.nth_particle_mut_unchecked(0) }
+    // }
 
     /// Get a Particle for the last selection index.
     pub fn last_particle(&self) -> Particle {
         unsafe { self.nth_particle_unchecked(self.index().len() - 1) }
     }
 
-    /// Get a Particle for the n-th selection index.
-    /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth_particle(&self, i: usize) -> Option<Particle> {
-        if i >= self.len() {
-            None
-        } else {
-            Some(unsafe { self.nth_particle_unchecked(i) })
-        }
-    }
+    // pub fn last_particle_mut(&self) -> ParticleMut {
+    //     unsafe { self.nth_particle_mut_unchecked(self.index().len() - 1) }
+    // }
 
-    pub fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
-        if i >= self.len() {
-            None
-        } else {
-            Some(unsafe { self.nth_particle_unchecked_mut(i) })
-        }
-    }
+    // /// Get a Particle for the n-th selection index.
+    // /// Index is bound-checked, an error is returned if it is out of bounds.
+    // pub fn nth_particle(&self, i: usize) -> Option<Particle> {
+    //     let ind = *self.index().get(i)?;
+    //     Some(unsafe { self.nth_particle_unchecked(ind) })
+    // }
 
-    /// Get an [Atom] for the first selection index.
-    pub fn first_atom(&self) -> &Atom {
-        unsafe { self.nth_atom_unchecked(0) }
-    }
-
-    /// Get an [Atom] for the last selection index.
-    pub fn last_atom(&self) -> &Atom {
-        unsafe { self.nth_atom_unchecked(self.index().len() - 1) }
-    }
-
-    /// Get an [Atom] for the n-th selection index.
-    /// Index is bound-checked, an error is returned if it is out of bounds.
-    pub fn nth_atom(&self, i: usize) -> Option<&Atom> {
-        if i >= self.len() {
-            None
-        } else {
-            Some(unsafe { self.nth_atom_unchecked(i) })
-        }
-    }
+    // pub fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
+    //     let ind = *self.index().get(i)?;
+    //     Some(unsafe { self.nth_particle_mut_unchecked(ind) })
+    // }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
-        self.topology.clone_with_kind()
+        self.topology.new_ref_with_kind()
     }
 
     pub fn get_state(&self) -> Holder<State, K> {
-        self.state.clone_with_kind()
+        self.state.new_ref_with_kind()
     }
 
     pub fn set_topology(
@@ -222,32 +189,8 @@ impl<K: SelectionKind> Sel<K> {
 
 impl<K: SelectionKind> Sel<K> {
     #[inline(always)]
-    fn check_index(&self) -> Result<(), SelectionError> {
-        K::check_index(&self.index_storage, &self.topology, &self.state)
-    }
-
-    // Get a Particle for i-th selection index.
-    // # Safety
-    // This is an unsafe operation that doesn't check if the index is in bounds.
-    pub(super) unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = *self.index_storage.get_unchecked(i);
-        Particle {
-            id: ind,
-            atom: self.topology.nth_atom_unchecked(ind),
-            pos: self.state.nth_pos_unchecked(ind),
-        }
-    }
-
-    // Get a mutable Particle for i-th selection index with
-    // # Safety
-    // This is an unsafe operation that doesn't check if the index is in bounds.
-    pub(super) unsafe fn nth_particle_unchecked_mut(&self, i: usize) -> ParticleMut<'_> {
-        let ind = *self.index_storage.get_unchecked(i);
-        ParticleMut {
-            id: ind,
-            atom: self.topology.nth_atom_unchecked_mut(ind),
-            pos: self.state.nth_pos_unchecked_mut(ind),
-        }
+    fn validate_index(&self) -> Result<(), SelectionError> {
+        K::validate_index(&self.index_storage, &self.topology, &self.state)
     }
 
     // This method doesn't check if the vector is sorted and has duplicates and thus unsafe
@@ -257,8 +200,8 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Sel<KO>, SelectionError> {
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone_with_kind(),
-                state: self.state.clone_with_kind(),
+                topology: self.topology.new_ref_with_kind(),
+                state: self.state.new_ref_with_kind(),
                 index_storage: SortedSet::from_sorted(index),
             })
         } else {
@@ -277,8 +220,8 @@ impl<K: SelectionKind> Sel<K> {
     ) -> Result<Sel<KO>, SelectionError> {
         if index.len() > 0 {
             Ok(Sel {
-                topology: self.topology.clone_with_kind(),
-                state: self.state.clone_with_kind(),
+                topology: self.topology.new_ref_with_kind(),
+                state: self.state.new_ref_with_kind(),
                 index_storage: SortedSet::from_unsorted(index),
             })
         } else {
@@ -301,7 +244,7 @@ impl<K: SelectionKind> Sel<K> {
             state: st_holder,
             index_storage: index,
         };
-        sel.check_index()?;
+        sel.validate_index()?;
         Ok(sel)
     }
 }
@@ -323,7 +266,7 @@ impl<K: UserCreatableKind> Sel<K> {
         C: FromIterator<Sel<KO>> + Default,
         KO: SelectionKind,
     {
-        self.check_index()?;
+        self.validate_index()?;
         let mut values = HashMap::<RT, Vec<usize>>::default();
 
         for p in self.iter_particle() {
@@ -518,7 +461,7 @@ impl<K: UserCreatableKind> Sel<K> {
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT> + 'a,
     {
-        self.check_index()?;
+        self.validate_index()?;
         Ok(FragmentsIterator::new(self, func))
     }
 
@@ -591,7 +534,7 @@ impl<K: UserCreatableKind> Sel<K> {
             0.14,
             |i| unsafe {
                 let ind = *self.index().get_unchecked(i);
-                self.state.nth_pos_unchecked_mut(ind).coords.as_mut_ptr()
+                self.state.nth_pos_mut_unchecked(ind).coords.as_mut_ptr()
             },
             |i: usize| self.nth_particle(i).unwrap().atom.vdw(),
         )
@@ -604,8 +547,8 @@ impl<K: UserCreatableKind> Sel<K> {
     /// Subselection from expression
     pub fn subsel(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
         Self::from_holders_and_index(
-            self.topology.clone_with_kind(),
-            self.state.clone_with_kind(),
+            self.topology.new_ref_with_kind(),
+            self.state.new_ref_with_kind(),
             def.into_sel_index(&self.topology, &self.state, Some(self.index().as_slice()))?,
         )
     }
@@ -620,8 +563,8 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Self::from_holders_and_index(
-            topology.clone_with_kind(),
-            state.clone_with_kind(),
+            topology.new_ref_with_kind(),
+            state.new_ref_with_kind(),
             def.into_sel_index(&topology, &state, None)?,
         )
     }
@@ -633,8 +576,8 @@ impl<K: UserCreatableKind> Sel<K> {
     ) -> Result<Self, SelectionError> {
         check_topology_state_sizes(&topology, &state)?;
         Self::from_holders_and_index(
-            topology.clone_with_kind(),
-            state.clone_with_kind(),
+            topology.new_ref_with_kind(),
+            state.new_ref_with_kind(),
             unsafe { SortedSet::from_sorted((0..topology.num_atoms()).collect()) },
         )
     }
@@ -649,7 +592,7 @@ impl<K: UserCreatableKind> Sel<K> {
                 .iter()
                 .cloned(),
         );
-        self.check_index()?;
+        self.validate_index()?;
         Ok(())
     }
 
@@ -690,8 +633,8 @@ impl<K: UserCreatableKind> Sel<K> {
     pub fn union<KO: UserCreatableKind>(&self, other: &Sel<KO>) -> Self {
         let ind = union_sorted(self.index(), other.index());
         Self {
-            topology: self.topology.clone_with_kind(),
-            state: self.state.clone_with_kind(),
+            topology: self.topology.new_ref_with_kind(),
+            state: self.state.new_ref_with_kind(),
             index_storage: ind,
         }
     }
@@ -705,8 +648,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyIntersection);
         }
         Ok(Self {
-            topology: self.topology.clone_with_kind(),
-            state: self.state.clone_with_kind(),
+            topology: self.topology.new_ref_with_kind(),
+            state: self.state.new_ref_with_kind(),
             index_storage: ind,
         })
     }
@@ -720,8 +663,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyDifference);
         }
         Ok(Self {
-            topology: self.topology.clone_with_kind(),
-            state: self.state.clone_with_kind(),
+            topology: self.topology.new_ref_with_kind(),
+            state: self.state.new_ref_with_kind(),
             index_storage: ind,
         })
     }
@@ -735,8 +678,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyComplement);
         }
         Ok(Self {
-            topology: self.topology.clone_with_kind(),
-            state: self.state.clone_with_kind(),
+            topology: self.topology.new_ref_with_kind(),
+            state: self.state.new_ref_with_kind(),
             index_storage: ind,
         })
     }
@@ -801,8 +744,8 @@ impl<K: UserCreatableKind> Sel<K> {
 
         // Create and return new selection
         Self::from_holders_and_index(
-            topology.clone_with_kind(),
-            state.clone_with_kind(),
+            topology.new_ref_with_kind(),
+            state.new_ref_with_kind(),
             numbers.into(),
         )
     }
@@ -846,16 +789,16 @@ impl<K: SelectionKind> ParticleProvider for Sel<K> {
 //███  Mutable iterator over Particles
 //══════════════════════════════════════════════
 
-pub struct SelectionIteratorMut<'a, K: SelectionKind> {
+pub struct SelectionIteratorMut<'a, K> {
     sel: &'a Sel<K>,
     cur: usize,
 }
 
-impl<'a, K: SelectionKind> Iterator for SelectionIteratorMut<'a, K> {
+impl<'a, K: MutableKind> Iterator for SelectionIteratorMut<'a, K> {
     type Item = ParticleMut<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.len() {
-            let ret = unsafe { self.sel.nth_particle_unchecked_mut(self.cur) };
+            let ret = unsafe { self.sel.nth_particle_mut_unchecked(self.cur) };
             self.cur += 1;
             Some(ret)
         } else {
@@ -864,13 +807,13 @@ impl<'a, K: SelectionKind> Iterator for SelectionIteratorMut<'a, K> {
     }
 }
 
-impl<K: SelectionKind> ExactSizeIterator for SelectionIteratorMut<'_, K> {
+impl<K: MutableKind> ExactSizeIterator for SelectionIteratorMut<'_, K> {
     fn len(&self) -> usize {
         self.sel.len()
     }
 }
 
-impl<K: SelectionKind> ParticleMutProvider for Sel<K> {
+impl<K: MutableKind> ParticleMutProvider for Sel<K> {
     fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
         SelectionIteratorMut { sel: self, cur: 0 }
     }
@@ -964,15 +907,16 @@ impl<K: SelectionKind> RandomAtomProvider for Sel<K> {
         self.index().len()
     }
 
-    fn nth_atom(&self, i: usize) -> Option<&Atom> {
-        self.index()
-            .get(i)
-            .map(|i| unsafe { self.topology.nth_atom_unchecked(*i) })
-    }
-
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = *self.index().get_unchecked(i);
         self.topology.nth_atom_unchecked(ind)
+    }
+}
+
+impl<K: SelectionKind> RandomAtomMutProvider for Sel<K> {
+    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+        let ind = *self.index().get_unchecked(i);
+        self.topology.nth_atom_mut_unchecked(ind)
     }
 }
 
@@ -1006,6 +950,17 @@ impl<K: SelectionKind> BondsProvider for Sel<K> {
     }
 }
 
+impl<K: SelectionKind> RandomParticleProvider for Sel<K> {
+    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
+        let ind = *self.index_storage.get_unchecked(i);
+        Particle {
+            id: ind,
+            atom: self.topology.nth_atom_unchecked(ind),
+            pos: self.state.nth_pos_unchecked(ind),
+        }
+    }
+}
+
 //═══════════════════════════════════════════════════════════
 //███  Mutable analysis traits (only for mutable selections)
 //═══════════════════════════════════════════════════════════
@@ -1015,7 +970,7 @@ impl<K: MutableKind> PosMutProvider for Sel<K> {
         unsafe {
             self.index()
                 .iter()
-                .map(|i| self.state.nth_pos_unchecked_mut(*i))
+                .map(|i| self.state.nth_pos_mut_unchecked(*i))
         }
     }
 }
@@ -1025,12 +980,12 @@ impl<K: MutableKind> AtomsMutProvider for Sel<K> {
         unsafe {
             self.index()
                 .iter()
-                .map(|i| self.topology.nth_atom_unchecked_mut(*i))
+                .map(|i| self.topology.nth_atom_mut_unchecked(*i))
         }
     }
 }
 
-impl<K: MutableKind> RandomPosMut for Sel<K> {
+impl<K: MutableKind> RandomPosMutProvider for Sel<K> {
     fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
         self.index()
             .get(i)
@@ -1039,22 +994,21 @@ impl<K: MutableKind> RandomPosMut for Sel<K> {
 
     unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
         let ind = *self.index().get_unchecked(i);
-        self.state.nth_pos_unchecked_mut(ind)
+        self.state.nth_pos_mut_unchecked(ind)
     }
 }
 
-impl<K: MutableKind> RandomAtomMutProvider for Sel<K> {
-    fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
-        self.index()
-            .get(i)
-            .map(|i| unsafe { self.topology.nth_atom_mut_unchecked(*i) })
-    }
-
-    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        let ind = *self.index().get_unchecked(i);
-        self.topology.nth_atom_mut_unchecked(ind)
+impl<K: MutableKind> RandomParticleMutProvider for Sel<K> {
+    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+        let ind = *self.index_storage.get_unchecked(i);
+        ParticleMut {
+            id: ind,
+            atom: self.topology.nth_atom_mut_unchecked(ind),
+            pos: self.state.nth_pos_mut_unchecked(ind),
+        }
     }
 }
+
 
 impl<K: MutableKind> ModifyPos for Sel<K> {}
 impl<K: MutableKind> ModifyPeriodic for Sel<K> {}

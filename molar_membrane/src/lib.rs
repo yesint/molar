@@ -362,12 +362,12 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
         let st: Holder<State,K> = st.into();
         // Go over all lipids and set their "shallow" states
         for lip in &mut self.lipids {
-            lip.sel.set_state(st.clone_view())?;
-            lip.head_sel.set_state(st.clone_view())?;
-            lip.mid_sel.set_state(st.clone_view())?;
-            lip.tail_end_sel.set_state(st.clone_view())?;
+            lip.sel.set_state(st.new_ref())?;
+            lip.head_sel.set_state(st.new_ref())?;
+            lip.mid_sel.set_state(st.new_ref())?;
+            lip.tail_end_sel.set_state(st.new_ref())?;
             for t in &mut lip.tail_sels {
-                t.set_state(st.clone_view())?;
+                t.set_state(st.new_ref())?;
             }
         }
         Ok(())

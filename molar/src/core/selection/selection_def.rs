@@ -5,7 +5,6 @@ use super::utils::local_to_global;
 pub trait SelectionDef {
     /// All errors, including bounds checks, have to be captured, 
     /// caller assumes that the index is correct.
-    
     fn into_sel_index(
         self,
         top: &Topology,
@@ -79,7 +78,7 @@ impl SelectionDef for std::ops::Range<usize> {
         };
 
         if self.start >= n || self.end > n {
-            return Err(SelectionError::IndexCheck(self.start, self.end, n-1));
+            return Err(SelectionError::IndexValidation(self.start, self.end, n-1));
         }
 
         match subset {
@@ -122,7 +121,7 @@ impl SelectionDef for &[usize] {
                     let v: SortedSet<usize> = self.to_vec().into();
                     let n = top.num_atoms();
                     if v[0] >= n || v[v.len()-1] >= n {
-                        Err(SelectionError::IndexCheck(v[0], v[v.len()-1], n-1))
+                        Err(SelectionError::IndexValidation(v[0], v[v.len()-1], n-1))
                     } else {
                         Ok(v)
                     }
@@ -169,7 +168,7 @@ impl SelectionDef for SVec {
                 None => {                    
                     let n = top.num_atoms();
                     if self[0] >= n || self[self.len()-1] >= n {
-                        Err(SelectionError::IndexCheck(self[0], self[self.len()-1], n-1))
+                        Err(SelectionError::IndexValidation(self[0], self[self.len()-1], n-1))
                     } else {
                         Ok(self)
                     }
@@ -204,10 +203,10 @@ impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
 
         let n = top.num_atoms();
         if self.first_index() >= n || self.last_index() >= n {
-            return Err(SelectionError::IndexCheck(self.first_index(), self.last_index(), n-1));
+            return Err(SelectionError::IndexValidation(self.first_index(), self.last_index(), n-1));
         }
 
-        Ok(self.get_index_vec())
+        Ok(self.get_index_vec().clone())
     }
 }
 

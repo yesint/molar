@@ -693,7 +693,7 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
-        let crd = unsafe { state.nth_pos_unchecked_mut(i) };
+        let crd = unsafe { state.nth_pos_mut_unchecked(i) };
         for d in 0..3 {
             if crd[d] < lower[d] {
                 lower[d] = crd[d]

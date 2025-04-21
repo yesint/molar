@@ -188,7 +188,7 @@ pub trait AnalysisTask<A: clap::Args> {
                 }
 
                 // If we are here than the frame is valid
-                if let Some(ref ctx) = context {
+                if let Some(ref mut ctx) = context {
                     // Context is initialized already, update it with current state
                     ctx.src.set_state(state)?;
                     // Process frame
