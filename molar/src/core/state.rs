@@ -97,26 +97,6 @@ impl State {
         unsafe { &mut *self.0.get() }
     }
 
-    // #[inline(always)]
-    // pub unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-    //     self.get_storage().coords.get_unchecked(i)
-    // }
-
-    // #[inline(always)]
-    // pub unsafe fn nth_pos_unchecked_mut(&self, i: usize) -> &mut Pos {
-    //     self.get_storage_mut().coords.get_unchecked_mut(i)
-    // }
-
-    // #[inline(always)]
-    // pub fn nth_pos(&self, i: usize) -> Option<&Pos> {
-    //     self.get_storage().coords.get(i)
-    // }
-
-    // #[inline(always)]
-    // pub fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-    //     self.get_storage_mut().coords.get_mut(i)
-    // }
-
     #[inline(always)]
     pub fn get_box(&self) -> Option<&PeriodicBox> {
         self.get_storage().pbox.as_ref()

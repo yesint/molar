@@ -557,10 +557,12 @@ impl<K: UserCreatableKind> Sel<K> {
     // Direct creation of selections without Source
     //==============================================
     pub fn new(
-        topology: &Holder<Topology, K>,
-        state: &Holder<State, K>,
+        topology: impl Into<Holder<Topology, K>>,
+        state: impl Into<Holder<State, K>>,
         def: impl SelectionDef,
     ) -> Result<Self, SelectionError> {
+        let topology = topology.into();
+        let state = state.into();
         check_topology_state_sizes(&topology, &state)?;
         Self::from_holders_and_index(
             topology.new_ref_with_kind(),
@@ -571,9 +573,11 @@ impl<K: UserCreatableKind> Sel<K> {
 
     /// Selects all
     pub fn new_all(
-        topology: &Holder<Topology, K>,
-        state: &Holder<State, K>,
+        topology: impl Into<Holder<Topology, K>>,
+        state: impl Into<Holder<State, K>>,
     ) -> Result<Self, SelectionError> {
+        let topology = topology.into();
+        let state = state.into();
         check_topology_state_sizes(&topology, &state)?;
         Self::from_holders_and_index(
             topology.new_ref_with_kind(),
