@@ -14,7 +14,7 @@ pub use sel::*;
 pub use sel_split::*;
 pub use source::*;
 pub(crate) use utils::*;
-pub use selection_def::SelectionDef;
+pub use selection_def::*;
 pub use molar_powersasa::SasaResults;
 
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
@@ -115,10 +115,10 @@ pub enum SelectionError {
     #[error("no molecules in topology")]
     NoMolecules,
 
-    #[error("gromacs ndx error in group {0}")]
-    Ndx(String, #[source] NdxError),
+    #[error("gromacs ndx error")]
+    Ndx(#[from] NdxError),
 
-    #[error("selection as a definition for subselecting in ambigous")]
+    #[error("selection as a definition for subselecting is ambigous")]
     SelDefInSubsel,
 }
 
@@ -132,14 +132,20 @@ pub enum SelectionIndexError {
 
 #[derive(Debug, Error)]
 pub enum NdxError {
-    #[error("group not found")]
-    NoGroup,
+    #[error("group {0} not found")]
+    NoGroup(String),
     
-    #[error("group is empty")]
-    EmptyGroup,
+    #[error("group {0} is empty")]
+    EmptyGroup(String),
     
-    #[error(transparent)]
-    Parse(#[from] ParseIntError)
+    #[error("index parse error in group {0}")]
+    Parse(String, #[source] ParseIntError),
+
+    #[error("error reading ndx file {0}")]
+    NdxIo(std::path::PathBuf, #[source] std::io::Error),
+    
+    #[error("malformed ndx file {0}")]
+    MalformedNdxFile(std::path::PathBuf),
 }
 
 

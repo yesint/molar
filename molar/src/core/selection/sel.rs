@@ -688,7 +688,7 @@ impl<K: UserCreatableKind> Sel<K> {
         })
     }
 
-    pub fn to_gromacs_ndx(&self, name: impl AsRef<str>) -> String {
+    pub fn to_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
         let name = name.as_ref();
         let mut s = format!("[ {} ]\n", name);
         for chunk in &self.iter_index().chunks(15) {
@@ -699,7 +699,7 @@ impl<K: UserCreatableKind> Sel<K> {
         s
     }
 
-    pub fn from_gromacs_ndx(
+    pub fn from_gromacs_ndx_str(
         topology: &Holder<Topology, K>,
         state: &Holder<State, K>,
         ndx_str: impl AsRef<str>,
@@ -733,17 +733,17 @@ impl<K: UserCreatableKind> Sel<K> {
                         .map(|s| s.parse::<usize>())
                         .map_ok(|i| i - 1) // Convert to zero-based
                         .collect::<Result<Vec<_>, _>>()
-                        .map_err(|e| SelectionError::Ndx(group_name.into(), NdxError::Parse(e)))?,
+                        .map_err(|e| NdxError::Parse(group_name.into(), e))?,
                 );
             }
         }
 
         if !found_group {
-            return Err(SelectionError::Ndx(group_name.into(), NdxError::NoGroup));
+            return Err(NdxError::NoGroup(group_name.into()))?;
         }
 
         if numbers.is_empty() {
-            return Err(SelectionError::Ndx(group_name.into(), NdxError::EmptyGroup));
+            return Err(NdxError::EmptyGroup(group_name.into()))?;
         }
 
         // Create and return new selection

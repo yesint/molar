@@ -627,7 +627,7 @@ impl Sel {
     }
 
     fn to_gromacs_ndx(&self, name: &str) -> String {
-        self.get().to_gromacs_ndx(name)
+        self.get().to_gromacs_ndx_str(name)
     }
 
     fn add(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
