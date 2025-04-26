@@ -572,7 +572,7 @@ pub enum OrderType {
     /// Deuterium order parameter computed for ideal H positions
     Scd,
     /// Deuterium order parameter computed for corrected H positions
-    /// https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
+    /// <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/>
     ScdCorr,
 }
 

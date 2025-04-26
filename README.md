@@ -7,6 +7,7 @@
 - [Design and performance](#design-and-performance)
 - [Installation](#installation)
 - [Tutorial](#tutorial)
+- [Python bindings](#python-bindings)
 
 # What is molar?
 MolAR is a library for molecular modeling and analysis written in Rust with an emphasis on memory safety and performance. 
@@ -283,4 +284,75 @@ fn main() -> Result<()> {
     // Report successful completion of the program
     Ok(())
 }
+```
+
+# Python bindings
+
+MolAR provides convenient Python bindings, creatively named `pymolar`, which has its own "Pythonic" API. The bindings are made as performant as possible, but they are not as fast as the Rust functions. 
+
+## Installation
+
+It is highly recommended to use a Python virtual environment. It is assumed that `pip` is used for installation, but you can use any Python package manager.
+
+```shell
+#1. Install maturin in the current virtual environment
+pip install maturin
+#2. Go to molar_python subfolder of molar source tree
+cd <path_to_molar>/molar_python
+#3. Compile the bindings
+maturin build -r
+#4. Install the bindings in the current virtual environment
+python -m pip install .
+```
+
+## Usage
+
+Pymolar bindings could be used in two modes: manual and as "analysis tasks". In the first case you have a full fine-grained control on how you read your input files, but this may involve a lot of boilerplate. In contrast, "analysis tasks" hide most of the input handling from the user providing a very simple command-line interface to load structure and trajectory files, skip frames, begin and end reading at particular frame or time stamp, etc. The user only needs to implement three methods: `pre_process`, `process_frame` and `post_process`, which are called during the analysis.
+
+As an example we will write a script that prints center of mass of CA protein atoms on each trajectory frame and then computes the average center of masses for the whole trajectory:
+
+```python
+#file: average.py
+
+# Import pymolar
+from pymolar import *
+import numpy as np
+
+# Create an analysis task
+class MyTask(AnalysisTask):
+    # Register a custom command line argument for selection
+    def register_args(self,parser):
+        parser.add_argument('--sel',default="protein")
+        
+    # This method is called before starting trajectory processing
+    def pre_process(self):
+        # Create a selection using selection string from the command line
+        # self.src contains a Source with the first state read
+        self.sel = self.src(self.args.sel)
+        # Average center of masses
+        self.com_ave = np.array([0.0,0.0,0.0])
+
+
+    # This method is called on each trajectory frame
+    def process_frame(self):
+        cm = self.sel.com()
+        print(f"time: {self.state.time}, com: {cm}")
+        self.com_ave += cm
+
+
+    # This method is called after trajectory processing is finished
+    def post_process(self):
+        self.com_ave /= self.consumed_frames
+        print(f"Average com: {self.com_ave}")
+
+
+if __name__ == "__main__":
+    # Run the analysis task.
+    MyTask()
+
+```
+
+This script can be run as following:
+```shell
+python3 average.py -f struct.gro traj.xtc -e 100 --sel "resid 1:10"
 ```
