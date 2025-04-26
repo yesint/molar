@@ -33,3 +33,8 @@ pub fn greeting(tool: impl AsRef<str>) {
         )]);
     println!("{table}");
 }
+
+// Test code in README
+#[cfg(doctest)]
+#[doc = include_str!("../../README.md")]
+struct _ReadMe;

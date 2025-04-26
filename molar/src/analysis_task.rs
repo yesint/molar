@@ -6,9 +6,10 @@ use thiserror::Error;
 
 use crate::prelude::*;
 
+/// Common trajectory analysis arguments
 #[derive(Parser)]
 #[command(name = "analysis")]
-pub struct AnalysisArgs {
+pub struct TrajAnalysisArgs {
     /// Input files (topology and at least one trajectory)
     #[clap(short = 'f', long = "files", required = true, num_args = 1..)]
     pub files: Vec<PathBuf>,
@@ -98,6 +99,7 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
     Ok((frame, time))
 }
 
+/// Analysis task trait
 pub trait AnalysisTask<A: clap::Args> {
     fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self>
     where
@@ -114,13 +116,13 @@ pub trait AnalysisTask<A: clap::Args> {
         Self: Sized,
     {
         // Get the generic command line arguments
-        let mut cmd = AnalysisArgs::command();
+        let mut cmd = TrajAnalysisArgs::command();
         // Add custom arguments from the implementor
         cmd = A::augment_args(cmd);
 
         let matches = cmd.get_matches();
         // Trajectory processing arguments
-        let traj_args = AnalysisArgs::from_arg_matches(&matches)?;
+        let traj_args = TrajAnalysisArgs::from_arg_matches(&matches)?;
 
         // Greeting
         crate::greeting(Self::task_name());
@@ -197,8 +199,8 @@ pub trait AnalysisTask<A: clap::Args> {
                         .process_frame(ctx)
                         .map_err(AnalysisError::ProcessFrame)?;
                 } else {
-                    info!("Using first trajectory frame for task initialization");
                     // Time for context initialization
+                    info!("Using first trajectory frame for task initialization");
                     // Read topology, state is read from trajectory already
                     let top = FileHandler::open(&traj_args.files[0])?.read_topology()?;
                     // Custom instance arguments

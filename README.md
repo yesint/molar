@@ -1,4 +1,4 @@
-# **MolAR** is a **Mol**ecular **A**nalysis and modeling library for **R**ust.
+# **MolAR** - a **Mol**ecular **A**nalysis and modeling library for **R**ust.
 
 [![Crates.io](https://img.shields.io/crates/v/molar.svg)](https://crates.io/crates/molar)
 [![Documentation](https://docs.rs/molar/badge.svg)](https://docs.rs/molar)
@@ -12,6 +12,7 @@
 - [Design and performance](#design-and-performance)
 - [Installation](#installation)
 - [Tutorial](#tutorial)
+- [Analysis tasks](#analysis-tasks)
 - [Python bindings](#python-bindings)
 
 # What is molar?
@@ -292,6 +293,114 @@ fn main() -> Result<()> {
     Ok(())
 }
 ```
+
+# Analysis tasks
+
+## Motivation
+
+The vast majority of molecular dynamics trajectory analysis tasks follows the same pattern:
+1. Do initialization and pre-processing (read and process the parameters, allocate and initialize data structures, create atom selections, etc.)
+2. On each trajectory frame call an analysis function, which computes needed properties.
+3. Do post-processing (compute averages, write results to file).
+
+Reading trajectories themselves also requires some standard options:
+1. Ability to start from given frame or time stamp.
+2. Ability to stop at given frame or time stamp.
+3. Ability to read each N-th frame (decimation).
+4. Ability to report the progress with given periodicity.
+
+These patterns are so common that it very quickly become annoynig and repetitive to implement them from scratch for each analysis task. That is why MolAR provides [AnalysisTask] trait, which automates all the common steps and takes care of all the boilerplate.
+
+## Implementing analysis tasks
+
+Here is an example of implementing custom analysis task, which prints a center of mass for a user provided selection on each frame and also computes an average center of mass over the trajectory:
+
+```rust,no_run
+// Import all basic things from molar
+use molar::prelude::*;
+// For error handling
+use anyhow::Result;
+// For processing custom command line arguments
+use clap::Args;
+
+// User-defined command line arguments
+#[derive(Args, Debug, Default)]
+struct UserArgs {
+    // Selection string
+    #[arg(long, default_value = "all")]
+    sel: String,
+}
+
+// Our analysis task type
+struct ComTask {
+    // Selection to use
+    sel: Sel<MutableSerial>,
+    // COM vector
+    com_aver: nalgebra::Vector3<f32>,
+}
+
+// Implement AnalysisTask trait
+// The type with custom parameters is provided as generic parameter
+impl AnalysisTask<UserArgs> for ComTask {
+    // Name of the analysis task
+    fn task_name() -> String {
+        "Center of mass computation".to_owned()
+    }
+
+    // Constructor of our analysis type
+    // It is called on the first valid trajectory frame.
+    // Context contains all needed data such as topology, 
+    // state and parsed command line arguments
+    fn new(context: &AnalysisContext<UserArgs>) -> anyhow::Result<Self> {
+        // Create our selection from the user-supplied string.
+        // Arguments are stored in context.args.
+        let sel = context.src.select(&context.args.sel)?;
+        // Create our analysis type instance
+        Ok(Self {
+            sel,
+            com_aver: nalgebra::Vector3::zeros(),
+        })
+    }
+
+    // Function to be called at each frame.
+    fn process_frame(&mut self, context: &AnalysisContext<UserArgs>) -> anyhow::Result<()> {
+        // We need to update the state in our selection
+        self.sel.set_state(context.src.get_state())?;
+        // Compute the center of mass
+        let com = self.sel.center_of_mass()?;
+        // Print current center of mass. We get current time stamp from the context
+        println!("time={}, com={}", context.src.get_state().get_time(), com);
+        // Add to average
+        self.com_aver += com.coords;
+        Ok(())
+    }
+
+    // Post-processing
+    fn post_process(&mut self, context: &AnalysisContext<UserArgs>) -> anyhow::Result<()> {
+        // Compute average
+        self.com_aver /= context.consumed_frames as f32;
+        println!("average com={}", self.com_aver);
+        Ok(())
+    }
+}
+
+// Run our task
+fn main() -> anyhow::Result<()> {
+    ComTask::run()?;
+    Ok(())
+}
+
+```
+
+## Trajectory processing aguments
+
+All analysis tasks accept a number of common command line arguments (see [TrajAnalysisArgs]) allowing to select which frames to process and which files to read.
+
+For example, the following command line will run our analysis task sequencially for two trajectories starting from frame 150 and ending when reaching 100 ns, while reporting progress each 100 frames. Custom selection is provided in the `--sel` argument, which is declared and recognised by `ComTask`
+```shell
+analysis_task -f structure.pdb traj_1.xtc traj_2.xtc -b 150 -e 100ns -log 100 --sel "resid 10:20"
+```
+
 
 # Python bindings
 

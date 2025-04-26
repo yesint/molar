@@ -384,7 +384,7 @@ impl Display for FileStats {
     }
 }
 
-pub fn get_ext(fname: &Path) -> Result<&str, FileFormatError> {
+fn get_ext(fname: &Path) -> Result<&str, FileFormatError> {
     // Get extention
     Ok(fname
         .extension()

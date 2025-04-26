@@ -2,7 +2,7 @@ const NUM_ELEMENTS: usize = 112;
 
 /// Periodic table of elements for translation from atomic number to element name
 #[allow(dead_code)]
-pub const ELEMENT_NAME: [&'static str; NUM_ELEMENTS] = [ 
+pub(super) const ELEMENT_NAME: [&'static str; NUM_ELEMENTS] = [ 
     "X",  "H",  "He", "Li", "Be", "B",  "C",  "N",  "O",  "F",  "Ne",
     "Na", "Mg", "Al", "Si", "P" , "S",  "Cl", "Ar", "K",  "Ca", "Sc",
     "Ti", "V",  "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", 
@@ -17,7 +17,7 @@ pub const ELEMENT_NAME: [&'static str; NUM_ELEMENTS] = [
 ];
 
 #[allow(dead_code)]
-pub const ELEMENT_NAME_UPPER: [&'static str; NUM_ELEMENTS] = [ 
+pub(super) const ELEMENT_NAME_UPPER: [&'static str; NUM_ELEMENTS] = [ 
     "X",  "H",  "HE", "LI", "BE", "B",  "C",  "N",  "O",  "F",  "NE",
     "NA", "MG", "AL", "SI", "P" , "S",  "CL", "AR", "K",  "CA", "SC",
     "TI", "V",  "CR", "MN", "FE", "CO", "NI", "CU", "ZN", "GA", "GE", 
@@ -33,7 +33,7 @@ pub const ELEMENT_NAME_UPPER: [&'static str; NUM_ELEMENTS] = [
 
 /// Translation from atomic number to element mass
 #[allow(dead_code)]
-pub const ELEMENT_MASS: [f32; NUM_ELEMENTS] = [ 
+pub(super) const ELEMENT_MASS: [f32; NUM_ELEMENTS] = [ 
     /* X  */ 0.00000, 1.00794, 4.00260, 6.941, 9.012182, 10.811,  
     /* C  */ 12.0107, 14.0067, 15.9994, 18.9984032, 20.1797, 
     /* Na */ 22.989770, 24.3050, 26.981538, 28.0855, 30.973761,
@@ -63,7 +63,7 @@ pub const ELEMENT_MASS: [f32; NUM_ELEMENTS] = [
 /// either of these publications have RvdW = 2.00.
 /// The radii for Ions (Na, K, Cl, Ca, Mg, and Cs are based on the CHARMM27 
 /// Rmin/2 parameters for (SOD, POT, CLA, CAL, MG, CES) by default.
-pub const ELEMENT_VDW: [f32; NUM_ELEMENTS] = [ 
+pub(super) const ELEMENT_VDW: [f32; NUM_ELEMENTS] = [ 
     /* X  */ 1.5, 1.2, 1.4, 1.82, 2.0, 2.0,  
     /* C  */ 1.7, 1.55, 1.52, 1.47, 1.54, 
     /* Na */ 1.36, 1.18, 2.0, 2.1, 1.8,

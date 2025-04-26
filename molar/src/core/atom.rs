@@ -1,4 +1,4 @@
-use super::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEMENT_VDW};
+use super::periodic_table::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEMENT_VDW};
 
 /// Information about the atom except its coordinates.
 #[allow(dead_code)]

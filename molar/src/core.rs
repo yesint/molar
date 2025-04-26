@@ -22,7 +22,6 @@ pub use {
     providers::*,
     measure::*,
     modify::*,
-    periodic_table::*,
     particle::*,
     selection_parser::SelectionExpr,
     distance_search::*,

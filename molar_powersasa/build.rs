@@ -23,6 +23,8 @@ fn main() {
 
     cc::Build::new()
         .cpp(true)
+        // to shut up gcc-15
+        .define("_GLIBCXX_NO_ASSERTIONS", None)
         .file("powersasa/wrapper.cpp")
         .include(eigen_path)
         .pic(true)
