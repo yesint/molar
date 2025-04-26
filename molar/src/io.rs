@@ -185,7 +185,7 @@ impl FileFormat {
 
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileFormatError>
     where
-        T: TopologyProvider + StateProvider,
+        T: TopologyIoProvider + StateIoProvider,
     {
         match self {
             FileFormat::Gro(ref mut h) => {
@@ -225,7 +225,7 @@ impl FileFormat {
 
     pub fn write_topology<T>(&mut self, data: &T) -> Result<(), FileFormatError>
     where
-        T: TopologyProvider,
+        T: TopologyIoProvider,
     {
         match self {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => h.write_topology(data)?,
@@ -260,7 +260,7 @@ impl FileFormat {
 
     pub fn write_state<T>(&mut self, data: &T) -> Result<(), FileFormatError>
     where
-        T: StateProvider,
+        T: StateIoProvider,
     {
         match self {
             FileFormat::Pdb(ref mut h)
@@ -431,7 +431,7 @@ impl FileHandler {
 
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
-        T: TopologyProvider + StateProvider,
+        T: TopologyIoProvider + StateIoProvider,
     {
         let t = std::time::Instant::now();
 
@@ -461,7 +461,7 @@ impl FileHandler {
 
     pub fn write_topology<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
-        T: TopologyProvider,
+        T: TopologyIoProvider,
     {
         let t = std::time::Instant::now();
 
@@ -495,7 +495,7 @@ impl FileHandler {
 
     pub fn write_state<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
-        T: StateProvider,
+        T: StateIoProvider,
     {
         let t = std::time::Instant::now();
 
@@ -588,7 +588,7 @@ impl IntoIterator for FileHandler {
 // Implementation of IO traits for tuples
 macro_rules! impl_io_traits_for_tuples {
     ( $t:ty, $s:ty ) => {
-        impl TopologyProvider for ($t, $s) {}
+        impl TopologyIoProvider for ($t, $s) {}
 
         impl RandomAtomProvider for ($t, $s) {
             fn num_atoms(&self) -> usize {
@@ -600,7 +600,7 @@ macro_rules! impl_io_traits_for_tuples {
             }
         }
 
-        impl AtomProvider for ($t, $s) {
+        impl AtomIterProvider for ($t, $s) {
             fn iter_atoms(&self) -> impl AtomIterator<'_> {
                 self.0.iter_atoms()
             }
@@ -634,7 +634,7 @@ macro_rules! impl_io_traits_for_tuples {
             }
         }
 
-        impl StateProvider for ($t, $s) {
+        impl StateIoProvider for ($t, $s) {
             fn get_time(&self) -> f32 {
                 self.1.get_time()
             }
@@ -646,15 +646,15 @@ macro_rules! impl_io_traits_for_tuples {
             }
         }
 
-        impl PosProvider for ($t, $s) {
-            fn iter_pos(&self) -> impl PosIterator<'_> {
+        impl PosIterProvider for ($t, $s) {
+            fn iter_pos(&self) -> impl PosIterator {
                 self.1.iter_pos()
             }
         }
 
         impl RandomPosProvider for ($t, $s) {
-            fn num_coords(&self) -> usize {
-                self.1.num_coords()
+            fn num_pos(&self) -> usize {
+                self.1.num_pos()
             }
 
             unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {

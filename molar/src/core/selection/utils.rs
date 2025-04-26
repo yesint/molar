@@ -4,7 +4,7 @@ use crate::prelude::*;
 /// Verifies that topology and state have matching number of atoms
 pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<(),super::TopologyStateSizes> {
     let n1 = topology.num_atoms();
-    let n2 = state.num_coords();
+    let n2 = state.num_pos();
     if n1 != n2 { Err(super::TopologyStateSizes(n1,n2))? }
     Ok(())
 }

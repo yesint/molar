@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::prelude::*;
 use sorted_vec::SortedSet;
 
@@ -5,13 +7,13 @@ use sorted_vec::SortedSet;
 // Basic providers
 //--------------------------------------------------------------
 
-pub trait TopologyProvider: AtomProvider + RandomAtomProvider + MoleculesProvider + BondsProvider {}
+pub trait TopologyIoProvider: RandomAtomProvider + MoleculesProvider + BondsProvider {}
 
-pub trait StateProvider: PosProvider + RandomPosProvider + BoxProvider {
+pub trait StateIoProvider: RandomPosProvider + BoxProvider {
     fn get_time(&self) -> f32;
 }
 
-pub trait WritableToFile: TopologyProvider + StateProvider
+pub trait WritableToFile: TopologyIoProvider + StateIoProvider
 where
     Self: Sized,
 {
@@ -48,15 +50,15 @@ pub trait LenProvider {
     fn len(&self) -> usize;
 }
 
-pub trait PosProvider {
+pub trait PosIterProvider {
     fn iter_pos(&self) -> impl PosIterator<'_>;
 }
 
-pub trait MassesProvider {
+pub trait MassIterProvider {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32>;
 }
 
-pub trait AtomProvider {
+pub trait AtomIterProvider {
     fn iter_atoms(&self) -> impl AtomIterator<'_>;
 }
 
@@ -68,7 +70,7 @@ pub trait BoxProvider {
     }
 }
 
-pub trait ParticleProvider: IndexProvider {
+pub trait ParticleIterProvider: IndexProvider {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
 }
 
@@ -84,7 +86,7 @@ pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
     }
 
     fn nth_particle(&self, i: usize) -> Option<Particle> {
-        if i < self.num_coords() {
+        if i < self.num_pos() {
             Some(unsafe { self.nth_particle_unchecked(i) })
         } else {
             None
@@ -92,13 +94,13 @@ pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
     }
 }
 
-pub trait RandomPosProvider: PosProvider {
-    fn num_coords(&self) -> usize;
+pub trait RandomPosProvider: PosIterProvider {
+    fn num_pos(&self) -> usize;
 
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
 
     fn nth_pos(&self, i: usize) -> Option<&Pos> {
-        if i < self.num_coords() {
+        if i < self.num_pos() {
             Some(unsafe { self.nth_pos_unchecked(i) })
         } else {
             None
@@ -110,11 +112,11 @@ pub trait RandomPosProvider: PosProvider {
     }
 
     fn last_pos(&self) -> &Pos {
-        unsafe { self.nth_pos_unchecked(self.num_coords()-1) }
+        unsafe { self.nth_pos_unchecked(self.num_pos()-1) }
     }
 }
 
-pub trait RandomAtomProvider: AtomProvider {
+pub trait RandomAtomProvider: AtomIterProvider {
     fn num_atoms(&self) -> usize;
 
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
@@ -172,13 +174,15 @@ pub trait MoleculesProvider {
 // Mutable providers
 //--------------------------------------------------------------
 
-pub trait PosMutProvider: PosProvider {
+pub trait PosIterMutProvider: PosIterProvider {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_>;
 }
 
-pub trait RandomPosMutProvider: RandomPosProvider + PosMutProvider {
+pub trait RandomPosMutProvider: RandomPosProvider + PosIterMutProvider {
+    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
+
     fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        if i < self.num_coords() {
+        if i < self.num_pos() {
             Some(unsafe { self.nth_pos_mut_unchecked(i) })
         } else {
             None
@@ -190,17 +194,15 @@ pub trait RandomPosMutProvider: RandomPosProvider + PosMutProvider {
     }
     
     fn last_pos_mut(&self) -> &mut Pos {
-        unsafe { self.nth_pos_mut_unchecked(self.num_coords()-1) }
+        unsafe { self.nth_pos_mut_unchecked(self.num_pos()-1) }
     }
-    
-    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
 }
 
-pub trait AtomsMutProvider: AtomProvider {
+pub trait AtomsIterMutProvider: AtomIterProvider {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
 }
 
-pub trait ParticleMutProvider: IndexProvider {
+pub trait ParticleIterMutProvider: IndexProvider {
     fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>>;
 }
 
@@ -240,7 +242,7 @@ pub trait RandomParticleMutProvider: RandomPosMutProvider+RandomAtomMutProvider 
     }
 
     fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
-        if i < self.num_coords() {
+        if i < self.num_pos() {
             Some(unsafe { self.nth_particle_mut_unchecked(i) })
         } else {
             None
@@ -249,13 +251,13 @@ pub trait RandomParticleMutProvider: RandomPosMutProvider+RandomAtomMutProvider 
 }
 
 //----------------------------------------------------
-impl PosProvider for Vec<Pos> {
+impl PosIterProvider for Vec<Pos> {
     fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
         self.iter()
     }
 }
 
-impl PosProvider for Pos {
+impl PosIterProvider for Pos {
     fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
         std::iter::once(self)
     }

@@ -51,7 +51,7 @@ impl GroFileHandler {
 
     pub fn write(
         &mut self,
-        data: &(impl TopologyProvider + StateProvider),
+        data: &(impl TopologyIoProvider + StateIoProvider),
     ) -> Result<(), GroHandlerError> {
         // Open file for writing
         let mut buf = BufWriter::new(&self.file);

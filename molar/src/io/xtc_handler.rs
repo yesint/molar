@@ -1,4 +1,4 @@
-use super::{PeriodicBoxError, State, StateProvider};
+use super::{PeriodicBoxError, State, StateIoProvider};
 use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 use thiserror::Error;
@@ -246,8 +246,8 @@ impl XtcFileHandler {
         }
     }
 
-    pub fn write_state(&mut self, data: &impl StateProvider) -> Result<(), XtcHandlerError> {
-        let n = data.num_coords();
+    pub fn write_state(&mut self, data: &impl StateIoProvider) -> Result<(), XtcHandlerError> {
+        let n = data.num_pos();
 
         // Box have to be transposed because XTC contains row-major box
         let box_ = match data.get_box() {

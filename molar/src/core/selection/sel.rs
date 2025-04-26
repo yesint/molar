@@ -783,7 +783,7 @@ impl<K: SelectionKind> ExactSizeIterator for SelectionIterator<'_, K> {
     }
 }
 
-impl<K: SelectionKind> ParticleProvider for Sel<K> {
+impl<K: SelectionKind> ParticleIterProvider for Sel<K> {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
         SelectionIterator { sel: self, cur: 0 }
     }
@@ -817,7 +817,7 @@ impl<K: MutableKind> ExactSizeIterator for SelectionIteratorMut<'_, K> {
     }
 }
 
-impl<K: MutableKind> ParticleMutProvider for Sel<K> {
+impl<K: MutableKind> ParticleIterMutProvider for Sel<K> {
     fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
         SelectionIteratorMut { sel: self, cur: 0 }
     }
@@ -835,9 +835,9 @@ impl<K: SelectionKind> IndexProvider for Sel<K> {
     }
 }
 
-impl<K: SelectionKind> TopologyProvider for Sel<K> {}
+impl<K: SelectionKind> TopologyIoProvider for Sel<K> {}
 
-impl<K: SelectionKind> StateProvider for Sel<K> {
+impl<K: SelectionKind> StateIoProvider for Sel<K> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
@@ -855,7 +855,7 @@ impl<K: SelectionKind> BoxProvider for Sel<K> {
 
 impl<K: SelectionKind> MeasurePeriodic for Sel<K> {}
 
-impl<K: SelectionKind> PosProvider for Sel<K> {
+impl<K: SelectionKind> PosIterProvider for Sel<K> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe {
             self.index()
@@ -867,7 +867,7 @@ impl<K: SelectionKind> PosProvider for Sel<K> {
 
 impl<K: SelectionKind> MeasurePos for Sel<K> {}
 
-impl<K: SelectionKind> AtomProvider for Sel<K> {
+impl<K: SelectionKind> AtomIterProvider for Sel<K> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.index()
@@ -877,7 +877,7 @@ impl<K: SelectionKind> AtomProvider for Sel<K> {
     }
 }
 
-impl<K: SelectionKind> MassesProvider for Sel<K> {
+impl<K: SelectionKind> MassIterProvider for Sel<K> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
             self.index()
@@ -896,7 +896,7 @@ impl<K: SelectionKind> LenProvider for Sel<K> {
 }
 
 impl<K: SelectionKind> RandomPosProvider for Sel<K> {
-    fn num_coords(&self) -> usize {
+    fn num_pos(&self) -> usize {
         self.index().len()
     }
 
@@ -969,7 +969,7 @@ impl<K: SelectionKind> RandomParticleProvider for Sel<K> {
 //███  Mutable analysis traits (only for mutable selections)
 //═══════════════════════════════════════════════════════════
 
-impl<K: MutableKind> PosMutProvider for Sel<K> {
+impl<K: MutableKind> PosIterMutProvider for Sel<K> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.index()
@@ -979,7 +979,7 @@ impl<K: MutableKind> PosMutProvider for Sel<K> {
     }
 }
 
-impl<K: MutableKind> AtomsMutProvider for Sel<K> {
+impl<K: MutableKind> AtomsIterMutProvider for Sel<K> {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
             self.index()

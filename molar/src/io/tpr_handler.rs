@@ -199,7 +199,7 @@ mod internal_tpr_enabled {
             println!("natoms: {:?}", top.num_atoms());
             println!("nbonds: {:?}", top.num_bonds());
             println!("nmolecules: {:?}", top.num_molecules());
-            println!("state sz: {:?}", st.num_coords());
+            println!("state sz: {:?}", st.num_pos());
         }
     }
 }

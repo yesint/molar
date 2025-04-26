@@ -38,7 +38,7 @@ impl SelectionKind for BuilderSerial {
         let first = unsafe { *index.get_unchecked(0) };
         let last = unsafe { *index.get_unchecked(index.len()-1) };
         let ntop = topology.num_atoms();
-        let nst = state.num_coords();
+        let nst = state.num_pos();
         if first >= ntop || last >= ntop ||  first >= nst || last >= nst {
             return Err(SelectionError::IndexValidation(first,last,ntop));
         } else {

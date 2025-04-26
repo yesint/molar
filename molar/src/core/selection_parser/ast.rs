@@ -256,7 +256,7 @@ impl ActiveSubset<'_> {
     }
 }
 
-impl PosProvider for ActiveSubset<'_> {
+impl PosIterProvider for ActiveSubset<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.subset
             .iter()
@@ -271,7 +271,7 @@ impl LenProvider for ActiveSubset<'_> {
 }
 
 impl RandomPosProvider for ActiveSubset<'_> {
-    fn num_coords(&self) -> usize {
+    fn num_pos(&self) -> usize {
         self.subset.len()
     }
 
@@ -281,7 +281,7 @@ impl RandomPosProvider for ActiveSubset<'_> {
     }
 }
 
-impl AtomProvider for ActiveSubset<'_> {
+impl AtomIterProvider for ActiveSubset<'_> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.subset
             .iter()
@@ -300,7 +300,7 @@ impl RandomAtomProvider for ActiveSubset<'_> {
     }
 }
 
-impl MassesProvider for ActiveSubset<'_> {
+impl MassIterProvider for ActiveSubset<'_> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.subset
             .iter()

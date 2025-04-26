@@ -13,7 +13,7 @@ use nalgebra::Unit;
 //==============================================================
 
 /// Trait for modification requiring only positions
-pub trait ModifyPos: PosMutProvider + PosProvider {
+pub trait ModifyPos: PosIterMutProvider + PosIterProvider {
     //pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
     //where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
 
@@ -41,7 +41,7 @@ pub trait ModifyPos: PosMutProvider + PosProvider {
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
+pub trait ModifyPeriodic: PosIterMutProvider + BoxProvider + LenProvider {
     fn unwrap_simple_dim(&self, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self.require_box()?.to_owned();
         let mut iter = self.iter_pos_mut();
@@ -60,7 +60,7 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + RandomPosMutProvider {
+pub trait ModifyRandomAccess: PosIterMutProvider + PosIterProvider + BoxProvider + RandomPosMutProvider {
     fn unwrap_connectivity(&self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
@@ -68,7 +68,7 @@ pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + Rando
     fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self.require_box()?.to_owned();
         let conn: SearchConnectivity =
-            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.num_coords(), &b, dims);
+            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.num_pos(), &b, dims);
 
         // used atoms
         let mut used = vec![false; conn.len()];
@@ -105,7 +105,7 @@ pub trait ModifyRandomAccess: PosMutProvider + PosProvider + BoxProvider + Rando
 }
 
 /// Trait for modification requiring atoms
-pub trait ModifyAtoms: AtomsMutProvider + LenProvider {
+pub trait ModifyAtoms: AtomsIterMutProvider + LenProvider {
     fn assign_resindex(&self) {
         let mut resindex = 0usize;
         let mut at_iter = self.iter_atoms_mut();

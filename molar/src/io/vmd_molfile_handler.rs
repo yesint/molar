@@ -1,4 +1,4 @@
-use super::{StateProvider, TopologyProvider};
+use super::{StateIoProvider, TopologyIoProvider};
 use crate::core::*;
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
@@ -227,7 +227,7 @@ impl VmdMolFileHandler {
         Ok(top)
     }
 
-    pub fn write_topology(&mut self, data: &impl TopologyProvider) -> Result<(), VmdHandlerError> {
+    pub fn write_topology(&mut self, data: &impl TopologyIoProvider) -> Result<(), VmdHandlerError> {
         let n = data.num_atoms();
         // Open file if not yet opened
         self.open_write_if_needed(n)?;
@@ -327,8 +327,8 @@ impl VmdMolFileHandler {
         }
     }
 
-    pub fn write_state(&mut self, data: &impl StateProvider) -> Result<(), VmdHandlerError> {
-        let n = data.num_coords();
+    pub fn write_state(&mut self, data: &impl StateIoProvider) -> Result<(), VmdHandlerError> {
+        let n = data.num_pos();
 
         // Open file if not yet opened
         self.open_write_if_needed(n)?;

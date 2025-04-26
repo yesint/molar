@@ -523,8 +523,8 @@ fn search_cell_pair_single_pbc<T: SearchOutputType>(
 
 pub(crate) fn distance_search_within<'a, C>(
     cutoff: f32,
-    data1: &impl PosProvider,
-    data2: &impl PosProvider,
+    data1: &impl PosIterProvider,
+    data2: &impl PosIterProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
     lower: &Vector3f,
@@ -564,8 +564,8 @@ where
 
 pub(crate) fn distance_search_within_pbc<C>(
     cutoff: f32,
-    data1: &impl PosProvider,
-    data2: &impl PosProvider,
+    data1: &impl PosIterProvider,
+    data2: &impl PosIterProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,

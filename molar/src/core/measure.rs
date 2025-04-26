@@ -16,7 +16,7 @@ use serde::Deserialize;
 #[derive(Error, Debug)]
 pub enum MeasureError {
     /// Mismatch in sizes between two selections
-    #[error("invalid data sizes: {0} and {1}")]
+    #[error("incompatible sizes: {0} and {1}")]
     Sizes(usize, usize),
 
     /// Total mass of the selection is zero
@@ -27,7 +27,7 @@ pub enum MeasureError {
     #[error("SVD failed")]
     Svd,
 
-    /// Operation requires periodic boundary conditions but none are defined
+    /// Operation requires periodic boundary conditions but none is defined
     #[error(transparent)]
     Pbc(#[from] PeriodicBoxError),
 
@@ -40,7 +40,7 @@ pub enum MeasureError {
 }
 
 /// Trait for analysis requiring only positions
-pub trait MeasurePos: PosProvider + LenProvider {
+pub trait MeasurePos: PosIterProvider + LenProvider {
     /// Returns the minimum and maximum coordinates across all dimensions
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -93,7 +93,7 @@ pub trait MeasurePos: PosProvider + LenProvider {
 }
 
 /// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
+pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
     /// Calculates the center of mass of the selection
     fn center_of_mass(&self) -> Result<Pos, MeasureError> {
         let mut cm = Vector3f::zeros();
@@ -191,7 +191,7 @@ pub trait MeasureMasses: PosProvider + MassesProvider + LenProvider {
 }
 
 /// Trait for analysis requiring positions, masses and periodic boundary conditions
-pub trait MeasurePeriodic: PosProvider + MassesProvider + BoxProvider + LenProvider {
+pub trait MeasurePeriodic: PosIterProvider + MassIterProvider + BoxProvider + LenProvider {
     fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError> {
         let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
@@ -406,22 +406,23 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         //normals:  0   1   2   3   4   5
 
         // Size check
-        if self.num_coords() < 3 {
-            return Err(LipidOrderError::TailTooShort(self.num_coords()));
+        if self.num_pos() < 3 {
+            return Err(LipidOrderError::TailTooShort(self.num_pos()));
         }
         
-        if normals.len() != 1 && normals.len() != self.num_coords() - 2 {
-            return Err(LipidOrderError::NormalsCount(self.num_coords(), self.num_coords()-2));
+        if normals.len() != 1 && normals.len() != self.num_pos() - 2 {
+            return Err(LipidOrderError::NormalsCount(self.num_pos(), self.num_pos()-2));
         }
 
-        if bond_orders.len() != self.num_coords() - 1 {
-            return Err(LipidOrderError::BondOrderCount(self.num_coords(), self.num_coords()-1));
+        if bond_orders.len() != self.num_pos() - 1 {
+            return Err(LipidOrderError::BondOrderCount(self.num_pos(), self.num_pos()-1));
         }
 
-        let mut order = DVector::from_element(self.num_coords() - 2, 0.0);
+        let mut order = DVector::from_element(self.num_pos() - 2, 0.0);
         if order_type == OrderType::Sz {
+            // Calculate Gromacs Sz order
             // Iterate over atoms
-            for at in 1..self.num_coords() - 1 {
+            for at in 1..self.num_pos() - 1 {
                 // Vector from at+1 to at-1
                 let v = unsafe { self.nth_pos_unchecked(at + 1) - self.nth_pos_unchecked(at - 1) };
                 // Normal
@@ -437,7 +438,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         } else {
             // Compute deuterium order
             // We iterate over bonds and treat differently single and double bonds
-            for i in 0..self.num_coords() - 2 {
+            for i in 0..self.num_pos() - 2 {
                 if bond_orders[i] == 1 {
                     // Single bond between atoms i:i+1
                     // If next bond is also single, compute order for atom i+1
@@ -566,12 +567,12 @@ pub trait MeasureRandomAccess: RandomPosProvider {
 /// Type of order parameter calculation
 #[derive(PartialEq, Debug, Clone, Deserialize)]
 pub enum OrderType {
-    // Sz order parameter identical to gromacs -szonly option
+    /// Sz order parameter identical to gromacs -szonly option
     Sz,
-    // Deuterium order parameter computed for ideal H positions for double bonds
+    /// Deuterium order parameter computed for ideal H positions
     Scd,
-    // Deuterium order parameter computed for corrected H positions for double bonds
-    // https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
+    /// Deuterium order parameter computed for corrected H positions
+    /// https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
     ScdCorr,
 }
 

@@ -128,20 +128,20 @@ impl State {
 //------------------------
 macro_rules! impl_state_traits {
     ( $t:ty ) => {
-        impl StateProvider for $t {
+        impl StateIoProvider for $t {
             fn get_time(&self) -> f32 {
                 self.get_storage().time
             }
         }
 
-        impl PosProvider for $t {
+        impl PosIterProvider for $t {
             fn iter_pos(&self) -> impl super::PosIterator<'_> + Clone {
                 self.get_storage().coords.iter()
             }
         }
 
         impl RandomPosProvider for $t {
-            fn num_coords(&self) -> usize {
+            fn num_pos(&self) -> usize {
                 self.get_storage().coords.len()
             }
 
@@ -156,7 +156,7 @@ macro_rules! impl_state_traits {
             }
         }
 
-        impl PosMutProvider for $t {
+        impl PosIterMutProvider for $t {
             fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
                 self.get_storage_mut().coords.iter_mut()
             }

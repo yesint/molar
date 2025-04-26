@@ -245,7 +245,7 @@ impl<K: UserCreatableKind> Source<K> {
 //=======================
 
 impl Source<BuilderSerial> {
-    pub fn append(&self, data: &(impl PosProvider + AtomProvider)) -> Sel<BuilderSerial> {
+    pub fn append(&self, data: &(impl PosIterProvider + AtomIterProvider)) -> Sel<BuilderSerial> {
         let first_added_index = self.num_atoms();
         self.topology
             .get_storage_mut()
@@ -336,9 +336,9 @@ impl<K: SelectionKind> IndexProvider for Source<K> {
     }
 }
 
-impl<K: SelectionKind> TopologyProvider for Source<K> {}
+impl<K: SelectionKind> TopologyIoProvider for Source<K> {}
 
-impl<K: SelectionKind> AtomProvider for Source<K> {
+impl<K: SelectionKind> AtomIterProvider for Source<K> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.topology.iter_atoms()
     }
@@ -354,13 +354,13 @@ impl<K: SelectionKind> RandomAtomProvider for Source<K> {
     }
 }
 
-impl<K: SelectionKind> StateProvider for Source<K> {
+impl<K: SelectionKind> StateIoProvider for Source<K> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
 }
 
-impl<K: SelectionKind> PosProvider for Source<K> {
+impl<K: SelectionKind> PosIterProvider for Source<K> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.state.iter_pos()
     }
@@ -374,7 +374,7 @@ impl<K: SelectionKind> BoxProvider for Source<K> {
 
 impl<K: SelectionKind> WritableToFile for Source<K> {}
 
-impl<K: SelectionKind> ParticleProvider for Source<K> {
+impl<K: SelectionKind> ParticleIterProvider for Source<K> {
     fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
         self.iter_index()
             .map(|i| unsafe { self.nth_particle_unchecked(i) })
@@ -392,8 +392,8 @@ impl<K: SelectionKind> RandomParticleProvider for Source<K> {
 }
 
 impl<K: SelectionKind> RandomPosProvider for Source<K> {
-    fn num_coords(&self) -> usize {
-        self.state.num_coords()
+    fn num_pos(&self) -> usize {
+        self.state.num_pos()
     }
 
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
@@ -429,7 +429,7 @@ impl<K: SelectionKind> BondsProvider for Source<K> {
     }
 }
 
-impl<K: SelectionKind> MassesProvider for Source<K> {
+impl<K: SelectionKind> MassIterProvider for Source<K> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
             self.iter_index()
@@ -445,7 +445,7 @@ impl<K: SelectionKind> MeasureRandomAccess for Source<K> {}
 // Traits for read-write sources
 //===============================================================
 
-impl<K: MutableKind> PosMutProvider for Source<K> {
+impl<K: MutableKind> PosIterMutProvider for Source<K> {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         self.state.iter_pos_mut()
     }
@@ -461,7 +461,7 @@ impl<K: MutableKind> RandomPosMutProvider for Source<K> {
     }
 }
 
-impl<K: MutableKind> AtomsMutProvider for Source<K> {
+impl<K: MutableKind> AtomsIterMutProvider for Source<K> {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         self.topology.iter_atoms_mut()
     }
@@ -473,7 +473,7 @@ impl<K: MutableKind> RandomAtomMutProvider for Source<K> {
     }
 }
 
-impl<K: MutableKind> ParticleMutProvider for Source<K> {
+impl<K: MutableKind> ParticleIterMutProvider for Source<K> {
     fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
         self.iter_index()
             .map(|i| unsafe { self.nth_particle_mut_unchecked(i) })

@@ -150,21 +150,21 @@ impl Topology {
 //---------------------------
 macro_rules! impl_topology_traits {
     ( $t:ty ) => {
-        impl TopologyProvider for $t {}
+        impl TopologyIoProvider for $t {}
 
-        impl AtomProvider for $t {
+        impl AtomIterProvider for $t {
             fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
                 self.get_storage().atoms.iter()
             }
         }
 
-        impl AtomsMutProvider for $t {
+        impl AtomsIterMutProvider for $t {
             fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
                 self.get_storage_mut().atoms.iter_mut()
             }
         }
 
-        impl MassesProvider for $t {
+        impl MassIterProvider for $t {
             fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
                 self.get_storage().atoms.iter().map(|at| at.mass)
             }
