@@ -393,8 +393,8 @@ pub trait MeasureRandomAccess: RandomPosProvider {
     /// bond in the range `1..N-1` has its own normal.
     /// `bonds_orders` should contain either 1 or 2 for all `N-1` bonds.
     /// Formulas are taken from:
-    /// - https://pubs.acs.org/doi/10.1021/acs.jctc.7b00643
-    /// - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/
+    /// - <https://pubs.acs.org/doi/10.1021/acs.jctc.7b00643>
+    /// - <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/>
     fn lipid_tail_order(
         &self,
         order_type: OrderType,

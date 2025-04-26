@@ -7,36 +7,7 @@ use std::{marker::PhantomData, path::Path};
 // Source of parallel selections
 //----------------------------------------
 
-/// Source for selections, which are processed in parallel.
-///
-/// Selections are stored inside the source and the user can only access them directly by reference form
-/// the same thread where [SourceParaltopologylel] was created (an attempt to send them to other thread won't compile).
-/// In order to process selections in parallel user calls `map_par` method to run an arbitrary closure on each stored
-/// selection in separate threads.
-///
-/// It is safe to change the [State] contained inside [SourceParallel] by calling [set_state](SourceParallel::set_state)
-/// because it is guaranteed that no other threads are accessing stored selections at the same time.
-///
-/// # Example 2: immutable overlapping selections, using par_iter()
-/// ```
-/// # use molar::prelude::*;
-/// # use anyhow::Result;
-/// # use rayon::prelude::*;
-/// # let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-/// let mut src = Source::new_parallel(top.into(), st.into())?;
-/// // Overlapping selections
-/// let mut sels = vec![];
-/// sels.push( src.select_iter(0..10)? );
-/// sels.push( src.select_iter(5..15)? );
-/// // Process them using par_iter explicitly
-/// let res = sels.par_iter().map(|sel| {
-///    Ok(sel.center_of_mass()?)
-/// }).collect::<Result<Vec<_>>>()?;
-/// println!("{:?}",res);
-/// #  Ok::<(), anyhow::Error>(())
-/// ```
-//------------------------------------------------------------------
-
+/// Source for selections.
 pub struct Source<K> {
     topology: Holder<Topology, K>,
     state: Holder<State, K>,
