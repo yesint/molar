@@ -1,4 +1,4 @@
-**MolAR** is a **Mol**ecular **A**nalysis and modeling library for **R**ust.
+# **MolAR** is a **Mol**ecular **A**nalysis and modeling library for **R**ust.
 
 [![Crates.io](https://img.shields.io/crates/v/molar.svg)](https://crates.io/crates/molar)
 [![Documentation](https://docs.rs/molar/badge.svg)](https://docs.rs/molar)
@@ -23,9 +23,9 @@ MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molec
 
 # Features
 * Reading and writing PDB, GRO, XYZ, XTC, TPR files
-    * Recognizes any VMD molfile plugins. 
     * Reading and writing Gromacs XTC format with random access.
-    * Reading Gromacs TPR files if Gromacs is installed.
+    * Reading Gromacs TPR files (if Gromacs is installed).
+    * Recognizes any VMD molfile plugins. 
 * Selections using the syntax similar to VMD and Pteros.
     * Memory-safe selections for serial and parallel analysis tasks.
     * Powerful subselections and selection splitting.
@@ -33,6 +33,8 @@ MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molec
 * RMSD fitting and alignment.
 * Basic algorithm (center of mass, center of geometry, etc.).
 * Seamless PBC treatment.
+* Trajectory processing with powerful built-in features
+* Python bindings
 
 # Design and Performance
 Please refer to the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
