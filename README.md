@@ -1,5 +1,10 @@
 **MolAR** is a **Mol**ecular **A**nalysis and modeling library for **R**ust.
 
+[![Crates.io](https://img.shields.io/crates/v/molar.svg)](https://crates.io/crates/molar)
+[![Documentation](https://docs.rs/molar/badge.svg)](https://docs.rs/molar)
+[![Rust Version](https://img.shields.io/badge/rust-1.83+-blue.svg)](https://www.rust-lang.org/)
+[![Crates.io Downloads](https://img.shields.io/crates/d/molar.svg)](https://crates.io/crates/molar)
+
 # Table of contents
 - [What is MolAR?](#what-is-molar)
 - [Features](#features)
