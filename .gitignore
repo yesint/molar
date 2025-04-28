@@ -8,3 +8,4 @@ tests/*.dat
 .zed
 molar_python/.cargo/*
 .gitignore
+.lapce
