@@ -1,6 +1,5 @@
-use crate::{map_const_pyarray_to_pos, Sel, Source, State};
-use anyhow::anyhow;
-use molar::core::{BoxProvider, BuilderSerial, Holder};
+use crate::{map_const_pyarray_to_pos, Sel, Source};
+use molar::core::BuilderSerial;
 use pyo3::prelude::*;
 
 #[pyclass(unsendable)]
@@ -41,10 +40,7 @@ impl Membrane {
 }
 
 #[pyclass(unsendable)]
-pub(crate) struct LipidMolecule(
-    *mut molar_membrane::LipidMolecule<BuilderSerial>,
-    usize,
-);
+pub(crate) struct LipidMolecule(*mut molar_membrane::LipidMolecule<BuilderSerial>, usize);
 
 impl LipidMolecule {
     // fn get_mut(&mut self) -> &mut molar_membrane::LipidMolecule<BuilderSerial> {
@@ -52,10 +48,9 @@ impl LipidMolecule {
     // }
 
     fn get(&self) -> &molar_membrane::LipidMolecule<BuilderSerial> {
-        unsafe {&*self.0}
+        unsafe { &*self.0 }
     }
 }
-
 
 #[pymethods]
 impl LipidMolecule {
