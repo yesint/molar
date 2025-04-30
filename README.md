@@ -423,7 +423,7 @@ python -m pip install .
 
 ## Usage
 
-Pymolar bindings could be used in two modes: manual and as "analysis tasks". In the first case you have a full fine-grained control on how you read your input files, but this may involve a lot of boilerplate. In contrast, "analysis tasks" hide most of the input handling from the user providing a very simple command-line interface to load structure and trajectory files, skip frames, begin and end reading at particular frame or time stamp, etc. The user only needs to implement three methods: `pre_process`, `process_frame` and `post_process`, which are called during the analysis.
+Pymolar bindings could be used in two modes: manual and as [analysis tasks](#analysis-tasks). In the first case you have a full fine-grained control on how you read your input files, but this may involve a lot of boilerplate. In contrast, "analysis tasks" hide most of the input handling from the user providing a very simple command-line interface to load structure and trajectory files, skip frames, begin and end reading at particular frame or time stamp, etc. The user only needs to implement three methods: `pre_process`, `process_frame` and `post_process`, which are called during the analysis.
 
 As an example we will write a script that prints center of mass of CA protein atoms on each trajectory frame and then computes the average center of masses for the whole trajectory:
 
