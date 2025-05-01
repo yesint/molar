@@ -33,9 +33,17 @@ impl Membrane {
     fn get_lipids(&self) -> Vec<LipidMolecule> {
         type M = molar_membrane::LipidMolecule<BuilderSerial>;
         self.0
-            .iter_valid_lipids()
+            .iter_all_lipids()
             .map(|l| LipidMolecule(l as *const M as *mut M))
             .collect()
+    }
+
+    fn reset_groups(&mut self) {
+        self.0.reset_groups();
+    }
+
+    fn reset_valid_lipids(&mut self) {
+        self.0.reset_valid_lipids();
     }
 }
 
@@ -47,6 +55,11 @@ impl LipidMolecule {
     fn get(&self) -> &molar_membrane::LipidMolecule<BuilderSerial> {
         unsafe { &*self.0 }
     }
+
+    #[inline(always)]    
+    fn get_mut(&mut self) -> &mut molar_membrane::LipidMolecule<BuilderSerial> {
+        unsafe { &mut *self.0 }
+    }
 }
 
 #[pymethods]
@@ -54,6 +67,16 @@ impl LipidMolecule {
     #[getter]
     fn get_id(&self) -> usize {
         self.get().id
+    }
+
+    #[getter]
+    fn get_valid(&self) -> bool {
+        self.get().valid
+    }
+
+    #[setter]
+    fn set_valid(&mut self, val: bool) {
+        self.get_mut().valid = val;
     }
 
     #[getter]

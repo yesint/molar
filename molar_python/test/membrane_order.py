@@ -11,14 +11,24 @@ class MyTask(AnalysisTask):
         self.memb = Membrane(self.src,toml_str)
 
         z0 = 5.6
+        self.memb.reset_valid_lipids()
+        self.memb.reset_groups()
         
         upper = []
         lower = []
         for lip in self.memb.lipids:
-            if lip.head_marker[2] > z0:
+            z = lip.head_marker[2]
+            if lip.sel[0].resname == 'POGL' and z>4.6 and z<6.6:
+            #if lip.sel[0].resname == 'POGL' and z>z0:
+               lip.valid = False                
+            else:
+               lip.valid = True
+
+            if z > z0:
                 upper.append(lip.id)
             else:
                 lower.append(lip.id)
+        
         
         self.memb.add_lipids_to_group("upper", upper);
         self.memb.add_lipids_to_group("lower", lower);

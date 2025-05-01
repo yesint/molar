@@ -172,6 +172,10 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         self.lipids.iter().filter(|l| l.valid)
     }
 
+    pub fn iter_all_lipids(&self) -> impl Iterator<Item = &LipidMolecule<K>> + Clone {
+        self.lipids.iter()
+    }
+
     fn iter_valid_lipids_mut(&mut self) -> impl Iterator<Item = &mut LipidMolecule<K>> {
         self.lipids.iter_mut().filter(|l| l.valid)
     }
@@ -218,10 +222,17 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         self
     }
 
-    pub fn reset_groups(&mut self) {
+    pub fn reset_groups(&mut self) {        
+        // Reset lipid indexes in gorups
         for gr in self.groups.values_mut() {
             gr.lipid_ids.clear();
             gr.stats.per_species.clear();
+        }
+    }
+
+    pub fn reset_valid_lipids(&mut self) {                
+        for l in self.lipids.iter_mut() {
+            l.valid = true;
         }
     }
 
@@ -232,7 +243,7 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
     ) -> anyhow::Result<()> {
         let gr_name = gr_name.as_ref();
         if let Some(gr) = self.groups.get_mut(gr_name) {
-            for id in ids {
+            for id in ids {                
                 // Check if lipid id is in range
                 if *id >= self.lipids.len() {
                     bail!(
@@ -241,6 +252,8 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
                         self.lipids.len() - 1
                     );
                 }
+                // Check if this lipid is valid
+                if !self.lipids[*id].valid {continue}
                 // Add this lipid id
                 gr.lipid_ids.push(*id);
                 // Initialize statistics for this lipid species if not yet done
@@ -269,10 +282,10 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         // Get initial normals
         self.compute_initial_normals();
 
-        // Initialize markers and set all points as valid
+        // Initialize markers and set valid points
         for i in 0..self.lipids.len() {
             self.surface.nodes[i].marker = self.lipids[i].head_marker;
-            self.surface.nodes[i].valid = true;
+            self.surface.nodes[i].valid = self.lipids[i].valid;
         }
 
         // Do smoothing
