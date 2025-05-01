@@ -20,6 +20,8 @@ impl LipidGroup {
         }
         // Update group by adding individual lipid stats
         for lip_id in &self.lipid_ids {
+            // If lipid is not valid skip
+            if !lipids[*lip_id].valid {continue}
             // Get species name
             let sp_name = &lipids[*lip_id].species.name;
             // Update stats for this species

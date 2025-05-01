@@ -5,6 +5,7 @@ use std::rc::Rc;
 use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule<K> {
+    pub id: usize,
     pub sel: Sel<K>,
     pub species: Rc<LipidSpecies>,
     pub head_sel: Sel<K>,
@@ -18,6 +19,8 @@ pub struct LipidMolecule<K> {
     //pub(super) props: SingleLipidProperties,
     pub(super) order: Vec<DVector<f32>>,
     pub(super) tail_head_vec: Vector3f,
+
+    pub(super) valid: bool,
 }
 
 impl<K: UserCreatableKind+MutableKind> LipidMolecule<K> {

@@ -33,20 +33,17 @@ impl Membrane {
     fn get_lipids(&self) -> Vec<LipidMolecule> {
         type M = molar_membrane::LipidMolecule<BuilderSerial>;
         self.0
-            .iter_lipids()
-            .map(|(id, l)| LipidMolecule(l as *const M as *mut M, id))
+            .iter_valid_lipids()
+            .map(|l| LipidMolecule(l as *const M as *mut M))
             .collect()
     }
 }
 
 #[pyclass(unsendable)]
-pub(crate) struct LipidMolecule(*mut molar_membrane::LipidMolecule<BuilderSerial>, usize);
+pub(crate) struct LipidMolecule(*mut molar_membrane::LipidMolecule<BuilderSerial>);
 
 impl LipidMolecule {
-    // fn get_mut(&mut self) -> &mut molar_membrane::LipidMolecule<BuilderSerial> {
-    //     unsafe {&mut *self.0}
-    // }
-
+    #[inline(always)]    
     fn get(&self) -> &molar_membrane::LipidMolecule<BuilderSerial> {
         unsafe { &*self.0 }
     }
@@ -56,7 +53,7 @@ impl LipidMolecule {
 impl LipidMolecule {
     #[getter]
     fn get_id(&self) -> usize {
-        self.1
+        self.get().id
     }
 
     #[getter]

@@ -70,7 +70,7 @@ impl Default for MembraneOptions {
     }
 }
 
-impl<K: MutableKind+UserCreatableKind> Membrane<K> {
+impl<K: MutableKind + UserCreatableKind> Membrane<K> {
     pub fn new(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
@@ -118,6 +118,7 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
 
                     let tail_head_vec = tail_marker - head_marker;
 
+                    let id = lipids.len();
                     lipids.push(LipidMolecule {
                         sel: lip, // Selection is moved to the lipid
                         species: Rc::clone(&sp),
@@ -130,6 +131,8 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
                         tail_marker,
                         order,
                         tail_head_vec,
+                        id,
+                        valid: true,
                     });
                 }
             } else {
@@ -163,6 +166,14 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
             species,
             options,
         })
+    }
+
+    pub fn iter_valid_lipids(&self) -> impl Iterator<Item = &LipidMolecule<K>> + Clone {
+        self.lipids.iter().filter(|l| l.valid)
+    }
+
+    fn iter_valid_lipids_mut(&mut self) -> impl Iterator<Item = &mut LipidMolecule<K>> {
+        self.lipids.iter_mut().filter(|l| l.valid)
     }
 
     pub fn with_groups(mut self, group_names: &[impl AsRef<str>]) -> Self {
@@ -205,10 +216,6 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
     pub fn with_max_iter(mut self, max_iter: usize) -> Self {
         self.options.max_smooth_iter = max_iter;
         self
-    }
-
-    pub fn iter_lipids(&self) -> impl Iterator<Item = (usize, &LipidMolecule<K>)> {
-        self.lipids.iter().enumerate()
     }
 
     pub fn reset_groups(&mut self) {
@@ -306,38 +313,44 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
     fn compute_initial_normals(&mut self) {
         // Compute tail-to-head vectors for all lipids
         // This is unwrapped with the same lipid
-        for lip in &mut self.lipids {
+        for lip in self.iter_valid_lipids_mut() {
             lip.tail_head_vec = (lip.head_marker - lip.tail_marker).normalize();
         }
 
         // First pass - average of tail-to-head distances in each patch
         for i in 0..self.lipids.len() {
-            self.surface.nodes[i].normal = self.surface.nodes[i]
-                .patch_ids
-                .iter()
-                .map(|l| &self.lipids[*l].tail_head_vec)
-                .sum::<Vector3f>()
-                .normalize();
+            if self.lipids[i].valid {
+                self.surface.nodes[i].normal = self.surface.nodes[i]
+                    .patch_ids
+                    .iter()
+                    .map(|l| &self.lipids[*l].tail_head_vec)
+                    .sum::<Vector3f>()
+                    .normalize();
+            }
         }
 
         // Second pass - average of vectors from the first pass in eac patch
         for i in 0..self.lipids.len() {
-            self.surface.nodes[i].normal = self.surface.nodes[i]
-                .patch_ids
-                .iter()
-                .map(|l| &self.surface.nodes[*l].normal)
-                .sum::<Vector3f>()
-                .normalize();
+            if self.lipids[i].valid {
+                self.surface.nodes[i].normal = self.surface.nodes[i]
+                    .patch_ids
+                    .iter()
+                    .map(|l| &self.surface.nodes[*l].normal)
+                    .sum::<Vector3f>()
+                    .normalize();
+            }
         }
 
         // Correct normal orientations if needed
         for i in 0..self.lipids.len() {
-            if self.surface.nodes[i]
-                .normal
-                .angle(&self.lipids[i].tail_head_vec)
-                > FRAC_PI_2
-            {
-                self.surface.nodes[i].normal *= -1.0;
+            if self.lipids[i].valid {
+                if self.surface.nodes[i]
+                    .normal
+                    .angle(&self.lipids[i].tail_head_vec)
+                    > FRAC_PI_2
+                {
+                    self.surface.nodes[i].normal *= -1.0;
+                }
             }
         }
     }
@@ -358,9 +371,9 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: impl Into<Holder<State,K>>) -> anyhow::Result<()> {
-        let st: Holder<State,K> = st.into();
-        // Go over all lipids and set their "shallow" states
+    pub fn set_state(&mut self, st: impl Into<Holder<State, K>>) -> anyhow::Result<()> {
+        let st: Holder<State, K> = st.into();
+        // Go over all lipids and set their states
         for lip in &mut self.lipids {
             lip.sel.set_state(st.new_ref())?;
             lip.head_sel.set_state(st.new_ref())?;
@@ -380,8 +393,8 @@ impl<K: MutableKind+UserCreatableKind> Membrane<K> {
     fn compute_patches(&mut self, d: f32) -> anyhow::Result<()> {
         let ind: Vec<(usize, usize)> = distance_search_single_pbc(
             d,
-            self.lipids.iter().map(|l| &l.head_marker),
-            0..self.lipids.len(),
+            self.iter_valid_lipids().map(|l| &l.head_marker),
+            self.iter_valid_lipids().map(|l| l.id),
             self.lipids[0].sel.require_box()?,
             PBC_FULL,
         );
@@ -553,11 +566,11 @@ mod tests {
 
         let mut upper = vec![];
         let mut lower = vec![];
-        for (id, lip) in memb.iter_lipids() {
+        for lip in memb.iter_valid_lipids() {
             if lip.head_marker.z > z0 + 1.0 {
-                upper.push(id);
+                upper.push(lip.id);
             } else if lip.head_marker.z < z0 - 1.0 {
-                lower.push(id);
+                lower.push(lip.id);
             }
         }
 
@@ -591,11 +604,11 @@ mod tests {
 
         let mut upper = vec![];
         let mut lower = vec![];
-        for (id, lip) in memb.iter_lipids() {
+        for lip in memb.iter_valid_lipids() {
             if lip.head_marker.z > z0 + 1.0 {
-                upper.push(id);
+                upper.push(lip.id);
             } else if lip.head_marker.z < z0 - 1.0 {
-                lower.push(id);
+                lower.push(lip.id);
             }
             if lip.sel.first_atom().resname == "POGL" {
                 println!("{}", lip.head_marker);

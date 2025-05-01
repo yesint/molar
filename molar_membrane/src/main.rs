@@ -41,11 +41,11 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
 
         let mut upper = vec![];
         let mut lower = vec![];
-        for (id, lip) in membr.iter_lipids() {
+        for lip in membr.iter_valid_lipids() {
             if lip.head_marker.z > z0 {
-                upper.push(id);
+                upper.push(lip.id);
             } else {
-                lower.push(id);
+                lower.push(lip.id);
             }
         }
 
