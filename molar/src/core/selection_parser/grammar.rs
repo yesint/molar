@@ -30,24 +30,24 @@ peg::parser! {
             = v:float_val() { MathNode::Float(v) }
 
         // Keywords
-        rule keyword_name() -> Keyword = "name" {Keyword::Name}
-        rule keyword_resid() -> Keyword = "resid" {Keyword::Resid}
-        rule keyword_resindex() -> Keyword = "resindex" {Keyword::Resindex}
-        rule keyword_resname() -> Keyword = "resname" {Keyword::Resname}
-        rule keyword_index() -> Keyword = "index" {Keyword::Index}
-        rule keyword_chain() -> Keyword = "chain" {Keyword::Chain}
-        rule keyword_residue() -> Keyword = "residue" {Keyword::Residue}
-        rule keyword_occupancy() -> Keyword = ("occupancy" / "occ") {Keyword::Occupancy}
-        rule keyword_bfactor() -> Keyword = ("bfactor" / "beta") {Keyword::Bfactor}
+        rule keyword_name() -> AtomAttr = "name" {AtomAttr::Name}
+        rule keyword_resid() -> AtomAttr = "resid" {AtomAttr::Resid}
+        rule keyword_resindex() -> AtomAttr = "resindex" {AtomAttr::Resindex}
+        rule keyword_resname() -> AtomAttr = "resname" {AtomAttr::Resname}
+        rule keyword_index() -> AtomAttr = "index" {AtomAttr::Index}
+        rule keyword_chain() -> AtomAttr = "chain" {AtomAttr::Chain}
+        rule keyword_residue() -> AtomAttr = "residue" {AtomAttr::Residue}
+        rule keyword_occupancy() -> AtomAttr = ("occupancy" / "occ") {AtomAttr::Occupancy}
+        rule keyword_bfactor() -> AtomAttr = ("bfactor" / "beta") {AtomAttr::Bfactor}
 
         rule int_keyword_expr() -> KeywordNode
             = s:(keyword_resid() / keyword_resindex() / keyword_index()) __
               v:((int_range() / int_single()) ++ __)
             {
                 match s {
-                    Keyword::Resid => KeywordNode::Resid(v),
-                    Keyword::Resindex => KeywordNode::Resindex(v),
-                    Keyword::Index => KeywordNode::Index(v),
+                    AtomAttr::Resid => KeywordNode::Resid(v),
+                    AtomAttr::Resindex => KeywordNode::Resindex(v),
+                    AtomAttr::Index => KeywordNode::Index(v),
                     _ => unreachable!()
                 }
             }
@@ -71,8 +71,8 @@ peg::parser! {
             v:((str_value() / regex_value()) ++ __)
         {?
             match s {
-                Keyword::Name => Ok(KeywordNode::Name(v)),
-                Keyword::Resname => Ok(KeywordNode::Resname(v)),
+                AtomAttr::Name => Ok(KeywordNode::Name(v)),
+                AtomAttr::Resname => Ok(KeywordNode::Resname(v)),
                 _ => Err(unreachable!())
             }
         }
@@ -263,8 +263,8 @@ peg::parser! {
         rule same_expr() -> SameAttr
         = "same" __ t:(keyword_residue() / keyword_chain()) __ "as" {
             match t {
-                Keyword::Residue => SameAttr::Residue,
-                Keyword::Chain => SameAttr::Chain,
+                AtomAttr::Residue => SameAttr::Residue,
+                AtomAttr::Chain => SameAttr::Chain,
                 _ => unreachable!(),
             }
         }
@@ -325,17 +325,17 @@ peg::parser! {
             }
         }
 
-        pub rule compound() -> CompoundNode 
+        pub rule compound() -> ChemicalNode 
         = protein() / backbone() / sidechain() / 
           water() / not_water() / hydrogen() / not_hydrogen ();
 
-        pub rule protein() -> CompoundNode = "protein" _ { CompoundNode::Protein };
-        pub rule sidechain() -> CompoundNode = "sidechain" _ { CompoundNode::Sidechain };
-        pub rule backbone() -> CompoundNode = "backbone" _ { CompoundNode::Backbone };
-        pub rule water() -> CompoundNode = "water" _ { CompoundNode::Water };
-        pub rule not_water() -> CompoundNode = "now" _ { CompoundNode::NotWater };
-        pub rule hydrogen() -> CompoundNode = "hydrogen" _ { CompoundNode::Hydrogen };
-        pub rule not_hydrogen() -> CompoundNode = "noh" _ { CompoundNode::NotHydrogen };
+        pub rule protein() -> ChemicalNode = "protein" _ { ChemicalNode::Protein };
+        pub rule sidechain() -> ChemicalNode = "sidechain" _ { ChemicalNode::Sidechain };
+        pub rule backbone() -> ChemicalNode = "backbone" _ { ChemicalNode::Backbone };
+        pub rule water() -> ChemicalNode = "water" _ { ChemicalNode::Water };
+        pub rule not_water() -> ChemicalNode = "now" _ { ChemicalNode::NotWater };
+        pub rule hydrogen() -> ChemicalNode = "hydrogen" _ { ChemicalNode::Hydrogen };
+        pub rule not_hydrogen() -> ChemicalNode = "noh" _ { ChemicalNode::NotHydrogen };
 
         // Logic
         pub rule logical_expr() -> LogicalNode
@@ -352,7 +352,7 @@ peg::parser! {
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
             v:comparison_expr_chained() { LogicalNode::Comparison(v) }
-            v:compound() {LogicalNode::Compound(v)}
+            v:compound() {LogicalNode::Chemical(v)}
             // Within from point
             p:within_expr() ___ v:vec3()  {LogicalNode::WithinPoint(p,v)}
             "all" _ { LogicalNode::All }

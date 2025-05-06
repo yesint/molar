@@ -95,35 +95,11 @@ impl<K: SelectionKind> Sel<K> {
     pub fn nth_index(&self, i: usize) -> Option<usize> {
         self.index().get(i).cloned()
     }
-
-    // pub fn first_particle(&self) -> Particle {
-    //     unsafe { self.nth_particle_unchecked(0) }
-    // }
-
-    // pub fn first_particle_mut(&self) -> ParticleMut {
-    //     unsafe { self.nth_particle_mut_unchecked(0) }
-    // }
-
+    
     /// Get a Particle for the last selection index.
     pub fn last_particle(&self) -> Particle {
         unsafe { self.nth_particle_unchecked(self.index().len() - 1) }
     }
-
-    // pub fn last_particle_mut(&self) -> ParticleMut {
-    //     unsafe { self.nth_particle_mut_unchecked(self.index().len() - 1) }
-    // }
-
-    // /// Get a Particle for the n-th selection index.
-    // /// Index is bound-checked, an error is returned if it is out of bounds.
-    // pub fn nth_particle(&self, i: usize) -> Option<Particle> {
-    //     let ind = *self.index().get(i)?;
-    //     Some(unsafe { self.nth_particle_unchecked(ind) })
-    // }
-
-    // pub fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
-    //     let ind = *self.index().get(i)?;
-    //     Some(unsafe { self.nth_particle_mut_unchecked(ind) })
-    // }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
         self.topology.new_ref_with_kind()

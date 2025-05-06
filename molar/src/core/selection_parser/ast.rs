@@ -125,10 +125,10 @@ pub(super) enum LogicalNode {
     Within(WithinParams, Box<Self>),
     WithinPoint(WithinParams, VectorNode),
     All,
-    Compound(CompoundNode),
+    Chemical(ChemicalNode),
 }
 
-pub(super) enum Keyword {
+pub(super) enum AtomAttr {
     Name,
     Resname,
     Resid,
@@ -149,7 +149,7 @@ pub(super) enum MathFunctionName {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) enum CompoundNode {
+pub(super) enum ChemicalNode {
     Protein,
     Backbone,
     Sidechain,
@@ -230,7 +230,6 @@ impl<'a> EvaluationContext<'a> {
 }
 
 // Auxiliary struct representing a current active subset
-// Created by ApplyData and contains either global or local subset
 struct ActiveSubset<'a> {
     topology: &'a Topology,
     state: &'a State,
@@ -400,7 +399,7 @@ impl VectorNode {
 }
 
 impl LogicalNode {
-    fn map_same_prop<T>(
+    fn map_same_attr<T>(
         &self,
         data: &EvaluationContext,
         inner: &Vec<usize>,
@@ -411,7 +410,7 @@ impl LogicalNode {
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        let sub: ActiveSubset<'_> = data.custom_subset(inner);
+        let sub = data.custom_subset(inner);
         for at in sub.iter_atoms() {
             properties.insert(*prop_fn(at));
         }
@@ -420,11 +419,10 @@ impl LogicalNode {
         // Now loop over *global* subset and add all atoms with the same property
         let sub = data.global_subset();
         for (i, at) in sub.iter_ind_atom() {
-            for prop in properties.iter() {
-                if prop_fn(at) == prop {
-                    res.push(i);
-                    break;
-                }
+            let cur_prop = prop_fn(at);
+            if properties.iter().find(|p| *p == cur_prop).is_some() {
+                res.push(i);
+                break;
             }
         }
         res
@@ -461,31 +459,31 @@ impl LogicalNode {
 
             Self::Comparison(node) => node.apply(data),
 
-            Self::Same(prop, node) => {
+            Self::Same(attr, node) => {
                 let inner = node.apply(data)?;
-                let res = match prop {
+                let res = match attr {
                     // Here we use the global subset!
-                    SameAttr::Residue => self.map_same_prop(data, &inner, |at| &at.resindex),
-                    SameAttr::Chain => self.map_same_prop(data, &inner, |at| &at.chain),
+                    SameAttr::Residue => self.map_same_attr(data, &inner, |at| &at.resindex),
+                    SameAttr::Chain => self.map_same_attr(data, &inner, |at| &at.chain),
                 };
                 Ok(res)
             }
 
-            Self::Within(prop, node) => {
+            Self::Within(params, node) => {
                 let inner = node.apply(data)?;
 
                 let sub1 = data.global_subset();
                 let sub2 = data.custom_subset(&inner);
                 // Perform distance search
-                let mut res: Vec<usize> = if prop.pbc == PBC_NONE {
+                let mut res: Vec<usize> = if params.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
                     let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
-                    lower.add_scalar_mut(-prop.cutoff - f32::EPSILON);
-                    upper.add_scalar_mut(prop.cutoff + f32::EPSILON);
+                    lower.add_scalar_mut(-params.cutoff - f32::EPSILON);
+                    upper.add_scalar_mut(params.cutoff + f32::EPSILON);
 
                     distance_search_within(
-                        prop.cutoff,
+                        params.cutoff,
                         &sub1,
                         &sub2,
                         sub1.subset.iter().cloned(),
@@ -496,18 +494,18 @@ impl LogicalNode {
                 } else {
                     // Periodic variant
                     distance_search_within_pbc(
-                        prop.cutoff,
+                        params.cutoff,
                         &sub1,
                         &sub2,
                         sub1.subset.iter().cloned(),
                         sub2.subset.iter().cloned(),
                         data.state.require_box()?,
-                        prop.pbc,
+                        params.pbc,
                     )
                 };
 
                 // Add inner if asked
-                if prop.include_inner {
+                if params.include_inner {
                     res.extend(inner);
                 }
                 Ok(res)
@@ -550,27 +548,27 @@ impl LogicalNode {
             // All always works for global subset
             Self::All => Ok(data.global_subset.iter().cloned().collect()),
 
-            Self::Compound(comp) => comp.apply(data),
+            Self::Chemical(comp) => comp.apply(data),
         }
     }
 
-    pub fn is_coord_dependent(&self) -> bool {
-        match self {
-            Self::Not(node) | Self::Same(_, node) => node.is_coord_dependent(),
+    // pub fn is_coord_dependent(&self) -> bool {
+    //     match self {
+    //         Self::Not(node) | Self::Same(_, node) => node.is_coord_dependent(),
 
-            Self::Comparison(node) => node.is_coord_dependent(),
+    //         Self::Comparison(node) => node.is_coord_dependent(),
 
-            Self::Or(a, b) | Self::And(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
+    //         Self::Or(a, b) | Self::And(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
 
-            Self::Within(_, _) | Self::WithinPoint(_, _) => true,
+    //         Self::Within(_, _) | Self::WithinPoint(_, _) => true,
 
-            // All always works for global subset
-            _ => false,
-        }
-    }
+    //         // All always works for global subset
+    //         _ => false,
+    //     }
+    // }
 }
 
-impl CompoundNode {
+impl ChemicalNode {
     fn is_protein(atom: &Atom) -> bool {
         match atom.resname.as_str() {
             "GLY" | "ALA" | "VAL" | "PHE" | "PRO" | "MET" | "ILE" | "LEU" | "ASP" | "GLU"
@@ -599,7 +597,7 @@ impl CompoundNode {
 
     fn is_water(atom: &Atom) -> bool {
         match atom.resname.as_str() {
-            "SOL" | "HOH" | "TIP3" | "TIP4" | "TIP5" => true,
+            "SOL" | "HOH" | "TIP3" | "TIP4" | "TIP5" | "OPC" => true,
             _ => false,
         }
     }
@@ -617,7 +615,7 @@ impl CompoundNode {
         let sub = data.current_subset();
         match self {
             Self::Protein => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_protein(at) {
                         res.push(i)
@@ -627,7 +625,7 @@ impl CompoundNode {
             }
 
             Self::Backbone => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_backbone(at) {
                         res.push(i)
@@ -637,7 +635,7 @@ impl CompoundNode {
             }
 
             Self::Sidechain => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_sidechain(at) {
                         res.push(i)
@@ -647,7 +645,7 @@ impl CompoundNode {
             }
 
             Self::Water => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_water(at) {
                         res.push(i)
@@ -657,7 +655,7 @@ impl CompoundNode {
             }
 
             Self::NotWater => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_water(at) {
                         res.push(i)
@@ -667,7 +665,7 @@ impl CompoundNode {
             }
 
             Self::Hydrogen => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_hydrogen(at) {
                         res.push(i)
@@ -677,7 +675,7 @@ impl CompoundNode {
             }
 
             Self::NotHydrogen => {
-                let mut res = Vec::<usize>::new();
+                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_hydrogen(at) {
                         res.push(i)
@@ -713,7 +711,7 @@ impl KeywordNode {
         args: &Vec<StrKeywordArg>,
         f: fn(&Atom) -> &String,
     ) -> Vec<usize> {
-        let mut res = Vec::<usize>::default();
+        let mut res = vec![];
         let sub = data.current_subset();
         for (ind, a) in sub.iter_ind_atom() {
             for arg in args {
@@ -791,13 +789,12 @@ impl KeywordNode {
 
 impl MathNode {
     fn eval(&mut self, at: usize, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
-        let pos = unsafe { data.state.nth_pos_mut_unchecked(at) };
         let atom = unsafe { data.topology.nth_atom_unchecked(at) };
         match self {
             Self::Float(v) => Ok(*v),
-            Self::X => Ok(pos[0]),
-            Self::Y => Ok(pos[1]),
-            Self::Z => Ok(pos[2]),
+            Self::X => Ok(unsafe { data.state.nth_pos_mut_unchecked(at) }[0]),
+            Self::Y => Ok(unsafe { data.state.nth_pos_mut_unchecked(at) }[1]),
+            Self::Z => Ok(unsafe { data.state.nth_pos_mut_unchecked(at) }[2]),
             Self::Bfactor => Ok(atom.bfactor),
             Self::Occupancy => Ok(atom.occupancy),
             Self::Vdw => Ok(atom.vdw()),
@@ -831,6 +828,7 @@ impl MathNode {
                 }
             }
             Self::Dist(d) => {
+                let pos = unsafe { data.state.nth_pos_mut_unchecked(at) };
                 // Point should be unwrapped first!
                 d.closest_image(pos, data);
 
@@ -867,18 +865,18 @@ impl MathNode {
         }
     }
 
-    fn is_coord_dependent(&self) -> bool {
-        match self {
-            Self::X | Self::Y | Self::Z | Self::Dist(_) => true,
-            Self::Add(a, b)
-            | Self::Sub(a, b)
-            | Self::Mul(a, b)
-            | Self::Div(a, b)
-            | Self::Pow(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
-            Self::Neg(v) | Self::Function(_, v) => v.is_coord_dependent(),
-            _ => false,
-        }
-    }
+    // fn is_coord_dependent(&self) -> bool {
+    //     match self {
+    //         Self::X | Self::Y | Self::Z | Self::Dist(_) => true,
+    //         Self::Add(a, b)
+    //         | Self::Sub(a, b)
+    //         | Self::Mul(a, b)
+    //         | Self::Div(a, b)
+    //         | Self::Pow(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
+    //         Self::Neg(v) | Self::Function(_, v) => v.is_coord_dependent(),
+    //         _ => false,
+    //     }
+    // }
 }
 
 impl ComparisonNode {
@@ -957,36 +955,36 @@ impl ComparisonNode {
         }
     }
 
-    fn is_coord_dependent(&self) -> bool {
-        match self {
-            // Simple
-            Self::Eq(v1, v2)
-            | Self::Neq(v1, v2)
-            | Self::Gt(v1, v2)
-            | Self::Geq(v1, v2)
-            | Self::Lt(v1, v2)
-            | Self::Leq(v1, v2) => v1.is_coord_dependent() || v2.is_coord_dependent(),
-            // Chained
-            Self::LtLt(v1, v2, v3)
-            | Self::LtLeq(v1, v2, v3)
-            | Self::LeqLt(v1, v2, v3)
-            | Self::LeqLeq(v1, v2, v3)
-            | Self::GtGt(v1, v2, v3)
-            | Self::GtGeq(v1, v2, v3)
-            | Self::GeqGt(v1, v2, v3)
-            | Self::GeqGeq(v1, v2, v3) => {
-                v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent()
-            }
-        }
-    }
+    // fn is_coord_dependent(&self) -> bool {
+    //     match self {
+    //         // Simple
+    //         Self::Eq(v1, v2)
+    //         | Self::Neq(v1, v2)
+    //         | Self::Gt(v1, v2)
+    //         | Self::Geq(v1, v2)
+    //         | Self::Lt(v1, v2)
+    //         | Self::Leq(v1, v2) => v1.is_coord_dependent() || v2.is_coord_dependent(),
+    //         // Chained
+    //         Self::LtLt(v1, v2, v3)
+    //         | Self::LtLeq(v1, v2, v3)
+    //         | Self::LeqLt(v1, v2, v3)
+    //         | Self::LeqLeq(v1, v2, v3)
+    //         | Self::GtGt(v1, v2, v3)
+    //         | Self::GtGeq(v1, v2, v3)
+    //         | Self::GeqGt(v1, v2, v3)
+    //         | Self::GeqGeq(v1, v2, v3) => {
+    //             v1.is_coord_dependent() || v2.is_coord_dependent() || v3.is_coord_dependent()
+    //         }
+    //     }
+    // }
 }
 
 #[derive(Error, Debug)]
 pub enum SelectionParserError {
-    #[error("selection syntax error: {0}")]
+    #[error("syntax error: {0}")]
     SyntaxError(String),
 
-    #[error(transparent)]
+    #[error("selection has incompatible topology and state: {0}")]
     DifferentSizes(#[from] TopologyStateSizes),
 
     #[error("periodic selection for non-periodic system: {0}")]
@@ -998,9 +996,9 @@ pub enum SelectionParserError {
     #[error("sqrt of negative number")]
     NegativeSqrt,
 
-    #[error(transparent)]
+    #[error("selection measure operation failed: {0}")]
     Measure(#[from] MeasureError),
 
-    #[error("asked for atom {0} while inner expression has {1} atoms")]
+    #[error("asked for atom {0} while selection inner expression has {1} atoms")]
     OutOfBounds(usize, usize),
 }
