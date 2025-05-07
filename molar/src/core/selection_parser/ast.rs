@@ -422,7 +422,6 @@ impl LogicalNode {
             let cur_prop = prop_fn(at);
             if properties.iter().find(|p| *p == cur_prop).is_some() {
                 res.push(i);
-                break;
             }
         }
         res
