@@ -6,7 +6,7 @@ use sorted_vec::SortedSet;
 mod ast;
 mod grammar;
 
-mod grammar2;
+mod grammar3;
 
 pub use ast::SelectionParserError;
 use ast::{EvaluationContext, LogicalNode};
