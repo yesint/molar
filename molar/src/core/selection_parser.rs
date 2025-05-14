@@ -15,6 +15,10 @@ use ast::{EvaluationContext, LogicalNode};
 //#  Public interface
 //##############################
 
+/// A compiled selection expression that can be used to select atoms based on various criteria
+/// 
+/// Selection expressions are parsed from strings and compiled into an abstract syntax tree (AST)
+/// that can be evaluated against a molecular system to select atoms matching the criteria.
 #[derive(Debug)]
 pub struct SelectionExpr {
     ast: RefCell<LogicalNode>,
@@ -22,12 +26,27 @@ pub struct SelectionExpr {
 }
 
 impl SelectionExpr {
+    /// Returns the original selection expression string
     pub fn get_str(&self) -> &str {
         &self.sel_str
     }
 }
 
 impl SelectionExpr {
+    /// Creates a new selection expression from a string
+    /// 
+    /// # Arguments
+    /// * `s` - The selection expression string to parse
+    /// 
+    /// # Returns
+    /// * `Ok(SelectionExpr)` if parsing succeeds
+    /// * `Err(SelectionParserError)` if there's a syntax error in the expression
+    /// 
+    /// # Examples
+    /// ```
+    /// # use molar::core::SelectionExpr;
+    /// let expr = SelectionExpr::new("resname ALA").unwrap();
+    /// ```
     pub fn new(s: &str) -> Result<Self, SelectionParserError> {
         Ok(Self {
             ast: RefCell::new(grammar::selection_parser::logical_expr(s).map_err(|e| {
@@ -42,7 +61,8 @@ impl SelectionExpr {
         })
     }
 
-    pub fn apply_whole(
+    /// Applies the selection expression to all atoms in the system
+    pub(crate) fn apply_whole(
         &self,
         topology: &Topology,
         state: &State,
@@ -53,7 +73,8 @@ impl SelectionExpr {
         Ok(ast.apply(&data)?.into())
     }
 
-    pub fn apply_subset(
+    /// Applies the selection expression to a subset of atoms
+    pub(crate) fn apply_subset(
         &self,
         topology: &Topology,
         state: &State,

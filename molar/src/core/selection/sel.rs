@@ -16,25 +16,25 @@ use super::{next_split, utils::*, SplitData};
 ///
 /// # Kinds of selections
 /// There are four kinds of selections set by the generic marker parameter:
-/// ### Serial mutable (`Sel<MutableSerial>`)
+/// ### Serial mutable ([MutableSerial])
 /// * May overlap.
 /// * Mutable.
 /// * Could only be accessed from the same thread where they were created (they are neither [Send] nor [Sync]).
-/// ### Builder selections (`Sel<BuilderSerial>`)
+/// ### Builder selections ([BuilderSerial])
 /// * May overlap.
 /// * Mutable.
 /// * Could only be accessed from the same thread where they were created (they are neither [Send] nor [Sync]).
-/// * Should be used together with `Source<BuilderSerial>` to add or delete atoms from the system 
+/// * Should be used together with `[Source::<BuilderSerial>]` to add or delete atoms from the system 
 /// (other selection kinds don't allow this). 
 /// <section class="warning">
 /// This selection kind involves additional checks to ensure that selection
 /// indexes are valid after potential deletion of atoms, so marginally slower than other selection kinds.
 /// </section>
-/// ### Parallel immutable (`Sel<ImmutableParallel>`)
+/// ### Parallel immutable ([ImmutableParallel])
 /// * May overlap.
 /// * Immutable.
 /// * Could be processed in parallel from multiple threads and sent between threads.
-/// ### Parallel mutable (`Sel<MutableParallel>`)
+/// ### Parallel mutable ([MutableParallel])
 /// * _Can't_ overlap
 /// * Mutable
 /// * Could be processed in parallel from multiple threads and sent between threads.
@@ -734,7 +734,7 @@ impl<K: UserCreatableKind> Sel<K> {
 //══════════════════════════════════════════════
 //███  Iterator over Particles
 //══════════════════════════════════════════════
-
+/// Iterator over [particles](Particle) in selection
 pub struct SelectionIterator<'a, K: SelectionKind> {
     sel: &'a Sel<K>,
     cur: usize,
@@ -768,7 +768,7 @@ impl<K: SelectionKind> ParticleIterProvider for Sel<K> {
 //══════════════════════════════════════════════
 //███  Mutable iterator over Particles
 //══════════════════════════════════════════════
-
+/// Iterator over [mutable particles](ParticleMut) in selection
 pub struct SelectionIteratorMut<'a, K> {
     sel: &'a Sel<K>,
     cur: usize,

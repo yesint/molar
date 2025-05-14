@@ -576,6 +576,7 @@ pub enum OrderType {
     ScdCorr,
 }
 
+/// Errors related to computing lipid order parameter
 #[derive(Error,Debug)]
 pub enum LipidOrderError {
     #[error("for {0} tail carbons # of normals should be 1 or {1}")]

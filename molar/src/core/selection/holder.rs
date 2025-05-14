@@ -1,8 +1,9 @@
 use std::{marker::PhantomData, ops::Deref};
 use super::{SelectionError, SelectionKind, UserCreatableKind};
 
-/// Smart pointer wrapper for sharing [Topology] and [State] between selections.
-/// Acts like Rc parameterized by selection kind, so the user can't accidentally mix incompatible
+/// Smart pointer wrapper for sharing [Topology](crate::core::Topology) or [State](crate::core::State) between selections.
+/// 
+/// Acts like [Rc](std::rc::Rc) parameterized by [SelectionKind], so the user can't accidentally mix incompatible
 /// selections pointing to the same data.
 /// Can't be sent to other threads.
 /// Normally this type should not be created directly by the user.
@@ -13,6 +14,7 @@ pub struct Holder<T, K> {
 }
 
 impl<T,K: SelectionKind> From<T> for Holder<T,K> {
+    /// Create [Holder] from data
     fn from(value: T) -> Self {
         Self {
             arc: triomphe::Arc::new(value),

@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use rayon::iter::{FromParallelIterator, IntoParallelIterator};
 
+/// Contacts between atoms in the format of `atom -> neib1 neib2 neib3...`
 #[derive(Debug, Default)]
 pub struct SearchConnectivity(rustc_hash::FxHashMap<usize, Vec<usize>>);
 
@@ -48,6 +49,7 @@ impl FromParallelIterator<(usize, usize)> for SearchConnectivity {
     }
 }
 
+/// Iterator over [SearchConnectivity] entries
 pub struct SearchConnectivityIter<'a>(std::collections::hash_map::Iter<'a, usize, Vec<usize>>);
 
 impl<'a> Iterator for SearchConnectivityIter<'a> {
@@ -69,25 +71,5 @@ impl std::ops::Index<usize> for SearchConnectivity {
     type Output = Vec<usize>;
     fn index(&self, i: usize) -> &Self::Output {
         &self.0[&i]
-    }
-}
-
-//---------------------------------------------------------------
-#[derive(Debug, Default)]
-pub struct LocalConnectivity(pub Vec<Vec<usize>>);
-
-impl LocalConnectivity {
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn from_iter(iter: impl IntoIterator<Item = (usize, usize)>, table_size: usize) -> Self {
-        let mut res = Self(vec![vec!(); table_size]);
-        // Now populate
-        for (i, j) in iter {
-            res.0[i].push(j);
-            res.0[j].push(i);
-        }
-        res
     }
 }

@@ -47,6 +47,7 @@ impl<'closure, Arg, Ret> CCallback<'closure, Arg, Ret> {
     }
 }
 
+/// Result of SASA calculation containing areas and volumes (total and per atom)
 #[derive(Debug)]
 pub struct SasaResults {
     areas: Vec<f32>,
