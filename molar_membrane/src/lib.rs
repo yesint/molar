@@ -222,7 +222,7 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         self
     }
 
-    pub fn reset_groups(&mut self) {        
+    pub fn reset_groups(&mut self) {
         // Reset lipid indexes in gorups
         for gr in self.groups.values_mut() {
             gr.lipid_ids.clear();
@@ -230,7 +230,7 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         }
     }
 
-    pub fn reset_valid_lipids(&mut self) {                
+    pub fn reset_valid_lipids(&mut self) {
         for l in self.lipids.iter_mut() {
             l.valid = true;
         }
@@ -243,7 +243,7 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
     ) -> anyhow::Result<()> {
         let gr_name = gr_name.as_ref();
         if let Some(gr) = self.groups.get_mut(gr_name) {
-            for id in ids {                
+            for id in ids {
                 // Check if lipid id is in range
                 if *id >= self.lipids.len() {
                     bail!(
@@ -253,7 +253,9 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
                     );
                 }
                 // Check if this lipid is valid
-                if !self.lipids[*id].valid {continue}
+                if !self.lipids[*id].valid {
+                    continue;
+                }
                 // Add this lipid id
                 gr.lipid_ids.push(*id);
                 // Initialize statistics for this lipid species if not yet done
@@ -369,10 +371,16 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
     }
 
     pub fn finalize(&self) -> anyhow::Result<()> {
-        info!(
-            "Writing results to directory '{}'",
-            self.options.output_dir.display()
-        );
+        // Check if output directory exists and create if needed
+        let path = &self.options.output_dir;
+        if !path.exists() {
+            info!("Creating output directory '{}'...", path.display());
+            std::fs::create_dir_all(path)
+                .with_context(|| format!("creating output directory '{}'", path.display()))?;
+        }
+
+        info!("Writing results to directory '{}'", path.display());
+
         // Write results for groups
         for (gr_name, gr) in &self.groups {
             info!("\tGroup '{gr_name}'...");
