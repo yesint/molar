@@ -635,7 +635,7 @@ pub struct t_idef {
     pub atnr: ::std::os::raw::c_int,
     #[doc = " Array of length ntypes, defines for every force type what type of\n function to use. Every \"bond\" with the same function but different\n force parameters is a different force type. The type identifier in the\n forceatoms[] array is an index in this array."]
     pub functype: *mut t_functype,
-    #[doc = " Array of length ntypes, defines the parameters for every interaction\n type. The type identifier in the actual interaction list\n (ilist[ftype].iatoms[]) is an index in this array."]
+    //#[doc = " Array of length ntypes, defines the parameters for every interaction\n type. The type identifier in the actual interaction list\n (ilist[ftype].iatoms[]) is an index in this array."]
     pub iparams: *mut t_iparams,
     pub fudgeQQ: real,
     #[doc = " Defines the parameters for position restraints only.\n Position restraints are the only interactions that have different\n parameters (reference positions) for different molecules\n of the same type. ilist[F_POSRES].iatoms[] is an index in this array."]

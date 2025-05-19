@@ -10,6 +10,7 @@ pub(crate) struct TopologyStorage {
     pub molecules: Vec<[usize; 2]>,
 }
 
+/// Errors related to builder sources
 #[derive(Error, Debug)]
 pub enum BuilderError {
     #[error("indexes to remove {0}:{1} are out of allowed range 0:{2}")]

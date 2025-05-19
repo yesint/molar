@@ -5,6 +5,8 @@ use itertools::Itertools;
 use sorted_vec::SortedSet;
 use super::utils::local_to_global;
 
+/// Trait for selection definitions. 
+/// Implementors could be used as argumnets for selection creation methods.
 pub trait SelectionDef {
     /// All errors, including bounds checks, have to be captured, 
     /// caller assumes that the index is correct.
@@ -213,7 +215,7 @@ impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
     }
 }
 
-// Gromacs ndx files
+/// Representation of Gromacs index files
 pub struct NdxFile {
     groups: HashMap<String, SortedSet<usize>>,
 }
@@ -270,7 +272,7 @@ impl NdxFile {
         Ok(Self { groups })
     }
 
-    /// Get a group by name
+    /// Get an index group by name
     pub fn get_group(&self, name: impl AsRef<str>) -> Result<&SortedSet<usize>, SelectionError> {
         let gr = name.as_ref();
         Ok(self.groups.get(gr).ok_or_else(|| NdxError::NoGroup(gr.to_owned()))?)

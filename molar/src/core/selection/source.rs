@@ -154,19 +154,6 @@ impl<K: UserCreatableKind> Source<K> {
         )
     }
 
-    /// Creates new selection from a selection expression string. Selection expression is constructed internally but
-    /// can't be reused. Consider using [add_expr](Self::add_expr) if you already have selection expression.
-    // pub fn select_str(&self, selstr: impl AsRef<str>) -> Result<Sel<K>, SelectionError> {
-    //     let vec = index_from_str(selstr.as_ref(), &self.topology, &self.state)?;
-    //     self.select_internal(vec)
-    // }
-
-    // /// Creates new selection from an existing selection expression.
-    // pub fn select_expr(&self, expr: &mut SelectionExpr) -> Result<Sel<K>, SelectionError> {
-    //     let vec = index_from_expr(expr, &self.topology, &self.state)?;
-    //     self.select_internal(vec)
-    // }
-
     /// Sets new [State] in this [Source].
     /// This is "shallow" otheration, selections created earlier from this source
     /// are not affected and still view an old state.

@@ -1,3 +1,5 @@
+//! Support for custom analysis tasks
+
 use clap::{CommandFactory, FromArgMatches, Parser};
 use log::info;
 use std::num::{ParseFloatError, ParseIntError};
@@ -6,7 +8,7 @@ use thiserror::Error;
 
 use crate::prelude::*;
 
-/// Common trajectory analysis arguments
+/// Standard trajectory processing arguments
 #[derive(Parser)]
 #[command(name = "analysis")]
 pub struct TrajAnalysisArgs {
@@ -35,6 +37,7 @@ pub struct TrajAnalysisArgs {
     pub use_struct_file: bool,
 }
 
+/// Errors related to analysis task execution and trajectory processing
 #[derive(Error, Debug)]
 pub enum AnalysisError {
     #[error(transparent)]
@@ -99,7 +102,7 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
     Ok((frame, time))
 }
 
-/// Analysis task trait
+/// Analysis task trait. Should be implemented by user's types.
 pub trait AnalysisTask<A: clap::Args> {
     fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self>
     where
@@ -252,6 +255,7 @@ where
     Ok((Some(inst), Some(context)))
 }
 
+/// Context passed to all frame processing methods
 pub struct AnalysisContext<A> {
     pub src: Source<MutableSerial>,
     pub consumed_frames: usize,

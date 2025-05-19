@@ -1,5 +1,7 @@
 use super::{Atom, Pos};
 
+/// Holds immutable reference to [Atom] and [Pos] and particle id.
+/// Usually created indirectly by types implementing [ParticleIterProvider](crate::core::ParticleIterProvider).
 #[derive(Debug)]
 pub struct Particle<'a> {
     pub id: usize,
@@ -7,6 +9,8 @@ pub struct Particle<'a> {
     pub pos: &'a Pos,
 }
 
+/// Holds mutable reference to [Atom] and [Pos] and particle id.
+/// Usually created indirectly by types implementing [ParticleIterMutProvider](crate::core::ParticleIterMutProvider).
 #[derive(Debug)]
 pub struct ParticleMut<'a> {
     pub id: usize,

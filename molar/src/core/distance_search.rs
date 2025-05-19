@@ -3,6 +3,7 @@ use crate::prelude::*;
 use num_traits::clamp_min;
 use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
 
+/// Trait for the results of distance seacrh
 pub trait SearchOutputType {
     fn from_ijd(i: usize, j: usize, d: f32) -> Self;
 }
@@ -77,7 +78,7 @@ impl<'a> Grid<'a> {
     //     }
     // }
 
-    pub fn new_with_dims(dims: [usize; 3]) -> Self {
+    pub(crate) fn new_with_dims(dims: [usize; 3]) -> Self {
         Self {
             cells: vec![vec![]; dims[0] * dims[1] * dims[2]],
             dims,
@@ -114,15 +115,15 @@ impl<'a> Grid<'a> {
         Self::new_with_dims(sz)
     }
 
-    pub fn from_cutoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
+    pub(crate) fn from_cutoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
         Self::from_cutoff_and_extents(cutoff, &(max - min))
     }
 
-    pub fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
+    pub(crate) fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
         Self::from_cutoff_and_extents(cutoff, &box_.get_lab_extents())
     }
 
-    pub fn populate(
+    pub(crate) fn populate(
         &mut self,
         data: impl PosIterator<'a>,
         ids: impl Iterator<Item = usize>,
@@ -146,7 +147,7 @@ impl<'a> Grid<'a> {
         }
     }
 
-    pub fn populate_pbc(
+    pub(crate) fn populate_pbc(
         &mut self,
         data: impl PosIterator<'a>,
         ids: impl Iterator<Item = usize>,
@@ -650,6 +651,17 @@ fn compute_bounding_box_single<'a>(
     (l, u)
 }
 
+/// Performs distance search between two sets of points within a given cutoff distance
+///
+/// # Arguments
+/// * `cutoff` - Maximum distance between points to be considered neighbors
+/// * `data1` - Iterator providing positions for first set of points
+/// * `data2` - Iterator providing positions for second set of points 
+/// * `ids1` - Iterator providing indices for first set of points
+/// * `ids2` - Iterator providing indices for second set of points
+///
+/// # Returns
+/// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double<'a, T, C>(
     cutoff: f32,
     data1: impl PosIterator<'a>,
@@ -691,6 +703,19 @@ where
         .collect()
 }
 
+/// Performs distance search between two sets of points within periodic boundary conditions
+///
+/// # Arguments
+/// * `cutoff` - Maximum distance between points to be considered neighbors
+/// * `data1` - Iterator providing positions for first set of points
+/// * `data2` - Iterator providing positions for second set of points
+/// * `ids1` - Iterator providing indices for first set of points 
+/// * `ids2` - Iterator providing indices for second set of points
+/// * `pbox` - Periodic box definition
+/// * `pbc_dims` - Which dimensions should use periodic boundaries
+///
+/// # Returns
+/// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_pbc<'a, T, C>(
     cutoff: f32,
     data1: impl PosIterator<'a>,
@@ -738,6 +763,16 @@ where
 }
 
 // This always returns local idexes
+/// Performs distance search between two sets of points using van der Waals radii
+///
+/// # Arguments
+/// * `data1` - Iterator providing positions for first set of points
+/// * `data2` - Iterator providing positions for second set of points
+/// * `vdw1` - Van der Waals radii for first set of points
+/// * `vdw2` - Van der Waals radii for second set of points
+///
+/// # Returns
+/// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_vdw<'a, T, C>(
     data1: impl PosIterator<'a>,
     data2: impl PosIterator<'a>,
@@ -785,6 +820,18 @@ where
 }
 
 // This always returns local idexes
+/// Performs distance search between two sets of points using van der Waals radii with periodic boundaries
+///
+/// # Arguments
+/// * `data1` - Iterator providing positions for first set of points
+/// * `data2` - Iterator providing positions for second set of points
+/// * `vdw1` - Van der Waals radii for first set of points
+/// * `vdw2` - Van der Waals radii for second set of points
+/// * `pbox` - Periodic box definition
+/// * `pbc_dims` - Which dimensions should use periodic boundaries
+///
+/// # Returns
+/// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_vdw_pbc<'a, T, C>(
     data1: impl PosIterator<'a>,
     data2: impl PosIterator<'a>,
@@ -838,6 +885,15 @@ where
 
 //-------------------------------------------------------------------------
 
+/// Performs distance search within a single set of points
+///
+/// # Arguments
+/// * `cutoff` - Maximum distance between points to be considered neighbors
+/// * `data` - Iterator providing positions for points
+/// * `ids` - Iterator providing indices for points
+///
+/// # Returns
+/// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_single<'a, T, C>(
     cutoff: f32,
     data: impl PosIterator<'a>,
@@ -863,6 +919,17 @@ where
         .collect()
 }
 
+/// Performs distance search within a single set of points with periodic boundaries
+///
+/// # Arguments
+/// * `cutoff` - Maximum distance between points to be considered neighbors
+/// * `data` - Iterator providing positions for points
+/// * `ids` - Iterator providing indices for points
+/// * `pbox` - Periodic box definition
+/// * `pbc_dims` - Which dimensions should use periodic boundaries
+///
+/// # Returns
+/// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_single_pbc<'a, T, C>(
     cutoff: f32,
     //data: &(impl PosProvider + ?Sized),

@@ -422,7 +422,6 @@ impl LogicalNode {
             let cur_prop = prop_fn(at);
             if properties.iter().find(|p| *p == cur_prop).is_some() {
                 res.push(i);
-                break;
             }
         }
         res
@@ -433,14 +432,14 @@ impl LogicalNode {
         match self {
             Self::Not(node) => {
                 // Here we always use global subset!
-                let set1 = FxHashSet::<usize>::from_iter(data.global_subset.into_iter().cloned());
-                let set2 = FxHashSet::<usize>::from_iter(node.apply(data)?.into_iter());
+                let set1 = FxHashSet::from_iter(data.global_subset.into_iter().cloned());
+                let set2 = FxHashSet::from_iter(node.apply(data)?.into_iter());
                 Ok(set1.difference(&set2).cloned().collect())
             }
 
             Self::Or(a, b) => {
-                let set1 = FxHashSet::<usize>::from_iter(a.apply(data)?.into_iter());
-                let set2 = FxHashSet::<usize>::from_iter(b.apply(data)?.into_iter());
+                let set1 = FxHashSet::from_iter(a.apply(data)?.into_iter());
+                let set2 = FxHashSet::from_iter(b.apply(data)?.into_iter());
                 Ok(set1.union(&set2).cloned().collect())
             }
 
@@ -450,8 +449,8 @@ impl LogicalNode {
                 // the result of a
                 let b_data = data.clone_with_local_subset(&a_res);
 
-                let set1 = FxHashSet::<usize>::from_iter(a_res.iter().cloned());
-                let set2 = FxHashSet::<usize>::from_iter(b.apply(&b_data)?.into_iter());
+                let set1 = FxHashSet::from_iter(a_res.iter().cloned());
+                let set2 = FxHashSet::from_iter(b.apply(&b_data)?.into_iter());
                 Ok(set1.intersection(&set2).cloned().collect())
             }
 
@@ -545,7 +544,7 @@ impl LogicalNode {
                 Ok(res)
             }
 
-            // All always works for global subset
+            // All always works in global subset
             Self::All => Ok(data.global_subset.iter().cloned().collect()),
 
             Self::Chemical(comp) => comp.apply(data),

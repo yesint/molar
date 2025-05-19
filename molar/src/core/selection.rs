@@ -28,10 +28,12 @@ pub type SVec = sorted_vec::SortedSet<usize>;
 //#  Error enums
 //############################################################
 
+/// Error for different sizes of topology and state
 #[derive(Error, Debug)]
 #[error("topology and state have different sizes ({0},{1})")]
 pub struct TopologyStateSizes(usize, usize);
 
+/// Error related to creation of selections
 #[derive(Error, Debug)]
 pub enum SelectionError {
     #[error("selection parser failed")]
@@ -122,6 +124,7 @@ pub enum SelectionError {
     SelDefInSubsel,
 }
 
+/// Errors related to accessing selection indexes
 #[derive(Error, Debug)]
 pub enum SelectionIndexError {
     #[error("selection index is empty")]
@@ -130,6 +133,7 @@ pub enum SelectionIndexError {
     IndexOutOfBounds(usize, usize, usize),
 }
 
+/// Errors related to reading and manipulating Gromacs index files
 #[derive(Debug, Error)]
 pub enum NdxError {
     #[error("group {0} not found")]

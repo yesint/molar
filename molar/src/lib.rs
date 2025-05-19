@@ -1,8 +1,11 @@
+//! Main MolAR crate.
+
 pub mod core;
 pub mod io;
 pub mod voronoi_cell;
 pub mod analysis_task;
 
+/// Most useful public imports exposed to the users
 pub mod prelude {
     pub use crate::core::*;
     pub use crate::io::*;
@@ -10,6 +13,12 @@ pub mod prelude {
     pub use rayon::iter::ParallelIterator;
 }
 
+/// Prints a welcome message for MolAR with package information and the specified tool name
+/// # Example
+/// ```
+/// use molar::greeting;
+/// greeting("analysis");
+/// ```
 pub fn greeting(tool: impl AsRef<str>) {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL;
