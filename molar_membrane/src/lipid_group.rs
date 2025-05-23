@@ -9,9 +9,9 @@ pub struct LipidGroup {
 }
 
 impl LipidGroup {
-    pub(crate) fn frame_update<K: UserCreatableKind+MutableKind>(
+    pub(crate) fn frame_update(
         &mut self,
-        lipids: &Vec<LipidMolecule<K>>,
+        lipids: &Vec<LipidMolecule>,
         surf: &Surface,
     ) -> anyhow::Result<()> {
         // Init update

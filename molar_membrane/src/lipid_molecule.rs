@@ -4,15 +4,15 @@ use std::rc::Rc;
 
 use crate::lipid_species::LipidSpecies;
 
-pub struct LipidMolecule<K> {
+pub struct LipidMolecule {
     pub id: usize,
     pub valid: bool,
-    pub sel: Sel<K>,
+    pub sel: Sel<ImmutableParallel>,
     pub species: Rc<LipidSpecies>,
-    pub head_sel: Sel<K>,
-    pub mid_sel: Sel<K>,
-    pub tail_end_sel: Sel<K>,
-    pub tail_sels: Vec<Sel<K>>,
+    pub head_sel: Sel<ImmutableParallel>,
+    pub mid_sel: Sel<ImmutableParallel>,
+    pub tail_end_sel: Sel<ImmutableParallel>,
+    pub tail_sels: Vec<Sel<ImmutableParallel>>,
     pub head_marker: Pos,
     pub mid_marker: Pos,
     pub tail_marker: Pos,
@@ -22,7 +22,7 @@ pub struct LipidMolecule<K> {
     pub(super) tail_head_vec: Vector3f,
 }
 
-impl<K: UserCreatableKind+MutableKind> LipidMolecule<K> {
+impl LipidMolecule {
     pub fn update_markers(&mut self) -> anyhow::Result<()> {
         self.head_marker = self.head_sel.center_of_mass_pbc()?;
         self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
@@ -46,7 +46,8 @@ impl<K: UserCreatableKind+MutableKind> LipidMolecule<K> {
         self.tail_sels.len()
     }
 
-    pub fn set_state(&mut self, st: Holder<State, K>) -> anyhow::Result<()> {
+    pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
+        let st: Holder<State,ImmutableParallel> = st.into();
         self.sel.set_state(st.new_ref())?;
         self.head_sel.set_state(st.new_ref())?;
         self.mid_sel.set_state(st.new_ref())?;

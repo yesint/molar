@@ -39,8 +39,8 @@ impl<T,K: SelectionKind> Holder<T, K> {
         triomphe::Arc::ptr_eq(&self.arc, &other.arc)
     }
 
-    // Clone has limited visibility and can clone to other kinds
-    pub(super) fn new_ref_with_kind<KO: SelectionKind>(&self) -> Holder<T,KO> {
+    // Clone to other kinds unsafely
+    pub unsafe fn new_ref_with_kind<KO: SelectionKind>(&self) -> Holder<T,KO> {
         Holder {
             arc: triomphe::Arc::clone(&self.arc),
             _kind: Default::default(),

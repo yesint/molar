@@ -131,8 +131,8 @@ impl<K: UserCreatableKind> Source<K> {
 
     pub fn select(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
         Sel::from_holders_and_index(
-            self.topology.new_ref_with_kind(),
-            self.state.new_ref_with_kind(),
+            unsafe {self.topology.new_ref_with_kind()},
+            unsafe {self.state.new_ref_with_kind()},
             def.into_sel_index(&self.topology, &self.state, None)?,
         )
     }
@@ -148,8 +148,8 @@ impl<K: UserCreatableKind> Source<K> {
     /// Creates selection of all
     pub fn select_all(&self) -> Result<Sel<K>, SelectionError> {
         Sel::from_holders_and_index(
-            self.topology.new_ref_with_kind(),
-            self.state.new_ref_with_kind(),
+            unsafe {self.topology.new_ref_with_kind()},
+            unsafe {self.state.new_ref_with_kind()},
             unsafe { SortedSet::from_sorted((0..self.len()).collect()) },
         )
     }
@@ -190,11 +190,11 @@ impl<K: UserCreatableKind> Source<K> {
     }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
-        self.topology.new_ref_with_kind()
+        unsafe {self.topology.new_ref_with_kind()}
     }
 
     pub fn get_state(&self) -> Holder<State, K> {
-        self.state.new_ref_with_kind()
+        unsafe {self.state.new_ref_with_kind()}
     }
 }
 

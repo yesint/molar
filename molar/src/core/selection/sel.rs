@@ -102,11 +102,11 @@ impl<K: SelectionKind> Sel<K> {
     }
 
     pub fn get_topology(&self) -> Holder<Topology, K> {
-        self.topology.new_ref_with_kind()
+        unsafe {self.topology.new_ref_with_kind()}
     }
 
     pub fn get_state(&self) -> Holder<State, K> {
-        self.state.new_ref_with_kind()
+        unsafe {self.state.new_ref_with_kind()}
     }
 
     pub fn set_topology(
@@ -164,6 +164,14 @@ impl<K: SelectionKind> Sel<K> {
 //──────────────────────────
 
 impl<K: SelectionKind> Sel<K> {
+    pub(super) unsafe fn into_other_kind<KO: UserCreatableKind>(self) -> Sel<KO> {
+        Sel {
+            topology: self.topology.new_ref_with_kind(),
+            state: self.state.new_ref_with_kind(),
+            index_storage: self.index_storage,
+        }
+    }
+
     #[inline(always)]
     fn validate_index(&self) -> Result<(), SelectionError> {
         K::validate_index(&self.index_storage, &self.topology, &self.state)
@@ -462,12 +470,12 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Each produced selection correspond to the distinct values returned by `split_fn`.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelMutableSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        Ok(ParallelSplit {
+        Ok(ParallelMutableSplit {
             parts: self.split_collect_internal(split_fn)?,
             _marker: Default::default(),
         })
@@ -479,12 +487,12 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// New selection starts when `split_fn` returns a value different from the previous one.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelMutableSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        Ok(ParallelSplit {
+        Ok(ParallelMutableSplit {
             parts: self.split_par_contig_internal(split_fn)?,
             _marker: Default::default(),
         })
@@ -523,8 +531,8 @@ impl<K: UserCreatableKind> Sel<K> {
     /// Subselection from expression
     pub fn subsel(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
         Self::from_holders_and_index(
-            self.topology.new_ref_with_kind(),
-            self.state.new_ref_with_kind(),
+            unsafe {self.topology.new_ref_with_kind()},
+            unsafe {self.state.new_ref_with_kind()},
             def.into_sel_index(&self.topology, &self.state, Some(self.index().as_slice()))?,
         )
     }
@@ -541,8 +549,8 @@ impl<K: UserCreatableKind> Sel<K> {
         let state = state.into();
         check_topology_state_sizes(&topology, &state)?;
         Self::from_holders_and_index(
-            topology.new_ref_with_kind(),
-            state.new_ref_with_kind(),
+            unsafe {topology.new_ref_with_kind()},
+            unsafe {state.new_ref_with_kind()},
             def.into_sel_index(&topology, &state, None)?,
         )
     }
@@ -556,8 +564,8 @@ impl<K: UserCreatableKind> Sel<K> {
         let state = state.into();
         check_topology_state_sizes(&topology, &state)?;
         Self::from_holders_and_index(
-            topology.new_ref_with_kind(),
-            state.new_ref_with_kind(),
+            unsafe {topology.new_ref_with_kind()},
+            unsafe {state.new_ref_with_kind()},
             unsafe { SortedSet::from_sorted((0..topology.num_atoms()).collect()) },
         )
     }
@@ -613,8 +621,8 @@ impl<K: UserCreatableKind> Sel<K> {
     pub fn union<KO: UserCreatableKind>(&self, other: &Sel<KO>) -> Self {
         let ind = union_sorted(self.index(), other.index());
         Self {
-            topology: self.topology.new_ref_with_kind(),
-            state: self.state.new_ref_with_kind(),
+            topology: unsafe {self.topology.new_ref_with_kind()},
+            state: unsafe {self.state.new_ref_with_kind()},
             index_storage: ind,
         }
     }
@@ -628,8 +636,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyIntersection);
         }
         Ok(Self {
-            topology: self.topology.new_ref_with_kind(),
-            state: self.state.new_ref_with_kind(),
+            topology: unsafe {self.topology.new_ref_with_kind()},
+            state: unsafe {self.state.new_ref_with_kind()},
             index_storage: ind,
         })
     }
@@ -643,8 +651,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyDifference);
         }
         Ok(Self {
-            topology: self.topology.new_ref_with_kind(),
-            state: self.state.new_ref_with_kind(),
+            topology: unsafe {self.topology.new_ref_with_kind()},
+            state: unsafe {self.state.new_ref_with_kind()},
             index_storage: ind,
         })
     }
@@ -658,8 +666,8 @@ impl<K: UserCreatableKind> Sel<K> {
             return Err(SelectionError::EmptyComplement);
         }
         Ok(Self {
-            topology: self.topology.new_ref_with_kind(),
-            state: self.state.new_ref_with_kind(),
+            topology: unsafe {self.topology.new_ref_with_kind()},
+            state: unsafe {self.state.new_ref_with_kind()},
             index_storage: ind,
         })
     }
@@ -724,11 +732,16 @@ impl<K: UserCreatableKind> Sel<K> {
 
         // Create and return new selection
         Self::from_holders_and_index(
-            topology.new_ref_with_kind(),
-            state.new_ref_with_kind(),
+            unsafe {topology.new_ref_with_kind()},
+            unsafe {state.new_ref_with_kind()},
             numbers.into(),
         )
     }
+}
+
+pub fn mutable_parallel_to_immutable(sels: Vec<Sel<MutableParallel>>) {
+    let n = sels.len();
+
 }
 
 //══════════════════════════════════════════════

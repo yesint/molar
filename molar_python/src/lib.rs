@@ -384,8 +384,8 @@ impl Sel {
         Self(SelType::Owned(sel))
     }
 
-    fn new_ref(sel: &molar::core::Sel<BuilderSerial>) -> Self {
-        Self(SelType::Ptr(sel as *const molar::core::Sel<BuilderSerial> as *mut molar::core::Sel<BuilderSerial>))
+    fn new_ref<K: SelectionKind>(sel: &molar::core::Sel<K>) -> Self {
+        Self(SelType::Ptr(sel as *const molar::core::Sel<K> as *mut molar::core::Sel<BuilderSerial>))
     }
 
     fn get_mut(&mut self) -> &mut molar::core::Sel<BuilderSerial> {

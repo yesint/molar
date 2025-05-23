@@ -1,6 +1,5 @@
 use anyhow::bail;
 use log::info;
-use molar::core::{MutableKind, UserCreatableKind};
 use nalgebra::DVector;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use std::collections::HashMap;
@@ -119,10 +118,10 @@ impl SpeciesStats {
         }
     }
 
-    pub fn add_single_lipid_stats<K: UserCreatableKind+MutableKind>(
+    pub fn add_single_lipid_stats(
         &mut self,
         id: usize,
-        lipids: &Vec<LipidMolecule<K>>,
+        lipids: &Vec<LipidMolecule>,
         surf: &Surface,
     ) -> anyhow::Result<()> {
         if surf.nodes[id].valid {

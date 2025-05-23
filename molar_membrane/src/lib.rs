@@ -33,8 +33,8 @@ use vmd_visual::VmdVisual;
 mod lipid_group;
 use lipid_group::LipidGroup;
 
-pub struct Membrane<K> {
-    lipids: Vec<LipidMolecule<K>>,
+pub struct Membrane {
+    lipids: Vec<LipidMolecule>,
     surface: Surface,
     groups: HashMap<String, LipidGroup>,
     species: Vec<Rc<LipidSpecies>>,
@@ -70,8 +70,8 @@ impl Default for MembraneOptions {
     }
 }
 
-impl<K: MutableKind + UserCreatableKind> Membrane<K> {
-    pub fn new(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
+impl Membrane {
+    pub fn new<K: UserCreatableKind>(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
@@ -84,7 +84,17 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         let mut species = vec![];
         for (name, descr) in options.lipids.iter() {
             if let Ok(lips) = source_sel.subsel(&descr.whole) {
-                let lips = lips.split_resindex::<Vec<_>>()?;
+                // Split into individual lipids (MutableParallel selections)
+                let mut lips = lips.split_par_contig(|p| Some(p.atom.resindex))?;
+                // Unwrap all lipids in parallel
+                lips.par_iter_mut().try_for_each(|lip|
+                    lip.unwrap_simple()
+                )?;
+
+                // Now we need subselections, which are not allowed for MutableParallel
+                // So convert to ImmutableParallel
+                let lips = lips.into_immutable();
+
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
                 let sp = Rc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
@@ -104,8 +114,6 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
                     }
                     let tail_end_sel = lip.subsel(tail_ends)?;
 
-                    // Unwrap the lipid
-                    lip.unwrap_simple()?;
                     // Compute markers
                     let head_marker = head_sel.center_of_mass()?;
                     let mid_marker = mid_sel.center_of_mass()?;
@@ -168,15 +176,15 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         })
     }
 
-    pub fn iter_valid_lipids(&self) -> impl Iterator<Item = &LipidMolecule<K>> + Clone {
+    pub fn iter_valid_lipids(&self) -> impl Iterator<Item = &LipidMolecule> + Clone {
         self.lipids.iter().filter(|l| l.valid)
     }
 
-    pub fn iter_all_lipids(&self) -> impl Iterator<Item = &LipidMolecule<K>> + Clone {
+    pub fn iter_all_lipids(&self) -> impl Iterator<Item = &LipidMolecule> + Clone {
         self.lipids.iter()
     }
 
-    fn iter_valid_lipids_mut(&mut self) -> impl Iterator<Item = &mut LipidMolecule<K>> {
+    fn iter_valid_lipids_mut(&mut self) -> impl Iterator<Item = &mut LipidMolecule> {
         self.lipids.iter_mut().filter(|l| l.valid)
     }
 
@@ -384,8 +392,8 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: impl Into<Holder<State, K>>) -> anyhow::Result<()> {
-        let st: Holder<State, K> = st.into();
+    pub fn set_state(&mut self, st: impl Into<Holder<State, ImmutableParallel>>) -> anyhow::Result<()> {
+        let st: Holder<State, ImmutableParallel> = st.into();
         // Go over all lipids and set their states
         for lip in &mut self.lipids {
             lip.sel.set_state(st.new_ref())?;
@@ -399,7 +407,7 @@ impl<K: MutableKind + UserCreatableKind> Membrane<K> {
         Ok(())
     }
 
-    pub fn get_state(&self) -> Holder<State, K> {
+    pub fn get_state(&self) -> Holder<State, ImmutableParallel> {
         self.lipids.first().unwrap().sel.get_state()
     }
 

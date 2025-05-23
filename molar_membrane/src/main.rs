@@ -14,7 +14,7 @@ struct Flags {
 }
 
 struct MembraneBilayerTask {
-    membr: Membrane<MutableSerial>,
+    membr: Membrane,
 }
 
 impl AnalysisTask<Flags> for MembraneBilayerTask {
@@ -57,7 +57,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
 
     fn process_frame(&mut self, context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
         // We need to update the state
-        self.membr.set_state(context.src.get_state())?;
+        self.membr.set_state(context.src.get_state().release()?)?;
         self.membr.compute()?;
         Ok(())
     }

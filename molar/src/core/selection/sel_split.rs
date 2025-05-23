@@ -133,12 +133,12 @@ where
 
 /// Opaque container for parallel selections produced 
 /// by `par_collect` and `par_collect_contig` methods.
-pub struct ParallelSplit {
+pub struct ParallelMutableSplit {
     pub(super) parts: Vec<Sel<MutableParallel>>,
     pub(super) _marker: PhantomData<*const ()>,
 }
 
-impl ParallelSplit {
+impl ParallelMutableSplit {
     /// Returns parallel iterator over stored parallel selections.
     pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, Sel<MutableParallel>> {
         self.parts.par_iter()
@@ -147,6 +147,10 @@ impl ParallelSplit {
     /// Returns parallel mutable iterator over stored parallel selections.
     pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, Sel<MutableParallel>> {
         self.parts.par_iter_mut()
+    }
+
+    pub fn into_immutable(self) -> Vec<Sel<ImmutableParallel>> {
+        unsafe {self.parts.into_iter().map(|sel| sel.into_other_kind()).collect()}
     }
 }
 

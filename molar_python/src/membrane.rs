@@ -3,7 +3,7 @@ use molar::core::BuilderSerial;
 use pyo3::prelude::*;
 
 #[pyclass(unsendable)]
-pub(crate) struct Membrane(molar_membrane::Membrane<BuilderSerial>);
+pub(crate) struct Membrane(molar_membrane::Membrane);
 
 #[pymethods]
 impl Membrane {
@@ -16,8 +16,8 @@ impl Membrane {
         Ok(self.0.add_lipids_to_group(gr_name, &ids)?)
     }
 
-    fn set_state(&mut self, st: &crate::State) -> PyResult<()> {
-        self.0.set_state(st.0.new_ref())?;
+    fn set_state(&mut self, st: &crate::State) -> anyhow::Result<()> {
+        unsafe {self.0.set_state(st.0.new_ref_with_kind())?};
         Ok(())
     }
 
@@ -31,7 +31,7 @@ impl Membrane {
 
     #[getter]
     fn get_lipids(&self) -> Vec<LipidMolecule> {
-        type M = molar_membrane::LipidMolecule<BuilderSerial>;
+        type M = molar_membrane::LipidMolecule;
         self.0
             .iter_all_lipids()
             .map(|l| LipidMolecule(l as *const M as *mut M))
@@ -48,16 +48,16 @@ impl Membrane {
 }
 
 #[pyclass(unsendable)]
-pub(crate) struct LipidMolecule(*mut molar_membrane::LipidMolecule<BuilderSerial>);
+pub(crate) struct LipidMolecule(*mut molar_membrane::LipidMolecule);
 
 impl LipidMolecule {
     #[inline(always)]    
-    fn get(&self) -> &molar_membrane::LipidMolecule<BuilderSerial> {
+    fn get(&self) -> &molar_membrane::LipidMolecule {
         unsafe { &*self.0 }
     }
 
     #[inline(always)]    
-    fn get_mut(&mut self) -> &mut molar_membrane::LipidMolecule<BuilderSerial> {
+    fn get_mut(&mut self) -> &mut molar_membrane::LipidMolecule {
         unsafe { &mut *self.0 }
     }
 }
