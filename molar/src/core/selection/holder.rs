@@ -34,6 +34,10 @@ impl<T,K: UserCreatableKind> Holder<T, K> {
 }
 
 impl<T,K: SelectionKind> Holder<T, K> {
+    pub fn ref_count(&self) -> usize {
+        triomphe::Arc::count(&self.arc)
+    }
+
     /// Check if two holders point to the same data
     pub fn same_data(&self,other: &Self) -> bool {
         triomphe::Arc::ptr_eq(&self.arc, &other.arc)
