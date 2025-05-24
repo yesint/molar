@@ -470,12 +470,12 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// Each produced selection correspond to the distinct values returned by `split_fn`.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelMutableSplit, SelectionError>
+    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        Ok(ParallelMutableSplit {
+        Ok(ParallelSplit {
             parts: self.split_collect_internal(split_fn)?,
             _marker: Default::default(),
         })
@@ -487,12 +487,12 @@ impl<K: UserCreatableKind> Sel<K> {
     ///
     /// New selection starts when `split_fn` returns a value different from the previous one.
     /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelMutableSplit, SelectionError>
+    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<RT>,
         RT: Default + std::hash::Hash + std::cmp::Eq,
     {
-        Ok(ParallelMutableSplit {
+        Ok(ParallelSplit {
             parts: self.split_par_contig_internal(split_fn)?,
             _marker: Default::default(),
         })
@@ -737,11 +737,6 @@ impl<K: UserCreatableKind> Sel<K> {
             numbers.into(),
         )
     }
-}
-
-pub fn mutable_parallel_to_immutable(sels: Vec<Sel<MutableParallel>>) {
-    let n = sels.len();
-
 }
 
 //══════════════════════════════════════════════

@@ -133,12 +133,12 @@ where
 
 /// Opaque container for parallel selections produced 
 /// by `par_collect` and `par_collect_contig` methods.
-pub struct ParallelMutableSplit {
+pub struct ParallelSplit {
     pub(super) parts: Vec<Sel<MutableParallel>>,
     pub(super) _marker: PhantomData<*const ()>,
 }
 
-impl ParallelMutableSplit {
+impl ParallelSplit {
     /// Returns parallel iterator over stored parallel selections.
     pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, Sel<MutableParallel>> {
         self.parts.par_iter()
