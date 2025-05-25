@@ -120,7 +120,8 @@ impl<K: UserCreatableKind> Source<K> {
         Ok(Source::new(top, st)?)
     }
 
-    /// Release and return [Topology] and [State]. Fails if any selections created from this [Source] are still alive.
+    /// Release and return [Topology] and [State]. 
+    /// Fails if any selection is still pointing to them..
     pub fn release(self) -> Result<(Topology, State), SelectionError> {
         Ok((self.topology.release()?, self.state.release()?))
     }
@@ -156,7 +157,7 @@ impl<K: UserCreatableKind> Source<K> {
 
     /// Sets new [State] in this [Source].
     /// This is "shallow" otheration, selections created earlier from this source
-    /// are not affected and still view an old state.
+    /// are _not_ affected and still view an old state.
     ///
     /// New state should be compatible with the old one (have the same number of atoms). If not, the error is returned.
     ///

@@ -149,7 +149,7 @@ impl ParallelSplit {
         self.parts.par_iter_mut()
     }
 
-    pub fn into_immutable(self) -> Vec<Sel<ImmutableParallel>> {
+    pub unsafe fn into_immutable(self) -> Vec<Sel<ImmutableParallel>> {
         unsafe {self.parts.into_iter().map(|sel| sel.into_other_kind()).collect()}
     }
 }

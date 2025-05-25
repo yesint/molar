@@ -93,7 +93,7 @@ impl Membrane {
 
                 // Now we need subselections, which are not allowed for MutableParallel
                 // So convert to ImmutableParallel
-                let lips = lips.into_immutable();
+                let lips = unsafe {lips.into_immutable() };
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
