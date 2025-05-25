@@ -73,6 +73,7 @@ pub trait AtomIterProvider {
 pub trait BoxProvider {
     /// Get reference to the periodic box or `None` if there is no box.
     fn get_box(&self) -> Option<&PeriodicBox>;
+    
     /// Get reference to the periodic box or an error if there is no box.
     fn require_box(&self) -> Result<&PeriodicBox, PeriodicBoxError> {
         self.get_box().ok_or_else(|| PeriodicBoxError::NoPbc)
