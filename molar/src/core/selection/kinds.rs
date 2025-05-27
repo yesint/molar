@@ -16,6 +16,7 @@ pub trait SelectionKind {
 pub trait MutableKind: SelectionKind {}
 /// Trait marking selections that can be created by user
 pub trait UserCreatableKind: SelectionKind {}
+pub trait SerialKind: UserCreatableKind {}
 
 //---------------------------------------------------------------------------
 /// Marker type for possibly overlapping mutable selection (single-threaded)
@@ -25,7 +26,7 @@ pub struct MutableSerial(PhantomData<*const ()>);
 impl SelectionKind for MutableSerial {}
 impl MutableKind for MutableSerial {}
 impl UserCreatableKind for MutableSerial {}
-
+impl SerialKind for MutableSerial {}
 //---------------------------------------------------------------------------
 /// Marker type for possibly overlapping builder selection (single-threaded)
 //---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ impl SelectionKind for BuilderSerial {
 
 impl MutableKind for BuilderSerial {}
 impl UserCreatableKind for BuilderSerial {}
+impl SerialKind for BuilderSerial {}
 
 //---------------------------------------------------------------------------
 /// Marker type for non-overlapping mutable selection (multi-threaded)

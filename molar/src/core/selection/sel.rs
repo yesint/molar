@@ -460,44 +460,6 @@ impl<K: UserCreatableKind> Sel<K> {
         self.split_iter(|p| Some(p.atom.resindex))
     }
 
-    //---------------------------------------------------------
-    // Splitting into parallel selections (non-consuming)
-    //---------------------------------------------------------
-
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces may not be contigous and are arranged in random order.
-    /// Parent selection is kept intact.
-    ///
-    /// Each produced selection correspond to the distinct values returned by `split_fn`.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_collect_internal(split_fn)?,
-            _marker: Default::default(),
-        })
-    }
-
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces are contigous and are arranged in order of appearance.
-    /// Parent selection is kept intact.
-    ///
-    /// New selection starts when `split_fn` returns a value different from the previous one.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_par_contig_internal(split_fn)?,
-            _marker: Default::default(),
-        })
-    }
-
     pub fn split_molecules_iter(&self) -> Result<MoleculesIterator<K>, SelectionError> {
         Ok(MoleculesIterator { sel: self, cur: 0 })
     }
@@ -736,6 +698,86 @@ impl<K: UserCreatableKind> Sel<K> {
             unsafe {state.new_ref_with_kind()},
             numbers.into(),
         )
+    }
+}
+
+impl<K: SerialKind> Sel<K> {
+    //---------------------------------------------------------
+    // Splitting into parallel selections (non-consuming)
+    //---------------------------------------------------------
+
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces may not be contigous and are arranged in random order.
+    /// Parent selection is kept intact.
+    ///
+    /// Each produced selection correspond to the distinct values returned by `split_fn`.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(ParallelSplit {
+            parts: self.split_collect_internal(split_fn)?,
+            _marker: Default::default(),
+        })
+    }
+
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces are contigous and are arranged in order of appearance.
+    /// Parent selection is kept intact.
+    ///
+    /// New selection starts when `split_fn` returns a value different from the previous one.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(ParallelSplit {
+            parts: self.split_par_contig_internal(split_fn)?,
+            _marker: Default::default(),
+        })
+    }
+}
+
+impl Sel<ImmutableParallel> {
+    //---------------------------------------------------------
+    // Splitting into parallel selections (non-consuming)
+    //---------------------------------------------------------
+
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces may not be contigous and are arranged in random order.
+    /// Parent selection is kept intact.
+    ///
+    /// Each produced selection correspond to the distinct values returned by `split_fn`.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub unsafe fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(ParallelSplit {
+            parts: self.split_collect_internal(split_fn)?,
+            _marker: Default::default(),
+        })
+    }
+
+    /// Splits selection to pieces that could be processed in parallel.
+    /// Pieces are contigous and are arranged in order of appearance.
+    /// Parent selection is kept intact.
+    ///
+    /// New selection starts when `split_fn` returns a value different from the previous one.
+    /// Selections are stored in a special container [ParallelSplit].
+    pub unsafe fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
+    where
+        F: Fn(Particle) -> Option<RT>,
+        RT: Default + std::hash::Hash + std::cmp::Eq,
+    {
+        Ok(ParallelSplit {
+            parts: self.split_par_contig_internal(split_fn)?,
+            _marker: Default::default(),
+        })
     }
 }
 

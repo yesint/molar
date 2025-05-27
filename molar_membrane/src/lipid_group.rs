@@ -1,6 +1,4 @@
-use molar::core::{MutableKind, UserCreatableKind};
-
-use crate::{stats::GroupProperties, LipidMolecule, Surface};
+use crate::{stats::GroupProperties, LipidMolecule};
 
 #[derive(Default)]
 pub struct LipidGroup {
@@ -12,7 +10,6 @@ impl LipidGroup {
     pub(crate) fn frame_update(
         &mut self,
         lipids: &Vec<LipidMolecule>,
-        surf: &Surface,
     ) -> anyhow::Result<()> {
         // Init update
         for stat in self.stats.per_species.values_mut() {
@@ -29,7 +26,7 @@ impl LipidGroup {
                 .per_species
                 .get_mut(sp_name)
                 .unwrap()
-                .add_single_lipid_stats(*lip_id, &lipids, &surf)?;
+                .add_single_lipid_stats(*lip_id, &lipids)?;
         }
         // Finish update
         for stat in self.stats.per_species.values_mut() {

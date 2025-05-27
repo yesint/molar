@@ -1,12 +1,13 @@
 use anyhow::{bail, Context};
-use molar::prelude::*;
-use nalgebra::DVector;
+use molar::{prelude::*, voronoi_cell::{Vector2f, VoronoiCell}};
+use nalgebra::{DVector, SMatrix, SVector};
+use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
     f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
-    rc::Rc,
+    sync::Arc,
 };
 
 #[cfg(not(test))]
@@ -24,9 +25,6 @@ pub use lipid_molecule::LipidMolecule;
 mod lipid_species;
 use lipid_species::{LipidSpecies, LipidSpeciesDescr};
 
-mod surface;
-use surface::*;
-
 mod vmd_visual;
 use vmd_visual::VmdVisual;
 
@@ -35,11 +33,12 @@ use lipid_group::LipidGroup;
 
 pub struct Membrane {
     lipids: Vec<LipidMolecule>,
-    surface: Surface,
+    //surface: Surface,
     groups: HashMap<String, LipidGroup>,
-    species: Vec<Rc<LipidSpecies>>,
+    species: Vec<Arc<LipidSpecies>>,
     // Options
     options: MembraneOptions,
+    pbox: PeriodicBox,
 }
 
 #[derive(Deserialize)]
@@ -71,7 +70,7 @@ impl Default for MembraneOptions {
 }
 
 impl Membrane {
-    pub fn new<K: UserCreatableKind>(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
+    pub fn new<K: SerialKind>(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
@@ -97,8 +96,8 @@ impl Membrane {
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
-                let sp = Rc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
-                species.push(Rc::clone(&sp));
+                let sp = Arc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
+                species.push(Arc::clone(&sp));
 
                 // Now create individual lipids
                 for lip in lips {
@@ -129,7 +128,7 @@ impl Membrane {
                     let id = lipids.len();
                     lipids.push(LipidMolecule {
                         sel: lip, // Selection is moved to the lipid
-                        species: Rc::clone(&sp),
+                        species: Arc::clone(&sp),
                         head_sel,
                         mid_sel,
                         tail_end_sel,
@@ -141,6 +140,17 @@ impl Membrane {
                         tail_head_vec,
                         id,
                         valid: true,
+                        // Rest is set to default
+                        patch_ids: vec![],
+                        fitted_patch_points: vec![],
+                        neib_ids: vec![],
+                        voro_vertexes: vec![],
+                        normal: Default::default(),
+                        mean_curv: 0.0,
+                        gaussian_curv: 0.0,
+                        princ_dirs: Default::default(),
+                        princ_curvs: Default::default(),
+                        area: 0.0,
                     });
                 }
             } else {
@@ -148,18 +158,6 @@ impl Membrane {
                 warn!("No '{name}' lipids found");
             }
         }
-
-        // We need parallel-friendly data structure for surface computations
-        let surface = Surface {
-            pbox: lipids[0].sel.require_box()?.clone(),
-            nodes: lipids
-                .iter()
-                .map(|l| SurfNode {
-                    marker: l.head_marker,
-                    ..Default::default()
-                })
-                .collect(),
-        };
 
         // If there are any groups in the input toml, create them
         let mut groups: HashMap<String, LipidGroup> = Default::default();
@@ -170,9 +168,9 @@ impl Membrane {
         Ok(Self {
             lipids,
             groups,
-            surface,
             species,
             options,
+            pbox: source.require_box()?.clone(),
         })
     }
 
@@ -292,16 +290,10 @@ impl Membrane {
         // Get initial normals
         self.compute_initial_normals();
 
-        // Initialize markers and set valid points
-        for i in 0..self.lipids.len() {
-            self.surface.nodes[i].marker = self.lipids[i].head_marker;
-            self.surface.nodes[i].valid = self.lipids[i].valid;
-        }
-
         // Do smoothing
         let mut iter = 0;
         loop {
-            self.surface.smooth();
+            self.smooth();
 
             // self.write_vmd_visualization(format!(
             //     "/home/semen/work/Projects/Misha/PG_flipping/iter_{iter}.tcl"
@@ -315,19 +307,15 @@ impl Membrane {
             }
         }
 
-        // Compute order for all lipids
+        // Compute order for all valid lipids
         for i in 0..self.lipids.len() {
-            let norm = if let Some(n) = &self.options.global_normal {
-                n
-            } else {
-                &self.surface.nodes[i].normal
-            };
-            self.lipids[i].compute_order(self.options.order_type.clone(), norm);
+            if !self.lipids[i].valid {continue}
+            self.lipids[i].compute_order(self.options.order_type.clone(), self.options.global_normal.as_ref());
         }
 
         // Update group stats
         for gr in self.groups.values_mut() {
-            gr.frame_update(&self.lipids, &self.surface)?;
+            gr.frame_update(&self.lipids)?;
         }
 
         Ok(())
@@ -343,7 +331,7 @@ impl Membrane {
         // First pass - average of tail-to-head distances in each patch
         for i in 0..self.lipids.len() {
             if self.lipids[i].valid {
-                self.surface.nodes[i].normal = self.surface.nodes[i]
+                self.lipids[i].normal = self.lipids[i]
                     .patch_ids
                     .iter()
                     .map(|l| &self.lipids[*l].tail_head_vec)
@@ -355,10 +343,10 @@ impl Membrane {
         // Second pass - average of vectors from the first pass in eac patch
         for i in 0..self.lipids.len() {
             if self.lipids[i].valid {
-                self.surface.nodes[i].normal = self.surface.nodes[i]
+                self.lipids[i].normal = self.lipids[i]
                     .patch_ids
                     .iter()
-                    .map(|l| &self.surface.nodes[*l].normal)
+                    .map(|l| &self.lipids[*l].normal)
                     .sum::<Vector3f>()
                     .normalize();
             }
@@ -367,12 +355,12 @@ impl Membrane {
         // Correct normal orientations if needed
         for i in 0..self.lipids.len() {
             if self.lipids[i].valid {
-                if self.surface.nodes[i]
+                if self.lipids[i]
                     .normal
                     .angle(&self.lipids[i].tail_head_vec)
                     > FRAC_PI_2
                 {
-                    self.surface.nodes[i].normal *= -1.0;
+                    self.lipids[i].normal *= -1.0;
                 }
             }
         }
@@ -429,13 +417,13 @@ impl Membrane {
         );
 
         // Clear all patches first!
-        for node in self.surface.nodes.iter_mut() {
+        for node in self.lipids.iter_mut() {
             node.patch_ids.clear();
         }
         // Add ids to patches
         for (i, j) in ind {
-            self.surface.nodes[i].patch_ids.push(j);
-            self.surface.nodes[j].patch_ids.push(i);
+            self.lipids[i].patch_ids.push(j);
+            self.lipids[j].patch_ids.push(i);
         }
         Ok(())
     }
@@ -444,16 +432,16 @@ impl Membrane {
         let mut vis = VmdVisual::new();
 
         for i in 0..self.lipids.len() {
-            let lip = &self.surface.nodes[i];
+            let lip = &self.lipids[i];
             // Initial lipid marker
             vis.sphere(&self.lipids[i].head_marker, 0.8, "white");
             // tail-head vector
-            vis.arrow(&lip.marker, &self.lipids[i].tail_head_vec, "yellow");
+            vis.arrow(&lip.head_marker, &self.lipids[i].tail_head_vec, "yellow");
 
             // Fitted lipid marker
-            vis.sphere(&lip.marker, 0.8, "red");
+            vis.sphere(&lip.head_marker, 0.8, "red");
             // fitted normal
-            vis.arrow(&lip.marker, &lip.normal, "orange");
+            vis.arrow(&lip.head_marker, &lip.normal, "orange");
 
             // Voronoi cell
             let n = lip.voro_vertexes.len();
@@ -474,6 +462,177 @@ impl Membrane {
 
         Ok(())
     }
+
+    fn smooth(&mut self) {
+        // Save current positions of markers to randomly access from the parallel loop
+        let saved_markers = self.iter_all_lipids().map(|l| l.head_marker).collect::<Vec<_>>();
+
+        self.lipids
+            .par_iter_mut()
+            .filter(|lip| lip.valid)
+            .for_each(|lip| {
+                // Get local-to-lab transform
+                let to_lab = lip.get_to_lab_transform();
+                // Inverse transform
+                let to_local = to_lab.try_inverse().unwrap();
+                // Local points
+                // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
+                // Central point is assumed to be at local zero.
+                let p0 = lip.head_marker;
+                let local_points = lip
+                    .patch_ids
+                    .iter()
+                    .map(|j| to_local * self.pbox.shortest_vector(&(saved_markers[*j] - p0)))
+                    .collect::<Vec<_>>();
+
+                // Compute fitted surface coefs
+                let quad_coefs = get_quad_coefs(&local_points);
+
+                // Do Voronoi stuff
+                let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
+                for j in 0..local_points.len() {
+                    let p = local_points[j];
+                    vc.add_point(&Vector2f::new(p.x, p.y), lip.patch_ids[j]);
+                }
+
+                // Find direct neighbours
+                let mut n_vert = 0;
+                lip.neib_ids = vc
+                    .iter_vertex()
+                    .filter_map(|v| {
+                        n_vert += 1;
+                        let id = v.get_id();
+                        if id >= 0 {
+                            Some(id as usize)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Check if node is valid (there are no wall points)
+                // If not valid return and don't do extar work
+                if lip.neib_ids.len() < n_vert {
+                    lip.valid = false;
+                    return;
+                }
+
+                // Compute curvatures and fitted normal
+                lip.compute_curvature_and_normal(&quad_coefs, &to_lab);
+
+                // Project vertexes into the surface and convert to lab space
+                lip.voro_vertexes = vc
+                    .iter_vertex()
+                    .map(|v| {
+                        // For now we save only an offset here because
+                        // final posiion of the marker is not yet known
+                        Pos::from(to_lab * project_to_surf(v.get_pos(), &quad_coefs))
+                    })
+                    .collect::<Vec<_>>();
+
+                // Compute area. 
+                // Central point is still in origin since we didn't translate yet.
+                // Thus we can just use vertex vectors as sides of triangles in a triangle fan.
+                let n = lip.voro_vertexes.len();
+                lip.area = 0.0;
+                for i in 0..n {
+                    lip.area += 0.5*lip.voro_vertexes[i].coords.cross(&lip.voro_vertexes[(i+1)%n].coords).norm();
+                }
+
+                //Save fitted positions of patch markers
+                lip.fitted_patch_points = local_points
+                    .iter()
+                    .zip(&lip.patch_ids)
+                    .map(|(p, id)| {
+                        saved_markers[*id]
+                            + to_lab * Vector3f::new(0.0, 0.0, z_surf(p.x, p.y, &quad_coefs) - p.z)
+                    })
+                    .collect();
+
+                // Update fitted marker
+                // local z coord of this point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+                // but x=y=0, so z_local = f = quad_coefs[5]
+                // If local height is too large mark point as invalid
+                if quad_coefs[5].abs() > 0.5 {
+                    lip.valid = false;
+                    return;
+                }
+                lip.head_marker += to_lab * Vector3f::new(0.0, 0.0, quad_coefs[5]);
+            }); //nodes
+
+        // Smooth
+        // We start from fitted markers themselves
+        let mut smooth_n = vec![1.0; self.lipids.len()];
+        let mut smooth_p = self.lipids.iter().map(|l| l.head_marker).collect::<Vec<_>>();
+        // Add projected patch points
+        for lip in self.iter_valid_lipids() {
+            for (id, p) in lip.patch_ids.iter().zip(lip.fitted_patch_points.iter()) {
+                smooth_n[*id] += 1.0;
+                smooth_p[*id] += 1.0 * p.coords;
+            }
+        }
+        // Compute averages
+        for i in 0..self.lipids.len() {
+            if self.lipids[i].valid {
+                self.lipids[i].head_marker = smooth_p[i] / smooth_n[i];
+            }
+        }
+
+        // Now compute actual positions of the Voronoi vertices by adding
+        // actual position of the marker
+        for lip in self.iter_valid_lipids_mut() {
+            for v in &mut lip.voro_vertexes {
+                *v += lip.head_marker.coords;
+            }
+        }
+
+        //self.triangulate();
+    }
+}
+
+pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
+    //============================
+    // Fitting polynomial
+    //============================
+
+    // We fit with polynomial fit = a*x^2 + b*y^2 + c*xy + d*x + e*y + f
+    // Thus we need a linear system of size 6
+    let mut m = SMatrix::<f32, 6, 6>::zeros();
+    let mut rhs = SVector::<f32, 6>::zeros(); // Right hand side and result
+
+    let mut powers = SVector::<f32, 6>::zeros();
+    powers[5] = 1.0; //free term, the same everywhere
+    for loc in local_points {
+        // Compute powers
+        powers[0] = loc[0] * loc[0]; //xx
+        powers[1] = loc[1] * loc[1]; //yy
+        powers[2] = loc[0] * loc[1]; //xy
+        powers[3] = loc[0]; //x
+        powers[4] = loc[1]; //y
+                            // Add to the matrix
+        m += powers * powers.transpose();
+        // rhs
+        rhs += powers * loc[2];
+    }
+
+    // Now solve and returs coeffs
+    m.solve_lower_triangular(&rhs).unwrap()
+}
+
+fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
+    // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+    Vector3f::new(p.x, p.y, z_surf(p.x, p.y, coefs))
+}
+
+fn z_surf(x: f32, y: f32, coefs: &SVector<f32, 6>) -> f32 {
+    // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
+    let z = coefs[0] * x * x
+        + coefs[1] * y * y
+        + coefs[2] * x * y
+        + coefs[3] * x
+        + coefs[4] * y
+        + coefs[5];
+    z
 }
 
 #[cfg(test)]

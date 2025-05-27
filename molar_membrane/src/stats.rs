@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::lipid_species::LipidSpecies;
-use crate::{LipidMolecule, Surface};
+use crate::LipidMolecule;
 
 #[derive(Default, Debug)]
 pub struct GroupProperties {
@@ -122,13 +122,12 @@ impl SpeciesStats {
         &mut self,
         id: usize,
         lipids: &Vec<LipidMolecule>,
-        surf: &Surface,
     ) -> anyhow::Result<()> {
-        if surf.nodes[id].valid {
-            self.area.add(surf.nodes[id].area);
+        if lipids[id].valid {
+            self.area.add(lipids[id].area);
 
             self.tilt.add(
-                surf.nodes[id]
+                lipids[id]
                     .normal
                     .angle(&lipids[id].tail_head_vec)
                     .to_degrees(),
@@ -138,14 +137,14 @@ impl SpeciesStats {
                 self.order[tail].add(&lipids[id].order[tail])?;
             }
 
-            self.num_neib.add(surf.nodes[id].neib_ids.len() as f32);
+            self.num_neib.add(lipids[id].neib_ids.len() as f32);
 
             // Update lipid counter
             self.num_lip_cur += 1;
 
             // Update neighbours
             //let cur_sp_name = &lipids[id].species.name;
-            for nid in &surf.nodes[id].neib_ids {
+            for nid in &lipids[id].neib_ids {
                 let neib_sp_name = &lipids[*nid].species.name;
                 // Initialize map entry if not yet exists
                 // if !self.neib_species.contains_key(neib_sp_name) {
