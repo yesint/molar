@@ -32,15 +32,17 @@ impl GroupProperties {
 
         // Write basic statistsics
         info!("\tWriting basic statistics...");
-        let mut s = "#species\tnum\tnum_std\tarea\tarea_std\ttilt\ttilt_std\n".to_string();
+        let mut s = "#species\tnum\tnum_std\tarea\tarea_std\ttilt\ttilt_std\tmean_curv\tmean_curv_std\tgauss_curv\tgauss_curv_std\n".to_string();
         for (sp, stat) in &self.per_species {
             let area = stat.area.compute()?;
             let tilt = stat.tilt.compute()?;
             let num = stat.num_lip.compute()?;
+            let mean_curv = stat.mean_curv.compute()?;
+            let gauss_curv = stat.gauss_curv.compute()?;
             writeln!(
                 s,
-                "{sp}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}",
-                num.mean, num.stddev, area.mean, area.stddev, tilt.mean, tilt.stddev
+                "{sp}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}\t{:>8.3}",
+                num.mean, num.stddev, area.mean, area.stddev, tilt.mean, tilt.stddev, mean_curv.mean, mean_curv.stddev, gauss_curv.mean, gauss_curv.stddev, 
             )?;
         }
 
@@ -75,6 +77,8 @@ pub(crate) struct SpeciesStats {
     pub order: Vec<MeanStdVec>,
     pub neib_species: HashMap<String, MeanStd>,
     pub num_neib: MeanStd,
+    pub mean_curv: MeanStd,
+    pub gauss_curv: MeanStd,
 
     // Accumulated values for a single frame update
     num_lip_cur: usize,
@@ -108,6 +112,8 @@ impl SpeciesStats {
             neib_species,
             num_lip_cur: 0,
             neib_species_cur,
+            mean_curv: MeanStd::default(),
+            gauss_curv: MeanStd::default(),
         }
     }
 
@@ -132,6 +138,9 @@ impl SpeciesStats {
                     .angle(&lipids[id].tail_head_vec)
                     .to_degrees(),
             );
+
+            self.mean_curv.add(lipids[id].mean_curv);
+            self.gauss_curv.add(lipids[id].gaussian_curv);
 
             for tail in 0..lipids[id].order.len() {
                 self.order[tail].add(&lipids[id].order[tail])?;

@@ -1,5 +1,4 @@
-use crate::{map_const_pyarray_to_pos, Sel, Source};
-use molar::core::BuilderSerial;
+use crate::{map_const_pyarray_to_vec3, Sel, Source};
 use pyo3::prelude::*;
 
 #[pyclass(unsendable)]
@@ -101,19 +100,40 @@ impl LipidMolecule {
 
     #[getter]
     fn get_head_marker(slf: Bound<Self>) -> Bound<'_, PyAny> {
-        let ptr = map_const_pyarray_to_pos(slf.py(), &slf.borrow().get().head_marker, &slf);
+        let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().head_marker.coords, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
 
     #[getter]
     fn get_mid_marker(slf: Bound<Self>) -> Bound<'_, PyAny> {
-        let ptr = map_const_pyarray_to_pos(slf.py(), &slf.borrow().get().mid_marker, &slf);
+        let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().mid_marker.coords, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
 
     #[getter]
     fn get_tail_marker(slf: Bound<Self>) -> Bound<'_, PyAny> {
-        let ptr = map_const_pyarray_to_pos(slf.py(), &slf.borrow().get().tail_marker, &slf);
+        let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().tail_marker.coords, &slf);
+        unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
+    }
+
+    #[getter]
+    fn get_area(&self) -> f32 {
+        self.get().area
+    }
+
+    #[getter]
+    fn get_mean_curv(&self) -> f32 {
+        self.get().mean_curv
+    }
+
+    #[getter]
+    fn get_gauss_curv(&self) -> f32 {
+        self.get().gaussian_curv
+    }
+
+    #[getter]
+    fn get_normal(slf: Bound<Self>) -> Bound<'_, PyAny> {
+        let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().normal, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
 }

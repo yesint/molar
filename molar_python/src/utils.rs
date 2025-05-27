@@ -40,9 +40,9 @@ pub(crate) fn map_pyarray_to_pos<'py>(
 }
 
 // Constructs read-only PyArray backed by existing Pos data.
-pub(crate) fn map_const_pyarray_to_pos<'py>(
+pub(crate) fn map_const_pyarray_to_vec3<'py>(
     py: Python<'py>,
-    data: &molar::core::Pos,
+    data: &molar::core::Vector3f,
     parent: &Bound<'py, PyAny>,
 ) -> *mut npyffi::PyArrayObject {
     use numpy::Element;
@@ -58,7 +58,7 @@ pub(crate) fn map_const_pyarray_to_pos<'py>(
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(),                    // no strides
-            data.coords.as_ptr() as *mut c_void, // data
+            data.as_ptr() as *mut c_void, // data
             0,             // no writable flag
             std::ptr::null_mut(),                    // obj
         );
