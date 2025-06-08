@@ -10,8 +10,8 @@ use crate::prelude::*;
 
 #[derive(Debug)]
 pub(super) enum IntKeywordArg {
-    Int(i32),
-    IntRange(i32, i32),
+    Int(isize),
+    IntRange(isize, isize),
 }
 
 #[derive(Debug)]
@@ -737,7 +737,7 @@ impl KeywordNode {
         &self,
         data: &EvaluationContext,
         args: &Vec<IntKeywordArg>,
-        f: fn(&Atom, usize) -> i32,
+        f: fn(&Atom, usize) -> isize,
     ) -> Vec<usize> {
         let mut res = vec![];
         let sub = data.current_subset();
@@ -767,9 +767,9 @@ impl KeywordNode {
         match self {
             Self::Name(args) => Ok(self.map_str_args(data, args, |a| &a.name)),
             Self::Resname(args) => Ok(self.map_str_args(data, args, |a| &a.resname)),
-            Self::Resid(args) => Ok(self.map_int_args(data, args, |a, _i| a.resid)),
-            Self::Resindex(args) => Ok(self.map_int_args(data, args, |a, _i| a.resindex as i32)),
-            Self::Index(args) => Ok(self.map_int_args(data, args, |_a, i| i as i32)),
+            Self::Resid(args) => Ok(self.map_int_args(data, args, |a, _i| a.resid as isize)),
+            Self::Resindex(args) => Ok(self.map_int_args(data, args, |a, _i| a.resindex as isize)),
+            Self::Index(args) => Ok(self.map_int_args(data, args, |_a, i| i as isize)),
             Self::Chain(args) => {
                 let mut res = vec![];
                 let sub = data.current_subset();

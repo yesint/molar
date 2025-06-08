@@ -14,16 +14,22 @@ peg::parser! {
         // Mandatory whitespace unless followed by paren
         rule ___ = _ &"(" / __
 
-        rule uint() -> u32
-            = n:$(['0'..='9']+)
+        rule uint_span()
+        = ['0'..='9']+
+
+        rule int_span()
+        = ("-"/"+")? ['0'..='9']+
+
+        rule uint() -> usize
+            = n:$(uint_span())
             { n.parse().unwrap() }
 
-        rule int()  -> i32
-            = n:$(("-"/"+")? uint())
+        rule int()  -> isize
+            = n:$(int_span())
             { n.parse().unwrap() }
 
         rule float_val() -> f32
-            = n:$((int() ("." uint())? / ("-"/"+") "." uint()) (("e"/"E") int())?)
+            = n:$((int_span() ("." uint_span())? / ("-"/"+") "." uint_span()) (("e"/"E") int_span())?)
             { n.parse().unwrap() }
 
         rule float() -> MathNode
