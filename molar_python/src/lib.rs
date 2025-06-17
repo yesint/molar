@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
@@ -880,6 +880,21 @@ fn distance_search<'py>(
     }    
 }
 
+#[pyclass]
+struct NdxFile (molar::core::NdxFile);
+
+#[pymethods]
+impl NdxFile {
+    #[new]
+    fn new(fname: &str) -> anyhow::Result<Self> {
+        Ok(NdxFile(molar::core::NdxFile::new(fname)?))
+    }
+
+    fn get_group_as_sel(&self, gr_name: &str, src: &Source) -> anyhow::Result<Sel> {
+        Ok(Sel::new_owned(self.0.get_group_as_sel(gr_name, &src.0)?))
+    }
+}
+
 //====================================
 #[pyfunction]
 fn greeting() {
@@ -900,6 +915,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Source>()?;
     m.add_class::<Sel>()?;
     m.add_class::<SasaResults>()?;
+    m.add_class::<NdxFile>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;
