@@ -76,8 +76,12 @@ const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state 
 #[pymethods]
 impl FileHandler {
     #[new]
-    fn new(fname: &str) -> anyhow::Result<Self> {
-        Ok(FileHandler(Some(molar::io::FileHandler::open(fname)?),None))
+    fn new(fname: &str, mode: &str) -> anyhow::Result<Self> {
+        match mode {
+            "r" => Ok(FileHandler(Some(molar::io::FileHandler::open(fname)?),None)),
+            "w" => Ok(FileHandler(Some(molar::io::FileHandler::create(fname)?),None)),
+            _ => Err(anyhow!("Wrong file open mode"))
+        }
     }
 
     fn read(&mut self) -> anyhow::Result<(Topology, State)> {
