@@ -8,6 +8,9 @@ use thiserror::Error;
 
 pub struct GroFileHandler {
     file: File,
+    // For separating IO of state and topology
+    stored_topology: Option<Topology>,
+    stored_state: Option<State>,
 }
 
 #[derive(Debug, Error)]
@@ -39,6 +42,8 @@ impl GroFileHandler {
         Ok(Self {
             file: File::open(fname)
                 .map_err(|e| GroHandlerError::OpenRead(e))?,
+            stored_state: None,
+            stored_topology: None,
         })
     }
 
@@ -46,6 +51,8 @@ impl GroFileHandler {
         Ok(Self {
             file: File::create(fname)
                 .map_err(|e| GroHandlerError::OpenWrite(e))?,
+            stored_state: None,
+            stored_topology: None,
         })
     }
 
@@ -218,6 +225,26 @@ impl GroFileHandler {
         top.assign_resindex();
 
         Ok((top, state.into()))
+    }
+
+    pub fn read_topology(&mut self) -> Result<Topology, GroHandlerError> {
+        if self.stored_topology.is_some() {
+            Ok(self.stored_topology.take().unwrap())
+        } else {
+            let (top,st) = self.read()?;
+            self.stored_state.get_or_insert(st);
+            Ok(top)
+        }
+    }
+
+    pub fn read_state(&mut self) -> Result<State, GroHandlerError> {
+        if self.stored_state.is_some() {
+            Ok(self.stored_state.take().unwrap())
+        } else {
+            let (top,st) = self.read()?;
+            self.stored_topology.get_or_insert(top);
+            Ok(st)
+        }
     }
 }
 

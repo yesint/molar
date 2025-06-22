@@ -210,10 +210,7 @@ impl FileFormat {
         let top = match self {
             FileFormat::Pdb(ref mut h) | FileFormat::Xyz(ref mut h) => h.read_topology()?,
 
-            FileFormat::Gro(ref mut h) => {
-                let (top, _) = h.read()?;
-                top
-            }
+            FileFormat::Gro(ref mut h) => h.read_topology()?,
 
             FileFormat::Tpr(ref mut h) => {
                 let (top, _) = h.read()?;
@@ -247,10 +244,7 @@ impl FileFormat {
 
             FileFormat::Xtc(ref mut h) => h.read_state()?,
 
-            FileFormat::Gro(ref mut h) => {
-                let (_, st) = h.read()?;
-                Some(st)
-            }
+            FileFormat::Gro(ref mut h) => Some(h.read_state()?),
 
             FileFormat::Tpr(ref mut h) => {
                 let (_, st) = h.read()?;
@@ -321,7 +315,11 @@ impl FileFormat {
 
     /// Consumes frames until reaching serial frame number `fr` (which is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
-    pub(crate) fn skip_to_frame(&mut self, fr: usize, stats: &FileStats) -> Result<(), FileFormatError> {
+    pub(crate) fn skip_to_frame(
+        &mut self,
+        fr: usize,
+        stats: &FileStats,
+    ) -> Result<(), FileFormatError> {
         // Try random-access first
         match self.seek_frame(fr) {
             Ok(_) => return Ok(()),
@@ -347,7 +345,11 @@ impl FileFormat {
 
     /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
-    pub(crate) fn skip_to_time(&mut self, t: f32, stats: &FileStats) -> Result<(), FileFormatError> {
+    pub(crate) fn skip_to_time(
+        &mut self,
+        t: f32,
+        stats: &FileStats,
+    ) -> Result<(), FileFormatError> {
         // Try random-access first
         match self.seek_time(t) {
             Ok(_) => return Ok(()),
@@ -405,16 +407,16 @@ fn get_ext(fname: &Path) -> Result<&str, FileFormatError> {
 
 impl FileHandler {
     /// Opens a file for reading in a format determined by its extension.
-    /// 
+    ///
     /// Supported formats:
     /// - PDB: Protein Data Bank structure format
-    /// - DCD: DCD trajectory format 
+    /// - DCD: DCD trajectory format
     /// - XYZ: XYZ format
     /// - XTC: GROMACS compressed trajectory format
     /// - GRO: GROMACS structure format
     /// - ITP: GROMACS topology format (read-only)
     /// - TPR: GROMACS run input format (read-only)
-    /// 
+    ///
     /// # Errors
     /// Returns `FileIoError` if:
     /// - File extension is not recognized
@@ -431,11 +433,11 @@ impl FileHandler {
     }
 
     /// Creates a new file for writing in a format determined by its extension.
-    /// 
+    ///
     /// Supported formats:
     /// - PDB: Protein Data Bank structure format
     /// - DCD: DCD trajectory format
-    /// - XYZ: XYZ format 
+    /// - XYZ: XYZ format
     /// - XTC: GROMACS compressed trajectory format
     /// - GRO: GROMACS structure format
     ///
@@ -456,7 +458,7 @@ impl FileHandler {
     ///
     /// Only works for formats that contain both topology and coordinates in a single file:
     /// - PDB
-    /// - GRO 
+    /// - GRO
     /// - TPR
     ///
     /// # Errors
@@ -858,7 +860,6 @@ enum FileFormatError {
 
     // #[error("not a trajectory reading format")]
     // NotTrajectoryReadFormat,
-
     #[error("not a trajectory write format")]
     NotTrajectoryWriteFormat,
 
@@ -867,7 +868,6 @@ enum FileFormatError {
 
     // #[error("unexpected end of file")]
     // UnexpectedEof,
-
     #[error("can't seek to frame {0}")]
     SeekFrameError(usize),
 
