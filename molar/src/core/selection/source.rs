@@ -313,7 +313,9 @@ impl<K: SelectionKind> RandomAtomProvider for Source<K> {
     }
 }
 
-impl<K: SelectionKind> StateIoProvider for Source<K> {
+impl<K: SelectionKind> StateIoProvider for Source<K> {}
+
+impl<K: SelectionKind> TimeProvider for Source<K> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
@@ -454,10 +456,16 @@ impl<K: MutableKind> ModifyPeriodic for Source<K> {}
 impl<K: MutableKind> ModifyRandomAccess for Source<K> {}
 
 //===============================================================
-// For Builder also BoxMut is implemnted
+// For Serial kinds also BoxMut and TimeMut is implemnted
 //===============================================================
-impl BoxMutProvider for Source<BuilderSerial> {
+impl<K: SerialKind> BoxMutProvider for Source<K> {
     fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
         self.state.get_box_mut()
+    }
+}
+
+impl<K: SerialKind> TimeMutProvider for Source<K> {
+    fn set_time(&self, t: f32) {
+        self.state.set_time(t);   
     }
 }

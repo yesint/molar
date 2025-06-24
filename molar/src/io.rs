@@ -173,7 +173,7 @@ impl FileFormat {
         let (top, st) = match self {
             FileFormat::Tpr(ref mut h) => h.read()?,
 
-            FileFormat::Gro(ref mut h) => h.read()?,
+            FileFormat::Gro(ref mut h) => h.read()?.ok_or(FileFormatError::NoStates)?,
 
             FileFormat::Pdb(ref mut h) => {
                 let top = h.read_topology()?;
@@ -244,7 +244,7 @@ impl FileFormat {
 
             FileFormat::Xtc(ref mut h) => h.read_state()?,
 
-            FileFormat::Gro(ref mut h) => Some(h.read_state()?),
+            FileFormat::Gro(ref mut h) => h.read_state()?,
 
             FileFormat::Tpr(ref mut h) => {
                 let (_, st) = h.read()?;
@@ -558,7 +558,7 @@ impl FileHandler {
     /// Reads next state from the file.
     ///
     /// For trajectory formats (XTC, DCD) returns sequential frames.
-    /// For single-frame formats (PDB, GRO, TPR) returns that frame once
+    /// For single-frame formats (TPR) returns that frame once
     /// then None afterwards.
     ///
     /// # Errors
@@ -769,7 +769,9 @@ macro_rules! impl_io_traits_for_tuples {
             }
         }
 
-        impl StateIoProvider for ($t, $s) {
+        impl StateIoProvider for ($t, $s) {}
+        
+        impl TimeProvider for ($t, $s) {
             fn get_time(&self) -> f32 {
                 self.1.get_time()
             }
@@ -945,6 +947,27 @@ mod tests {
         for a in top.iter_atoms() {
             println!("{:?}", a);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_gro_traj() -> Result<()> {
+        let src = Source::serial_from_file("tests/protein.pdb")?;
+        println!(env!("OUT_DIR"));
+        let groname = concat!(env!("OUT_DIR"),"/multi.gro");
+        let mut w = FileHandler::create(groname)?;
+        src.set_time(1.0);
+        w.write(&src)?;
+        src.set_time(2.0);
+        w.write(&src)?;
+        drop(w); // To flush buffer
+
+        // Read it back
+        let mut h = FileHandler::open(groname)?;
+        let st = h.read_state()?.unwrap();
+        println!("t1={}",st.get_time());
+        let st = h.read_state()?.unwrap();
+        println!("t2={}",st.get_time());
         Ok(())
     }
 }

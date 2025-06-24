@@ -7,15 +7,19 @@ use std::{
 use thiserror::Error;
 
 pub struct GroFileHandler {
-    file: File,
+    reader: Option<BufReader<File>>,
+    writer: Option<BufWriter<File>>,
+
     // For separating IO of state and topology
     stored_topology: Option<Topology>,
     stored_state: Option<State>,
+
+    at_least_one_state_read: bool,
 }
 
 #[derive(Debug, Error)]
 pub enum GroHandlerError {
-    #[error("unxpected io error")]
+    #[error("unexpected io error")]
     Io(#[from] std::io::Error),
 
     #[error("can't open gro file for reading")]
@@ -35,24 +39,34 @@ pub enum GroHandlerError {
 
     #[error("atom {0} has incomplete {1} entry")]
     AtomEntry(usize, String),
+
+    #[error("gro file is empty")]
+    EmptyFile,
+
+    #[error("end of file reached")]
+    Eof,
 }
 
 impl GroFileHandler {
     pub fn open(fname: impl AsRef<Path>) -> Result<Self, GroHandlerError> {
         Ok(Self {
-            file: File::open(fname)
-                .map_err(|e| GroHandlerError::OpenRead(e))?,
+            reader: BufReader::new(File::open(fname)
+                .map_err(|e| GroHandlerError::OpenRead(e))?).into(),
+            writer: None,
             stored_state: None,
             stored_topology: None,
+            at_least_one_state_read: false,
         })
     }
 
     pub fn create(fname: impl AsRef<Path>) -> Result<Self, GroHandlerError> {
         Ok(Self {
-            file: File::create(fname)
-                .map_err(|e| GroHandlerError::OpenWrite(e))?,
+            writer: BufWriter::new(File::create(fname)
+                .map_err(|e| GroHandlerError::OpenWrite(e))?).into(),
+            reader: None,
             stored_state: None,
             stored_topology: None,
+            at_least_one_state_read: false,
         })
     }
 
@@ -60,12 +74,11 @@ impl GroFileHandler {
         &mut self,
         data: &(impl TopologyIoProvider + StateIoProvider),
     ) -> Result<(), GroHandlerError> {
-        // Open file for writing
-        let mut buf = BufWriter::new(&self.file);
         let natoms = data.num_atoms();
+        let buf = self.writer.as_mut().unwrap();
 
         // Print title
-        writeln!(buf, "Created by Molar")?;
+        writeln!(buf, "Created by Molar, t= {:.3}", data.get_time())?;
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
         // Write atom lines
@@ -117,29 +130,43 @@ impl GroFileHandler {
         Ok(())
     }
 
-    // pub fn get_file_name(&self) -> &str {
-    //     &self.file_name
-    // }
-
-    pub fn read(&mut self) -> Result<(Topology, State), GroHandlerError> {
+    pub fn read(&mut self) -> Result<Option<(Topology, State)>, GroHandlerError> {
         let mut top = TopologyStorage::default();
         let mut state = StateStorage::default();
 
-        let mut reader = BufReader::new(&self.file);
+        let buf = self.reader.as_mut().unwrap();
         let mut line = String::new();
         
-        // Skip the title
-        reader.read_line(&mut line).unwrap();
+        // Check if we are at EOF
+        if buf.fill_buf()?.is_empty() {
+            // EOF reached. If we alread read some frames than this is end of trajectory
+            // Otherwise this is an empty file.
+            if self.at_least_one_state_read {
+                return Ok(None);
+            } else {
+                return Err(GroHandlerError::EmptyFile);
+            }
+        }
+
+        // Read the title 
+        buf.read_line(&mut line).unwrap();
+
+        // Try to extract time from trailing "t=..."
+        state.time = if let Some(i) = line.rfind("t=") {
+            line[i+2..].trim().parse::<f32>().unwrap_or(0.0)
+        } else {
+            0.0
+        };
         
         // Read number of atoms
         line.clear();
-        reader.read_line(&mut line).unwrap();
+        buf.read_line(&mut line).unwrap();
         let natoms = line.trim().parse::<usize>()?;
 
         // Go over atoms line by line
         for i in 0..natoms {
             line.clear();
-            reader.read_line(&mut line).unwrap();
+            buf.read_line(&mut line).unwrap();
         
             let mut at = Atom {
                 resid: line
@@ -198,7 +225,7 @@ impl GroFileHandler {
         (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
         */
         line.clear();
-        reader.read_line(&mut line).unwrap();
+        buf.read_line(&mut line).unwrap();
         let l = line.split_whitespace().map(|s| {
                 Ok(s.parse::<f32>()?)
             })
@@ -219,31 +246,36 @@ impl GroFileHandler {
         state.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| GroHandlerError::Pbc(e))?);
 
         let state: State = state.into();
-
         let top: Topology = top.into();
         // Assign resindex
         top.assign_resindex();
 
-        Ok((top, state.into()))
+        self.at_least_one_state_read = true;
+
+        Ok(Some((top, state)))
     }
 
     pub fn read_topology(&mut self) -> Result<Topology, GroHandlerError> {
         if self.stored_topology.is_some() {
             Ok(self.stored_topology.take().unwrap())
         } else {
-            let (top,st) = self.read()?;
+            let (top,st) = self.read()?.ok_or(GroHandlerError::Eof)?;
             self.stored_state.get_or_insert(st);
             Ok(top)
         }
     }
 
-    pub fn read_state(&mut self) -> Result<State, GroHandlerError> {
+    pub fn read_state(&mut self) -> Result<Option<State>, GroHandlerError> {
         if self.stored_state.is_some() {
-            Ok(self.stored_state.take().unwrap())
+            Ok(Some(self.stored_state.take().unwrap()))
         } else {
-            let (top,st) = self.read()?;
-            self.stored_topology.get_or_insert(top);
-            Ok(st)
+            if let Some((top,st)) = self.read()? {
+                self.stored_topology.get_or_insert(top);
+                Ok(Some(st))
+            } else {
+                Ok(None)
+            }
+            
         }
     }
 }

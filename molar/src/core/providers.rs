@@ -9,9 +9,7 @@ use sorted_vec::SortedSet;
 pub trait TopologyIoProvider: RandomAtomProvider + MoleculesProvider + BondsProvider {}
 
 /// Trait for providing state I/O operations
-pub trait StateIoProvider: RandomPosProvider + BoxProvider {
-    fn get_time(&self) -> f32;
-}
+pub trait StateIoProvider: RandomPosProvider + BoxProvider + TimeProvider {}
 
 /// Trait for providing file writing for topology and state data
 pub trait WritableToFile: TopologyIoProvider + StateIoProvider
@@ -78,6 +76,11 @@ pub trait BoxProvider {
     fn require_box(&self) -> Result<&PeriodicBox, PeriodicBoxError> {
         self.get_box().ok_or_else(|| PeriodicBoxError::NoPbc)
     }
+}
+
+/// Trait for getting time
+pub trait TimeProvider {
+    fn get_time(&self) -> f32;
 }
 
 /// Trait for providing iteration over particles
@@ -250,6 +253,11 @@ pub trait RandomAtomMutProvider: RandomAtomProvider {
 /// Trait for providing mutable access to periodic box
 pub trait BoxMutProvider {
     fn get_box_mut(&self) -> Option<&mut PeriodicBox>;
+}
+
+/// Trait for setting simulation time
+pub trait TimeMutProvider {
+    fn set_time(&self, t: f32);
 }
 
 /// Trait for providing mutable random access to particles

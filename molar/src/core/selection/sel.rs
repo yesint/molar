@@ -863,7 +863,9 @@ impl<K: SelectionKind> IndexProvider for Sel<K> {
 
 impl<K: SelectionKind> TopologyIoProvider for Sel<K> {}
 
-impl<K: SelectionKind> StateIoProvider for Sel<K> {
+impl<K: SelectionKind> StateIoProvider for Sel<K> {}
+
+impl<K: SelectionKind> TimeProvider for Sel<K> {
     fn get_time(&self) -> f32 {
         self.state.get_time()
     }
