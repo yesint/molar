@@ -220,7 +220,7 @@ impl FileHandler {
     #[getter]
     fn file_name(&self) -> anyhow::Result<PathBuf> {
         let h = self.0.as_ref().ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        Ok(h.file_name.clone())
+        Ok(h.file_path.clone())
     }
 }
 

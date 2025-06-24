@@ -57,15 +57,15 @@ impl IoStateIterator {
             while !terminate {
                 let res = fh.read_state();
                 terminate = match res.as_ref() {
-                    Err(_) => true,   // terminate is reading failed
-                    Ok(None) => true, // terminate is none is returned (trajectory done)
+                    Err(_) => true,   // terminate if reading failed
+                    Ok(None) => true, // terminate if none is returned (trajectory done)
                     _ => false,       // otherwise continut reading
                 };
 
                 // Send to channel.
                 // An error means that the reciever has closed the channel already.
                 // This is fine, just exit in this case.
-                if let Err(_) = sender.send(res) {
+                if sender.send(res).is_err() {
                     break;
                 }
             }
@@ -79,8 +79,8 @@ impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         // Reader thread should never crash since it catches errors and ends on them.
-        // If it does this something is horrible anyway, so unwrap is fine here.
-        match self.receiver.recv().unwrap() {
+        // If it does then something is horrible anyway, so unwrap is fine here.
+        match self.receiver.recv().expect("reader thread shouldn't crash") {
             Ok(opt_st) => opt_st,
             Err(e) => {
                 warn!("reader thread can't read state from '{}'. File is likely corrupted, reading stopped.",e.0.display());
@@ -97,7 +97,7 @@ impl Iterator for IoStateIterator {
 /// A file handler for reading molecular structure and trajectory files.
 /// Supports various formats including PDB, DCD, XYZ, XTC, GRO, ITP and TPR.
 pub struct FileHandler {
-    pub file_name: PathBuf,
+    pub file_path: PathBuf,
     format_handler: FileFormat,
     pub stats: FileStats,
 }
@@ -146,7 +146,7 @@ impl FileFormat {
     pub(crate) fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> {
         let ext = get_ext(fname.as_ref())?;
         match ext {
-            "pdb" => Ok(FileFormat::Pdb(VmdMolFileHandler::create(
+            "pdb" | "ent" => Ok(FileFormat::Pdb(VmdMolFileHandler::create(
                 fname,
                 VmdMolFileType::Pdb,
             )?)),
@@ -212,11 +212,10 @@ impl FileFormat {
 
             FileFormat::Gro(ref mut h) => h.read_topology()?,
 
-            FileFormat::Tpr(ref mut h) => {
-                let (top, _) = h.read()?;
-                top
-            }
-
+            // FileFormat::Tpr(ref mut h) => {
+            //     let (top, _) = h.read()?;
+            //     top
+            // }
             FileFormat::Itp(ref mut h) => h.read_topology()?,
 
             _ => return Err(FileFormatError::NotTopologyReadFormat),
@@ -246,11 +245,10 @@ impl FileFormat {
 
             FileFormat::Gro(ref mut h) => h.read_state()?,
 
-            FileFormat::Tpr(ref mut h) => {
-                let (_, st) = h.read()?;
-                Some(st)
-            }
-
+            // FileFormat::Tpr(ref mut h) => {
+            //     let (_, st) = h.read()?;
+            //     Some(st)
+            // }
             _ => return Err(FileFormatError::NotStateReadFormat),
         };
         Ok(st)
@@ -321,26 +319,23 @@ impl FileFormat {
         stats: &FileStats,
     ) -> Result<(), FileFormatError> {
         // Try random-access first
-        match self.seek_frame(fr) {
-            Ok(_) => return Ok(()),
-            Err(_) => {
-                // Not a random access trajectory
-                if stats.frames_processed == fr {
-                    // We are at needed frame, nothing to do
-                    return Ok(());
-                } else if stats.frames_processed > fr {
-                    // We are past the needed frame, return error
-                    return Err(FileFormatError::SeekFrameError(fr));
-                } else {
-                    // Do serial read until reaching needed frame or EOF
-                    while stats.frames_processed < fr {
-                        self.read_state()?
-                            .ok_or_else(|| FileFormatError::SeekFrameError(fr))?;
-                    }
+        self.seek_frame(fr).or_else(|_| {
+            // Not a random access trajectory
+            if stats.frames_processed == fr {
+                // We are at needed frame, nothing to do
+                Ok(())
+            } else if stats.frames_processed > fr {
+                // We are past the needed frame, return error
+                Err(FileFormatError::SeekFrameError(fr))
+            } else {
+                // Do serial read until reaching needed frame or EOF
+                while stats.frames_processed < fr {
+                    self.read_state()?
+                        .ok_or_else(|| FileFormatError::SeekFrameError(fr))?;
                 }
+                Ok(())
             }
-        }
-        Ok(())
+        })
     }
 
     /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
@@ -351,23 +346,20 @@ impl FileFormat {
         stats: &FileStats,
     ) -> Result<(), FileFormatError> {
         // Try random-access first
-        match self.seek_time(t) {
-            Ok(_) => return Ok(()),
-            Err(_) => {
-                // Not a random access trajectory
-                if stats.cur_t > t {
-                    // We are past the needed time, return error
-                    return Err(FileFormatError::SeekTimeError(t));
-                } else {
-                    // Do serial read until reaching needed time or EOF
-                    while stats.cur_t < t {
-                        self.read_state()?
-                            .ok_or_else(|| FileFormatError::SeekTimeError(t))?;
-                    }
+        self.seek_time(t).or_else(|_| {
+            // Not a random access trajectory
+            if stats.cur_t > t {
+                // We are past the needed time, return error
+                Err(FileFormatError::SeekTimeError(t))
+            } else {
+                // Do serial read until reaching needed time or EOF
+                while stats.cur_t < t {
+                    self.read_state()?
+                        .ok_or_else(|| FileFormatError::SeekTimeError(t))?;
                 }
+                Ok(())
             }
-        }
-        Ok(())
+        })
     }
 }
 
@@ -406,48 +398,47 @@ fn get_ext(fname: &Path) -> Result<&str, FileFormatError> {
 //------------------------------------------------------------------
 
 impl FileHandler {
-    /// Opens a file for reading in a format determined by its extension.
+    /// Opens a file for reading. Format is determined by extension.
     ///
     /// Supported formats:
-    /// - PDB: Protein Data Bank structure format
-    /// - DCD: DCD trajectory format
-    /// - XYZ: XYZ format
-    /// - XTC: GROMACS compressed trajectory format
-    /// - GRO: GROMACS structure format
-    /// - ITP: GROMACS topology format (read-only)
-    /// - TPR: GROMACS run input format (read-only)
+    /// - pdb,ent: Protein Data Bank structure format
+    /// - dcd: DCD trajectory format
+    /// - xyz: XYZ format
+    /// - xtc: GROMACS compressed trajectory format
+    /// - gro: GROMACS structure format
+    /// - itp: GROMACS topology format (read-only)
+    /// - tpr: GROMACS run input format (read-only)
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - File extension is not recognized
     /// - File cannot be opened
-    /// - File format is invalid
     pub fn open(fname: impl AsRef<Path>) -> Result<Self, FileIoError> {
         let fname = fname.as_ref();
         Ok(Self {
-            file_name: fname.to_path_buf(),
+            file_path: fname.to_path_buf(),
             format_handler: FileFormat::open(fname)
                 .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             stats: Default::default(),
         })
     }
 
-    /// Creates a new file for writing in a format determined by its extension.
+    /// Creates a new file for writing. Format is determined by extension.
     ///
     /// Supported formats:
-    /// - PDB: Protein Data Bank structure format
-    /// - DCD: DCD trajectory format
-    /// - XYZ: XYZ format
-    /// - XTC: GROMACS compressed trajectory format
-    /// - GRO: GROMACS structure format
+    /// - pdb: Protein Data Bank structure format
+    /// - dcd: DCD trajectory format
+    /// - xyz: XYZ format
+    /// - xtc: GROMACS compressed trajectory format
+    /// - gro: GROMACS structure format
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - File extension is not recognized as writable format
     /// - File cannot be created
     pub fn create(fname: impl AsRef<Path>) -> Result<Self, FileIoError> {
         Ok(Self {
-            file_name: fname.as_ref().to_owned(),
+            file_path: fname.as_ref().to_owned(),
             format_handler: FileFormat::create(fname.as_ref())
                 .map_err(|e| FileIoError(fname.as_ref().to_owned(), e))?,
             stats: Default::default(),
@@ -457,12 +448,12 @@ impl FileHandler {
     /// Reads both topology and state from formats that contain both.
     ///
     /// Only works for formats that contain both topology and coordinates in a single file:
-    /// - PDB
-    /// - GRO
-    /// - TPR
+    /// - pdb
+    /// - gro
+    /// - tpr
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - Format doesn't support combined topology+state reading
     /// - File format is invalid
     /// - State doesn't match topology size
@@ -472,7 +463,7 @@ impl FileHandler {
         let (top, st) = self
             .format_handler
             .read()
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?;
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
         self.stats.frames_processed += 1;
@@ -483,11 +474,11 @@ impl FileHandler {
     /// Writes both topology and state to formats that support it.
     ///
     /// Only works for formats that can write both topology and coordinates:
-    /// - PDB
-    /// - GRO
+    /// - pdb
+    /// - gro
     ///
     /// # Errors
-    /// Returns `FileIoError` if format doesn't support writing both topology and state
+    /// Returns [FileIoError] if format doesn't support writing both topology and state
     pub fn write<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyIoProvider + StateIoProvider,
@@ -496,7 +487,7 @@ impl FileHandler {
 
         self.format_handler
             .write(data)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?;
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
         self.stats.frames_processed += 1;
@@ -507,14 +498,14 @@ impl FileHandler {
     /// Reads topology from supported formats.
     ///
     /// Works for formats containing topology information:
-    /// - PDB
-    /// - GRO
-    /// - TPR
-    /// - ITP
-    /// - XYZ
+    /// - pdb
+    /// - gro
+    /// - tpr
+    /// - itp
+    /// - xyz
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - Format doesn't support topology reading
     /// - File format is invalid
     pub fn read_topology(&mut self) -> Result<Topology, FileIoError> {
@@ -523,7 +514,7 @@ impl FileHandler {
         let top = self
             .format_handler
             .read_topology()
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?;
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
         self.stats.frames_processed += 1;
@@ -534,11 +525,11 @@ impl FileHandler {
     /// Writes topology to supported formats.
     ///
     /// Currently supported formats:
-    /// - PDB
-    /// - XYZ
+    /// - pdb
+    /// - xyz
     ///
     /// # Errors
-    /// Returns `FileIoError` if format doesn't support topology writing
+    /// Returns [FileIoError] if format doesn't support topology writing
     pub fn write_topology<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: TopologyIoProvider,
@@ -547,7 +538,7 @@ impl FileHandler {
 
         self.format_handler
             .write_topology(data)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?;
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
         self.stats.frames_processed += 1;
@@ -562,7 +553,7 @@ impl FileHandler {
     /// then None afterwards.
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - Format doesn't support state reading
     /// - File format is invalid
     pub fn read_state(&mut self) -> Result<Option<State>, FileIoError> {
@@ -571,7 +562,7 @@ impl FileHandler {
         let st = self
             .format_handler
             .read_state()
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?;
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
         // Update stats if not None
@@ -586,13 +577,13 @@ impl FileHandler {
     /// Writes state to trajectory or structure formats.
     ///
     /// Supported formats:
-    /// - PDB
-    /// - XYZ
-    /// - DCD
-    /// - XTC
+    /// - pdb
+    /// - xyz
+    /// - dcd
+    /// - xtc
     ///
     /// # Errors
-    /// Returns `FileIoError` if format doesn't support state writing
+    /// Returns [FileIoError] if format doesn't support state writing
     pub fn write_state<T>(&mut self, data: &T) -> Result<(), FileIoError>
     where
         T: StateIoProvider,
@@ -601,7 +592,7 @@ impl FileHandler {
 
         self.format_handler
             .write_state(data)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?;
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
         self.stats.frames_processed += 1;
@@ -614,14 +605,14 @@ impl FileHandler {
     /// Currently only works for XTC format.
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - Format doesn't support random access
     /// - Frame number is invalid
     pub fn seek_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         Ok(self
             .format_handler
             .seek_frame(fr)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
     /// Seeks to specified time in random-access trajectories.
@@ -629,14 +620,14 @@ impl FileHandler {
     /// Currently only works for XTC format.
     ///
     /// # Errors
-    /// Returns `FileIoError` if:
+    /// Returns [FileIoError] if:
     /// - Format doesn't support random access  
     /// - Time value is invalid
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileIoError> {
         Ok(self
             .format_handler
             .seek_time(t)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
     /// Returns frame number and time of first frame in trajectory.
@@ -644,12 +635,12 @@ impl FileHandler {
     /// Currently only works for XTC format.
     ///
     /// # Errors
-    /// Returns `FileIoError` if format doesn't support random access
+    /// Returns [FileIoError] if format doesn't support random access
     pub fn tell_first(&self) -> Result<(usize, f32), FileIoError> {
         Ok(self
             .format_handler
             .tell_first()
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
     /// Returns current frame number and time in trajectory.
@@ -658,12 +649,12 @@ impl FileHandler {
     /// For other formats returns number of processed frames and current time.
     ///
     /// # Errors
-    /// Returns `FileIoError` if format info cannot be obtained
+    /// Returns [FileIoError] if format info cannot be obtained
     pub fn tell_current(&self) -> Result<(usize, f32), FileIoError> {
         Ok(self
             .format_handler
             .tell_current(&self.stats)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
     /// Returns last frame number and time in trajectory.
@@ -671,12 +662,12 @@ impl FileHandler {
     /// Currently only works for XTC format.
     ///
     /// # Errors
-    /// Returns `FileIoError` if format doesn't support random access
+    /// Returns [FileIoError] if format doesn't support random access
     pub fn tell_last(&self) -> Result<(usize, f32), FileIoError> {
         Ok(self
             .format_handler
             .tell_last()
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
     /// Consumes frames until reaching serial frame number `fr` (which is not consumed)
@@ -686,7 +677,7 @@ impl FileHandler {
         Ok(self
             .format_handler
             .skip_to_frame(fr, &self.stats)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
     /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
@@ -696,7 +687,7 @@ impl FileHandler {
         Ok(self
             .format_handler
             .skip_to_time(t, &self.stats)
-            .map_err(|e| FileIoError(self.file_name.to_owned(), e))?)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 }
 
@@ -704,7 +695,7 @@ impl Drop for FileHandler {
     fn drop(&mut self) {
         debug!(
             "Done with file '{}': {}",
-            self.file_name.display(),
+            self.file_path.display(),
             self.stats
         );
     }
@@ -770,7 +761,7 @@ macro_rules! impl_io_traits_for_tuples {
         }
 
         impl StateIoProvider for ($t, $s) {}
-        
+
         impl TimeProvider for ($t, $s) {
             fn get_time(&self) -> f32 {
                 self.1.get_time()
@@ -836,16 +827,16 @@ enum FileFormatError {
     #[error("file has no extension")]
     NoExtension,
 
-    #[error("format is not recognized as readable")]
+    #[error("format is not readable")]
     NotReadable,
 
-    #[error("format is not recognized as writable")]
+    #[error("format is not writable")]
     NotWritable,
 
-    #[error("file has no states to read")]
+    #[error("file has no more states to read")]
     NoStates,
 
-    #[error("not a format containing both structure and coordinates")]
+    #[error("not a format containing both topology and state")]
     NotTopologyAndStateFormat,
 
     #[error("not a write once format")]
@@ -860,8 +851,6 @@ enum FileFormatError {
     #[error(transparent)]
     DifferentSizes(#[from] TopologyStateSizes),
 
-    // #[error("not a trajectory reading format")]
-    // NotTrajectoryReadFormat,
     #[error("not a trajectory write format")]
     NotTrajectoryWriteFormat,
 
@@ -951,10 +940,10 @@ mod tests {
     }
 
     #[test]
-    fn test_write_gro_traj() -> Result<()> {
+    fn test_io_gro_traj() -> Result<()> {
         let src = Source::serial_from_file("tests/protein.pdb")?;
         println!(env!("OUT_DIR"));
-        let groname = concat!(env!("OUT_DIR"),"/multi.gro");
+        let groname = concat!(env!("OUT_DIR"), "/multi.gro");
         let mut w = FileHandler::create(groname)?;
         src.set_time(1.0);
         w.write(&src)?;
@@ -965,9 +954,19 @@ mod tests {
         // Read it back
         let mut h = FileHandler::open(groname)?;
         let st = h.read_state()?.unwrap();
-        println!("t1={}",st.get_time());
+        println!("t1={}", st.get_time());
         let st = h.read_state()?.unwrap();
-        println!("t2={}",st.get_time());
+        println!("t2={}", st.get_time());
+        Ok(())
+    }
+
+    #[test]
+    fn test_iter_gro_traj() -> Result<()> {
+        let mut h = FileHandler::open("tests/multi.gro")?;
+        let _ = h.read_topology()?;
+        for st in h.into_iter() {
+            println!("{}", st.get_time());
+        }
         Ok(())
     }
 }

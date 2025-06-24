@@ -41,8 +41,8 @@ pub enum XtcHandlerError {
     #[error("invalid periodic box")]
     Pbc(#[from] PeriodicBoxError),
 
-    #[error("fixed size field is {0} while needed {1}")]
-    FixedSizeFieldOverflow(usize, usize),
+    // #[error("fixed size field is {0} while needed {1}")]
+    // FixedSizeFieldOverflow(usize, usize),
 
     #[error("can't read number of atoms")]
     ReadNumAtoms,

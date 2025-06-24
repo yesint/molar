@@ -54,8 +54,8 @@ pub enum VmdHandlerError {
     #[error("plugin can't open file for writing")]
     OpenWrite,
 
-    #[error("writing {0} atoms to file opened for {1}")]
-    NatomsMismatch(usize, usize),
+    // #[error("writing {0} atoms to file opened for {1}")]
+    // NatomsMismatch(usize, usize),
 
     #[error("plugin failed to read structure")]
     ReadStructure,

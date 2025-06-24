@@ -101,14 +101,14 @@ pub enum ItpHandlerError {
     #[error("no moleculetype found")]
     NoMoleculetype,
 
-    #[error("invalid atom entry")]
-    InvalidAtomEntry(String),
+    // #[error("invalid atom entry")]
+    // InvalidAtomEntry(String),
     
     #[error("no atoms found")]
     NoAtoms,
 
-    #[error("no resname found")]
-    NoResname,
+    // #[error("no resname found")]
+    // NoResname,
 
     #[error(transparent)]
     Regex(#[from] regex::Error),
