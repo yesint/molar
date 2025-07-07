@@ -47,7 +47,7 @@ class AnalysisTask:
         if len(self.args.files) < 2:
             raise Exception('At least one trajectory file is required')
         
-        self.top = FileHandler(self.args.files[0]).read_topology()
+        self.top = FileHandler(self.args.files[0],'r').read_topology()
 
         bfr,bt = _process_suffix(self.args.begin)
         efr,et = _process_suffix(self.args.end)
@@ -58,7 +58,7 @@ class AnalysisTask:
         
         for trj_file in self.args.files[1:]:
             logging.info(f'Processing trajectory "{trj_file}"...')
-            trj_handler = FileHandler(trj_file)    
+            trj_handler = FileHandler(trj_file,'r')    
             
             if bfr:
                 trj_handler.skip_to_frame(bfr)

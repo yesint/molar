@@ -524,6 +524,26 @@ impl Sel {
         Ok(())
     }
 
+    pub fn set_same_chain(&mut self, val: char) {
+        self.get_mut().set_same_chain(val)
+    }
+
+    pub fn set_same_resname(&mut self, val: &str) {
+        self.get_mut().set_same_resname(val)
+    }
+
+    pub fn set_same_resid(&mut self, val: i32) {
+        self.get_mut().set_same_resid(val)
+    }
+
+    pub fn set_same_name(&mut self, val: &str) {
+        self.get_mut().set_same_name(val)
+    }
+
+    pub fn set_same_mass(&mut self, val: f32) {
+        self.get_mut().set_same_mass(val)
+    }
+
     #[pyo3(signature = (dims=[false,false,false]))]
     fn com<'py>(
         &self,

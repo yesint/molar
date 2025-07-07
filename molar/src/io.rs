@@ -212,10 +212,11 @@ impl FileFormat {
 
             FileFormat::Gro(ref mut h) => h.read_topology()?,
 
-            // FileFormat::Tpr(ref mut h) => {
-            //     let (top, _) = h.read()?;
-            //     top
-            // }
+            FileFormat::Tpr(ref mut h) => {
+                let (top, _) = h.read()?;
+                top
+            }
+
             FileFormat::Itp(ref mut h) => h.read_topology()?,
 
             _ => return Err(FileFormatError::NotTopologyReadFormat),
@@ -245,10 +246,11 @@ impl FileFormat {
 
             FileFormat::Gro(ref mut h) => h.read_state()?,
 
-            // FileFormat::Tpr(ref mut h) => {
-            //     let (_, st) = h.read()?;
-            //     Some(st)
-            // }
+            FileFormat::Tpr(ref mut h) => {
+                let (_, st) = h.read()?;
+                Some(st)
+            }
+            
             _ => return Err(FileFormatError::NotStateReadFormat),
         };
         Ok(st)

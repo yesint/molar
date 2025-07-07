@@ -157,6 +157,12 @@ impl<K: SelectionKind> Sel<K> {
             a.chain = val;
         }
     }
+
+    pub fn set_same_mass(&self, val: f32) {
+        for a in self.topology.iter_atoms_mut() {
+            a.mass = val;
+        }
+    }
 }
 
 //──────────────────────────
