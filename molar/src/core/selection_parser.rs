@@ -49,7 +49,7 @@ impl SelectionExpr {
     /// ```
     pub fn new(s: &str) -> Result<Self, SelectionParserError> {
         Ok(Self {
-            ast: RefCell::new(grammar::selection_parser::logical_expr(s).map_err(|e| {
+            ast: RefCell::new(grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {
                 let s = format!(
                     "\n{s}\n{}^\nExpected {}",
                     "-".repeat(e.location.column - 1),
@@ -148,6 +148,18 @@ mod tests {
     }
 
     #[test]
+    fn test_leading_space() {
+        let _ast = SelectionExpr::new("  dist point 1.9 2.9 3.8 > 0.4")
+            .expect("Error generating AST");
+    }
+
+    #[test]
+    fn test_trainling_space() {
+        let _ast = SelectionExpr::new("dist point 1.9 2.9 3.8 > 0.4  ")
+            .expect("Error generating AST");
+    }
+
+    #[test]
     fn within_from_point() {
         let _ast = SelectionExpr::new("within 0.5 of com pbc 101 of protein")
             .expect("Error generating AST");
@@ -162,7 +174,7 @@ mod tests {
 
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/generated_selection_tests.in"
+        "/tests/generated_vmd_tests.in"
     ));
 
     include!(concat!(

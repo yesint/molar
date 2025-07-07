@@ -221,7 +221,7 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn clone_with_local_subset(&self, local_subset: &'a Vec<usize>) -> Self {
+    fn clone_with_local_subset(&'a self, local_subset: &'a [usize]) -> Self {
         Self {
             local_subset: Some(local_subset),
             ..*self
@@ -469,9 +469,11 @@ impl LogicalNode {
             }
 
             Self::Within(params, node) => {
-                let inner = node.apply(data)?;
+                // Inner expr have to be evaluated in global context!
+                let glob_data = data.clone_with_local_subset(&data.global_subset);
+                let inner = node.apply(&glob_data)?;
 
-                let sub1 = data.global_subset();
+                let sub1 = data.current_subset();
                 let sub2 = data.custom_subset(&inner);
                 // Perform distance search
                 let mut res: Vec<usize> = if params.pbc == PBC_NONE {

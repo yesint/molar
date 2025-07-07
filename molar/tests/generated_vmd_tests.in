@@ -39,3 +39,11 @@
         assert_eq!(get_selection_index("within 0.3 of resid 20"),answer);
     }
     
+    #[test]
+    fn selection_test_5 () {
+        let answer: Vec<usize> =
+        "196 204 213"
+        .split(" ").map(|x| x.parse::<usize>().unwrap()).collect();
+        assert_eq!(get_selection_index("name CA and within 0.3 of resid 20"),answer);
+    }
+    
