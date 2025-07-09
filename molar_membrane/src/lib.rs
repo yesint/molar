@@ -1,10 +1,10 @@
 use anyhow::{bail, Context};
 use molar::{prelude::*, voronoi_cell::{Vector2f, VoronoiCell}};
 use nalgebra::{DVector, SMatrix, SVector};
-use rayon::iter::IntoParallelRefMutIterator;
+use rayon::{iter::IntoParallelRefMutIterator, vec};
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
     sync::Arc,
@@ -33,12 +33,13 @@ use lipid_group::LipidGroup;
 
 pub struct Membrane {
     lipids: Vec<LipidMolecule>,
-    //surface: Surface,
     groups: HashMap<String, LipidGroup>,
     species: Vec<Arc<LipidSpecies>>,
     // Options
     options: MembraneOptions,
     pbox: PeriodicBox,
+    // Monolayers. Patches are computer inside the monolayer only
+    monolayers: Vec<usize>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +172,7 @@ impl Membrane {
             species,
             options,
             pbox: source.require_box()?.clone(),
+            monolayers: vec![],
         })
     }
 
@@ -241,6 +243,20 @@ impl Membrane {
             l.valid = true;
         }
     }
+
+    // pub fn compute_monolayers(&mut self, d: f32) -> anyhow::Result<()> {
+    //     let ind: Vec<(usize, usize)> = distance_search_single_pbc(
+    //         d,
+    //         self.iter_valid_lipids().map(|l| &l.head_marker),
+    //         self.iter_valid_lipids().map(|l| l.id),
+    //         self.lipids[0].sel.require_box()?,
+    //         PBC_FULL,
+    //     );
+
+    //     let conn = SearchConnectivity::from_iter(ind.into_iter());
+        
+        
+    // }
 
     pub fn add_lipids_to_group(
         &mut self,
@@ -428,11 +444,42 @@ impl Membrane {
         Ok(())
     }
 
+    pub fn smooth_curvature(&mut self, n_neib: usize) {
+        if n_neib<1 {
+            return;
+        }
+
+        let mean_curv: Vec<_> = self.iter_valid_lipids().map(|l| l.mean_curv).collect();
+        let gauss_curv: Vec<_> = self.iter_valid_lipids().map(|l| l.gaussian_curv).collect();
+
+        for i in 0..self.lipids.len() {
+            if !self.lipids[i].valid {
+                continue
+            }
+
+            let mut neib_list: HashSet<usize> = self.lipids[i].neib_ids.iter().cloned().collect();
+            for _ in 2..n_neib {
+                let old_neib_list = neib_list.clone();
+                for n in old_neib_list {
+                    neib_list.extend(self.lipids[n].neib_ids.iter().cloned());
+                }
+            }
+        
+            let m = neib_list.iter().map(|id| mean_curv[*id]).sum::<f32>();
+            self.lipids[i].mean_curv = (mean_curv[i] + m) / (neib_list.len()+1) as f32;
+            let g = neib_list.iter().map(|id| gauss_curv[*id]).sum::<f32>();
+            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (neib_list.len()+1) as f32;
+        }
+    }
+
     pub fn write_vmd_visualization(&self, fname: impl AsRef<Path>) -> anyhow::Result<()> {
         let mut vis = VmdVisual::new();
 
         for i in 0..self.lipids.len() {
             let lip = &self.lipids[i];
+            if !lip.valid {
+                continue
+            }
             // Initial lipid marker
             vis.sphere(&self.lipids[i].head_marker, 0.8, "white");
             // tail-head vector
@@ -785,10 +832,10 @@ mod tests {
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
 
-        let mut memb = Membrane::new(&src, &toml)?.with_max_iter(1);
+        let mut memb = Membrane::new(&src, &toml)?.with_max_iter(1)
         // .with_global_normal(Vector3f::z())
         // .with_order_type(OrderType::ScdCorr)
-        // .with_output_dir("../target/membr_test_results")?;
+         .with_output_dir("../target/membr_test_results")?;
 
         let mut upper = vec![];
         let mut lower = vec![];
@@ -809,6 +856,36 @@ mod tests {
         memb.compute()?;
         memb.finalize()?;
         memb.write_vmd_visualization("../target/vis.tcl")?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_vmd_vis_cg() -> anyhow::Result<()> {
+        let path = PathBuf::from("tests");
+        let src = Source::serial_from_file(path.join("cg.gro"))?;
+        src.select_all()?.set_same_mass(1.0);
+
+        let mut toml = String::new();
+        std::fs::File::open(path.join("cg.toml"))?.read_to_string(&mut toml)?;
+
+        let mut memb = Membrane::new(&src, &toml)?
+        .with_output_dir("../target/membr_cg_test_results")?;
+
+        let upper = (0..4225).collect();
+        let lower = (4225..4225*2).collect();
+
+        memb.add_lipids_to_group("upper", &upper)?;
+        memb.add_lipids_to_group("lower", &lower)?;
+
+        memb.compute()?;
+        memb.finalize()?;
+        memb.write_vmd_visualization("../target/vis_cg.tcl")?;
+
+        for l in memb.iter_valid_lipids_mut() {
+            l.sel.set_same_bfactor(l.mean_curv);
+        }
+        src.save("../target/colored.pdb")?;
 
         Ok(())
     }

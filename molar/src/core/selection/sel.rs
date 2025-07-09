@@ -133,34 +133,42 @@ impl<K: SelectionKind> Sel<K> {
         }
         Ok(std::mem::replace(&mut self.state, state))
     }
+}
 
+impl<K: UserCreatableKind> Sel<K> {
     pub fn set_same_name(&self, val: &str) {
-        for a in self.topology.iter_atoms_mut() {
+        for a in self.iter_atoms_mut() {
             a.name = val.into();
         }
     }
 
     pub fn set_same_resname(&self, val: &str) {
-        for a in self.topology.iter_atoms_mut() {
+        for a in self.iter_atoms_mut() {
             a.resname = val.into();
         }
     }
 
     pub fn set_same_resid(&self, val: i32) {
-        for a in self.topology.iter_atoms_mut() {
+        for a in self.iter_atoms_mut() {
             a.resid = val;
         }
     }
 
     pub fn set_same_chain(&self, val: char) {
-        for a in self.topology.iter_atoms_mut() {
+        for a in self.iter_atoms_mut() {
             a.chain = val;
         }
     }
 
     pub fn set_same_mass(&self, val: f32) {
-        for a in self.topology.iter_atoms_mut() {
+        for a in self.iter_atoms_mut() {
             a.mass = val;
+        }
+    }
+
+    pub fn set_same_bfactor(&self, val: f32) {
+        for a in self.iter_atoms_mut() {
+            a.bfactor = val;
         }
     }
 }
@@ -911,6 +919,17 @@ impl<K: SelectionKind> AtomIterProvider for Sel<K> {
     }
 }
 
+impl<K: UserCreatableKind> AtomsIterMutProvider for Sel<K> {
+    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
+        unsafe {
+            self.index()
+                .iter()
+                .map(|i| self.topology.nth_atom_mut_unchecked(*i))
+        }
+    }
+}
+
+
 impl<K: SelectionKind> MassIterProvider for Sel<K> {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
@@ -1009,16 +1028,6 @@ impl<K: MutableKind> PosIterMutProvider for Sel<K> {
             self.index()
                 .iter()
                 .map(|i| self.state.nth_pos_mut_unchecked(*i))
-        }
-    }
-}
-
-impl<K: MutableKind> AtomsIterMutProvider for Sel<K> {
-    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
-        unsafe {
-            self.index()
-                .iter()
-                .map(|i| self.topology.nth_atom_mut_unchecked(*i))
         }
     }
 }

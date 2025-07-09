@@ -28,6 +28,10 @@ impl Membrane {
         Ok(self.0.finalize()?)
     }
 
+    fn smooth_curvature(&mut self, n_neib: usize) {
+        self.0.smooth_curvature(n_neib)
+    }
+
     #[getter]
     fn get_lipids(&self) -> Vec<LipidMolecule> {
         type M = molar_membrane::LipidMolecule;
@@ -43,6 +47,10 @@ impl Membrane {
 
     fn reset_valid_lipids(&mut self) {
         self.0.reset_valid_lipids();
+    }
+
+    fn write_vmd_visualization(&self, fname: &str) -> anyhow::Result<()> {
+        self.0.write_vmd_visualization(fname)
     }
 }
 

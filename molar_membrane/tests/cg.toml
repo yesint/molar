@@ -1,0 +1,18 @@
+#global_normal = [0.0,0.0,1.0]
+sel = "resname POPC"
+
+order_type = "ScdCorr"
+output_dir = "./results"
+max_smooth_iter = 1
+cutoff = 2.5
+groups = ["upper","lower"]
+
+[lipids.POPC]
+whole = "resname POPC"
+head = "name PO4 NC3"
+mid = "name GL1 GL2"
+tails = [
+    "C1A-D2A-C3A-C4A",
+    "C1B-C2B-C3B-C4B",
+]
+

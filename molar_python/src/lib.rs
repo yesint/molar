@@ -544,6 +544,10 @@ impl Sel {
         self.get_mut().set_same_mass(val)
     }
 
+    pub fn set_same_bfactor(&mut self, val: f32) {
+        self.get_mut().set_same_bfactor(val)
+    }
+
     #[pyo3(signature = (dims=[false,false,false]))]
     fn com<'py>(
         &self,
