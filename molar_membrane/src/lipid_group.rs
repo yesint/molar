@@ -34,4 +34,8 @@ impl LipidGroup {
         }
         Ok(())
     }
+
+    pub fn iter_lipid_ids(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lipid_ids.iter().cloned()
+    }
 }

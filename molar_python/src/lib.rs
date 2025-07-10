@@ -944,6 +944,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Sel>()?;
     m.add_class::<SasaResults>()?;
     m.add_class::<NdxFile>()?;
+    m.add_class::<Histogram1D>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;

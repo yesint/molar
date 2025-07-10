@@ -20,7 +20,7 @@ use log::{info, warn}; // Use log crate when building application
 use std::{println as info, println as warn};
 
 mod stats;
-use stats::SpeciesStats;
+pub use stats::*;
 
 mod lipid_molecule;
 pub use lipid_molecule::LipidMolecule;
@@ -584,7 +584,11 @@ impl Membrane {
                     .collect::<Vec<_>>();
 
                 // Compute fitted surface coefs
-                let quad_coefs = get_quad_coefs(&local_points);
+                let c = get_quad_coefs(&local_points);
+                if c.is_none() {
+                    return;
+                }
+                let quad_coefs = c.unwrap();
 
                 // Do Voronoi stuff
                 let mut vc = VoronoiCell::new(-10.0, 10.0, -10.0, 10.0);
@@ -696,7 +700,7 @@ impl Membrane {
     }
 }
 
-pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
+pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<f32, 6>> {
     //============================
     // Fitting polynomial
     //============================
@@ -722,7 +726,7 @@ pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> SVector<f32, 6> {
     }
 
     // Now solve and returs coeffs
-    m.solve_lower_triangular(&rhs).unwrap()
+    m.solve_lower_triangular(&rhs)
 }
 
 fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {

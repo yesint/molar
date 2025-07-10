@@ -3,14 +3,61 @@ use log::info;
 use nalgebra::DVector;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use std::collections::HashMap;
+use std::io::BufWriter;
 use std::path::Path;
 
 use crate::lipid_species::LipidSpecies;
 use crate::LipidMolecule;
 
+#[derive(Debug,Default)]
+pub struct Histogram1D {
+    min: f32,
+    max: f32,
+    bins: Vec<f32>,
+}
+
+impl Histogram1D {
+    pub fn new(min: f32, max: f32, n_bins: usize) -> Self {
+        Self {
+            min,
+            max,
+            bins: vec![0.0; n_bins]
+        }
+    }
+
+    pub fn add_one(&mut self, val: f32) {
+        let n = self.bins.len() as isize;
+        let b = (n as f32 * (val-self.min)/(self.max-self.min)).floor() as isize;
+        if b>=0 && b<n {
+            self.bins[b as usize] += 1.0;
+        }
+    }
+
+    pub fn normalize_density(&mut self) {
+        let d = (self.max-self.min)/self.bins.len() as f32;
+        let sum = self.bins.iter().sum::<f32>() * d;
+        for bin in self.bins.iter_mut() {
+            *bin /= sum;
+        }
+    }
+
+    pub fn save_to_file(&self, fname: impl AsRef<Path>) -> anyhow::Result<()> {
+        use std::io::Write;
+        let f = std::fs::File::create(fname)?;
+        let mut buf = BufWriter::new(f);
+        let d = (self.max-self.min)/self.bins.len() as f32;
+        for (i,val) in self.bins.iter().enumerate() {
+            writeln!(buf,"{} {}",self.min + i as f32 * d + 0.5*d, val)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct GroupProperties {
     pub per_species: HashMap<String, SpeciesStats>,
+    // pub mean_curv: Histogram1D,
+    // pub gauss_curv: Histogram1D,
 }
 
 impl GroupProperties {

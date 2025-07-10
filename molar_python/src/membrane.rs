@@ -145,3 +145,26 @@ impl LipidMolecule {
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
 }
+
+#[pyclass]
+pub(crate) struct Histogram1D(molar_membrane::Histogram1D);
+
+#[pymethods]
+impl Histogram1D {
+    #[new]
+    fn new(min: f32, max: f32, n_bins: usize) -> Self {
+        Self(molar_membrane::Histogram1D::new(min,max,n_bins))
+    }
+
+    pub fn add_one(&mut self, val: f32) {
+        self.0.add_one(val);
+    }
+
+    pub fn normalize_density(&mut self) {
+        self.0.normalize_density();
+    }
+
+    pub fn save_to_file(&self, fname: &str) -> anyhow::Result<()> {
+        self.0.save_to_file(fname)
+    }
+}
