@@ -1,10 +1,10 @@
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use molar::{
     prelude::*,
     voronoi_cell::{Vector2f, VoronoiCell},
 };
 use nalgebra::{DVector, SMatrix, SVector};
-use rayon::{iter::IntoParallelRefMutIterator, vec};
+use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -309,6 +309,16 @@ impl Membrane {
         }
 
         Ok(())
+    }
+
+    pub fn iter_group(&self, gr_name: impl AsRef<str>) -> anyhow::Result<impl Iterator<Item = &LipidMolecule>> {
+        let gr_name = gr_name.as_ref();
+        Ok(self.groups.get(gr_name).ok_or_else(|| anyhow!("no such group: {gr_name}"))?.lipid_ids.iter().map(|id| &self.lipids[*id]))
+    }
+
+    pub fn iter_group_ids(&self, gr_name: impl AsRef<str>) -> anyhow::Result<impl Iterator<Item = usize> + '_> {
+        let gr_name = gr_name.as_ref();
+        Ok(self.groups.get(gr_name).ok_or_else(|| anyhow!("no such group: {gr_name}"))?.lipid_ids.iter().cloned())
     }
 
     pub fn compute(&mut self) -> anyhow::Result<()> {

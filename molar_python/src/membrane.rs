@@ -16,7 +16,7 @@ impl Membrane {
     }
 
     fn set_state(&mut self, st: &crate::State) -> anyhow::Result<()> {
-        unsafe {self.0.set_state(st.0.new_ref_with_kind())?};
+        unsafe { self.0.set_state(st.0.new_ref_with_kind())? };
         Ok(())
     }
 
@@ -50,6 +50,19 @@ impl Membrane {
             .collect()
     }
 
+    fn group_lipids(&self, gr_name: &str) -> anyhow::Result<Vec<LipidMolecule>> {
+        type M = molar_membrane::LipidMolecule;
+        Ok(self
+            .0
+            .iter_group(gr_name)?
+            .map(|l| LipidMolecule(l as *const M as *mut M))
+            .collect())
+    }
+
+    fn group_ids(&self, gr_name: &str) -> anyhow::Result<Vec<usize>> {
+        Ok(self.0.iter_group_ids(gr_name)?.collect())
+    }
+
     fn reset_groups(&mut self) {
         self.0.reset_groups();
     }
@@ -67,12 +80,12 @@ impl Membrane {
 pub(crate) struct LipidMolecule(*mut molar_membrane::LipidMolecule);
 
 impl LipidMolecule {
-    #[inline(always)]    
+    #[inline(always)]
     fn get(&self) -> &molar_membrane::LipidMolecule {
         unsafe { &*self.0 }
     }
 
-    #[inline(always)]    
+    #[inline(always)]
     fn get_mut(&mut self) -> &mut molar_membrane::LipidMolecule {
         unsafe { &mut *self.0 }
     }
@@ -162,7 +175,7 @@ pub(crate) struct Histogram1D(molar_membrane::Histogram1D);
 impl Histogram1D {
     #[new]
     fn new(min: f32, max: f32, n_bins: usize) -> Self {
-        Self(molar_membrane::Histogram1D::new(min,max,n_bins))
+        Self(molar_membrane::Histogram1D::new(min, max, n_bins))
     }
 
     pub fn add_one(&mut self, val: f32) {

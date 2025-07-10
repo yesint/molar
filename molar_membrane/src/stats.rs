@@ -54,7 +54,7 @@ impl Histogram1D {
 }
 
 #[derive(Default, Debug)]
-pub struct GroupProperties {
+pub(crate) struct GroupProperties {
     pub per_species: HashMap<String, SpeciesStats>,
     // pub mean_curv: Histogram1D,
     // pub gauss_curv: Histogram1D,
