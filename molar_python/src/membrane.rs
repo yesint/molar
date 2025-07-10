@@ -33,10 +33,19 @@ impl Membrane {
     }
 
     #[getter]
-    fn get_lipids(&self) -> Vec<LipidMolecule> {
+    fn get_all_lipids(&self) -> Vec<LipidMolecule> {
         type M = molar_membrane::LipidMolecule;
         self.0
             .iter_all_lipids()
+            .map(|l| LipidMolecule(l as *const M as *mut M))
+            .collect()
+    }
+
+    #[getter]
+    fn get_valid_lipids(&self) -> Vec<LipidMolecule> {
+        type M = molar_membrane::LipidMolecule;
+        self.0
+            .iter_valid_lipids()
             .map(|l| LipidMolecule(l as *const M as *mut M))
             .collect()
     }
