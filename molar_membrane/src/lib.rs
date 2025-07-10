@@ -1,5 +1,8 @@
 use anyhow::{bail, Context};
-use molar::{prelude::*, voronoi_cell::{Vector2f, VoronoiCell}};
+use molar::{
+    prelude::*,
+    voronoi_cell::{Vector2f, VoronoiCell},
+};
 use nalgebra::{DVector, SMatrix, SVector};
 use rayon::{iter::IntoParallelRefMutIterator, vec};
 use serde::Deserialize;
@@ -53,6 +56,10 @@ struct MembraneOptions {
     lipids: HashMap<String, LipidSpeciesDescr>,
     groups: Vec<String>,
     sel: String,
+    // Num of neighbor shells for patch adjustment (default=0 means do not adjust)
+    n_shells_patch: usize,
+    // Num of neighbor shells for curvature smoothing (default=0 means do not smooth)
+    n_shells_smoothing: usize,
 }
 
 impl Default for MembraneOptions {
@@ -66,6 +73,8 @@ impl Default for MembraneOptions {
             lipids: Default::default(),
             groups: vec![],
             sel: "all".into(),
+            n_shells_patch: 0,
+            n_shells_smoothing: 0,
         }
     }
 }
@@ -87,13 +96,12 @@ impl Membrane {
                 // Split into individual lipids (MutableParallel selections)
                 let mut lips = lips.split_par_contig(|p| Some(p.atom.resindex))?;
                 // Unwrap all lipids in parallel
-                lips.par_iter_mut().try_for_each(|lip|
-                    lip.unwrap_simple()
-                )?;
+                lips.par_iter_mut()
+                    .try_for_each(|lip| lip.unwrap_simple())?;
 
                 // Now we need subselections, which are not allowed for MutableParallel
                 // So convert to ImmutableParallel
-                let lips = unsafe {lips.into_immutable() };
+                let lips = unsafe { lips.into_immutable() };
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
@@ -225,6 +233,11 @@ impl Membrane {
         self
     }
 
+    pub fn with_max_neib_shells(mut self, n: usize) -> Self {
+        self.options.n_shells_patch = n;
+        self
+    }
+
     pub fn with_max_iter(mut self, max_iter: usize) -> Self {
         self.options.max_smooth_iter = max_iter;
         self
@@ -254,8 +267,7 @@ impl Membrane {
     //     );
 
     //     let conn = SearchConnectivity::from_iter(ind.into_iter());
-        
-        
+
     // }
 
     pub fn add_lipids_to_group(
@@ -306,18 +318,18 @@ impl Membrane {
         // Get initial normals
         self.compute_initial_normals();
 
-        // Do smoothing
+        // Do iterative smoothing
         let mut iter = 0;
         loop {
+            if self.options.n_shells_patch > 0 && iter == 0 {
+                // If asked to do more than one nearest neighbor then
+                // the very first iteration is used to only get the 1-st nearest neibours
+                self.smooth();
+                // Now compute n-th neighbors and set them as patch
+                self.patches_from_nth_shell(self.options.n_shells_patch);
+            }
             self.smooth();
-
-            // self.write_vmd_visualization(format!(
-            //     "/home/semen/work/Projects/Misha/PG_flipping/iter_{iter}.tcl"
-            // ))
-            // .unwrap();
-
             iter += 1;
-
             if iter >= self.options.max_smooth_iter {
                 break;
             }
@@ -325,9 +337,17 @@ impl Membrane {
 
         // Compute order for all valid lipids
         for i in 0..self.lipids.len() {
-            if !self.lipids[i].valid {continue}
-            self.lipids[i].compute_order(self.options.order_type.clone(), self.options.global_normal.as_ref());
+            if !self.lipids[i].valid {
+                continue;
+            }
+            self.lipids[i].compute_order(
+                self.options.order_type.clone(),
+                self.options.global_normal.as_ref(),
+            );
         }
+
+        // If asked perform curvature smoothing
+        self.smooth_curvature(self.options.n_shells_smoothing);
 
         // Update group stats
         for gr in self.groups.values_mut() {
@@ -371,11 +391,7 @@ impl Membrane {
         // Correct normal orientations if needed
         for i in 0..self.lipids.len() {
             if self.lipids[i].valid {
-                if self.lipids[i]
-                    .normal
-                    .angle(&self.lipids[i].tail_head_vec)
-                    > FRAC_PI_2
-                {
+                if self.lipids[i].normal.angle(&self.lipids[i].tail_head_vec) > FRAC_PI_2 {
                     self.lipids[i].normal *= -1.0;
                 }
             }
@@ -404,7 +420,10 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state(&mut self, st: impl Into<Holder<State, ImmutableParallel>>) -> anyhow::Result<()> {
+    pub fn set_state(
+        &mut self,
+        st: impl Into<Holder<State, ImmutableParallel>>,
+    ) -> anyhow::Result<()> {
         let st: Holder<State, ImmutableParallel> = st.into();
         // Go over all lipids and set their states
         for lip in &mut self.lipids {
@@ -444,17 +463,16 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn smooth_curvature(&mut self, n_neib: usize) {
-        if n_neib<1 {
+    // Given pre-computed neib_ids compute n-th neighbour shell
+    // and set it as patches
+    fn patches_from_nth_shell(&mut self, n_neib: usize) {
+        if n_neib < 1 {
             return;
         }
 
-        let mean_curv: Vec<_> = self.iter_valid_lipids().map(|l| l.mean_curv).collect();
-        let gauss_curv: Vec<_> = self.iter_valid_lipids().map(|l| l.gaussian_curv).collect();
-
         for i in 0..self.lipids.len() {
             if !self.lipids[i].valid {
-                continue
+                continue;
             }
 
             let mut neib_list: HashSet<usize> = self.lipids[i].neib_ids.iter().cloned().collect();
@@ -464,11 +482,41 @@ impl Membrane {
                     neib_list.extend(self.lipids[n].neib_ids.iter().cloned());
                 }
             }
-        
+
+            self.lipids[i].patch_ids = neib_list.into_iter().collect();
+        }
+    }
+
+    pub fn smooth_curvature(&mut self, n_neib: usize) {
+        if n_neib < 1 {
+            return;
+        }
+
+        let mean_curv: Vec<_> = self.iter_all_lipids().map(|l| l.mean_curv).collect();
+        let gauss_curv: Vec<_> = self.iter_all_lipids().map(|l| l.gaussian_curv).collect();
+
+        for i in 0..self.lipids.len() {
+            if !self.lipids[i].valid {
+                continue;
+            }
+
+            let mut neib_list: HashSet<usize> = self.lipids[i].neib_ids.iter().cloned().collect();
+            for _ in 2..n_neib {
+                let old_neib_list = neib_list.clone();
+                for n in old_neib_list {
+                    neib_list.extend(
+                        self.lipids[n]
+                            .neib_ids
+                            .iter()
+                            .cloned()                            
+                    );
+                }
+            }
+
             let m = neib_list.iter().map(|id| mean_curv[*id]).sum::<f32>();
-            self.lipids[i].mean_curv = (mean_curv[i] + m) / (neib_list.len()+1) as f32;
+            self.lipids[i].mean_curv = (mean_curv[i] + m) / (neib_list.len() + 1) as f32;
             let g = neib_list.iter().map(|id| gauss_curv[*id]).sum::<f32>();
-            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (neib_list.len()+1) as f32;
+            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (neib_list.len() + 1) as f32;
         }
     }
 
@@ -478,7 +526,7 @@ impl Membrane {
         for i in 0..self.lipids.len() {
             let lip = &self.lipids[i];
             if !lip.valid {
-                continue
+                continue;
             }
             // Initial lipid marker
             vis.sphere(&self.lipids[i].head_marker, 0.8, "white");
@@ -512,7 +560,10 @@ impl Membrane {
 
     fn smooth(&mut self) {
         // Save current positions of markers to randomly access from the parallel loop
-        let saved_markers = self.iter_all_lipids().map(|l| l.head_marker).collect::<Vec<_>>();
+        let saved_markers = self
+            .iter_all_lipids()
+            .map(|l| l.head_marker)
+            .collect::<Vec<_>>();
 
         self.lipids
             .par_iter_mut()
@@ -577,13 +628,17 @@ impl Membrane {
                     })
                     .collect::<Vec<_>>();
 
-                // Compute area. 
+                // Compute area.
                 // Central point is still in origin since we didn't translate yet.
                 // Thus we can just use vertex vectors as sides of triangles in a triangle fan.
                 let n = lip.voro_vertexes.len();
                 lip.area = 0.0;
                 for i in 0..n {
-                    lip.area += 0.5*lip.voro_vertexes[i].coords.cross(&lip.voro_vertexes[(i+1)%n].coords).norm();
+                    lip.area += 0.5
+                        * lip.voro_vertexes[i]
+                            .coords
+                            .cross(&lip.voro_vertexes[(i + 1) % n].coords)
+                            .norm();
                 }
 
                 //Save fitted positions of patch markers
@@ -610,7 +665,11 @@ impl Membrane {
         // Smooth
         // We start from fitted markers themselves
         let mut smooth_n = vec![1.0; self.lipids.len()];
-        let mut smooth_p = self.lipids.iter().map(|l| l.head_marker).collect::<Vec<_>>();
+        let mut smooth_p = self
+            .lipids
+            .iter()
+            .map(|l| l.head_marker)
+            .collect::<Vec<_>>();
         // Add projected patch points
         for lip in self.iter_valid_lipids() {
             for (id, p) in lip.patch_ids.iter().zip(lip.fitted_patch_points.iter()) {
@@ -832,10 +891,11 @@ mod tests {
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
 
-        let mut memb = Membrane::new(&src, &toml)?.with_max_iter(1)
-        // .with_global_normal(Vector3f::z())
-        // .with_order_type(OrderType::ScdCorr)
-         .with_output_dir("../target/membr_test_results")?;
+        let mut memb = Membrane::new(&src, &toml)?
+            .with_max_iter(1)
+            // .with_global_normal(Vector3f::z())
+            // .with_order_type(OrderType::ScdCorr)
+            .with_output_dir("../target/membr_test_results")?;
 
         let mut upper = vec![];
         let mut lower = vec![];
@@ -869,11 +929,11 @@ mod tests {
         let mut toml = String::new();
         std::fs::File::open(path.join("cg.toml"))?.read_to_string(&mut toml)?;
 
-        let mut memb = Membrane::new(&src, &toml)?
-        .with_output_dir("../target/membr_cg_test_results")?;
+        let mut memb =
+            Membrane::new(&src, &toml)?.with_output_dir("../target/membr_cg_test_results")?;
 
         let upper = (0..4225).collect();
-        let lower = (4225..4225*2).collect();
+        let lower = (4225..4225 * 2).collect();
 
         memb.add_lipids_to_group("upper", &upper)?;
         memb.add_lipids_to_group("lower", &lower)?;
