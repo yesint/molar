@@ -36,7 +36,11 @@ use lipid_group::LipidGroup;
 
 pub struct Membrane {
     lipids: Vec<LipidMolecule>,
+    // Mapping from system resindexes to lipid ids
+    resindex_to_id: HashMap<usize, usize>,
+    // Lipid groups
     groups: HashMap<String, LipidGroup>,
+    // Shared lipid species
     species: Vec<Arc<LipidSpecies>>,
     // Options
     options: MembraneOptions,
@@ -88,9 +92,11 @@ impl Membrane {
         // Create working selection
         let source_sel = source.select(&options.sel)?;
 
-        // Load lipids from provided source
         let mut lipids = vec![];
         let mut species = vec![];
+        let mut resindex_to_id = HashMap::<usize, usize>::new();
+
+        // Load lipids from provided source
         for (name, descr) in options.lipids.iter() {
             if let Ok(lips) = source_sel.subsel(&descr.whole) {
                 // Split into individual lipids (MutableParallel selections)
@@ -134,7 +140,12 @@ impl Membrane {
 
                     let tail_head_vec = tail_marker - head_marker;
 
+                    // Ids are sequencial from zero
                     let id = lipids.len();
+                    // Save mapping to real resindexes in order to be able to add lipids
+                    // to groups by resindex
+                    resindex_to_id.insert(lip.first_atom().resindex, id);
+
                     lipids.push(LipidMolecule {
                         sel: lip, // Selection is moved to the lipid
                         species: Arc::clone(&sp),
@@ -181,6 +192,7 @@ impl Membrane {
             options,
             pbox: source.require_box()?.clone(),
             monolayers: vec![],
+            resindex_to_id,
         })
     }
 
@@ -244,7 +256,7 @@ impl Membrane {
     }
 
     pub fn reset_groups(&mut self) {
-        // Reset lipid indexes in gorups
+        // Reset lipid indexes in groups
         for gr in self.groups.values_mut() {
             gr.lipid_ids.clear();
             gr.stats.per_species.clear();
@@ -270,7 +282,7 @@ impl Membrane {
 
     // }
 
-    pub fn add_lipids_to_group(
+    pub fn add_ids_to_group(
         &mut self,
         gr_name: impl AsRef<str>,
         ids: &Vec<usize>,
@@ -311,14 +323,49 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn iter_group(&self, gr_name: impl AsRef<str>) -> anyhow::Result<impl Iterator<Item = &LipidMolecule>> {
-        let gr_name = gr_name.as_ref();
-        Ok(self.groups.get(gr_name).ok_or_else(|| anyhow!("no such group: {gr_name}"))?.lipid_ids.iter().map(|id| &self.lipids[*id]))
+    pub fn add_resindeces_to_group(
+        &mut self,
+        gr_name: impl AsRef<str>,
+        resindeces: &Vec<usize>,
+    ) -> anyhow::Result<()> {
+        let ids = resindeces
+            .iter()
+            .map(|r| {
+                self.resindex_to_id
+                    .get(r)
+                    .cloned()
+                    .ok_or_else(|| anyhow!("no lipid with resindex {r}"))
+            })
+            .collect::<anyhow::Result<Vec<usize>>>()?;
+        self.add_ids_to_group(gr_name, &ids)
     }
 
-    pub fn iter_group_ids(&self, gr_name: impl AsRef<str>) -> anyhow::Result<impl Iterator<Item = usize> + '_> {
+    pub fn iter_group(
+        &self,
+        gr_name: impl AsRef<str>,
+    ) -> anyhow::Result<impl Iterator<Item = &LipidMolecule>> {
         let gr_name = gr_name.as_ref();
-        Ok(self.groups.get(gr_name).ok_or_else(|| anyhow!("no such group: {gr_name}"))?.lipid_ids.iter().cloned())
+        Ok(self
+            .groups
+            .get(gr_name)
+            .ok_or_else(|| anyhow!("no such group: {gr_name}"))?
+            .lipid_ids
+            .iter()
+            .map(|id| &self.lipids[*id]))
+    }
+
+    pub fn iter_group_ids(
+        &self,
+        gr_name: impl AsRef<str>,
+    ) -> anyhow::Result<impl Iterator<Item = usize> + '_> {
+        let gr_name = gr_name.as_ref();
+        Ok(self
+            .groups
+            .get(gr_name)
+            .ok_or_else(|| anyhow!("no such group: {gr_name}"))?
+            .lipid_ids
+            .iter()
+            .cloned())
     }
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
@@ -514,12 +561,7 @@ impl Membrane {
             for _ in 2..n_neib {
                 let old_neib_list = neib_list.clone();
                 for n in old_neib_list {
-                    neib_list.extend(
-                        self.lipids[n]
-                            .neib_ids
-                            .iter()
-                            .cloned()                            
-                    );
+                    neib_list.extend(self.lipids[n].neib_ids.iter().cloned());
                 }
             }
 
@@ -882,8 +924,8 @@ mod tests {
             }
         }
 
-        memb.add_lipids_to_group("upper", &upper)?;
-        memb.add_lipids_to_group("lower", &lower)?;
+        memb.add_ids_to_group("upper", &upper)?;
+        memb.add_ids_to_group("lower", &lower)?;
 
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
         for st in traj.into_iter().take(10) {
@@ -924,8 +966,8 @@ mod tests {
             }
         }
 
-        memb.add_lipids_to_group("upper", &upper)?;
-        memb.add_lipids_to_group("lower", &lower)?;
+        memb.add_ids_to_group("upper", &upper)?;
+        memb.add_ids_to_group("lower", &lower)?;
 
         memb.compute()?;
         memb.finalize()?;
@@ -949,8 +991,8 @@ mod tests {
         let upper = (0..4225).collect();
         let lower = (4225..4225 * 2).collect();
 
-        memb.add_lipids_to_group("upper", &upper)?;
-        memb.add_lipids_to_group("lower", &lower)?;
+        memb.add_ids_to_group("upper", &upper)?;
+        memb.add_ids_to_group("lower", &lower)?;
 
         memb.compute()?;
         memb.finalize()?;

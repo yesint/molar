@@ -49,8 +49,8 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
             }
         }
 
-        membr.add_lipids_to_group("upper", &upper)?;
-        membr.add_lipids_to_group("lower", &lower)?;
+        membr.add_ids_to_group("upper", &upper)?;
+        membr.add_ids_to_group("lower", &lower)?;
 
         Ok(Self { membr })
     }

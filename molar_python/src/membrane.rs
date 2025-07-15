@@ -11,8 +11,12 @@ impl Membrane {
         Ok(Self(molar_membrane::Membrane::new(&src.0, opt_str)?))
     }
 
-    fn add_lipids_to_group(&mut self, gr_name: &str, ids: Vec<usize>) -> anyhow::Result<()> {
-        Ok(self.0.add_lipids_to_group(gr_name, &ids)?)
+    fn add_ids_to_group(&mut self, gr_name: &str, ids: Vec<usize>) -> anyhow::Result<()> {
+        Ok(self.0.add_ids_to_group(gr_name, &ids)?)
+    }
+
+    fn add_resindeces_to_group(&mut self, gr_name: &str, res: Vec<usize>) -> anyhow::Result<()> {
+        Ok(self.0.add_resindeces_to_group(gr_name, &res)?)
     }
 
     fn set_state(&mut self, st: &crate::State) -> anyhow::Result<()> {
