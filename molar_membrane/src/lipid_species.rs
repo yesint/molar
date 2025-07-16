@@ -10,6 +10,8 @@ pub struct LipidSpeciesDescr {
     pub(super) head: String,
     pub(super) mid: String,
     pub(super) tails: Vec<String>,
+    #[serde(default)]
+    pub(super) max_area: f32,
 }
 
 #[derive(Debug)]
@@ -19,6 +21,7 @@ pub struct LipidSpecies {
     pub(super) head_marker_offsets: SortedSet<usize>,
     pub(super) mid_marker_offsets: SortedSet<usize>,
     pub(super) tails: Vec<LipidTail>,
+    pub(super) max_area: f32,
 }
 
 #[derive(Debug)]
@@ -94,6 +97,7 @@ impl LipidSpecies {
                     .collect(),
             ),
             tails,
+            max_area: descr.max_area,
         })
     }
 }

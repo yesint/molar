@@ -713,6 +713,12 @@ impl Membrane {
                             .norm();
                 }
 
+                // Check if area is too large (if max_area is set for lipid type)
+                if lip.species.max_area > 0.0 && lip.area > lip.species.max_area {
+                    lip.valid = false;
+                    return;
+                }
+
                 //Save fitted positions of patch markers
                 lip.fitted_patch_points = local_points
                     .iter()
@@ -834,6 +840,7 @@ mod tests {
                     .into(),
                 "C31-C32-C33-C34-C35-C36-C37-C38-C39=C310-C311-C312-C313-C314-C315-C316".into(),
             ],
+            max_area: 0.0,
         };
         let lip_sp = LipidSpecies::new("DOPE".to_owned(), descr, &pope)?;
         println!("{lip_sp:?}");
