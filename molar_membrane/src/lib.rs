@@ -354,6 +354,26 @@ impl Membrane {
             .map(|id| &self.lipids[*id]))
     }
 
+    pub fn iter_group_valid(
+        &self,
+        gr_name: impl AsRef<str>,
+    ) -> anyhow::Result<impl Iterator<Item = &LipidMolecule>> {
+        let gr_name = gr_name.as_ref();
+        Ok(self
+            .groups
+            .get(gr_name)
+            .ok_or_else(|| anyhow!("no such group: {gr_name}"))?
+            .lipid_ids
+            .iter()
+            .filter_map(|id| {
+                if self.lipids[*id].valid {
+                    Some(&self.lipids[*id])
+                } else {
+                    None
+                }
+            }))
+    }
+
     pub fn iter_group_ids(
         &self,
         gr_name: impl AsRef<str>,
@@ -366,6 +386,21 @@ impl Membrane {
             .lipid_ids
             .iter()
             .cloned())
+    }
+
+    pub fn iter_group_ids_valid(
+        &self,
+        gr_name: impl AsRef<str>,
+    ) -> anyhow::Result<impl Iterator<Item = usize> + '_> {
+        let gr_name = gr_name.as_ref();
+        Ok(self
+            .groups
+            .get(gr_name)
+            .ok_or_else(|| anyhow!("no such group: {gr_name}"))?
+            .lipid_ids
+            .iter()            
+            .cloned()
+            .filter(|i| self.lipids[*i].valid))
     }
 
     pub fn compute(&mut self) -> anyhow::Result<()> {
@@ -428,7 +463,11 @@ impl Membrane {
                     .patch_ids
                     .iter()
                     .filter_map(|l| {
-                        if self.lipids[*l].tail_head_vec.angle(&self.lipids[i].tail_head_vec) <= FRAC_PI_2 {
+                        if self.lipids[*l]
+                            .tail_head_vec
+                            .angle(&self.lipids[i].tail_head_vec)
+                            <= FRAC_PI_2
+                        {
                             Some(&self.lipids[*l].tail_head_vec)
                         } else {
                             None

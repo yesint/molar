@@ -67,6 +67,19 @@ impl Membrane {
         Ok(self.0.iter_group_ids(gr_name)?.collect())
     }
 
+    fn group_lipids_valid(&self, gr_name: &str) -> anyhow::Result<Vec<LipidMolecule>> {
+        type M = molar_membrane::LipidMolecule;
+        Ok(self
+            .0
+            .iter_group_valid(gr_name)?
+            .map(|l| LipidMolecule(l as *const M as *mut M))
+            .collect())
+    }
+
+    fn group_ids_valid(&self, gr_name: &str) -> anyhow::Result<Vec<usize>> {
+        Ok(self.0.iter_group_ids_valid(gr_name)?.collect())
+    }
+
     fn reset_groups(&mut self) {
         self.0.reset_groups();
     }
