@@ -37,13 +37,6 @@ pub struct LipidMolecule {
 }
 
 impl LipidMolecule {
-    pub fn update_markers(&mut self) -> anyhow::Result<()> {
-        self.head_marker = self.head_sel.center_of_mass_pbc()?;
-        self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
-        self.tail_marker = self.tail_end_sel.center_of_mass_pbc()?;
-        Ok(())
-    }
-
     pub fn compute_order(&mut self, order_type: OrderType, global_normal: Option<&Vector3f>) {
         let normal = global_normal.unwrap_or(&self.normal);
         for i in 0..self.tail_sels.len() {
@@ -69,7 +62,10 @@ impl LipidMolecule {
         for t in &mut self.tail_sels {
             t.set_state(st.new_ref())?;
         }
-        self.update_markers()?;
+        // Update lipid markers
+        self.head_marker = self.head_sel.center_of_mass_pbc()?;
+        self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
+        self.tail_marker = self.tail_end_sel.center_of_mass_pbc()?;
         Ok(())
     }
 

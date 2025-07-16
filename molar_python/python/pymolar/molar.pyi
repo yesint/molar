@@ -77,6 +77,9 @@ class Sel:
 class Source:
     ...
 
+class Membrane:
+    ...
+
 
 class State:
     time: builtins.float

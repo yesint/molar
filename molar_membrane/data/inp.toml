@@ -7,11 +7,6 @@ max_smooth_iter = 1
 cutoff = 2.5
 groups = ["upper","lower"]
 
-# [group.upper]
-# sel = "$head.z > $membr.z"
-
-# [group.lower]
-# sel = "$head.z < $membr.z"
 
 [lipids.POPC]
 whole = "resname POPC"

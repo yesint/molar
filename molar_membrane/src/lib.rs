@@ -8,7 +8,7 @@ use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    f32::consts::FRAC_PI_2,
+    f32::consts::{FRAC_PI_2, FRAC_PI_3},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -427,32 +427,48 @@ impl Membrane {
                 self.lipids[i].normal = self.lipids[i]
                     .patch_ids
                     .iter()
-                    .map(|l| &self.lipids[*l].tail_head_vec)
+                    .filter_map(|l| {
+                        if self.lipids[*l].tail_head_vec.angle(&self.lipids[i].tail_head_vec) <= FRAC_PI_2 {
+                            Some(&self.lipids[*l].tail_head_vec)
+                        } else {
+                            None
+                        }
+                    })
+                    // Also add the central lipid
+                    .chain(std::iter::once(&self.lipids[i].tail_head_vec))
                     .sum::<Vector3f>()
                     .normalize();
             }
         }
 
-        // Second pass - average of vectors from the first pass in eac patch
+        // Second pass - average of vectors from the first pass in each patch
         for i in 0..self.lipids.len() {
             if self.lipids[i].valid {
                 self.lipids[i].normal = self.lipids[i]
                     .patch_ids
                     .iter()
-                    .map(|l| &self.lipids[*l].normal)
+                    .filter_map(|l| {
+                        if self.lipids[*l].normal.angle(&self.lipids[i].normal) <= FRAC_PI_2 {
+                            Some(&self.lipids[*l].normal)
+                        } else {
+                            None
+                        }
+                    })
+                    // Also add the central lipid
+                    .chain(std::iter::once(&self.lipids[i].normal))
                     .sum::<Vector3f>()
                     .normalize();
             }
         }
 
         // Correct normal orientations if needed
-        for i in 0..self.lipids.len() {
-            if self.lipids[i].valid {
-                if self.lipids[i].normal.angle(&self.lipids[i].tail_head_vec) > FRAC_PI_2 {
-                    self.lipids[i].normal *= -1.0;
-                }
-            }
-        }
+        // for i in 0..self.lipids.len() {
+        //     if self.lipids[i].valid {
+        //         if self.lipids[i].normal.angle(&self.lipids[i].tail_head_vec) > FRAC_PI_2 {
+        //             self.lipids[i].normal *= -1.0;
+        //         }
+        //     }
+        // }
     }
 
     pub fn finalize(&self) -> anyhow::Result<()> {
@@ -509,8 +525,8 @@ impl Membrane {
         );
 
         // Clear all patches first!
-        for node in self.lipids.iter_mut() {
-            node.patch_ids.clear();
+        for lip in self.lipids.iter_mut() {
+            lip.patch_ids.clear();
         }
         // Add ids to patches
         for (i, j) in ind {
