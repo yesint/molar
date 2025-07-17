@@ -16,7 +16,7 @@ pub struct LipidMolecule {
     pub mid_marker: Pos,
     pub tail_marker: Pos,
 
-    // Computation-related 
+    // Computation-related
     pub id: usize,
     pub valid: bool,
     pub patch_ids: Vec<usize>,
@@ -54,18 +54,29 @@ impl LipidMolecule {
         self.tail_sels.len()
     }
 
-    pub fn set_state(&mut self, st: State) -> anyhow::Result<()> {
-        let st: Holder<State,ImmutableParallel> = st.into();
+    pub fn set_state(
+        &mut self,
+        st: impl Into<Holder<State, ImmutableParallel>>,
+    ) -> anyhow::Result<()> {
+        let st = st.into();
+
         self.sel.set_state(st.new_ref())?;
         self.head_sel.set_state(st.new_ref())?;
         self.mid_sel.set_state(st.new_ref())?;
         for t in &mut self.tail_sels {
             t.set_state(st.new_ref())?;
         }
+        // Unwrap lipid
+        unsafe {
+            self.sel.as_other_kind(|sel: &mut Sel<MutableSerial>| {
+                sel.unwrap_simple().unwrap();
+            })
+        };
+
         // Update lipid markers
-        self.head_marker = self.head_sel.center_of_mass_pbc()?;
-        self.mid_marker = self.mid_sel.center_of_mass_pbc()?;
-        self.tail_marker = self.tail_end_sel.center_of_mass_pbc()?;
+        self.head_marker = self.head_sel.center_of_mass()?;
+        self.mid_marker = self.mid_sel.center_of_mass()?;
+        self.tail_marker = self.tail_end_sel.center_of_mass()?;
         Ok(())
     }
 
@@ -162,5 +173,5 @@ impl LipidMolecule {
         to_lab.set_column(1, &self.normal.cross(&to_lab.column(0)));
         to_lab.set_column(2, &-self.normal);
         to_lab
-    }  
+    }
 }

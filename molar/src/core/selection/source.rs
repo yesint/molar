@@ -197,6 +197,10 @@ impl<K: UserCreatableKind> Source<K> {
     pub fn get_state(&self) -> Holder<State, K> {
         unsafe {self.state.new_ref_with_kind()}
     }
+
+    pub unsafe fn get_state_as_kind<KO: UserCreatableKind>(&self) -> Holder<State, KO> {
+        self.state.new_ref_with_kind()
+    }
 }
 
 //=======================

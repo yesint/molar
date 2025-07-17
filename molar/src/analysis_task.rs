@@ -214,6 +214,7 @@ pub trait AnalysisTask<A: clap::Args> {
 
                 // Update frame counter
                 consumed_frames += 1;
+                context.as_mut().unwrap().consumed_frames += 1;
             }
             info!("Finished with '{}'.", trj_file.display());
         } // trajectories

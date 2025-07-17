@@ -8,7 +8,7 @@ use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    f32::consts::{FRAC_PI_2, FRAC_PI_3},
+    f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -539,13 +539,7 @@ impl Membrane {
         let st: Holder<State, ImmutableParallel> = st.into();
         // Go over all lipids and set their states
         for lip in &mut self.lipids {
-            lip.sel.set_state(st.new_ref())?;
-            lip.head_sel.set_state(st.new_ref())?;
-            lip.mid_sel.set_state(st.new_ref())?;
-            lip.tail_end_sel.set_state(st.new_ref())?;
-            for t in &mut lip.tail_sels {
-                t.set_state(st.new_ref())?;
-            }
+            lip.set_state(st.new_ref())?;
         }
         Ok(())
     }

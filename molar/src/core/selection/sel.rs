@@ -133,6 +133,11 @@ impl<K: SelectionKind> Sel<K> {
         }
         Ok(std::mem::replace(&mut self.state, state))
     }
+
+    pub unsafe fn as_other_kind<KO: SelectionKind>(&mut self, mut op: impl FnMut(&mut Sel<KO>)) {
+        let mut sel = std::mem::transmute::<&mut Sel<K>,&mut Sel<KO>>(self);
+        op(&mut sel);
+    }
 }
 
 impl<K: UserCreatableKind> Sel<K> {
@@ -793,6 +798,7 @@ impl Sel<ImmutableParallel> {
             _marker: Default::default(),
         })
     }
+
 }
 
 //══════════════════════════════════════════════
