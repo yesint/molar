@@ -6,6 +6,8 @@ mod selection_def;
 mod source;
 mod utils;
 
+mod sel2;
+
 use std::num::ParseIntError;
 
 pub use holder::*;

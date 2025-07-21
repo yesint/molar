@@ -6,10 +6,10 @@ use sorted_vec::SortedSet;
 //--------------------------------------------------------------
 
 /// Trait for providing both topology I/O operations
-pub trait TopologyIoProvider: RandomAtomProvider + MoleculesProvider + BondsProvider {}
+pub trait TopologyIoProvider: RandomAtomProvider + AtomIterProvider + MoleculesProvider + BondsProvider {}
 
 /// Trait for providing state I/O operations
-pub trait StateIoProvider: RandomPosProvider + BoxProvider + TimeProvider {}
+pub trait StateIoProvider: RandomPosProvider + PosIterProvider + BoxProvider + TimeProvider {}
 
 /// Trait for providing file writing for topology and state data
 pub trait WritableToFile: TopologyIoProvider + StateIoProvider
@@ -110,7 +110,7 @@ pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
 }
 
 /// Trait for providing random access to positions
-pub trait RandomPosProvider: PosIterProvider {
+pub trait RandomPosProvider {
     fn num_pos(&self) -> usize;
 
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
@@ -133,7 +133,7 @@ pub trait RandomPosProvider: PosIterProvider {
 }
 
 /// Trait for providing random access to atoms
-pub trait RandomAtomProvider: AtomIterProvider {
+pub trait RandomAtomProvider {
     fn num_atoms(&self) -> usize;
 
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
@@ -220,7 +220,7 @@ pub trait RandomPosMutProvider: RandomPosProvider + PosIterMutProvider {
 }
 
 /// Trait for providing mutable iteration over atoms
-pub trait AtomsIterMutProvider: AtomIterProvider {
+pub trait AtomIterMutProvider: AtomIterProvider {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
 }
 

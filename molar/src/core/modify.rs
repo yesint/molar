@@ -105,7 +105,7 @@ pub trait ModifyRandomAccess: PosIterMutProvider + PosIterProvider + BoxProvider
 }
 
 /// Trait for modification requiring atoms
-pub trait ModifyAtoms: AtomsIterMutProvider + LenProvider {
+pub trait ModifyAtoms: AtomIterMutProvider + LenProvider {
     fn assign_resindex(&self) {
         let mut resindex = 0usize;
         let mut at_iter = self.iter_atoms_mut();

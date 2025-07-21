@@ -925,7 +925,7 @@ impl<K: SelectionKind> AtomIterProvider for Sel<K> {
     }
 }
 
-impl<K: UserCreatableKind> AtomsIterMutProvider for Sel<K> {
+impl<K: UserCreatableKind> AtomIterMutProvider for Sel<K> {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
             self.index()

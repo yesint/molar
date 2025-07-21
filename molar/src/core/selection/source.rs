@@ -426,7 +426,7 @@ impl<K: MutableKind> RandomPosMutProvider for Source<K> {
     }
 }
 
-impl<K: MutableKind> AtomsIterMutProvider for Source<K> {
+impl<K: MutableKind> AtomIterMutProvider for Source<K> {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         self.topology.iter_atoms_mut()
     }

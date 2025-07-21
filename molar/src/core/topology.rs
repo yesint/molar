@@ -159,7 +159,7 @@ macro_rules! impl_topology_traits {
             }
         }
 
-        impl AtomsIterMutProvider for $t {
+        impl AtomIterMutProvider for $t {
             fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
                 self.get_storage_mut().atoms.iter_mut()
             }
