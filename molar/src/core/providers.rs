@@ -199,7 +199,7 @@ pub trait PosIterMutProvider: PosIterProvider {
 }
 
 /// Trait for providing mutable random access to positions
-pub trait RandomPosMutProvider: RandomPosProvider + PosIterMutProvider {
+pub trait RandomPosMutProvider: RandomPosProvider {
     unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
 
     fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
@@ -261,7 +261,7 @@ pub trait TimeMutProvider {
 }
 
 /// Trait for providing mutable random access to particles
-pub trait RandomParticleMutProvider: RandomPosMutProvider+RandomAtomMutProvider {
+pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvider {
     unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut;
 
     fn first_particle_mut(&self) -> ParticleMut {

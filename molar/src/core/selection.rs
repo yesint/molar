@@ -7,6 +7,7 @@ mod source;
 mod utils;
 
 mod sel2;
+pub use sel2::*;
 
 use std::num::ParseIntError;
 
