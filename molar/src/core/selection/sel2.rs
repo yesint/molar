@@ -1,196 +1,64 @@
-use crate::prelude::*;
+use crate::{core::selection::sel2::private::SelectionBase, prelude::*};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::marker::PhantomData;
 use triomphe::Arc;
 
-// Private module containing private internal methods implemented by
-// all selection types
+// Private module containing internal methods implemented by all selection types
 mod private {
     use crate::core::{SVec, State, Topology};
     use triomphe::Arc;
 
     pub trait SelectionBase {
-        fn get_index(&self) -> &Arc<SVec>;
-        fn get_topology(&self) -> &Arc<Topology>;
-        fn get_state(&self) -> &Arc<State>;
-        fn new_internal(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+        fn index_arc(&self) -> &Arc<SVec>;
+        fn topology_arc(&self) -> &Arc<Topology>;
+        fn state_arc(&self) -> &Arc<State>;
+        fn from_arcs(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
         where
             Self: Sized;
-    }
-}
 
-// Blanket implementations for selections
-
-impl<T: private::SelectionBase> LenProvider for T {
-    fn len(&self) -> usize {
-        self.get_index().len()
-    }
-}
-
-impl<T: private::SelectionBase> IndexProvider for T {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
-        self.get_index().iter().cloned()
-    }
-}
-
-impl<T: private::SelectionBase> ParticleIterProvider for T {
-    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
-        self.iter_index().map(|i| unsafe {
-            Particle {
-                atom: self.get_topology().nth_atom_unchecked(i),
-                pos: self.get_state().nth_pos_unchecked(i),
-                id: i,
-            }
-        })
-    }
-}
-
-impl<T: private::SelectionBase> ParticleIterMutProvider for T {
-    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
-        self.iter_index().map(|i| unsafe {
-            ParticleMut {
-                atom: self.get_topology().nth_atom_mut_unchecked(i),
-                pos: self.get_state().nth_pos_mut_unchecked(i),
-                id: i,
-            }
-        })
-    }
-}
-
-impl<T: private::SelectionBase> RandomParticleProvider for T {
-    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        Particle {
-            atom: self.get_topology().nth_atom_unchecked(i),
-            pos: self.get_state().nth_pos_unchecked(i),
-            id: i,
+        fn view_as<S: SelectionBase>(&self) -> S {
+            S::from_arcs(
+                Arc::clone(self.topology_arc()),
+                Arc::clone(self.state_arc()),
+                Arc::clone(self.index_arc()),
+            )
         }
     }
 }
-
-impl<T: private::SelectionBase> RandomParticleMutProvider for T {
-    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
-        ParticleMut {
-            atom: self.get_topology().nth_atom_mut_unchecked(i),
-            pos: self.get_state().nth_pos_mut_unchecked(i),
-            id: i,
-        }
-    }
-}
-
-impl<T: private::SelectionBase> RandomAtomProvider for T {
-    fn num_atoms(&self) -> usize {
-        self.get_index().len()
-    }
-
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = self.get_index().get_unchecked(i);
-        self.get_topology().nth_atom_unchecked(*ind)
-    }
-}
-
-impl<T: private::SelectionBase> RandomAtomMutProvider for T {
-    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        let ind = self.get_index().get_unchecked(i);
-        self.get_topology().nth_atom_mut_unchecked(*ind)
-    }
-}
-
-impl<T: private::SelectionBase> PosIterProvider for T {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.get_index().iter().map(|i| unsafe {
-            self.get_state().nth_pos_unchecked(*i)
-        })
-    }
-}
-
-impl<T: private::SelectionBase> PosIterMutProvider for T {
-    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
-        self.get_index().iter().map(|i| unsafe {
-            self.get_state().nth_pos_mut_unchecked(*i)
-        })
-    }
-}
-
-impl<T: private::SelectionBase> BoxProvider for T {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_state().get_box()
-    }
-}
-
-impl<T: private::SelectionBase> BoxMutProvider for T {
-    fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        self.get_state().get_box_mut()
-    }
-}
-
-impl<T: private::SelectionBase> AtomIterProvider for T {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.get_index().iter().map(|i| unsafe {
-            self.get_topology().nth_atom_unchecked(*i)
-        })
-    }
-}
-
-impl<T: private::SelectionBase> RandomPosProvider for T {
-    fn num_pos(&self) -> usize {
-        self.get_state().len()
-    }
-
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = self.get_index().get_unchecked(i);
-        self.get_state().nth_pos_unchecked(*ind)
-    }
-}
-
-impl<T: private::SelectionBase> RandomPosMutProvider for T {
-    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-        let ind = self.get_index().get_unchecked(i);
-        self.get_state().nth_pos_mut_unchecked(*ind)
-    }
-}
-
-impl<T: private::SelectionBase> ModifyPos for T {}
-impl<T: private::SelectionBase> ModifyPeriodic for T {}
-impl<T: private::SelectionBase> ModifyRandomAccess for T {}
 
 //----------------------------------------------------------
 
+// Public trait for selections
 pub trait Selection: private::SelectionBase {
-    type SubSel: private::SelectionBase;
+    type DerivedSel: private::SelectionBase;
 
-    fn select(&self, def: impl SelectionDef) -> Result<Self::SubSel, SelectionError>
+    // Sub-selection
+    fn select(&self, def: impl SelectionDef) -> Result<Self::DerivedSel, SelectionError>
     where
         Self: Sized,
     {
         use private::SelectionBase;
 
         let ind = def.into_sel_index(
-            self.get_topology(),
-            self.get_state(),
-            self.get_index().as_slice().into(),
+            self.topology_arc(),
+            self.state_arc(),
+            self.index_arc().as_slice().into(),
         )?;
-        Ok(Self::SubSel::new_internal(
-            Arc::clone(&self.get_topology()),
-            Arc::clone(&self.get_state()),
+        Ok(Self::DerivedSel::from_arcs(
+            Arc::clone(&self.topology_arc()),
+            Arc::clone(&self.state_arc()),
             Arc::new(ind),
         ))
     }
 
-    fn new_view<S: SerialSelection>(&self) -> S {
-        S::new_internal(
-            Arc::clone(self.get_topology()),
-            Arc::clone(self.get_state()),
-            Arc::clone(self.get_index()),
-        )
-    }
-
-    fn split_parallel<F, R>(&self, func: F) -> Result<ParSplit, SelectionError>
+    // Parallel split
+    fn split_par<F, R>(&self, func: F) -> Result<ParSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<R>,
         R: Default + PartialOrd,
         Self: Sized,
     {
-        let selections: Vec<SelPar> = split_iter(self,func).collect();
+        let selections: Vec<SelPar> = split_iter_as(self, func).collect();
 
         if selections.is_empty() {
             return Err(SelectionError::EmptySplit);
@@ -201,15 +69,40 @@ pub trait Selection: private::SelectionBase {
             _phantom: Default::default(),
         })
     }
+
+    // Serial split
+    fn split_iter<RT, F, S, SO>(&self, func: F) -> impl Iterator<Item = Self::DerivedSel>
+    where
+        RT: Default + std::cmp::PartialEq,
+        F: Fn(Particle) -> Option<RT>,
+        Self: Sized,
+        Self::DerivedSel: Selection,
+    {
+        split_iter_as(self, func)
+    }
+
+    fn new_view(&self) -> Self::DerivedSel {
+        Self::DerivedSel::from_arcs(
+            Arc::clone(self.topology_arc()),
+            Arc::clone(self.state_arc()),
+            Arc::clone(self.index_arc()),
+        )
+    }
 }
 
-fn split_iter<RT, F, S, SO>(sel: &S, func: F) -> impl Iterator<Item = SO> + use<'_, RT, F, S, SO>
+// Internal splitting function
+fn split_iter_as<RT, F, S, SO>(sel: &S, func: F) -> impl Iterator<Item = SO> + use<'_, RT, F, S, SO>
 where
     RT: Default + std::cmp::PartialEq,
     F: Fn(Particle) -> Option<RT>,
     S: Selection,
     SO: Selection,
 {
+    // Check validity of index in case if called from Builder selection
+    // It will check bounds internally and panic immediately if not valid
+    // For other selection types ir does nothing
+    let _ = sel.index_arc();
+
     let mut cur_val = RT::default();
     let mut cur = 0usize;
 
@@ -233,10 +126,10 @@ where
                 } else {
                     // The end of current selection
                     cur_val = val; // Update val for the next selection
-                    return Some(SO::new_internal(
-                        Arc::clone(sel.get_topology()),
-                        Arc::clone(sel.get_state()),
-                        Arc::new(unsafe{SVec::from_sorted(index)}),
+                    return Some(SO::from_arcs(
+                        Arc::clone(sel.topology_arc()),
+                        Arc::clone(sel.state_arc()),
+                        Arc::new(unsafe { SVec::from_sorted(index) }),
                     ));
                 }
             }
@@ -246,10 +139,10 @@ where
 
         // Return any remaining index as last selection
         if !index.is_empty() {
-            return Some(SO::new_internal(
-                Arc::clone(sel.get_topology()),
-                Arc::clone(sel.get_state()),
-                Arc::new(unsafe{SVec::from_sorted(index)}),
+            return Some(SO::from_arcs(
+                Arc::clone(sel.topology_arc()),
+                Arc::clone(sel.state_arc()),
+                Arc::new(unsafe { SVec::from_sorted(index) }),
             ));
         }
 
@@ -260,9 +153,12 @@ where
     std::iter::from_fn(next_fn)
 }
 
+// Marker trait for serial selections
 pub trait SerialSelection: private::SelectionBase {}
 //-----------------------------------------
 
+// Primary serial selections
+#[derive(Default)]
 pub struct SelSerial {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -270,34 +166,40 @@ pub struct SelSerial {
     _phantom: PhantomData<*const ()>,
 }
 
-impl private::SelectionBase for SelSerial {
-    fn get_index(&self) -> &Arc<SVec> {
-        &self.index_storage
-    }
+macro_rules! impl_selection_base {
+    ($t:ty) => {
+        impl private::SelectionBase for $t {
+            fn index_arc(&self) -> &Arc<SVec> {
+                &self.index_storage
+            }
 
-    fn get_state(&self) -> &Arc<State> {
-        &self.state
-    }
+            fn state_arc(&self) -> &Arc<State> {
+                &self.state
+            }
 
-    fn get_topology(&self) -> &Arc<Topology> {
-        &self.topology
-    }
+            fn topology_arc(&self) -> &Arc<Topology> {
+                &self.topology
+            }
 
-    fn new_internal(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            topology,
-            state,
-            index_storage: index,
-            _phantom: Default::default(),
+            fn from_arcs(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+            where
+                Self: Sized,
+            {
+                Self {
+                    topology,
+                    state,
+                    index_storage: index,
+                    ..Default::default()
+                }
+            }
         }
-    }
+    };
 }
 
+impl_selection_base!(SelSerial);
+
 impl Selection for SelSerial {
-    type SubSel = Self;
+    type DerivedSel = Self;
 }
 
 impl SerialSelection for SelSerial {}
@@ -316,6 +218,23 @@ impl SelSerial {
 }
 
 //--------------------------------------------
+
+// Secondary serial selections - subselections of SelPar
+#[derive(Default)]
+pub struct SelSerialSecondary {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    index_storage: Arc<SVec>,
+    _phantom: PhantomData<*const ()>,
+}
+
+impl_selection_base!(SelSerialSecondary);
+
+impl Selection for SelSerialSecondary {
+    type DerivedSel = Self;
+}
+
+//--------------------------------------------
 pub struct SelBuilder {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -324,24 +243,24 @@ pub struct SelBuilder {
 }
 
 impl private::SelectionBase for SelBuilder {
-    fn get_index(&self) -> &Arc<SVec> {
-        if self.index_storage.len() > self.topology.len()
-            || self.index_storage.len() > self.state.len()
+    fn index_arc(&self) -> &Arc<SVec> {
+        if self.index_storage.len() > self.topology_arc().len()
+            || self.index_storage.len() > self.state_arc().len()
         {
             panic!("selection index is invalidated",);
         }
         &self.index_storage
     }
 
-    fn get_state(&self) -> &Arc<State> {
+    fn state_arc(&self) -> &Arc<State> {
         &self.state
     }
 
-    fn get_topology(&self) -> &Arc<Topology> {
+    fn topology_arc(&self) -> &Arc<Topology> {
         &self.topology
     }
 
-    fn new_internal(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+    fn from_arcs(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
     where
         Self: Sized,
     {
@@ -355,7 +274,7 @@ impl private::SelectionBase for SelBuilder {
 }
 
 impl Selection for SelBuilder {
-    type SubSel = Self;
+    type DerivedSel = Self;
 }
 
 impl SerialSelection for SelBuilder {}
@@ -467,14 +386,237 @@ impl Builder {
     }
 }
 
-macro_rules! trait_def {
-    ( $tr:tt, $t:ty ) => {
-        impl $tr for $t
-    };
-    ( $tr:tt ) => {
-        impl <T: private::SelectionBase> $tr for T
-    };
+//---------------------------------------------------
+
+#[derive(Default)]
+pub struct SelPar {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    index_storage: Arc<SVec>,
 }
+
+impl_selection_base!(SelPar);
+
+impl Selection for SelPar {
+    type DerivedSel = SelSerialSecondary;
+}
+
+pub struct ParSplit {
+    selections: Vec<SelPar>,
+    _phantom: PhantomData<*const ()>,
+}
+
+impl ParSplit {
+    /// Returns parallel iterator over stored parallel selections.
+    pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, SelPar> {
+        self.selections.par_iter()
+    }
+
+    /// Returns parallel mutable iterator over stored parallel selections.
+    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, SelPar> {
+        self.selections.par_iter_mut()
+    }
+
+    pub fn iter_serial_views<S: SerialSelection>(&self) -> impl Iterator<Item = S> + '_ {
+        self.selections.iter().map(|sel| sel.view_as())
+    }
+}
+
+//========================================================
+//  Blanket trait implementations for Selection
+//========================================================
+
+//══════════════════════════════════════════════
+//███  IO traits
+//══════════════════════════════════════════════
+
+impl<T: Selection> WritableToFile for T {}
+
+impl<T: Selection> IndexProvider for T {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        self.index_arc().iter().cloned()
+    }
+}
+
+impl<T: Selection> TopologyIoProvider for T {}
+
+impl<T: Selection> StateIoProvider for T {}
+
+impl<T: Selection> TimeProvider for T {
+    fn get_time(&self) -> f32 {
+        self.state_arc().get_time()
+    }
+}
+
+//══════════════════════════════════════════════
+//███  Immutable analysis traits
+//══════════════════════════════════════════════
+
+impl<T: Selection> BoxProvider for T {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.state_arc().get_box()
+    }
+}
+
+impl<T: Selection> MeasurePeriodic for T {}
+
+impl<T: Selection> PosIterProvider for T {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        unsafe {
+            self.index_arc()
+                .iter()
+                .map(|i| self.state_arc().nth_pos_unchecked(*i))
+        }
+    }
+}
+
+impl<T: Selection> MeasurePos for T {}
+
+impl<T: Selection> AtomIterProvider for T {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        unsafe {
+            self.iter_index()
+                .map(|i| self.topology_arc().nth_atom_unchecked(i))
+        }
+    }
+}
+
+impl<T: Selection> AtomIterMutProvider for T {
+    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
+        unsafe {
+            self.iter_index()
+                .map(|i| self.topology_arc().nth_atom_mut_unchecked(i))
+        }
+    }
+}
+
+impl<T: Selection> MassIterProvider for T {
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+        unsafe {
+            self.iter_index()
+                .map(|i| self.topology_arc().nth_atom_unchecked(i).mass)
+        }
+    }
+}
+
+impl<T: Selection> MeasureMasses for T {}
+
+impl<T: Selection> LenProvider for T {
+    fn len(&self) -> usize {
+        self.index_arc().len()
+    }
+}
+
+impl<T: Selection> RandomPosProvider for T {
+    fn num_pos(&self) -> usize {
+        self.index_arc().len()
+    }
+
+    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+        let ind = *self.index_arc().get_unchecked(i);
+        self.state_arc().nth_pos_unchecked(ind)
+    }
+}
+
+impl<T: Selection> RandomAtomProvider for T {
+    fn num_atoms(&self) -> usize {
+        self.index_arc().len()
+    }
+
+    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+        let ind = *self.index_arc().get_unchecked(i);
+        self.topology_arc().nth_atom_unchecked(ind)
+    }
+}
+
+impl<T: Selection> RandomAtomMutProvider for T {
+    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+        let ind = *self.index_arc().get_unchecked(i);
+        self.topology_arc().nth_atom_mut_unchecked(ind)
+    }
+}
+
+impl<T: Selection> MeasureRandomAccess for T {}
+
+impl<T: Selection> MoleculesProvider for T {
+    fn num_molecules(&self) -> usize {
+        self.topology_arc().num_molecules()
+    }
+
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.topology_arc().iter_molecules()
+    }
+
+    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.topology_arc().nth_molecule_unchecked(i)
+    }
+}
+
+impl<T: Selection> BondsProvider for T {
+    fn num_bonds(&self) -> usize {
+        self.topology_arc().num_bonds()
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.topology_arc().iter_bonds()
+    }
+
+    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.topology_arc().nth_bond_unchecked(i)
+    }
+}
+
+impl<T: Selection> RandomParticleProvider for T {
+    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
+        let ind = *self.index_arc().get_unchecked(i);
+        Particle {
+            id: ind,
+            atom: self.topology_arc().nth_atom_unchecked(ind),
+            pos: self.state_arc().nth_pos_unchecked(ind),
+        }
+    }
+}
+
+//═══════════════════════════════════════════════════════════
+//███  Mutable analysis traits (only for mutable selections)
+//═══════════════════════════════════════════════════════════
+
+impl<T: Selection> PosIterMutProvider for T {
+    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
+        unsafe {
+            self.iter_index()
+                .map(|i| self.state_arc().nth_pos_mut_unchecked(i))
+        }
+    }
+}
+
+impl<T: Selection> RandomPosMutProvider for T {
+    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+        let ind = *self.index_arc().get_unchecked(i);
+        self.state_arc().nth_pos_mut_unchecked(ind)
+    }
+}
+
+impl<T: Selection> RandomParticleMutProvider for T {
+    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+        let ind = *self.index_arc().get_unchecked(i);
+        ParticleMut {
+            id: ind,
+            atom: self.topology_arc().nth_atom_mut_unchecked(ind),
+            pos: self.state_arc().nth_pos_mut_unchecked(ind),
+        }
+    }
+}
+
+impl<T: Selection> ModifyPos for T {}
+impl<T: Selection> ModifyPeriodic for T {}
+impl<T: Selection> ModifyRandomAccess for T {}
+
+//========================================================
+
+//========================================================
+//  Trait implementation for Builder
+//========================================================
 
 impl LenProvider for Builder {
     fn len(&self) -> usize {
@@ -523,6 +665,12 @@ impl PosIterProvider for Builder {
 impl BoxProvider for Builder {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
+    }
+}
+
+impl BoxMutProvider for Builder {
+    fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
+        self.state.get_box_mut()
     }
 }
 
@@ -595,9 +743,7 @@ impl MassIterProvider for Builder {
 impl MeasureMasses for Builder {}
 impl MeasureRandomAccess for Builder {}
 
-//===============================================================
-// Traits for read-write sources
-//===============================================================
+// Traits for mut access
 
 impl PosIterMutProvider for Builder {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
@@ -647,79 +793,7 @@ impl RandomParticleMutProvider for Builder {
 impl ModifyPos for Builder {}
 impl ModifyPeriodic for Builder {}
 impl ModifyRandomAccess for Builder {}
-
-//===============================================================
-// For Serial kinds also BoxMut and TimeMut is implemnted
-//===============================================================
-impl BoxMutProvider for Builder {
-    fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        self.state.get_box_mut()
-    }
-}
-
-impl TimeMutProvider for Builder {
-    fn set_time(&self, t: f32) {
-        self.state.set_time(t);   
-    }
-}
-
-//---------------------------------------------------
-
-pub struct SelPar {
-    topology: Arc<Topology>,
-    state: Arc<State>,
-    index_storage: Arc<SVec>,
-}
-
-impl private::SelectionBase for SelPar {
-    fn get_index(&self) -> &Arc<SVec> {
-        &self.index_storage
-    }
-
-    fn get_state(&self) -> &Arc<State> {
-        &self.state
-    }
-
-    fn get_topology(&self) -> &Arc<Topology> {
-        &self.topology
-    }
-
-    fn new_internal(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            topology,
-            state,
-            index_storage: index,
-        }
-    }
-}
-
-impl Selection for SelPar {
-    type SubSel = SelSerial;
-}
-
-pub struct ParSplit {
-    selections: Vec<SelPar>,
-    _phantom: PhantomData<*const ()>,
-}
-
-impl ParSplit {
-    /// Returns parallel iterator over stored parallel selections.
-    pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, SelPar> {
-        self.selections.par_iter()
-    }
-
-    /// Returns parallel mutable iterator over stored parallel selections.
-    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, SelPar> {
-        self.selections.par_iter_mut()
-    }
-
-    pub fn iter_serial_views<S: SerialSelection>(&self) -> impl Iterator<Item = S> + '_ {
-        self.selections.iter().map(|sel| sel.new_view())
-    }
-}
+//========================================================
 
 #[allow(unused_imports)]
 mod tests {
@@ -731,7 +805,7 @@ mod tests {
         let (top, st) = FileHandler::open("tests/albumin.pdb")?.read()?;
         let sel = SelSerial::new_all(top, st)?;
 
-        let mut par = sel.split_parallel(|p| {
+        let mut par = sel.split_par(|p| {
             if p.atom.resname != "SOL" {
                 Some(p.atom.resindex)
             } else {
