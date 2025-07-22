@@ -28,6 +28,29 @@ mod private {
 
 //----------------------------------------------------------
 
+// Trait for things that implement analysis traits
+pub trait EnableAnalysis: IndexProvider + LenProvider {
+    // Getting references
+    fn get_topology(&self) -> &Topology;
+    fn get_state(&self) -> &State;
+    // Getting nth index (enough to implement the random access methods)
+    unsafe fn get_nth_index_unchecked(&self, i: usize) -> usize;
+}
+
+impl<T: Selection> EnableAnalysis for T {
+    fn get_topology(&self) -> &Topology {
+        self.topology_arc()
+    }
+
+    fn get_state(&self) -> &State {
+        self.state_arc()
+    }
+
+    unsafe fn get_nth_index_unchecked(&self, i: usize) -> usize {
+        *self.index_arc().get_unchecked(i)
+    }
+}
+
 // Public trait for selections
 pub trait Selection: private::SelectionBase {
     type DerivedSel: private::SelectionBase;
@@ -155,16 +178,8 @@ where
 
 // Marker trait for serial selections
 pub trait SerialSelection: private::SelectionBase {}
-//-----------------------------------------
 
-// Primary serial selections
-#[derive(Default)]
-pub struct SelSerial {
-    topology: Arc<Topology>,
-    state: Arc<State>,
-    index_storage: Arc<SVec>,
-    _phantom: PhantomData<*const ()>,
-}
+//-----------------------------------------
 
 macro_rules! impl_selection_base {
     ($t:ty) => {
@@ -196,11 +211,21 @@ macro_rules! impl_selection_base {
     };
 }
 
-impl_selection_base!(SelSerial);
+//-----------------------------------------
+// Primary serial selections
+#[derive(Default)]
+pub struct SelSerial {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    index_storage: Arc<SVec>,
+    _phantom: PhantomData<*const ()>,
+}
 
 impl Selection for SelSerial {
     type DerivedSel = Self;
 }
+
+impl_selection_base!(SelSerial);
 
 impl SerialSelection for SelSerial {}
 
@@ -228,11 +253,13 @@ pub struct SelSerialSecondary {
     _phantom: PhantomData<*const ()>,
 }
 
-impl_selection_base!(SelSerialSecondary);
-
 impl Selection for SelSerialSecondary {
     type DerivedSel = Self;
 }
+
+impl SerialSelection for SelSerialSecondary {}
+
+impl_selection_base!(SelSerialSecondary);
 
 //--------------------------------------------
 pub struct SelBuilder {
@@ -242,6 +269,7 @@ pub struct SelBuilder {
     _phantom: PhantomData<*const ()>,
 }
 
+// We don't use macro because custom index_arc() is needed
 impl private::SelectionBase for SelBuilder {
     fn index_arc(&self) -> &Arc<SVec> {
         if self.index_storage.len() > self.topology_arc().len()
@@ -284,6 +312,20 @@ pub struct Builder {
     topology: Arc<Topology>,
     state: Arc<State>,
     _phantom: PhantomData<*const ()>,
+}
+
+impl EnableAnalysis for Builder {
+    fn get_topology(&self) -> &Topology {
+        &self.topology
+    }
+
+    fn get_state(&self) -> &State {
+        &self.state
+    }
+
+    unsafe fn get_nth_index_unchecked(&self, i: usize) -> usize {
+        i
+    }
 }
 
 impl Builder {
@@ -395,11 +437,11 @@ pub struct SelPar {
     index_storage: Arc<SVec>,
 }
 
-impl_selection_base!(SelPar);
-
 impl Selection for SelPar {
     type DerivedSel = SelSerialSecondary;
 }
+
+impl_selection_base!(SelPar);
 
 pub struct ParSplit {
     selections: Vec<SelPar>,
@@ -430,21 +472,27 @@ impl ParSplit {
 //███  IO traits
 //══════════════════════════════════════════════
 
-impl<T: Selection> WritableToFile for T {}
-
 impl<T: Selection> IndexProvider for T {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone {
         self.index_arc().iter().cloned()
     }
 }
 
-impl<T: Selection> TopologyIoProvider for T {}
+impl IndexProvider for Builder {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone {
+        0..self.len()
+    }
+}
 
-impl<T: Selection> StateIoProvider for T {}
+impl<T: EnableAnalysis> WritableToFile for T {}
 
-impl<T: Selection> TimeProvider for T {
+impl<T: EnableAnalysis> TopologyIoProvider for T {}
+
+impl<T: EnableAnalysis> StateIoProvider for T {}
+
+impl<T: EnableAnalysis> TimeProvider for T {
     fn get_time(&self) -> f32 {
-        self.state_arc().get_time()
+        self.get_state().get_time()
     }
 }
 
@@ -452,54 +500,53 @@ impl<T: Selection> TimeProvider for T {
 //███  Immutable analysis traits
 //══════════════════════════════════════════════
 
-impl<T: Selection> BoxProvider for T {
+impl<T: EnableAnalysis> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state_arc().get_box()
+        self.get_state().get_box()
     }
 }
 
-impl<T: Selection> MeasurePeriodic for T {}
+impl<T: EnableAnalysis> MeasurePeriodic for T {}
 
-impl<T: Selection> PosIterProvider for T {
+impl<T: EnableAnalysis> PosIterProvider for T {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe {
-            self.index_arc()
-                .iter()
-                .map(|i| self.state_arc().nth_pos_unchecked(*i))
+            self.iter_index()
+                .map(|i| self.get_state().nth_pos_unchecked(i))
         }
     }
 }
 
-impl<T: Selection> MeasurePos for T {}
+impl<T: EnableAnalysis> MeasurePos for T {}
 
-impl<T: Selection> AtomIterProvider for T {
+impl<T: EnableAnalysis> AtomIterProvider for T {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.topology_arc().nth_atom_unchecked(i))
+                .map(|i| self.get_topology().nth_atom_unchecked(i))
         }
     }
 }
 
-impl<T: Selection> AtomIterMutProvider for T {
+impl<T: EnableAnalysis> AtomIterMutProvider for T {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.topology_arc().nth_atom_mut_unchecked(i))
+                .map(|i| self.get_topology().nth_atom_mut_unchecked(i))
         }
     }
 }
 
-impl<T: Selection> MassIterProvider for T {
+impl<T: EnableAnalysis> MassIterProvider for T {
     fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         unsafe {
             self.iter_index()
-                .map(|i| self.topology_arc().nth_atom_unchecked(i).mass)
+                .map(|i| self.get_topology().nth_atom_unchecked(i).mass)
         }
     }
 }
 
-impl<T: Selection> MeasureMasses for T {}
+impl<T: EnableAnalysis> MeasureMasses for T {}
 
 impl<T: Selection> LenProvider for T {
     fn len(&self) -> usize {
@@ -507,72 +554,78 @@ impl<T: Selection> LenProvider for T {
     }
 }
 
-impl<T: Selection> RandomPosProvider for T {
+impl LenProvider for Builder {
+    fn len(&self) -> usize {
+        self.get_state().num_pos()
+    }
+}
+
+impl<T: EnableAnalysis> RandomPosProvider for T {
     fn num_pos(&self) -> usize {
-        self.index_arc().len()
+        self.len()
     }
 
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = *self.index_arc().get_unchecked(i);
-        self.state_arc().nth_pos_unchecked(ind)
+        let ind = self.get_nth_index_unchecked(i);
+        self.get_state().nth_pos_unchecked(ind)
     }
 }
 
-impl<T: Selection> RandomAtomProvider for T {
+impl<T: EnableAnalysis> RandomAtomProvider for T {
     fn num_atoms(&self) -> usize {
-        self.index_arc().len()
+        self.len()
     }
 
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = *self.index_arc().get_unchecked(i);
-        self.topology_arc().nth_atom_unchecked(ind)
+        let ind = self.get_nth_index_unchecked(i);
+        self.get_topology().nth_atom_unchecked(ind)
     }
 }
 
-impl<T: Selection> RandomAtomMutProvider for T {
+impl<T: EnableAnalysis> RandomAtomMutProvider for T {
     unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        let ind = *self.index_arc().get_unchecked(i);
-        self.topology_arc().nth_atom_mut_unchecked(ind)
+        let ind = self.get_nth_index_unchecked(i);
+        self.get_topology().nth_atom_mut_unchecked(ind)
     }
 }
 
-impl<T: Selection> MeasureRandomAccess for T {}
+impl<T: EnableAnalysis> MeasureRandomAccess for T {}
 
-impl<T: Selection> MoleculesProvider for T {
+impl<T: EnableAnalysis> MoleculesProvider for T {
     fn num_molecules(&self) -> usize {
-        self.topology_arc().num_molecules()
+        self.get_topology().num_molecules()
     }
 
     fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.topology_arc().iter_molecules()
+        self.get_topology().iter_molecules()
     }
 
     unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology_arc().nth_molecule_unchecked(i)
+        self.get_topology().nth_molecule_unchecked(i)
     }
 }
 
-impl<T: Selection> BondsProvider for T {
+impl<T: EnableAnalysis> BondsProvider for T {
     fn num_bonds(&self) -> usize {
-        self.topology_arc().num_bonds()
+        self.get_topology().num_bonds()
     }
 
     fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.topology_arc().iter_bonds()
+        self.get_topology().iter_bonds()
     }
 
     unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology_arc().nth_bond_unchecked(i)
+        self.get_topology().nth_bond_unchecked(i)
     }
 }
 
-impl<T: Selection> RandomParticleProvider for T {
+impl<T: EnableAnalysis> RandomParticleProvider for T {
     unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = *self.index_arc().get_unchecked(i);
+        let ind = self.get_nth_index_unchecked(i);
         Particle {
             id: ind,
-            atom: self.topology_arc().nth_atom_unchecked(ind),
-            pos: self.state_arc().nth_pos_unchecked(ind),
+            atom: self.get_topology().nth_atom_unchecked(ind),
+            pos: self.get_state().nth_pos_unchecked(ind),
         }
     }
 }
@@ -581,218 +634,43 @@ impl<T: Selection> RandomParticleProvider for T {
 //███  Mutable analysis traits (only for mutable selections)
 //═══════════════════════════════════════════════════════════
 
-impl<T: Selection> PosIterMutProvider for T {
-    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
-        unsafe {
-            self.iter_index()
-                .map(|i| self.state_arc().nth_pos_mut_unchecked(i))
-        }
-    }
-}
-
-impl<T: Selection> RandomPosMutProvider for T {
-    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-        let ind = *self.index_arc().get_unchecked(i);
-        self.state_arc().nth_pos_mut_unchecked(ind)
-    }
-}
-
-impl<T: Selection> RandomParticleMutProvider for T {
-    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
-        let ind = *self.index_arc().get_unchecked(i);
-        ParticleMut {
-            id: ind,
-            atom: self.topology_arc().nth_atom_mut_unchecked(ind),
-            pos: self.state_arc().nth_pos_mut_unchecked(ind),
-        }
-    }
-}
-
-impl<T: Selection> ModifyPos for T {}
-impl<T: Selection> ModifyPeriodic for T {}
-impl<T: Selection> ModifyRandomAccess for T {}
-
-//========================================================
-
-//========================================================
-//  Trait implementation for Builder
-//========================================================
-
-impl LenProvider for Builder {
-    fn len(&self) -> usize {
-        self.num_atoms()
-    }
-}
-
-impl IndexProvider for Builder {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
-        0..self.topology.num_atoms()
-    }
-}
-
-impl TopologyIoProvider for Builder {}
-
-impl AtomIterProvider for Builder {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.topology.iter_atoms()
-    }
-}
-
-impl RandomAtomProvider for Builder {
-    fn num_atoms(&self) -> usize {
-        self.topology.num_atoms()
-    }
-
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-        self.topology.nth_atom_unchecked(i)
-    }
-}
-
-impl StateIoProvider for Builder {}
-
-impl TimeProvider for Builder {
-    fn get_time(&self) -> f32 {
-        self.state.get_time()
-    }
-}
-
-impl PosIterProvider for Builder {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.state.iter_pos()
-    }
-}
-
-impl BoxProvider for Builder {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
-    }
-}
-
 impl BoxMutProvider for Builder {
     fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        self.state.get_box_mut()
+        self.get_state().get_box_mut()
     }
 }
 
-impl WritableToFile for Builder {}
-
-impl ParticleIterProvider for Builder {
-    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
-        self.iter_index()
-            .map(|i| unsafe { self.nth_particle_unchecked(i) })
-    }
-}
-
-impl RandomParticleProvider for Builder {
-    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        Particle {
-            id: i,
-            atom: unsafe { self.topology.nth_atom_unchecked(i) },
-            pos: unsafe { self.state.nth_pos_unchecked(i) },
-        }
-    }
-}
-
-impl RandomPosProvider for Builder {
-    fn num_pos(&self) -> usize {
-        self.state.num_pos()
-    }
-
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        self.state.nth_pos_unchecked(i)
-    }
-}
-
-impl MoleculesProvider for Builder {
-    fn num_molecules(&self) -> usize {
-        self.topology.num_molecules()
-    }
-
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.topology.iter_molecules()
-    }
-
-    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology.nth_molecule_unchecked(i)
-    }
-}
-
-impl BondsProvider for Builder {
-    fn num_bonds(&self) -> usize {
-        self.topology.num_bonds()
-    }
-
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.topology.iter_bonds()
-    }
-
-    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology.nth_bond_unchecked(i)
-    }
-}
-
-impl MassIterProvider for Builder {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+impl<T: EnableAnalysis> PosIterMutProvider for T {
+    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.topology.nth_atom_unchecked(i).mass)
+                .map(|i| self.get_state().nth_pos_mut_unchecked(i))
         }
     }
 }
 
-impl MeasureMasses for Builder {}
-impl MeasureRandomAccess for Builder {}
-
-// Traits for mut access
-
-impl PosIterMutProvider for Builder {
-    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
-        self.state.iter_pos_mut()
-    }
-}
-
-impl RandomPosMutProvider for Builder {
-    fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        self.state.nth_pos_mut(i)
-    }
-
+impl<T: EnableAnalysis> RandomPosMutProvider for T {
     unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-        self.state.nth_pos_mut_unchecked(i)
+        let ind = self.get_nth_index_unchecked(i);
+        self.get_state().nth_pos_mut_unchecked(ind)
     }
 }
 
-impl AtomIterMutProvider for Builder {
-    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
-        self.topology.iter_atoms_mut()
-    }
-}
-
-impl RandomAtomMutProvider for Builder {
-    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        self.topology.nth_atom_mut_unchecked(i)
-    }
-}
-
-impl ParticleIterMutProvider for Builder {
-    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
-        self.iter_index()
-            .map(|i| unsafe { self.nth_particle_mut_unchecked(i) })
-    }
-}
-
-impl RandomParticleMutProvider for Builder {
+impl<T: EnableAnalysis> RandomParticleMutProvider for T {
     unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+        let ind = self.get_nth_index_unchecked(i);
         ParticleMut {
-            id: i,
-            atom: unsafe { self.topology.nth_atom_mut_unchecked(i) },
-            pos: unsafe { self.state.nth_pos_mut_unchecked(i) },
+            id: ind,
+            atom: self.get_topology().nth_atom_mut_unchecked(ind),
+            pos: self.get_state().nth_pos_mut_unchecked(ind),
         }
     }
 }
 
-impl ModifyPos for Builder {}
-impl ModifyPeriodic for Builder {}
-impl ModifyRandomAccess for Builder {}
+impl<T: EnableAnalysis> ModifyPos for T {}
+impl<T: EnableAnalysis> ModifyPeriodic for T {}
+impl<T: EnableAnalysis> ModifyRandomAccess for T {}
+
 //========================================================
 
 #[allow(unused_imports)]

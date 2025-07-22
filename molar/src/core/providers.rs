@@ -28,17 +28,17 @@ where
 
 /// Trait for providing iteration over selected indices
 pub trait IndexProvider {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize>;
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone;
 }
 
 impl IndexProvider for SortedSet<usize> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
         self.iter().cloned()
     }
 }
 
 impl IndexProvider for Vec<usize> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
         self.iter().cloned()
     }
 }

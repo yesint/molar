@@ -294,7 +294,7 @@ impl<K: SelectionKind> LenProvider for Source<K> {
 }
 
 impl<K: SelectionKind> IndexProvider for Source<K> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
         0..self.topology.num_atoms()
     }
 }

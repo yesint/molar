@@ -876,7 +876,7 @@ impl<K: MutableKind> ParticleIterMutProvider for Sel<K> {
 impl<K: SelectionKind> WritableToFile for Sel<K> {}
 
 impl<K: SelectionKind> IndexProvider for Sel<K> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
         self.index().iter().cloned()
     }
 }
