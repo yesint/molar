@@ -1,4 +1,4 @@
-use crate::{core::selection::sel2::private::SelectionBase, prelude::*};
+use crate::{core::selection::sel2::private::SelectionPrivate, prelude::*};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::marker::PhantomData;
 use triomphe::Arc;
@@ -8,7 +8,7 @@ mod private {
     use crate::core::{SVec, State, Topology};
     use triomphe::Arc;
 
-    pub trait SelectionBase {
+    pub trait SelectionPrivate {
         fn index_arc(&self) -> &Arc<SVec>;
         fn topology_arc(&self) -> &Arc<Topology>;
         fn state_arc(&self) -> &Arc<State>;
@@ -16,7 +16,7 @@ mod private {
         where
             Self: Sized;
 
-        fn view_as<S: SelectionBase>(&self) -> S {
+        fn view_as<S: SelectionPrivate>(&self) -> S {
             S::from_arcs(
                 Arc::clone(self.topology_arc()),
                 Arc::clone(self.state_arc()),
@@ -28,16 +28,16 @@ mod private {
 
 //----------------------------------------------------------
 
-// Trait for things that implement analysis traits
-pub trait EnableAnalysis: IndexIterProvider + LenProvider {
+// Things that are "system like" - hold references to topology and state
+// and could index into them
+pub trait SystemLike: IndexProvider + LenProvider {
     // Getting references
     fn get_topology(&self) -> &Topology;
     fn get_state(&self) -> &State;
-    // Getting nth index (enough to implement the random access methods)
-    unsafe fn get_nth_index_unchecked(&self, i: usize) -> usize;
 }
 
-impl<T: Selection> EnableAnalysis for T {
+// Selections are system-like
+impl<T: Selection> SystemLike for T {
     fn get_topology(&self) -> &Topology {
         self.topology_arc()
     }
@@ -45,22 +45,18 @@ impl<T: Selection> EnableAnalysis for T {
     fn get_state(&self) -> &State {
         self.state_arc()
     }
-
-    unsafe fn get_nth_index_unchecked(&self, i: usize) -> usize {
-        *self.index_arc().get_unchecked(i)
-    }
 }
 
 // Public trait for selections
-pub trait Selection: private::SelectionBase {
-    type DerivedSel: private::SelectionBase;
+pub trait Selection: private::SelectionPrivate {
+    type DerivedSel: private::SelectionPrivate;
 
     // Sub-selection
     fn select(&self, def: impl SelectionDef) -> Result<Self::DerivedSel, SelectionError>
     where
         Self: Sized,
     {
-        use private::SelectionBase;
+        use private::SelectionPrivate;
 
         let ind = def.into_sel_index(
             self.topology_arc(),
@@ -133,7 +129,7 @@ where
         let mut index = Vec::<usize>::new();
 
         while cur < sel.len() {
-            let p = unsafe { sel.nth_particle_unchecked(cur) };
+            let p = unsafe { sel.get_particle_unchecked(cur) };
             let id = p.id;
             let val = func(p);
 
@@ -177,13 +173,18 @@ where
 }
 
 // Marker trait for serial selections
-pub trait SerialSelection: private::SelectionBase {}
+pub trait SerialSelection: private::SelectionPrivate {}
 
 //-----------------------------------------
 
-macro_rules! impl_selection_base {
-    ($t:ty) => {
-        impl private::SelectionBase for $t {
+macro_rules! impl_selection {
+    ($t:ty, $d:ty) => {
+
+        impl Selection for $t {
+            type DerivedSel = $d;
+        }
+
+        impl private::SelectionPrivate for $t {
             fn index_arc(&self) -> &Arc<SVec> {
                 &self.index_storage
             }
@@ -221,11 +222,7 @@ pub struct SelSerial {
     _phantom: PhantomData<*const ()>,
 }
 
-impl Selection for SelSerial {
-    type DerivedSel = Self;
-}
-
-impl_selection_base!(SelSerial);
+impl_selection!(SelSerial, SelSerial);
 
 impl SerialSelection for SelSerial {}
 
@@ -244,24 +241,6 @@ impl SelSerial {
 
 //--------------------------------------------
 
-// Secondary serial selections - subselections of SelPar
-#[derive(Default)]
-pub struct SelSerialSecondary {
-    topology: Arc<Topology>,
-    state: Arc<State>,
-    index_storage: Arc<SVec>,
-    _phantom: PhantomData<*const ()>,
-}
-
-impl Selection for SelSerialSecondary {
-    type DerivedSel = Self;
-}
-
-impl SerialSelection for SelSerialSecondary {}
-
-impl_selection_base!(SelSerialSecondary);
-
-//--------------------------------------------
 pub struct SelBuilder {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -270,7 +249,7 @@ pub struct SelBuilder {
 }
 
 // We don't use macro because custom index_arc() is needed
-impl private::SelectionBase for SelBuilder {
+impl private::SelectionPrivate for SelBuilder {
     fn index_arc(&self) -> &Arc<SVec> {
         if self.index_storage.len() > self.topology_arc().len()
             || self.index_storage.len() > self.state_arc().len()
@@ -314,17 +293,13 @@ pub struct Builder {
     _phantom: PhantomData<*const ()>,
 }
 
-impl EnableAnalysis for Builder {
+impl SystemLike for Builder {
     fn get_topology(&self) -> &Topology {
         &self.topology
     }
 
     fn get_state(&self) -> &State {
         &self.state
-    }
-
-    unsafe fn get_nth_index_unchecked(&self, i: usize) -> usize {
-        i
     }
 }
 
@@ -382,7 +357,7 @@ impl Builder {
         self.select(first_added_index..last_added_index).unwrap()
     }
 
-    pub fn remove(&self, to_remove: &impl IndexIterProvider) -> Result<(), SelectionError> {
+    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
         self.topology
             .get_storage_mut()
             .remove_atoms(to_remove.iter_index())?;
@@ -437,11 +412,7 @@ pub struct SelPar {
     index_storage: Arc<SVec>,
 }
 
-impl Selection for SelPar {
-    type DerivedSel = SelSerialSecondary;
-}
-
-impl_selection_base!(SelPar);
+impl_selection!(SelPar, SelSerial);
 
 pub struct ParSplit {
     selections: Vec<SelPar>,
@@ -472,25 +443,33 @@ impl ParSplit {
 //███  IO traits
 //══════════════════════════════════════════════
 
-impl<T: Selection> IndexIterProvider for T {
+impl<T: Selection> IndexProvider for T {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.index_arc().iter().cloned()
     }
-}
 
-impl IndexIterProvider for Builder {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
-        0..self.len()
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        *self.index_arc().get_unchecked(i)
     }
 }
 
-impl<T: EnableAnalysis> WritableToFile for T {}
+impl IndexProvider for Builder {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+        0..self.len()
+    }
 
-impl<T: EnableAnalysis> TopologyIoProvider for T {}
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
+    }
+}
 
-impl<T: EnableAnalysis> StateIoProvider for T {}
+impl<T: SystemLike> WritableToFile for T {}
 
-impl<T: EnableAnalysis> TimeProvider for T {
+impl<T: SystemLike> TopologyIoProvider for T {}
+
+impl<T: SystemLike> StateIoProvider for T {}
+
+impl<T: SystemLike> TimeProvider for T {
     fn get_time(&self) -> f32 {
         self.get_state().get_time()
     }
@@ -500,53 +479,53 @@ impl<T: EnableAnalysis> TimeProvider for T {
 //███  Immutable analysis traits
 //══════════════════════════════════════════════
 
-impl<T: EnableAnalysis> BoxProvider for T {
+impl<T: SystemLike> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.get_state().get_box()
     }
 }
 
-impl<T: EnableAnalysis> MeasurePeriodic for T {}
+impl<T: SystemLike> MeasurePeriodic for T {}
 
-impl<T: EnableAnalysis> PosIterProvider for T {
+impl<T: SystemLike> PosIterProvider for T {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.get_state().nth_pos_unchecked(i))
+                .map(|i| self.get_state().get_pos_unchecked(i))
         }
     }
 }
 
-impl<T: EnableAnalysis> MeasurePos for T {}
+impl<T: SystemLike> MeasurePos for T {}
 
-impl<T: EnableAnalysis> AtomIterProvider for T {
+impl<T: SystemLike> AtomIterProvider for T {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.get_topology().nth_atom_unchecked(i))
+                .map(|i| self.get_topology().get_atom_unchecked(i))
         }
     }
 }
 
-impl<T: EnableAnalysis> AtomIterMutProvider for T {
+impl<T: SystemLike> AtomIterMutProvider for T {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.get_topology().nth_atom_mut_unchecked(i))
+                .map(|i| self.get_topology().get_atom_mut_unchecked(i))
         }
     }
 }
 
-impl<T: EnableAnalysis> MassIterProvider for T {
+impl<T: SystemLike> MassIterProvider for T {
     fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
             self.iter_index()
-                .map(|i| self.get_topology().nth_atom_unchecked(i).mass)
+                .map(|i| self.get_topology().get_atom_unchecked(i).mass)
         }
     }
 }
 
-impl<T: EnableAnalysis> MeasureMasses for T {}
+impl<T: SystemLike> MeasureMasses for T {}
 
 impl<T: Selection> LenProvider for T {
     fn len(&self) -> usize {
@@ -560,30 +539,30 @@ impl LenProvider for Builder {
     }
 }
 
-impl<T: EnableAnalysis> RandomPosProvider for T {
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = self.get_nth_index_unchecked(i);
-        self.get_state().nth_pos_unchecked(ind)
+impl<T: SystemLike> RandomPosProvider for T {
+    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+        let ind = self.get_index_unchecked(i);
+        self.get_state().get_pos_unchecked(ind)
     }
 }
 
-impl<T: EnableAnalysis> RandomAtomProvider for T {
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = self.get_nth_index_unchecked(i);
-        self.get_topology().nth_atom_unchecked(ind)
+impl<T: SystemLike> RandomAtomProvider for T {
+    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+        let ind = self.get_index_unchecked(i);
+        self.get_topology().get_atom_unchecked(ind)
     }
 }
 
-impl<T: EnableAnalysis> RandomAtomMutProvider for T {
-    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        let ind = self.get_nth_index_unchecked(i);
-        self.get_topology().nth_atom_mut_unchecked(ind)
+impl<T: SystemLike> RandomAtomMutProvider for T {
+    unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+        let ind = self.get_index_unchecked(i);
+        self.get_topology().get_atom_mut_unchecked(ind)
     }
 }
 
-impl<T: EnableAnalysis> MeasureRandomAccess for T {}
+impl<T: SystemLike> MeasureRandomAccess for T {}
 
-impl<T: EnableAnalysis> MoleculesProvider for T {
+impl<T: SystemLike> MoleculesProvider for T {
     fn num_molecules(&self) -> usize {
         self.get_topology().num_molecules()
     }
@@ -592,12 +571,12 @@ impl<T: EnableAnalysis> MoleculesProvider for T {
         self.get_topology().iter_molecules()
     }
 
-    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.get_topology().nth_molecule_unchecked(i)
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.get_topology().get_molecule_unchecked(i)
     }
 }
 
-impl<T: EnableAnalysis> BondsProvider for T {
+impl<T: SystemLike> BondsProvider for T {
     fn num_bonds(&self) -> usize {
         self.get_topology().num_bonds()
     }
@@ -606,18 +585,18 @@ impl<T: EnableAnalysis> BondsProvider for T {
         self.get_topology().iter_bonds()
     }
 
-    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.get_topology().nth_bond_unchecked(i)
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.get_topology().get_bond_unchecked(i)
     }
 }
 
-impl<T: EnableAnalysis> RandomParticleProvider for T {
-    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = self.get_nth_index_unchecked(i);
+impl<T: SystemLike> RandomParticleProvider for T {
+    unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_> {
+        let ind = self.get_index_unchecked(i);
         Particle {
             id: ind,
-            atom: self.get_topology().nth_atom_unchecked(ind),
-            pos: self.get_state().nth_pos_unchecked(ind),
+            atom: self.get_topology().get_atom_unchecked(ind),
+            pos: self.get_state().get_pos_unchecked(ind),
         }
     }
 }
@@ -632,36 +611,36 @@ impl BoxMutProvider for Builder {
     }
 }
 
-impl<T: EnableAnalysis> PosIterMutProvider for T {
+impl<T: SystemLike> PosIterMutProvider for T {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.iter_index()
-                .map(|i| self.get_state().nth_pos_mut_unchecked(i))
+                .map(|i| self.get_state().get_pos_mut_unchecked(i))
         }
     }
 }
 
-impl<T: EnableAnalysis> RandomPosMutProvider for T {
-    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-        let ind = self.get_nth_index_unchecked(i);
-        self.get_state().nth_pos_mut_unchecked(ind)
+impl<T: SystemLike> RandomPosMutProvider for T {
+    unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+        let ind = self.get_index_unchecked(i);
+        self.get_state().get_pos_mut_unchecked(ind)
     }
 }
 
-impl<T: EnableAnalysis> RandomParticleMutProvider for T {
-    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
-        let ind = self.get_nth_index_unchecked(i);
+impl<T: SystemLike> RandomParticleMutProvider for T {
+    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+        let ind = self.get_index_unchecked(i);
         ParticleMut {
             id: ind,
-            atom: self.get_topology().nth_atom_mut_unchecked(ind),
-            pos: self.get_state().nth_pos_mut_unchecked(ind),
+            atom: self.get_topology().get_atom_mut_unchecked(ind),
+            pos: self.get_state().get_pos_mut_unchecked(ind),
         }
     }
 }
 
-impl<T: EnableAnalysis> ModifyPos for T {}
-impl<T: EnableAnalysis> ModifyPeriodic for T {}
-impl<T: EnableAnalysis> ModifyRandomAccess for T {}
+impl<T: SystemLike> ModifyPos for T {}
+impl<T: SystemLike> ModifyPeriodic for T {}
+impl<T: SystemLike> ModifyRandomAccess for T {}
 
 //========================================================
 

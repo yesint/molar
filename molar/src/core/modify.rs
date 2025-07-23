@@ -81,12 +81,12 @@ pub trait ModifyRandomAccess: PosIterMutProvider + PosIterProvider + BoxProvider
         // Loop while stack is not empty
         while let Some(c) = todo.pop() {
             // Central point
-            let p0 = unsafe { self.nth_pos_unchecked(c) }.to_owned();
+            let p0 = unsafe { self.get_pos_unchecked(c) }.to_owned();
             // Iterate over connected points
             for ind in &conn[c] {
                 // Unwrap this point if it is not used yet
                 if !used[*ind] {
-                    let p = unsafe { self.nth_pos_mut_unchecked(*ind) };
+                    let p = unsafe { self.get_pos_mut_unchecked(*ind) };
                     *p = b.closest_image_dims(p, &p0, dims);
                     // Add it to the stack
                     todo.push(*ind);

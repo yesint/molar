@@ -424,7 +424,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
             // Iterate over atoms
             for at in 1..self.len() - 1 {
                 // Vector from at+1 to at-1
-                let v = unsafe { self.nth_pos_unchecked(at + 1) - self.nth_pos_unchecked(at - 1) };
+                let v = unsafe { self.get_pos_unchecked(at + 1) - self.get_pos_unchecked(at - 1) };
                 // Normal
                 let normal = if normals.len() == 1 {
                     &normals[0]
@@ -452,9 +452,9 @@ pub trait MeasureRandomAccess: RandomPosProvider {
                          * C(i+2)[3]
                          */
 
-                        let p1 = unsafe { self.nth_pos_unchecked(i) };
-                        let p2 = unsafe { self.nth_pos_unchecked(i + 1) };
-                        let p3 = unsafe { self.nth_pos_unchecked(i + 2) };
+                        let p1 = unsafe { self.get_pos_unchecked(i) };
+                        let p2 = unsafe { self.get_pos_unchecked(i + 1) };
+                        let p3 = unsafe { self.get_pos_unchecked(i + 2) };
 
                         let local_z = (p3 - p1).normalize();
                         let local_x = ((p1 - p2).cross(&(p3 - p2))).normalize();
@@ -499,10 +499,10 @@ pub trait MeasureRandomAccess: RandomPosProvider {
                     let c3 = i + 1;
                     let c4 = i + 2;
 
-                    let p1 = unsafe { self.nth_pos_unchecked(c1) };
-                    let p2 = unsafe { self.nth_pos_unchecked(c2) };
-                    let p3 = unsafe { self.nth_pos_unchecked(c3) };
-                    let p4 = unsafe { self.nth_pos_unchecked(c4) };
+                    let p1 = unsafe { self.get_pos_unchecked(c1) };
+                    let p2 = unsafe { self.get_pos_unchecked(c2) };
+                    let p3 = unsafe { self.get_pos_unchecked(c3) };
+                    let p4 = unsafe { self.get_pos_unchecked(c4) };
 
                     let a1 = 0.5 * (PI - (p1 - p2).angle(&(p3 - p2)));
                     let a2 = 0.5 * (PI - (p2 - p3).angle(&(p4 - p3)));

@@ -110,28 +110,28 @@ impl Topology {
     }
 
     // #[inline(always)]
-    // pub unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+    // pub unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
     //     self.get_storage().atoms.get_unchecked(i)
     // }
 
     // #[inline(always)]
-    // pub unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+    // pub unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
     //     self.get_storage_mut().atoms.get_unchecked_mut(i)
     // }
 
     // #[inline(always)]
-    // pub fn nth_atom(&self, i: usize) -> Option<&Atom> {
+    // pub fn get_atom(&self, i: usize) -> Option<&Atom> {
     //     self.get_storage().atoms.get(i)
     // }
 
     // #[inline(always)]
-    // pub fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+    // pub fn get_atom_mut(&self, i: usize) -> Option<&mut Atom> {
     //     self.get_storage_mut().atoms.get_mut(i)
     // }
 
     pub fn assign_resindex(&self) {
         let mut resindex = 0usize;
-        let mut cur_resid = unsafe { self.nth_atom_unchecked(0) }.resid;
+        let mut cur_resid = unsafe { self.get_atom_unchecked(0) }.resid;
         for at in self.iter_atoms_mut() {
             if at.resid != cur_resid {
                 cur_resid = at.resid;
@@ -178,17 +178,17 @@ macro_rules! impl_topology_traits {
         }
 
         impl RandomAtomProvider for $t {
-            unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+            unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
                 self.get_storage().atoms.get_unchecked(i)
             }
         }
 
         impl RandomAtomMutProvider for $t {
-            fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+            fn get_atom_mut(&self, i: usize) -> Option<&mut Atom> {
                 self.get_storage_mut().atoms.get_mut(i)
             }
 
-            unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+            unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
                 self.get_storage_mut().atoms.get_unchecked_mut(i)
             }
         }
@@ -198,7 +198,7 @@ macro_rules! impl_topology_traits {
                 self.get_storage().bonds.len()
             }
 
-            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize;2] {
+            unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize;2] {
                 self.get_storage().bonds.get_unchecked(i)
             }
 
@@ -212,7 +212,7 @@ macro_rules! impl_topology_traits {
                 self.get_storage().molecules.len()
             }
             
-            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+            unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize;2] {
                 self.get_storage().molecules.get_unchecked(i)
             }
 

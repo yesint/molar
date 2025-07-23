@@ -725,8 +725,8 @@ macro_rules! impl_io_traits_for_tuples {
         impl TopologyIoProvider for ($t, $s) {}
 
         impl RandomAtomProvider for ($t, $s) {
-            unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-                self.0.nth_atom_unchecked(i)
+            unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+                self.0.get_atom_unchecked(i)
             }
         }
 
@@ -745,8 +745,8 @@ macro_rules! impl_io_traits_for_tuples {
                 self.0.iter_molecules()
             }
 
-            unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-                self.0.nth_molecule_unchecked(i)
+            unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+                self.0.get_molecule_unchecked(i)
             }
         }
 
@@ -759,8 +759,8 @@ macro_rules! impl_io_traits_for_tuples {
                 self.0.iter_bonds()
             }
 
-            unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-                self.0.nth_bond_unchecked(i)
+            unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+                self.0.get_bond_unchecked(i)
             }
         }
 
@@ -785,8 +785,8 @@ macro_rules! impl_io_traits_for_tuples {
         }
 
         impl RandomPosProvider for ($t, $s) {
-            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-                self.1.nth_pos_unchecked(i)
+            unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+                self.1.get_pos_unchecked(i)
             }
         }
     };

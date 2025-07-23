@@ -99,7 +99,7 @@ where
 {
     let mut index = Vec::<usize>::new();
     while data.cur < sel.len() {
-        let p = unsafe { sel.nth_particle_unchecked(data.cur) };
+        let p = unsafe { sel.get_particle_unchecked(data.cur) };
         let i = p.id;
         let val = (data.func)(p);
 
@@ -165,7 +165,7 @@ impl<'a,S: SelectionKind> Iterator for MoleculesIterator<'a,S> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur < self.sel.num_molecules() {            
-            let [i,j] = unsafe{self.sel.nth_molecule_unchecked(self.cur).to_owned()};
+            let [i,j] = unsafe{self.sel.get_molecule_unchecked(self.cur).to_owned()};
             self.cur +=1;
             // Check if molecule is within selection at least partially
             let b = self.sel.first_index();

@@ -418,7 +418,7 @@ impl Membrane {
                 // the very first iteration is used to only get the 1-st nearest neibours
                 self.smooth();
                 // Now compute n-th neighbors and set them as patch
-                self.patches_from_nth_shell(self.options.n_shells_patch);
+                self.patches_from_get_shell(self.options.n_shells_patch);
             }
             self.smooth();
             iter += 1;
@@ -571,7 +571,7 @@ impl Membrane {
 
     // Given pre-computed neib_ids compute n-th neighbour shell
     // and set it as patches
-    fn patches_from_nth_shell(&mut self, n_neib: usize) {
+    fn patches_from_get_shell(&mut self, n_neib: usize) {
         if n_neib < 1 {
             return;
         }

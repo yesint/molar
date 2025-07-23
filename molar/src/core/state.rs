@@ -155,7 +155,7 @@ macro_rules! impl_state_traits {
         }
 
         impl RandomPosProvider for $t {
-            unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+            unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
                 self.get_storage().coords.get_unchecked(i)
             }
         }
@@ -173,11 +173,11 @@ macro_rules! impl_state_traits {
         }
 
         impl RandomPosMutProvider for $t {
-            fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+            fn get_pos_mut(&self, i: usize) -> Option<&mut Pos> {
                 self.get_storage_mut().coords.get_mut(i)
             }
 
-            unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+            unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
                 self.get_storage_mut().coords.get_unchecked_mut(i)
             }
         }

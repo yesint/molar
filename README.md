@@ -146,9 +146,9 @@ for mol in water.split_resindex_into_iter() {
     // TIP3 is arranged as O->H->H
     // so atom 0 is O, atoms 1 and 2 are H
     // Get cooridnates
-    let o_pos = mol.nth_pos(0).unwrap();
-    let h1_pos = mol.nth_pos(1).unwrap();
-    let h2_pos = mol.nth_pos(2).unwrap();
+    let o_pos = mol.get_pos(0).unwrap();
+    let h1_pos = mol.get_pos(1).unwrap();
+    let h2_pos = mol.get_pos(2).unwrap();
     // Get center of masses of H
     let hc = 0.5*(h1_pos.coords + h2_pos.coords);
     // Unit vector from o to hc
@@ -165,7 +165,7 @@ for mol in water.split_resindex_into_iter() {
 }
 ```
 
-First, we are getting the coordinates of oxigen and two hydrogens. `nth_pos(n)` returns the position of n-th atom in selection. Since n may potentially be out of range, it returns an `Option<&Pos>`. We are sure that there are just 3 atoms in water molecule, so we just unwrapping an option.
+First, we are getting the coordinates of oxigen and two hydrogens. `get_pos(n)` returns the position of n-th atom in selection. Since n may potentially be out of range, it returns an `Option<&Pos>`. We are sure that there are just 3 atoms in water molecule, so we just unwrapping an option.
 
 Then we are computing the position of the dummy atom, which is on the bissection of H-O-H angle at the distance of 0.01546 from the oxygen.
 
@@ -258,9 +258,9 @@ fn main() -> Result<()> {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
-        let o_pos = mol.nth_pos(0).unwrap();
-        let h1_pos = mol.nth_pos(1).unwrap();
-        let h2_pos = mol.nth_pos(2).unwrap();
+        let o_pos = mol.get_pos(0).unwrap();
+        let h1_pos = mol.get_pos(1).unwrap();
+        let h2_pos = mol.get_pos(2).unwrap();
 	    // Get center of masses of H
 	    let hc = 0.5*(h1_pos.coords + h2_pos.coords);
 	    // Unit vector from o to hc

@@ -454,7 +454,7 @@ impl Sel {
         };
 
         // Call Rust function
-        let p = s.get().nth_particle_mut(ind).unwrap();
+        let p = s.get().get_particle_mut(ind).unwrap();
         Ok(Particle {
             atom: unsafe { &mut *(p.atom as *mut molar::core::Atom) },
             pos: map_pyarray_to_pos(slf.py(), p.pos, &slf),
@@ -487,7 +487,7 @@ impl Sel {
             let arr = numpy::PyArray2::<f32>::new(py,[3,self.get().len()],true);
             let arr_ptr = arr.data();
             for i in 0..self.get().len() {
-                let pos_ptr = self.get().nth_pos_unchecked(i).coords.as_ptr();
+                let pos_ptr = self.get().get_pos_unchecked(i).coords.as_ptr();
                 // This is faster than copying by element with uget_raw()
                 std::ptr::copy_nonoverlapping(pos_ptr,arr_ptr.offset(i as isize * 3), 3);
             }
@@ -508,7 +508,7 @@ impl Sel {
 
         unsafe {
             for i in 0..self.__len__() {
-                let pos_ptr = self.get().nth_pos_mut_unchecked(i).coords.as_mut_ptr();
+                let pos_ptr = self.get().get_pos_mut_unchecked(i).coords.as_mut_ptr();
                 std::ptr::copy_nonoverlapping(ptr.offset(i as isize * 3), pos_ptr, 3);
             }
         }
@@ -879,8 +879,8 @@ fn distance_search<'py>(
             
             // Convert local indices to global
             for el in &mut res {
-                el.0 = sel1.get().nth_index(el.0).unwrap();
-                el.1 = sel2.get().nth_index(el.1).unwrap();
+                el.0 = sel1.get().get_index(el.0).unwrap();
+                el.1 = sel2.get().get_index(el.1).unwrap();
             }
         } else {
             bail!("VdW distance search is not yet supported for single selection");

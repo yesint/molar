@@ -232,7 +232,7 @@ impl Source<BuilderSerial> {
         self.select(first_added_index..last_added_index).unwrap()
     }
 
-    pub fn remove(&self, to_remove: &impl IndexIterProvider) -> Result<(), SelectionError> {
+    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
         // We are checking index validity inside remove methods
         self.topology
             .get_storage_mut()
@@ -293,9 +293,13 @@ impl<K: SelectionKind> LenProvider for Source<K> {
     }
 }
 
-impl<K: SelectionKind> IndexIterProvider for Source<K> {
+impl<K: SelectionKind> IndexProvider for Source<K> {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
         0..self.topology.len()
+    }
+
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
     }
 }
 
@@ -308,8 +312,8 @@ impl<K: SelectionKind> AtomIterProvider for Source<K> {
 }
 
 impl<K: SelectionKind> RandomAtomProvider for Source<K> {
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
-        self.topology.nth_atom_unchecked(i)
+    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+        self.topology.get_atom_unchecked(i)
     }
 }
 
@@ -338,23 +342,23 @@ impl<K: SelectionKind> WritableToFile for Source<K> {}
 impl<K: SelectionKind> ParticleIterProvider for Source<K> {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
         self.iter_index()
-            .map(|i| unsafe { self.nth_particle_unchecked(i) })
+            .map(|i| unsafe { self.get_particle_unchecked(i) })
     }
 }
 
 impl<K: SelectionKind> RandomParticleProvider for Source<K> {
-    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_> {
+    unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_> {
         Particle {
             id: i,
-            atom: unsafe { self.topology.nth_atom_unchecked(i) },
-            pos: unsafe { self.state.nth_pos_unchecked(i) },
+            atom: unsafe { self.topology.get_atom_unchecked(i) },
+            pos: unsafe { self.state.get_pos_unchecked(i) },
         }
     }
 }
 
 impl<K: SelectionKind> RandomPosProvider for Source<K> {
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
-        self.state.nth_pos_unchecked(i)
+    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+        self.state.get_pos_unchecked(i)
     }
 }
 
@@ -367,8 +371,8 @@ impl<K: SelectionKind> MoleculesProvider for Source<K> {
         self.topology.iter_molecules()
     }
 
-    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology.nth_molecule_unchecked(i)
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.topology.get_molecule_unchecked(i)
     }
 }
 
@@ -381,8 +385,8 @@ impl<K: SelectionKind> BondsProvider for Source<K> {
         self.topology.iter_bonds()
     }
 
-    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology.nth_bond_unchecked(i)
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.topology.get_bond_unchecked(i)
     }
 }
 
@@ -390,7 +394,7 @@ impl<K: SelectionKind> MassIterProvider for Source<K> {
     fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
             self.iter_index()
-                .map(|i| self.topology.nth_atom_unchecked(i).mass)
+                .map(|i| self.topology.get_atom_unchecked(i).mass)
         }
     }
 }
@@ -409,12 +413,12 @@ impl<K: MutableKind> PosIterMutProvider for Source<K> {
 }
 
 impl<K: MutableKind> RandomPosMutProvider for Source<K> {
-    fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        self.state.nth_pos_mut(i)
+    fn get_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+        self.state.get_pos_mut(i)
     }
 
-    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-        self.state.nth_pos_mut_unchecked(i)
+    unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+        self.state.get_pos_mut_unchecked(i)
     }
 }
 
@@ -425,24 +429,24 @@ impl<K: MutableKind> AtomIterMutProvider for Source<K> {
 }
 
 impl<K: MutableKind> RandomAtomMutProvider for Source<K> {
-    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        self.topology.nth_atom_mut_unchecked(i)
+    unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+        self.topology.get_atom_mut_unchecked(i)
     }
 }
 
 impl<K: MutableKind> ParticleIterMutProvider for Source<K> {
     fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>> {
         self.iter_index()
-            .map(|i| unsafe { self.nth_particle_mut_unchecked(i) })
+            .map(|i| unsafe { self.get_particle_mut_unchecked(i) })
     }
 }
 
 impl<K: MutableKind> RandomParticleMutProvider for Source<K> {
-    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
         ParticleMut {
             id: i,
-            atom: unsafe { self.topology.nth_atom_mut_unchecked(i) },
-            pos: unsafe { self.state.nth_pos_mut_unchecked(i) },
+            atom: unsafe { self.topology.get_atom_mut_unchecked(i) },
+            pos: unsafe { self.state.get_pos_mut_unchecked(i) },
         }
     }
 }

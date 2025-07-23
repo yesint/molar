@@ -131,7 +131,7 @@ peg::parser! {
             VectorNode::Cog(v.into(),pbc)
         }
 
-        //rule nth_of() -> Pos
+        //rule get_of() -> Pos
         //= logical_expr()
 
         // Distance

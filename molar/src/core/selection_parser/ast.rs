@@ -241,8 +241,8 @@ impl ActiveSubset<'_> {
         self.subset.iter().cloned().map(|i| unsafe {
             Particle {
                 id: i,
-                atom: self.topology.nth_atom_unchecked(i),
-                pos: self.state.nth_pos_unchecked(i),
+                atom: self.topology.get_atom_unchecked(i),
+                pos: self.state.get_pos_unchecked(i),
             }
         })
     }
@@ -251,7 +251,7 @@ impl ActiveSubset<'_> {
         self.subset
             .iter()
             .cloned()
-            .map(|i| unsafe { (i, self.topology.nth_atom_unchecked(i)) })
+            .map(|i| unsafe { (i, self.topology.get_atom_unchecked(i)) })
     }
 }
 
@@ -259,7 +259,7 @@ impl PosIterProvider for ActiveSubset<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         self.subset
             .iter()
-            .map(|i| unsafe { self.state.nth_pos_unchecked(*i) })
+            .map(|i| unsafe { self.state.get_pos_unchecked(*i) })
     }
 }
 
@@ -270,9 +270,9 @@ impl LenProvider for ActiveSubset<'_> {
 }
 
 impl RandomPosProvider for ActiveSubset<'_> {
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
+    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.subset.get(i).unwrap();
-        self.state.nth_pos_unchecked(ind)
+        self.state.get_pos_unchecked(ind)
     }
 }
 
@@ -280,14 +280,14 @@ impl AtomIterProvider for ActiveSubset<'_> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.subset
             .iter()
-            .map(|i| unsafe { self.topology.nth_atom_unchecked(*i) })
+            .map(|i| unsafe { self.topology.get_atom_unchecked(*i) })
     }
 }
 
 impl RandomAtomProvider for ActiveSubset<'_> {
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
+    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = *self.subset.get(i).unwrap();
-        self.topology.nth_atom_unchecked(ind)
+        self.topology.get_atom_unchecked(ind)
     }
 }
 
@@ -295,7 +295,7 @@ impl MassIterProvider for ActiveSubset<'_> {
     fn iter_masses(&self) -> impl Iterator<Item = f32> {
         self.subset
             .iter()
-            .map(|i| unsafe { self.topology.nth_atom_unchecked(*i).mass })
+            .map(|i| unsafe { self.topology.get_atom_unchecked(*i).mass })
     }
 }
 
@@ -371,7 +371,7 @@ impl VectorNode {
                 let res = inner.apply(data)?;
                 let v = data
                     .state
-                    .nth_pos(*i)
+                    .get_pos(*i)
                     .ok_or_else(|| SelectionParserError::OutOfBounds(*i, res.len()))?;
                 *self = Self::Const(*v);
                 self.get_vec(data)
@@ -684,7 +684,7 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
-        let crd = unsafe { state.nth_pos_mut_unchecked(i) };
+        let crd = unsafe { state.get_pos_mut_unchecked(i) };
         for d in 0..3 {
             if crd[d] < lower[d] {
                 lower[d] = crd[d]
@@ -782,12 +782,12 @@ impl KeywordNode {
 
 impl MathNode {
     fn eval(&mut self, at: usize, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
-        let atom = unsafe { data.topology.nth_atom_unchecked(at) };
+        let atom = unsafe { data.topology.get_atom_unchecked(at) };
         match self {
             Self::Float(v) => Ok(*v),
-            Self::X => Ok(unsafe { data.state.nth_pos_mut_unchecked(at) }[0]),
-            Self::Y => Ok(unsafe { data.state.nth_pos_mut_unchecked(at) }[1]),
-            Self::Z => Ok(unsafe { data.state.nth_pos_mut_unchecked(at) }[2]),
+            Self::X => Ok(unsafe { data.state.get_pos_mut_unchecked(at) }[0]),
+            Self::Y => Ok(unsafe { data.state.get_pos_mut_unchecked(at) }[1]),
+            Self::Z => Ok(unsafe { data.state.get_pos_mut_unchecked(at) }[2]),
             Self::Bfactor => Ok(atom.bfactor),
             Self::Occupancy => Ok(atom.occupancy),
             Self::Vdw => Ok(atom.vdw()),
@@ -821,7 +821,7 @@ impl MathNode {
                 }
             }
             Self::Dist(d) => {
-                let pos = unsafe { data.state.nth_pos_mut_unchecked(at) };
+                let pos = unsafe { data.state.get_pos_mut_unchecked(at) };
                 // Point should be unwrapped first!
                 d.closest_image(pos, data);
 

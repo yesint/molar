@@ -27,19 +27,28 @@ where
 //--------------------------------------------------------------
 
 /// Trait for providing iteration over selected indices
-pub trait IndexIterProvider {
+pub trait IndexProvider {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone;
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize;
 }
 
-impl IndexIterProvider for SortedSet<usize> {
+impl IndexProvider for SortedSet<usize> {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
         self.iter().cloned()
     }
+
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
+    }
 }
 
-impl IndexIterProvider for Vec<usize> {
+impl IndexProvider for Vec<usize> {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
         self.iter().cloned()
+    }
+
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
     }
 }
 
@@ -84,25 +93,25 @@ pub trait TimeProvider {
 }
 
 /// Trait for providing iteration over particles
-pub trait ParticleIterProvider: IndexIterProvider {
+pub trait ParticleIterProvider: IndexProvider {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>>;
 }
 
 /// Trait for providing random access to particles
 pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
-    unsafe fn nth_particle_unchecked(&self, i: usize) -> Particle<'_>;
+    unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_>;
 
     fn first_particle(&self) -> Particle {
-        unsafe { self.nth_particle_unchecked(0) }
+        unsafe { self.get_particle_unchecked(0) }
     }
 
     fn last_particle(&self) -> Particle {
-        unsafe { self.nth_particle_unchecked(self.len() - 1) }
+        unsafe { self.get_particle_unchecked(self.len() - 1) }
     }
 
-    fn nth_particle(&self, i: usize) -> Option<Particle> {
+    fn get_particle(&self, i: usize) -> Option<Particle> {
         if i < self.len() {
-            Some(unsafe { self.nth_particle_unchecked(i) })
+            Some(unsafe { self.get_particle_unchecked(i) })
         } else {
             None
         }
@@ -111,43 +120,43 @@ pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
 
 /// Trait for providing random access to positions
 pub trait RandomPosProvider: LenProvider {
-    unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
+    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos;
 
-    fn nth_pos(&self, i: usize) -> Option<&Pos> {
+    fn get_pos(&self, i: usize) -> Option<&Pos> {
         if i < self.len() {
-            Some(unsafe { self.nth_pos_unchecked(i) })
+            Some(unsafe { self.get_pos_unchecked(i) })
         } else {
             None
         }
     }
 
     fn first_pos(&self) -> &Pos {
-        unsafe { self.nth_pos_unchecked(0) }
+        unsafe { self.get_pos_unchecked(0) }
     }
 
     fn last_pos(&self) -> &Pos {
-        unsafe { self.nth_pos_unchecked(self.len()-1) }
+        unsafe { self.get_pos_unchecked(self.len()-1) }
     }
 }
 
 /// Trait for providing random access to atoms
 pub trait RandomAtomProvider: LenProvider {
-    unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
+    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom;
 
-    fn nth_atom(&self, i: usize) -> Option<&Atom> {
+    fn get_atom(&self, i: usize) -> Option<&Atom> {
         if i < self.len() {
-            Some(unsafe { self.nth_atom_unchecked(i) })
+            Some(unsafe { self.get_atom_unchecked(i) })
         } else {
             None
         }
     }
 
     fn first_atom(&self) -> &Atom {
-        unsafe { self.nth_atom_unchecked(0) }
+        unsafe { self.get_atom_unchecked(0) }
     }
 
     fn last_atom(&self) -> &Atom {
-        unsafe { self.nth_atom_unchecked(self.len() - 1) }
+        unsafe { self.get_atom_unchecked(self.len() - 1) }
     }
 }
 
@@ -157,11 +166,11 @@ pub trait BondsProvider {
 
     fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]>;
 
-    unsafe fn nth_bond_unchecked(&self, i: usize) -> &[usize; 2];
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2];
 
-    fn nth_bond(&self, i: usize) -> Option<&[usize; 2]> {
+    fn get_bond(&self, i: usize) -> Option<&[usize; 2]> {
         if i < self.num_bonds() {
-            Some(unsafe { self.nth_bond_unchecked(i) })
+            Some(unsafe { self.get_bond_unchecked(i) })
         } else {
             None
         }
@@ -174,11 +183,11 @@ pub trait MoleculesProvider {
 
     fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]>;
 
-    unsafe fn nth_molecule_unchecked(&self, i: usize) -> &[usize; 2];
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2];
 
-    fn nth_molecule(&self, i: usize) -> Option<&[usize; 2]> {
+    fn get_molecule(&self, i: usize) -> Option<&[usize; 2]> {
         if i < self.num_molecules() {
-            Some(unsafe { self.nth_molecule_unchecked(i) })
+            Some(unsafe { self.get_molecule_unchecked(i) })
         } else {
             None
         }
@@ -196,22 +205,22 @@ pub trait PosIterMutProvider: PosIterProvider {
 
 /// Trait for providing mutable random access to positions
 pub trait RandomPosMutProvider: RandomPosProvider {
-    unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
+    unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
 
-    fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+    fn get_pos_mut(&self, i: usize) -> Option<&mut Pos> {
         if i < self.len() {
-            Some(unsafe { self.nth_pos_mut_unchecked(i) })
+            Some(unsafe { self.get_pos_mut_unchecked(i) })
         } else {
             None
         }
     }
     
     fn first_pos_mut(&self) -> &mut Pos {
-        unsafe { self.nth_pos_mut_unchecked(0) }
+        unsafe { self.get_pos_mut_unchecked(0) }
     }
     
     fn last_pos_mut(&self) -> &mut Pos {
-        unsafe { self.nth_pos_mut_unchecked(self.len()-1) }
+        unsafe { self.get_pos_mut_unchecked(self.len()-1) }
     }
 }
 
@@ -221,28 +230,28 @@ pub trait AtomIterMutProvider: AtomIterProvider {
 }
 
 /// Trait for providing mutable iteration over particles
-pub trait ParticleIterMutProvider: IndexIterProvider {
+pub trait ParticleIterMutProvider: IndexProvider {
     fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>>;
 }
 
 /// Trait for providing mutable random access to atoms
 pub trait RandomAtomMutProvider: RandomAtomProvider {
-    fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+    fn get_atom_mut(&self, i: usize) -> Option<&mut Atom> {
         if i < self.len() {
-            Some(unsafe { self.nth_atom_mut_unchecked(i) })
+            Some(unsafe { self.get_atom_mut_unchecked(i) })
         } else {
             None
         }
     }
 
-    unsafe fn nth_atom_mut_unchecked(&self, i: usize) -> &mut Atom;
+    unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom;
 
     fn first_atom_mut(&self) -> &mut Atom {
-        unsafe { self.nth_atom_mut_unchecked(0) }
+        unsafe { self.get_atom_mut_unchecked(0) }
     }
 
     fn last_atom_mut(&self) -> &Atom {
-        unsafe { self.nth_atom_mut_unchecked(self.len() - 1) }
+        unsafe { self.get_atom_mut_unchecked(self.len() - 1) }
     }
 }
 
@@ -258,19 +267,19 @@ pub trait TimeMutProvider {
 
 /// Trait for providing mutable random access to particles
 pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvider {
-    unsafe fn nth_particle_mut_unchecked(&self, i: usize) -> ParticleMut;
+    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut;
 
     fn first_particle_mut(&self) -> ParticleMut {
-        unsafe { self.nth_particle_mut_unchecked(0) }
+        unsafe { self.get_particle_mut_unchecked(0) }
     }
 
     fn last_particle_mut(&self) -> ParticleMut {
-        unsafe { self.nth_particle_mut_unchecked(self.len() - 1) }
+        unsafe { self.get_particle_mut_unchecked(self.len() - 1) }
     }
 
-    fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
+    fn get_particle_mut(&self, i: usize) -> Option<ParticleMut> {
         if i < self.len() {
-            Some(unsafe { self.nth_particle_mut_unchecked(i) })
+            Some(unsafe { self.get_particle_mut_unchecked(i) })
         } else {
             None
         }
