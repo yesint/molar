@@ -38,8 +38,8 @@ impl SelectionKind for BuilderSerial {
         // Index is guaranteed to be non-empty
         let first = unsafe { *index.get_unchecked(0) };
         let last = unsafe { *index.get_unchecked(index.len()-1) };
-        let ntop = topology.num_atoms();
-        let nst = state.num_pos();
+        let ntop = topology.len();
+        let nst = state.len();
         if first >= ntop || last >= ntop ||  first >= nst || last >= nst {
             return Err(SelectionError::IndexValidation(first,last,ntop));
         } else {

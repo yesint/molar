@@ -247,7 +247,7 @@ impl XtcFileHandler {
     }
 
     pub fn write_state(&mut self, data: &impl StateIoProvider) -> Result<(), XtcHandlerError> {
-        let n = data.num_pos();
+        let n = data.len();
 
         // Box have to be transposed because XTC contains row-major box
         let box_ = match data.get_box() {

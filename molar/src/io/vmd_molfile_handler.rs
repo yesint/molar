@@ -228,7 +228,7 @@ impl VmdMolFileHandler {
     }
 
     pub fn write_topology(&mut self, data: &impl TopologyIoProvider) -> Result<(), VmdHandlerError> {
-        let n = data.num_atoms();
+        let n = data.len();
         // Open file if not yet opened
         self.open_write_if_needed(n)?;
 
@@ -328,7 +328,7 @@ impl VmdMolFileHandler {
     }
 
     pub fn write_state(&mut self, data: &impl StateIoProvider) -> Result<(), VmdHandlerError> {
-        let n = data.num_pos();
+        let n = data.len();
 
         // Open file if not yet opened
         self.open_write_if_needed(n)?;

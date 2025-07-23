@@ -5,7 +5,7 @@ use sorted_vec::SortedSet;
 // Basic providers
 //--------------------------------------------------------------
 
-/// Trait for providing both topology I/O operations
+/// Trait for providing topology I/O operations
 pub trait TopologyIoProvider: RandomAtomProvider + AtomIterProvider + MoleculesProvider + BondsProvider {}
 
 /// Trait for providing state I/O operations
@@ -27,18 +27,18 @@ where
 //--------------------------------------------------------------
 
 /// Trait for providing iteration over selected indices
-pub trait IndexProvider {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone;
+pub trait IndexIterProvider {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone;
 }
 
-impl IndexProvider for SortedSet<usize> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
+impl IndexIterProvider for SortedSet<usize> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
         self.iter().cloned()
     }
 }
 
-impl IndexProvider for Vec<usize> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
+impl IndexIterProvider for Vec<usize> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
         self.iter().cloned()
     }
 }
@@ -47,7 +47,7 @@ impl IndexProvider for Vec<usize> {
 // Immutable providers
 //--------------------------------------------------------------
 
-/// Trait for providing length of data
+/// Trait for providing length of provided data
 pub trait LenProvider {
     fn len(&self) -> usize;
 }
@@ -59,7 +59,7 @@ pub trait PosIterProvider {
 
 /// Trait for providing iteration over atomic masses 
 pub trait MassIterProvider {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32>;
+    fn iter_masses(&self) -> impl Iterator<Item = f32>;
 }
 
 /// Trait for providing iteration over atoms
@@ -84,8 +84,8 @@ pub trait TimeProvider {
 }
 
 /// Trait for providing iteration over particles
-pub trait ParticleIterProvider: IndexProvider {
-    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>>;
+pub trait ParticleIterProvider: IndexIterProvider {
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>>;
 }
 
 /// Trait for providing random access to particles
@@ -97,11 +97,11 @@ pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
     }
 
     fn last_particle(&self) -> Particle {
-        unsafe { self.nth_particle_unchecked(self.num_atoms() - 1) }
+        unsafe { self.nth_particle_unchecked(self.len() - 1) }
     }
 
     fn nth_particle(&self, i: usize) -> Option<Particle> {
-        if i < self.num_pos() {
+        if i < self.len() {
             Some(unsafe { self.nth_particle_unchecked(i) })
         } else {
             None
@@ -110,13 +110,11 @@ pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
 }
 
 /// Trait for providing random access to positions
-pub trait RandomPosProvider {
-    fn num_pos(&self) -> usize;
-
+pub trait RandomPosProvider: LenProvider {
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos;
 
     fn nth_pos(&self, i: usize) -> Option<&Pos> {
-        if i < self.num_pos() {
+        if i < self.len() {
             Some(unsafe { self.nth_pos_unchecked(i) })
         } else {
             None
@@ -128,18 +126,16 @@ pub trait RandomPosProvider {
     }
 
     fn last_pos(&self) -> &Pos {
-        unsafe { self.nth_pos_unchecked(self.num_pos()-1) }
+        unsafe { self.nth_pos_unchecked(self.len()-1) }
     }
 }
 
 /// Trait for providing random access to atoms
-pub trait RandomAtomProvider {
-    fn num_atoms(&self) -> usize;
-
+pub trait RandomAtomProvider: LenProvider {
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom;
 
     fn nth_atom(&self, i: usize) -> Option<&Atom> {
-        if i < self.num_atoms() {
+        if i < self.len() {
             Some(unsafe { self.nth_atom_unchecked(i) })
         } else {
             None
@@ -151,7 +147,7 @@ pub trait RandomAtomProvider {
     }
 
     fn last_atom(&self) -> &Atom {
-        unsafe { self.nth_atom_unchecked(self.num_atoms() - 1) }
+        unsafe { self.nth_atom_unchecked(self.len() - 1) }
     }
 }
 
@@ -203,7 +199,7 @@ pub trait RandomPosMutProvider: RandomPosProvider {
     unsafe fn nth_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
 
     fn nth_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        if i < self.num_pos() {
+        if i < self.len() {
             Some(unsafe { self.nth_pos_mut_unchecked(i) })
         } else {
             None
@@ -215,7 +211,7 @@ pub trait RandomPosMutProvider: RandomPosProvider {
     }
     
     fn last_pos_mut(&self) -> &mut Pos {
-        unsafe { self.nth_pos_mut_unchecked(self.num_pos()-1) }
+        unsafe { self.nth_pos_mut_unchecked(self.len()-1) }
     }
 }
 
@@ -225,14 +221,14 @@ pub trait AtomIterMutProvider: AtomIterProvider {
 }
 
 /// Trait for providing mutable iteration over particles
-pub trait ParticleIterMutProvider: IndexProvider {
-    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>>;
+pub trait ParticleIterMutProvider: IndexIterProvider {
+    fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>>;
 }
 
 /// Trait for providing mutable random access to atoms
 pub trait RandomAtomMutProvider: RandomAtomProvider {
     fn nth_atom_mut(&self, i: usize) -> Option<&mut Atom> {
-        if i < self.num_atoms() {
+        if i < self.len() {
             Some(unsafe { self.nth_atom_mut_unchecked(i) })
         } else {
             None
@@ -246,7 +242,7 @@ pub trait RandomAtomMutProvider: RandomAtomProvider {
     }
 
     fn last_atom_mut(&self) -> &Atom {
-        unsafe { self.nth_atom_mut_unchecked(self.num_atoms() - 1) }
+        unsafe { self.nth_atom_mut_unchecked(self.len() - 1) }
     }
 }
 
@@ -269,11 +265,11 @@ pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvide
     }
 
     fn last_particle_mut(&self) -> ParticleMut {
-        unsafe { self.nth_particle_mut_unchecked(self.num_atoms() - 1) }
+        unsafe { self.nth_particle_mut_unchecked(self.len() - 1) }
     }
 
     fn nth_particle_mut(&self, i: usize) -> Option<ParticleMut> {
-        if i < self.num_pos() {
+        if i < self.len() {
             Some(unsafe { self.nth_particle_mut_unchecked(i) })
         } else {
             None

@@ -24,7 +24,7 @@ pub(crate) fn command_tip3_to_tip4(
     let w_last = water.last_index();
 
     let sel_before = inp.select(0..w_first)?;
-    let sel_after = inp.select(w_last+1..inp.num_atoms())?;
+    let sel_after = inp.select(w_last+1..inp.len())?;
 
     // Add before selection
     out.append(&sel_before);

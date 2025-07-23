@@ -148,11 +148,13 @@ macro_rules! impl_state_traits {
             }
         }
 
-        impl RandomPosProvider for $t {
-            fn num_pos(&self) -> usize {
+        impl LenProvider for $t {
+            fn len(&self) -> usize {
                 self.get_storage().coords.len()
             }
+        }
 
+        impl RandomPosProvider for $t {
             unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
                 self.get_storage().coords.get_unchecked(i)
             }
@@ -167,12 +169,6 @@ macro_rules! impl_state_traits {
         impl PosIterMutProvider for $t {
             fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
                 self.get_storage_mut().coords.iter_mut()
-            }
-        }
-
-        impl LenProvider for $t {
-            fn len(&self) -> usize {
-                self.get_storage().coords.len()
             }
         }
 

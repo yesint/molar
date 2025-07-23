@@ -68,7 +68,7 @@ pub trait ModifyRandomAccess: PosIterMutProvider + PosIterProvider + BoxProvider
     fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self.require_box()?.to_owned();
         let conn: SearchConnectivity =
-            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.num_pos(), &b, dims);
+            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.len(), &b, dims);
 
         // used atoms
         let mut used = vec![false; conn.len()];

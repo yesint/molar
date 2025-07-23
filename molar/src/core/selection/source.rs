@@ -127,7 +127,7 @@ impl<K: UserCreatableKind> Source<K> {
     }
 
     pub fn len(&self) -> usize {
-        self.topology.num_atoms()
+        self.topology.len()
     }
 
     pub fn select(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
@@ -209,14 +209,14 @@ impl<K: UserCreatableKind> Source<K> {
 
 impl Source<BuilderSerial> {
     pub fn append(&self, data: &(impl PosIterProvider + AtomIterProvider)) -> Sel<BuilderSerial> {
-        let first_added_index = self.num_atoms();
+        let first_added_index = self.len();
         self.topology
             .get_storage_mut()
             .add_atoms(data.iter_atoms().cloned());
         self.state
             .get_storage_mut()
             .add_coords(data.iter_pos().cloned());
-        let last_added_index = self.num_atoms();
+        let last_added_index = self.len();
         self.select(first_added_index..last_added_index).unwrap()
     }
 
@@ -225,14 +225,14 @@ impl Source<BuilderSerial> {
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
     ) -> Sel<BuilderSerial> {
-        let first_added_index = self.num_atoms();
+        let first_added_index = self.len();
         self.topology.get_storage_mut().add_atoms(atoms);
         self.state.get_storage_mut().add_coords(coords);
-        let last_added_index = self.num_atoms();
+        let last_added_index = self.len();
         self.select(first_added_index..last_added_index).unwrap()
     }
 
-    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
+    pub fn remove(&self, to_remove: &impl IndexIterProvider) -> Result<(), SelectionError> {
         // We are checking index validity inside remove methods
         self.topology
             .get_storage_mut()
@@ -289,13 +289,13 @@ impl Source<BuilderSerial> {
 
 impl<K: SelectionKind> LenProvider for Source<K> {
     fn len(&self) -> usize {
-        self.num_atoms()
+        self.topology.len()
     }
 }
 
-impl<K: SelectionKind> IndexProvider for Source<K> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
-        0..self.topology.num_atoms()
+impl<K: SelectionKind> IndexIterProvider for Source<K> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
+        0..self.topology.len()
     }
 }
 
@@ -308,10 +308,6 @@ impl<K: SelectionKind> AtomIterProvider for Source<K> {
 }
 
 impl<K: SelectionKind> RandomAtomProvider for Source<K> {
-    fn num_atoms(&self) -> usize {
-        self.topology.num_atoms()
-    }
-
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         self.topology.nth_atom_unchecked(i)
     }
@@ -340,7 +336,7 @@ impl<K: SelectionKind> BoxProvider for Source<K> {
 impl<K: SelectionKind> WritableToFile for Source<K> {}
 
 impl<K: SelectionKind> ParticleIterProvider for Source<K> {
-    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
         self.iter_index()
             .map(|i| unsafe { self.nth_particle_unchecked(i) })
     }
@@ -357,10 +353,6 @@ impl<K: SelectionKind> RandomParticleProvider for Source<K> {
 }
 
 impl<K: SelectionKind> RandomPosProvider for Source<K> {
-    fn num_pos(&self) -> usize {
-        self.state.num_pos()
-    }
-
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         self.state.nth_pos_unchecked(i)
     }
@@ -395,7 +387,7 @@ impl<K: SelectionKind> BondsProvider for Source<K> {
 }
 
 impl<K: SelectionKind> MassIterProvider for Source<K> {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+    fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
             self.iter_index()
                 .map(|i| self.topology.nth_atom_unchecked(i).mass)
@@ -439,7 +431,7 @@ impl<K: MutableKind> RandomAtomMutProvider for Source<K> {
 }
 
 impl<K: MutableKind> ParticleIterMutProvider for Source<K> {
-    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
+    fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>> {
         self.iter_index()
             .map(|i| unsafe { self.nth_particle_mut_unchecked(i) })
     }

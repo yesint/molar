@@ -29,7 +29,7 @@ mod private {
 //----------------------------------------------------------
 
 // Trait for things that implement analysis traits
-pub trait EnableAnalysis: IndexProvider + LenProvider {
+pub trait EnableAnalysis: IndexIterProvider + LenProvider {
     // Getting references
     fn get_topology(&self) -> &Topology;
     fn get_state(&self) -> &State;
@@ -359,14 +359,14 @@ impl Builder {
     }
 
     pub fn append(&self, data: &(impl PosIterProvider + AtomIterProvider)) -> SelBuilder {
-        let first_added_index = self.num_atoms();
+        let first_added_index = self.len();
         self.topology
             .get_storage_mut()
             .add_atoms(data.iter_atoms().cloned());
         self.state
             .get_storage_mut()
             .add_coords(data.iter_pos().cloned());
-        let last_added_index = self.num_atoms();
+        let last_added_index = self.len();
         self.select(first_added_index..last_added_index).unwrap()
     }
 
@@ -375,14 +375,14 @@ impl Builder {
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
     ) -> SelBuilder {
-        let first_added_index = self.num_atoms();
+        let first_added_index = self.len();
         self.topology.get_storage_mut().add_atoms(atoms);
         self.state.get_storage_mut().add_coords(coords);
-        let last_added_index = self.num_atoms();
+        let last_added_index = self.len();
         self.select(first_added_index..last_added_index).unwrap()
     }
 
-    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
+    pub fn remove(&self, to_remove: &impl IndexIterProvider) -> Result<(), SelectionError> {
         self.topology
             .get_storage_mut()
             .remove_atoms(to_remove.iter_index())?;
@@ -472,14 +472,14 @@ impl ParSplit {
 //███  IO traits
 //══════════════════════════════════════════════
 
-impl<T: Selection> IndexProvider for T {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone {
+impl<T: Selection> IndexIterProvider for T {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.index_arc().iter().cloned()
     }
 }
 
-impl IndexProvider for Builder {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone {
+impl IndexIterProvider for Builder {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         0..self.len()
     }
 }
@@ -538,7 +538,7 @@ impl<T: EnableAnalysis> AtomIterMutProvider for T {
 }
 
 impl<T: EnableAnalysis> MassIterProvider for T {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+    fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
             self.iter_index()
                 .map(|i| self.get_topology().nth_atom_unchecked(i).mass)
@@ -556,15 +556,11 @@ impl<T: Selection> LenProvider for T {
 
 impl LenProvider for Builder {
     fn len(&self) -> usize {
-        self.get_state().num_pos()
+        self.get_state().len()
     }
 }
 
 impl<T: EnableAnalysis> RandomPosProvider for T {
-    fn num_pos(&self) -> usize {
-        self.len()
-    }
-
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = self.get_nth_index_unchecked(i);
         self.get_state().nth_pos_unchecked(ind)
@@ -572,10 +568,6 @@ impl<T: EnableAnalysis> RandomPosProvider for T {
 }
 
 impl<T: EnableAnalysis> RandomAtomProvider for T {
-    fn num_atoms(&self) -> usize {
-        self.len()
-    }
-
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = self.get_nth_index_unchecked(i);
         self.get_topology().nth_atom_unchecked(ind)

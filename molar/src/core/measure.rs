@@ -406,23 +406,23 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         //normals:  0   1   2   3   4   5
 
         // Size check
-        if self.num_pos() < 3 {
-            return Err(LipidOrderError::TailTooShort(self.num_pos()));
+        if self.len() < 3 {
+            return Err(LipidOrderError::TailTooShort(self.len()));
         }
         
-        if normals.len() != 1 && normals.len() != self.num_pos() - 2 {
-            return Err(LipidOrderError::NormalsCount(self.num_pos(), self.num_pos()-2));
+        if normals.len() != 1 && normals.len() != self.len() - 2 {
+            return Err(LipidOrderError::NormalsCount(self.len(), self.len()-2));
         }
 
-        if bond_orders.len() != self.num_pos() - 1 {
-            return Err(LipidOrderError::BondOrderCount(self.num_pos(), self.num_pos()-1));
+        if bond_orders.len() != self.len() - 1 {
+            return Err(LipidOrderError::BondOrderCount(self.len(), self.len()-1));
         }
 
-        let mut order = DVector::from_element(self.num_pos() - 2, 0.0);
+        let mut order = DVector::from_element(self.len() - 2, 0.0);
         if order_type == OrderType::Sz {
             // Calculate Gromacs Sz order
             // Iterate over atoms
-            for at in 1..self.num_pos() - 1 {
+            for at in 1..self.len() - 1 {
                 // Vector from at+1 to at-1
                 let v = unsafe { self.nth_pos_unchecked(at + 1) - self.nth_pos_unchecked(at - 1) };
                 // Normal
@@ -438,7 +438,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         } else {
             // Compute deuterium order
             // We iterate over bonds and treat differently single and double bonds
-            for i in 0..self.num_pos() - 2 {
+            for i in 0..self.len() - 2 {
                 if bond_orders[i] == 1 {
                     // Single bond between atoms i:i+1
                     // If next bond is also single, compute order for atom i+1

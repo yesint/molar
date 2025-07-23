@@ -883,7 +883,7 @@ mod tests {
     // #[test]
     // fn test_descr_from_itp() -> anyhow::Result<()> {
     //     let top = FileHandler::open("../../tests/POPE.itp")?.read_topology()?;
-    //     let n = top.num_atoms();
+    //     let n = top.len();
     //     let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
     //     let pope = src.select_all()?;
     //     let resname = &pope.first_atom().resname;
@@ -896,7 +896,7 @@ mod tests {
     #[test]
     fn test_descr_serde() -> anyhow::Result<()> {
         let top = FileHandler::open("tests/POPE.itp")?.read_topology()?;
-        let n = top.num_atoms();
+        let n = top.len();
         let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
 
         let descr: LipidSpeciesDescr = toml::from_str(

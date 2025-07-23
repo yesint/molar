@@ -196,10 +196,10 @@ mod internal_tpr_enabled {
         fn test_tpr() {
             let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
             let (top, st) = h.read().unwrap();
-            println!("natoms: {:?}", top.num_atoms());
+            println!("natoms: {:?}", top.len());
             println!("nbonds: {:?}", top.num_bonds());
             println!("nmolecules: {:?}", top.num_molecules());
-            println!("state sz: {:?}", st.num_pos());
+            println!("state sz: {:?}", st.len());
         }
     }
 }

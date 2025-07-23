@@ -75,7 +75,7 @@ impl SelectionDef for std::ops::Range<usize> {
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {
         let n = match subset {
-            None => top.num_atoms(),
+            None => top.len(),
             Some(sub) => sub.len(),
         };
 
@@ -121,7 +121,7 @@ impl SelectionDef for &[usize] {
             match subset {
                 None => {
                     let v: SortedSet<usize> = self.to_vec().into();
-                    let n = top.num_atoms();
+                    let n = top.len();
                     if v[0] >= n || v[v.len()-1] >= n {
                         Err(SelectionError::IndexValidation(v[0], v[v.len()-1], n-1))
                     } else {
@@ -168,7 +168,7 @@ impl SelectionDef for SVec {
         } else {            
             match subset {
                 None => {                    
-                    let n = top.num_atoms();
+                    let n = top.len();
                     if self[0] >= n || self[self.len()-1] >= n {
                         Err(SelectionError::IndexValidation(self[0], self[self.len()-1], n-1))
                     } else {
@@ -203,7 +203,7 @@ impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
             return Err(SelectionError::SelDefInSubsel)
         }
 
-        let n = top.num_atoms();
+        let n = top.len();
         if self.first_index() >= n || self.last_index() >= n {
             return Err(SelectionError::IndexValidation(self.first_index(), self.last_index(), n-1));
         }

@@ -270,10 +270,6 @@ impl LenProvider for ActiveSubset<'_> {
 }
 
 impl RandomPosProvider for ActiveSubset<'_> {
-    fn num_pos(&self) -> usize {
-        self.subset.len()
-    }
-
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.subset.get(i).unwrap();
         self.state.nth_pos_unchecked(ind)
@@ -289,10 +285,6 @@ impl AtomIterProvider for ActiveSubset<'_> {
 }
 
 impl RandomAtomProvider for ActiveSubset<'_> {
-    fn num_atoms(&self) -> usize {
-        self.subset.len()
-    }
-
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = *self.subset.get(i).unwrap();
         self.topology.nth_atom_unchecked(ind)
@@ -300,7 +292,7 @@ impl RandomAtomProvider for ActiveSubset<'_> {
 }
 
 impl MassIterProvider for ActiveSubset<'_> {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+    fn iter_masses(&self) -> impl Iterator<Item = f32> {
         self.subset
             .iter()
             .map(|i| unsafe { self.topology.nth_atom_unchecked(*i).mass })

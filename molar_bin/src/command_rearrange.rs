@@ -55,7 +55,7 @@ pub(super) fn command_rearrange(
     }
 
     // Get the rest of indexes, which are not used
-    let all_ind = (0..in_source.num_atoms()).collect::<HashSet<usize>>();
+    let all_ind = (0..in_source.len()).collect::<HashSet<usize>>();
 
     let rest_sel = in_source
         .select(all_ind.difference(&used).cloned().collect::<Vec<_>>())

@@ -74,7 +74,7 @@ impl GroFileHandler {
         &mut self,
         data: &(impl TopologyIoProvider + StateIoProvider),
     ) -> Result<(), GroHandlerError> {
-        let natoms = data.num_atoms();
+        let natoms = data.len();
         let buf = self.writer.as_mut().unwrap();
 
         // Print title

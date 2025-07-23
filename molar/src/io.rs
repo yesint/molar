@@ -716,13 +716,15 @@ impl IntoIterator for FileHandler {
 // Implementation of IO traits for tuples
 macro_rules! impl_io_traits_for_tuples {
     ( $t:ty, $s:ty ) => {
+        impl LenProvider for ($t,$s) {
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+        }
+
         impl TopologyIoProvider for ($t, $s) {}
 
         impl RandomAtomProvider for ($t, $s) {
-            fn num_atoms(&self) -> usize {
-                self.0.num_atoms()
-            }
-
             unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
                 self.0.nth_atom_unchecked(i)
             }
@@ -783,10 +785,6 @@ macro_rules! impl_io_traits_for_tuples {
         }
 
         impl RandomPosProvider for ($t, $s) {
-            fn num_pos(&self) -> usize {
-                self.1.num_pos()
-            }
-
             unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
                 self.1.nth_pos_unchecked(i)
             }
@@ -920,7 +918,7 @@ mod tests {
         let top1 = r.read_topology()?;
         let st1 = r.read_state()?.unwrap();
         let st2 = st1.clone();
-        println!("#1: {}", top1.num_atoms());
+        println!("#1: {}", top1.len());
 
         let b = Source::new_serial(top1.into(), st2.into())?;
         let sel = b.select_all()?;

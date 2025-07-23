@@ -72,7 +72,7 @@ impl<K: SelectionKind> Sel<K> {
     pub fn len(&self) -> usize {
         // We need to validate index here manually
         self.validate_index().unwrap();
-        self.num_atoms()
+        self.index_storage.len()
     }
 
     //=================================
@@ -547,7 +547,7 @@ impl<K: UserCreatableKind> Sel<K> {
         Self::from_holders_and_index(
             unsafe {topology.new_ref_with_kind()},
             unsafe {state.new_ref_with_kind()},
-            unsafe { SortedSet::from_sorted((0..topology.num_atoms()).collect()) },
+            unsafe { SortedSet::from_sorted((0..topology.len()).collect()) },
         )
     }
 
@@ -589,7 +589,7 @@ impl<K: UserCreatableKind> Sel<K> {
     }
 
     pub fn invert(&mut self) {
-        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.num_atoms());
+        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
         let rhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
         let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
         self.index_storage = SortedSet::from_unsorted(v);
@@ -640,7 +640,7 @@ impl<K: UserCreatableKind> Sel<K> {
 
     pub fn complement(&self) -> Result<Self, SelectionError> {
         let ind = difference_sorted(
-            unsafe { &SortedSet::from_sorted((0..self.topology.num_atoms()).collect()) },
+            unsafe { &SortedSet::from_sorted((0..self.topology.len()).collect()) },
             self.index(),
         );
         if ind.is_empty() {
@@ -830,7 +830,7 @@ impl<K: SelectionKind> ExactSizeIterator for SelectionIterator<'_, K> {
 }
 
 impl<K: SelectionKind> ParticleIterProvider for Sel<K> {
-    fn iter_particle(&self) -> impl ExactSizeIterator<Item = Particle<'_>> {
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
         SelectionIterator { sel: self, cur: 0 }
     }
 }
@@ -864,7 +864,7 @@ impl<K: MutableKind> ExactSizeIterator for SelectionIteratorMut<'_, K> {
 }
 
 impl<K: MutableKind> ParticleIterMutProvider for Sel<K> {
-    fn iter_particle_mut(&self) -> impl ExactSizeIterator<Item = ParticleMut<'_>> {
+    fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>> {
         SelectionIteratorMut { sel: self, cur: 0 }
     }
 }
@@ -875,8 +875,8 @@ impl<K: MutableKind> ParticleIterMutProvider for Sel<K> {
 
 impl<K: SelectionKind> WritableToFile for Sel<K> {}
 
-impl<K: SelectionKind> IndexProvider for Sel<K> {
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> + Clone{
+impl<K: SelectionKind> IndexIterProvider for Sel<K> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
         self.index().iter().cloned()
     }
 }
@@ -937,7 +937,7 @@ impl<K: UserCreatableKind> AtomIterMutProvider for Sel<K> {
 
 
 impl<K: SelectionKind> MassIterProvider for Sel<K> {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+    fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
             self.index()
                 .iter()
@@ -955,10 +955,6 @@ impl<K: SelectionKind> LenProvider for Sel<K> {
 }
 
 impl<K: SelectionKind> RandomPosProvider for Sel<K> {
-    fn num_pos(&self) -> usize {
-        self.index().len()
-    }
-
     unsafe fn nth_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = *self.index().get_unchecked(i);
         self.state.nth_pos_unchecked(ind)
@@ -966,10 +962,6 @@ impl<K: SelectionKind> RandomPosProvider for Sel<K> {
 }
 
 impl<K: SelectionKind> RandomAtomProvider for Sel<K> {
-    fn num_atoms(&self) -> usize {
-        self.index().len()
-    }
-
     unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = *self.index().get_unchecked(i);
         self.topology.nth_atom_unchecked(ind)

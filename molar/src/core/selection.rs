@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn test_builder_append_from_self() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-        let n = top.num_atoms();
+        let n = top.len();
         let builder = Source::new_builder(top.into(), st.into())?;
         
         let sel = builder.select("resid 550:560")?;
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_builder_remove_from_self() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-        let n = top.num_atoms();
+        let n = top.len();
         let builder = Source::new_builder(top.into(), st.into())?;
         let sel = builder.select("resid 550:560")?;
         let removed = sel.len();

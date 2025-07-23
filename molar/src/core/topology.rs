@@ -166,7 +166,7 @@ macro_rules! impl_topology_traits {
         }
 
         impl MassIterProvider for $t {
-            fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
+            fn iter_masses(&self) -> impl Iterator<Item = f32> {
                 self.get_storage().atoms.iter().map(|at| at.mass)
             }
         }
@@ -178,10 +178,6 @@ macro_rules! impl_topology_traits {
         }
 
         impl RandomAtomProvider for $t {
-            fn num_atoms(&self) -> usize {
-                self.get_storage().atoms.len()
-            }
-
             unsafe fn nth_atom_unchecked(&self, i: usize) -> &Atom {
                 self.get_storage().atoms.get_unchecked(i)
             }

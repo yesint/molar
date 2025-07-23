@@ -43,8 +43,8 @@ pub type Pos = nalgebra::Point3<f32>;
 
 // Define alias traits for iterators to make it less verbose
 /// Convenience alias for iterator over indices
-pub trait IndexIterator: ExactSizeIterator<Item = usize> {}
-impl<T> IndexIterator for T where T: ExactSizeIterator<Item = usize> {}
+pub trait IndexIterator: Iterator<Item = usize> {}
+impl<T> IndexIterator for T where T: Iterator<Item = usize> {}
 
 /// Convenience alias for iterator over atoms
 pub trait AtomIterator<'a>: Iterator<Item = &'a Atom> {}
@@ -63,9 +63,9 @@ pub trait PosMutIterator<'a>: Iterator<Item = &'a mut Pos> {}
 impl<'a, T> PosMutIterator<'a> for T where T: Iterator<Item = &'a mut Pos> {}
 
 /// Convenience alias for iterator over index-position pairs
-pub trait IdPosIterator<'a>: ExactSizeIterator<Item = (usize, &'a Pos)> {}
-impl<'a, T> IdPosIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'a Pos)> {}
+pub trait IdPosIterator<'a>: Iterator<Item = (usize, &'a Pos)> {}
+impl<'a, T> IdPosIterator<'a> for T where T: Iterator<Item = (usize, &'a Pos)> {}
 
 /// Convenience alias for mutable iterator over index-position pairs
-pub trait IdPosMutIterator<'a>: ExactSizeIterator<Item = (usize, &'a mut Pos)> {}
-impl<'a, T> IdPosMutIterator<'a> for T where T: ExactSizeIterator<Item = (usize, &'a mut Pos)> {}
+pub trait IdPosMutIterator<'a>: Iterator<Item = (usize, &'a mut Pos)> {}
+impl<'a, T> IdPosMutIterator<'a> for T where T: Iterator<Item = (usize, &'a mut Pos)> {}
