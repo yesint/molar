@@ -3,7 +3,7 @@ use crate::{
     prelude::*,
 };
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, path::Path};
 use triomphe::Arc;
 
 // Private module containing internal methods implemented by all selection types
@@ -28,6 +28,7 @@ mod private {
 
     // Internal trait for selections
     pub trait SelectionPrivate: AllowsSelecting {
+        // Calling new is forbidden for users, thus it is in the private trait
         fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
         where
             Self: Sized;
@@ -179,9 +180,6 @@ where
     std::iter::from_fn(next_fn)
 }
 
-/// Marker trait for serial selections
-pub trait SerialSelection: private::SelectionPrivate {}
-
 //-----------------------------------------
 
 macro_rules! impl_selection {
@@ -253,8 +251,6 @@ impl Selection for SelSerial {
 
 impl_selection!(SelSerial, SelSerial);
 
-impl SerialSelection for SelSerial {}
-
 //-------------------------------------------------------
 
 pub struct System {
@@ -305,6 +301,32 @@ impl System {
             state: Arc::new(st),
             _phantom: Default::default(),
         })
+    }
+
+    pub fn from_file(
+        fname: impl AsRef<Path>,
+    ) -> Result<Self, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Self::new(top, st)?)
+    }
+
+    pub fn new_empty() -> Self {
+        Self {
+            topology: Arc::new(Topology::default()),
+            state: Arc::new(State::default()),
+            _phantom: Default::default(),
+        }
+    }
+
+    /// Release and return [Topology] and [State]. 
+    /// Fails if any selection is still pointing to them..
+    pub fn release(self) -> Result<(Topology, State), SelectionError> {
+        if self.topology.is_unique() && self.state.is_unique() {
+            Ok((Arc::unwrap_or_clone(self.topology), Arc::unwrap_or_clone(self.state)))
+        } else {
+            Err(SelectionError::Release)
+        }        
     }
 
     pub fn select_all(&self) -> Result<SelSerial, SelectionError> {
@@ -512,7 +534,7 @@ impl ParSplit {
         self.selections.par_iter_mut()
     }
 
-    pub fn iter<S: SerialSelection>(&self) -> impl Iterator<Item = S> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = SelSerial> + '_ {
         self.selections.iter().map(|sel| sel.new_view())
     }
 }
