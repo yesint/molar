@@ -1,4 +1,7 @@
-use crate::{core::selection::sel2::private::SelectionPrivate, prelude::*};
+use crate::{
+    core::selection::sel2::private::{AllowsSelecting, SelectionPrivate},
+    prelude::*,
+};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::marker::PhantomData;
 use triomphe::Arc;
@@ -81,11 +84,31 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     {
         split_iter_as(self, func)
     }
+
+    fn to_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+        use itertools::Itertools;
+        let name = name.as_ref();
+        let mut s = format!("[ {} ]\n", name);
+        for chunk in &self.iter_index().chunks(15) {
+            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s
+    }
 }
 
 // Public trait for selections
-trait Selection: private::SelectionPrivate {
-    fn new_view<S: SelectionPrivate>(&self) -> S;
+trait Selection: private::SelectionPrivate + Selectable {
+    fn index_arc(&self) -> &Arc<SVec>;
+
+    fn new_view<S: SelectionPrivate>(&self) -> S {
+        S::new_sel(
+            Arc::clone(self.topology_arc()),
+            Arc::clone(self.state_arc()),
+            Arc::clone(self.index_arc()),
+        )
+    }
 }
 
 impl<T: Selectable> private::HasTopState for T {
@@ -223,12 +246,8 @@ impl private::SelectionPrivate for SelSerial {
 }
 
 impl Selection for SelSerial {
-    fn new_view<S: SelectionPrivate>(&self) -> S {
-        S::new_sel(
-            Arc::clone(&self.topology),
-            Arc::clone(&self.state),
-            Arc::clone(&self.index_storage),
-        )
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
     }
 }
 
@@ -304,7 +323,7 @@ impl System {
         self.select(first_added_index..last_added_index).unwrap()
     }
 
-    pub fn append_atoms(
+    pub fn append_atoms_pos(
         &self,
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
@@ -389,16 +408,92 @@ impl private::SelectionPrivate for SelPar {
 }
 
 impl Selection for SelPar {
-    fn new_view<S: SelectionPrivate>(&self) -> S {
-        S::new_sel(
-            Arc::clone(&self.topology),
-            Arc::clone(&self.state),
-            Arc::clone(&self.index_storage),
-        )
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
     }
 }
 
 impl_selection!(SelPar, SelSerial);
+
+//--------------------------------------------------------------------
+
+macro_rules! impl_logical_ops {
+    ($t:ident) => {
+        impl<S: Selection> std::ops::BitOr<S> for $t {
+            type Output = SelSerial;
+
+            fn bitor(self, rhs: S) -> Self::Output {
+                let ind = union_sorted(&self.index_storage, rhs.index_arc());
+                SelSerial::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl<S: Selection> std::ops::BitAnd<S> for $t {
+            type Output = SelSerial;
+
+            fn bitand(self, rhs: S) -> Self::Output {
+                let ind = intersection_sorted(&self.index_storage, rhs.index_arc());
+                SelSerial::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl<S: Selection> std::ops::Sub<S> for $t {
+            type Output = SelSerial;
+
+            fn sub(self, rhs: S) -> Self::Output {
+                let ind = difference_sorted(&self.index_storage, rhs.index_arc());
+                SelSerial::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl<S: Selection> std::ops::Add<S> for $t {
+            type Output = SelSerial;
+
+            fn add(self, rhs: S) -> Self::Output {
+                let ind = union_sorted(&self.index_storage, rhs.index_arc());
+                SelSerial::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl std::ops::Not for $t {
+            type Output = SelSerial;
+
+            fn not(self) -> Self::Output {
+                let ind = difference_sorted(
+                    unsafe { &SVec::from_sorted((0..self.topology.len()).collect()) },
+                    self.index_arc(),
+                );
+                if ind.is_empty() {
+                    panic!("negated selection is empty");
+                }
+                SelSerial::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+    };
+}
+
+impl_logical_ops!(SelSerial);
+impl_logical_ops!(SelPar);
 
 //--------------------------------------------------------------------
 pub struct ParSplit {
