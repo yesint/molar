@@ -211,3 +211,18 @@ impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
         Ok(self.get_index_vec().clone())
     }
 }
+
+// impl SelectionDef for &SelSerial {
+//     fn into_sel_index(
+//         self,
+//         top: &Topology,
+//         _st: &State,
+//         subset: Option<&[usize]>,
+//     ) -> Result<SortedSet<usize>, SelectionError> {
+//         if let Some(_) = subset {
+//             return Err(SelectionError::SelDefInSubsel)
+//         }
+
+//         Ok(self.)
+//     }
+// }

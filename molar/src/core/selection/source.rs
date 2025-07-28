@@ -275,6 +275,7 @@ impl Source<BuilderSerial> {
         }
         // Scale the box
         b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32])?;
+        self.topology.assign_resindex();
         Ok(())
     }
 }

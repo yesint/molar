@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{bail, Context, Result};
 use log::info;
 use molar::prelude::*;
@@ -80,46 +82,59 @@ pub(crate) fn command_solvate(
         inside_ind.extend(res.iter_index());
     }
     // It is safe to call here since indexes are guaranteed to be properly sorted
-    let mut inside_sel = unsafe { solvent.select_vec_unchecked(inside_ind)? };
+    let inside_sel = unsafe { solvent.select_vec_unchecked(inside_ind)? };
 
     //inside_sel.save("target/inside.gro")?;
 
-    info!("Removing overlapping solvent molecules...");
+    info!("Searching for overlapping solvent molecules...");
     // Do the distance search
     let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
-    let local_overlap_ind: Vec<usize> =
-        distance_search_double_vdw_pbc(
-            inside_sel.iter_pos(), 
-            solute.iter_pos(),
-            &vdw1, 
-            &vdw2,
-            b,
-            PBC_FULL
-        );
+    let local_overlap_ind: Vec<usize> = distance_search_double_vdw_pbc(
+        inside_sel.iter_pos(),
+        solute.iter_pos(),
+        &vdw1,
+        &vdw2,
+        b,
+        PBC_FULL,
+    );
     //distance_search_double_pbc(0.3,&inside_sel, &solute, b, PBC_FULL);
+    info!("{} overlapping atoms", local_overlap_ind.len());
 
-    // Local selection indexes in 'inside_sel' are returned
-    // Remove overlapping
-    inside_sel.remove_local(local_overlap_ind);
+    // Find all resindexes for atoms to be removed
+    let mut resind_to_remove = HashSet::new();
+    for i in local_overlap_ind {
+        unsafe {
+            resind_to_remove.insert(inside_sel.get_atom_unchecked(i).resindex);
+        }
+    }
+    info!(
+        "{} overlapping water molecules to remove",
+        resind_to_remove.len()
+    );
+
+    let mut good_ind = vec![];
+    for res in inside_sel.split_resindex_into_iter() {
+        if !resind_to_remove.contains(&res.first_atom().resindex) {
+            good_ind.extend(res.iter_index());
+        }
+    }
+    info!("{} atoms to add", good_ind.len());
+
+    let good_sel = unsafe { solvent.select_vec_unchecked(good_ind)? };
 
     // Add solvent
-    solute.append(&inside_sel);
+    solute.append(&good_sel);
 
     // If exclude selection is provided remove it
     if exclude.is_some() {
         let sel_str = exclude.as_ref().unwrap();
-        let excl_sel = solute.select(sel_str)?;
-        info!(
-            "Excluding {} atoms by selection '{}'",
-            excl_sel.len(),
-            sel_str
-        );
-        solute.remove(&excl_sel)?;
+        let not_excl_sel = solute.select(format!("not ({})", sel_str))?;
+        info!("Excluding atoms by selection '{}'", sel_str);
+        not_excl_sel.save(outfile)?;
+    } else {
+        solute.save(outfile)?;
     }
-
-    // Save
-    solute.save(outfile)?;
 
     Ok(())
 }
