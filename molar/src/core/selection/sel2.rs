@@ -1,34 +1,11 @@
-use crate::prelude::*;
+use crate::{core::selection::sel2::private::SelectionPrivate, prelude::*};
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::marker::PhantomData;
-use sync_unsafe_cell::SyncUnsafeCell;
 use triomphe::Arc;
-
-struct SelIndex(SyncUnsafeCell<SVec>);
-
-impl SelIndex {
-    fn get(&self) -> &SVec {
-        unsafe { &*self.0.get() }
-    }
-
-    fn get_mut(&self) -> &mut SVec {
-        unsafe { &mut *self.0.get() }
-    }
-
-    fn from_sorted_vec(v: Vec<usize>) -> Self {
-        unsafe { Self(SyncUnsafeCell::new(SVec::from_sorted(v))) }
-    }
-
-    fn from_svec(v: SVec) -> Self {
-        Self(SyncUnsafeCell::new(v))
-    }
-}
 
 // Private module containing internal methods implemented by all selection types
 mod private {
-    use crate::core::{
-        selection::sel2::SelIndex, IndexProvider, LenProvider, SVec, State, Topology,
-    };
+    use crate::core::{IndexProvider, LenProvider, SVec, State, Topology};
     use triomphe::Arc;
 
     // Trait for things that can provide refs to Topology and State
@@ -48,10 +25,7 @@ mod private {
 
     // Internal trait for selections
     pub trait SelectionPrivate: AllowsSelecting {
-        fn index_mut(&self) -> &mut SVec;
-
-        #[allow(private_interfaces)]
-        fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SelIndex>) -> Self
+        fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
         where
             Self: Sized;
     }
@@ -60,7 +34,7 @@ mod private {
 //----------------------------------------------------------
 
 /// Trait for things that supports selecting atoms (Systems and Selections)
-pub trait Selectable: private::AllowsSelecting + private::HasTopState {
+pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     type DerivedSel: private::SelectionPrivate;
 
     // Sub-selection
@@ -74,7 +48,7 @@ pub trait Selectable: private::AllowsSelecting + private::HasTopState {
         Ok(Self::DerivedSel::new_sel(
             Arc::clone(&self.topology_arc()),
             Arc::clone(&self.state_arc()),
-            Arc::new(SelIndex::from_svec(ind)),
+            Arc::new(ind),
         ))
     }
 
@@ -107,146 +81,11 @@ pub trait Selectable: private::AllowsSelecting + private::HasTopState {
     {
         split_iter_as(self, func)
     }
-
-    fn set_topology(
-        &mut self,
-        topology: impl Into<Arc<Topology>>,
-    ) -> Result<Arc<Topology>, SelectionError> {
-        let topology: Arc<Topology> = topology.into();
-        if !self.topology_arc().interchangeable(&topology) {
-            return Err(SelectionError::IncompatibleState);
-        }
-        let p = self.topology_arc() as *const Arc<Topology> as *mut Arc<Topology>;
-        Ok(unsafe { std::ptr::replace(p, topology) })
-    }
-
-    /// Sets new [State] in [Sel].
-    /// This is "shallow" operation, which doesn't affect other
-    /// [Sel]s that point to the same [State].
-    fn set_state(&self, state: impl Into<Arc<State>>) -> Result<Arc<State>, SelectionError> {
-        let state: Arc<State> = state.into();
-        if !self.state_arc().interchangeable(&state) {
-            return Err(SelectionError::IncompatibleState);
-        }
-        let p = self.state_arc() as *const Arc<State> as *mut Arc<State>;
-        Ok(unsafe { std::ptr::replace(p, state) })
-    }
-
-    //==============================================
-    // Setting same properties for selections
-    //==============================================
-
-    fn set_same_name(&self, val: &str)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.name = val.into();
-        }
-    }
-
-    fn set_same_resname(&self, val: &str)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.resname = val.into();
-        }
-    }
-
-    fn set_same_resid(&self, val: i32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.resid = val;
-        }
-    }
-
-    fn set_same_chain(&self, val: char)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.chain = val;
-        }
-    }
-
-    fn set_same_mass(&self, val: f32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.mass = val;
-        }
-    }
-
-    fn set_same_bfactor(&self, val: f32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.bfactor = val;
-        }
-    }
-
-    fn set_same_occupancy(&self, val: f32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.occupancy = val;
-        }
-    }
 }
 
 // Public trait for selections
-pub trait Selection: private::SelectionPrivate {
-    fn new_view<S: private::SelectionPrivate>(&self) -> S;
-
-    //==============================================
-    // Logic on selections that modify existing ones
-    //==============================================
-
-    fn add(&self, other: impl SelectionDef) -> Result<(), SelectionError> {
-        self.index_mut().extend(
-            other
-                .into_sel_index(self.topology_arc(), self.state_arc(), None)?
-                .iter()
-                .cloned(),
-        );
-        Ok(())
-    }
-
-    // pub fn remove_global(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
-    //     let lhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
-    //     let rhs = rustc_hash::FxHashSet::<usize>::from_iter(
-    //         other
-    //             .into_sel_index(&self.topology, &self.state, None)?
-    //             .iter()
-    //             .cloned(),
-    //     );
-    //     let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
-    //     self.index_storage = SortedSet::from_unsorted(v);
-    //     Ok(())
-    // }
-
-    // pub fn remove_local(&mut self, other: impl IntoIterator<Item = usize>) {
-    //     let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
-    //     let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other);
-    //     let v: Vec<usize> = lhs
-    //         .difference(&rhs)
-    //         .map(|i| self.index_storage[*i])
-    //         .collect();
-    //     self.index_storage = SortedSet::from_unsorted(v);
-    // }
-
-    // pub fn invert(&mut self) {
-    //     let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
-    //     let rhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
-    //     let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
-    //     self.index_storage = SortedSet::from_unsorted(v);
-    // }
+trait Selection: private::SelectionPrivate {
+    fn new_view<S: SelectionPrivate>(&self) -> S;
 }
 
 impl<T: Selectable> private::HasTopState for T {
@@ -293,7 +132,7 @@ where
                     return Some(SO::new_sel(
                         Arc::clone(sel.topology_arc()),
                         Arc::clone(sel.state_arc()),
-                        Arc::new(SelIndex::from_sorted_vec(index)),
+                        Arc::new(unsafe { SVec::from_sorted(index) }),
                     ));
                 }
             }
@@ -306,7 +145,7 @@ where
             return Some(SO::new_sel(
                 Arc::clone(sel.topology_arc()),
                 Arc::clone(sel.state_arc()),
-                Arc::new(SelIndex::from_sorted_vec(index)),
+                Arc::new(unsafe { SVec::from_sorted(index) }),
             ));
         }
 
@@ -330,7 +169,7 @@ macro_rules! impl_selection {
 
         impl private::AllowsSelecting for $t {
             fn index_slice(&self) -> Option<&[usize]> {
-                Some(self.index_storage.get())
+                Some(&self.index_storage)
             }
 
             fn state_arc(&self) -> &Arc<State> {
@@ -344,17 +183,17 @@ macro_rules! impl_selection {
 
         impl LenProvider for $t {
             fn len(&self) -> usize {
-                self.index_storage.get().len()
+                self.index_storage.len()
             }
         }
 
         impl IndexProvider for $t {
             fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
-                self.index_storage.get().iter().cloned()
+                self.index_storage.iter().cloned()
             }
 
             unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-                *self.index_storage.get().get_unchecked(i)
+                *self.index_storage.get_unchecked(i)
             }
         }
     };
@@ -365,17 +204,12 @@ macro_rules! impl_selection {
 pub struct SelSerial {
     topology: Arc<Topology>,
     state: Arc<State>,
-    index_storage: Arc<SelIndex>,
+    index_storage: Arc<SVec>,
     _phantom: PhantomData<*const ()>,
 }
 
 impl private::SelectionPrivate for SelSerial {
-    fn index_mut(&self) -> &mut SVec {
-        self.index_storage.get_mut()
-    }
-
-    #[allow(private_interfaces)]
-    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SelIndex>) -> Self
+    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
     where
         Self: Sized,
     {
@@ -389,7 +223,7 @@ impl private::SelectionPrivate for SelSerial {
 }
 
 impl Selection for SelSerial {
-    fn new_view<S: private::SelectionPrivate>(&self) -> S {
+    fn new_view<S: SelectionPrivate>(&self) -> S {
         S::new_sel(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -538,16 +372,11 @@ impl System {
 pub struct SelPar {
     topology: Arc<Topology>,
     state: Arc<State>,
-    index_storage: Arc<SelIndex>,
+    index_storage: Arc<SVec>,
 }
 
 impl private::SelectionPrivate for SelPar {
-    fn index_mut(&self) -> &mut SVec {
-        self.index_storage.get_mut()
-    }
-
-    #[allow(private_interfaces)]
-    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SelIndex>) -> Self
+    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
     where
         Self: Sized,
     {
@@ -560,7 +389,7 @@ impl private::SelectionPrivate for SelPar {
 }
 
 impl Selection for SelPar {
-    fn new_view<S: private::SelectionPrivate>(&self) -> S {
+    fn new_view<S: SelectionPrivate>(&self) -> S {
         S::new_sel(
             Arc::clone(&self.topology),
             Arc::clone(&self.state),
@@ -714,12 +543,6 @@ impl<T: private::HasTopState> RandomParticleProvider for T {
     }
 }
 
-impl<T: private::HasTopState> ParticleIterProvider for T {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
-        unsafe{ self.iter_index().map(|i| self.get_particle_unchecked(i)) }
-    }
-}
-
 //██████  Measure traits
 
 impl<T: private::HasTopState> MeasurePos for T {}
@@ -760,12 +583,6 @@ impl<T: private::HasTopState> RandomParticleMutProvider for T {
             atom: self.get_topology().get_atom_mut_unchecked(ind),
             pos: self.get_state().get_pos_mut_unchecked(ind),
         }
-    }
-}
-
-impl<T: private::HasTopState> ParticleIterMutProvider for T {
-    fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>> {
-        unsafe{ self.iter_index().map(|i| self.get_particle_mut_unchecked(i)) }
     }
 }
 
