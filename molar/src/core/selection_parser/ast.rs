@@ -412,7 +412,7 @@ impl LogicalNode {
         let sub = data.global_subset();
         for (i, at) in sub.iter_ind_atom() {
             let cur_prop = prop_fn(at);
-            if properties.iter().find(|p| *p == cur_prop).is_some() {
+            if properties.contains(cur_prop) {
                 res.push(i);
             }
         }

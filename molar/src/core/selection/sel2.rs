@@ -8,15 +8,8 @@ use triomphe::Arc;
 
 // Private module containing internal methods implemented by all selection types
 mod private {
-    use crate::core::{IndexProvider, LenProvider, SVec, State, Topology};
+    use crate::core::{SVec, State, Topology};
     use triomphe::Arc;
-
-    // Trait for things that can provide refs to Topology and State
-    // (for implementing analysis traits, both Systems and Selections)
-    pub trait HasTopState: LenProvider + IndexProvider {
-        fn get_topology(&self) -> &Topology;
-        fn get_state(&self) -> &State;
-    }
 
     // Trait for things that allow creating selections from them
     //(System, Sel, SelPar)
@@ -28,6 +21,8 @@ mod private {
 
     // Internal trait for selections
     pub trait SelectionPrivate: AllowsSelecting {
+        fn index_arc(&self) -> &Arc<SVec>;
+
         // Calling new is forbidden for users, thus it is in the private trait
         fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
         where
@@ -36,10 +31,43 @@ mod private {
 }
 
 //----------------------------------------------------------
+// Trait for things that can provide refs to Topology and State
+// (for implementing analysis traits, both Systems and Selections)
+pub trait HasTopState: LenProvider + IndexProvider {
+    fn get_topology(&self) -> &Topology;
+    fn get_state(&self) -> &State;
+}
 
 /// Trait for things that supports selecting atoms (Systems and Selections)
 pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     type DerivedSel: private::SelectionPrivate;
+
+    fn set_topology(
+        &mut self,
+        topology: impl Into<Arc<Topology>>,
+    ) -> Result<Arc<Topology>, SelectionError> {
+        let topology: Arc<Topology> = topology.into();
+        if !self.topology_arc().interchangeable(&topology) {
+            return Err(SelectionError::IncompatibleState);
+        }
+        let p = self.topology_arc() as *const Arc<Topology> as *mut Arc<Topology>;
+        unsafe {Ok(std::ptr::replace(p, topology))}
+    }
+
+    /// Sets new [State] in [Sel].
+    /// This is "shallow" operation, which doesn't affect other
+    /// [Sel]s that point to the same [State].
+    fn set_state(
+        &mut self,
+        state: impl Into<Arc<State>>,
+    ) -> Result<Arc<State>, SelectionError> {
+        let state: Arc<State> = state.into();
+        if !self.state_arc().interchangeable(&state) {
+            return Err(SelectionError::IncompatibleState);
+        }
+        let p = self.state_arc() as *const Arc<State> as *mut Arc<State>;
+        unsafe {Ok(std::ptr::replace(p, state))}
+    }
 
     // Sub-selection
     fn select(&self, def: impl SelectionDef) -> Result<Self::DerivedSel, SelectionError>
@@ -100,9 +128,7 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
 }
 
 // Public trait for selections
-trait Selection: private::SelectionPrivate + Selectable {
-    fn index_arc(&self) -> &Arc<SVec>;
-
+pub trait Selection: private::SelectionPrivate + Selectable {
     fn new_view<S: SelectionPrivate>(&self) -> S {
         S::new_sel(
             Arc::clone(self.topology_arc()),
@@ -110,9 +136,50 @@ trait Selection: private::SelectionPrivate + Selectable {
             Arc::clone(self.index_arc()),
         )
     }
+
+    fn whole_attr<T>(&self, attr_fn: fn(&Atom) -> &T) -> Self::DerivedSel
+    where
+        T: Eq + std::hash::Hash + Copy,
+        Self: Sized,
+    {
+        // Collect all properties from the inner
+        let mut properties = std::collections::HashSet::<T>::new();
+        for at in self.iter_atoms() {
+            properties.insert(*attr_fn(at));
+        }
+
+        let mut ind = vec![];
+        // Loop over all atoms with the same property
+        for (i, at) in self.get_topology().iter_atoms().enumerate() {
+            let cur_prop = attr_fn(at);
+            if properties.contains(cur_prop) {
+                ind.push(i);
+            }
+        }
+
+        Self::DerivedSel::new_sel(
+            Arc::clone(&self.topology_arc()),
+            Arc::clone(&self.state_arc()),
+            Arc::new(unsafe { SVec::from_sorted(ind) }),
+        )
+    }
+
+    fn whole_residues(&self) -> Self::DerivedSel
+    where
+        Self: Sized,
+    {
+        self.whole_attr(|at| &at.resindex)
+    }
+
+    fn whole_chains(&self) -> Self::DerivedSel
+    where
+        Self: Sized,
+    {
+        self.whole_attr(|at| &at.chain)
+    }
 }
 
-impl<T: Selectable> private::HasTopState for T {
+impl<T: Selectable> HasTopState for T {
     fn get_topology(&self) -> &Topology {
         self.topology_arc()
     }
@@ -230,6 +297,10 @@ pub struct SelSerial {
 }
 
 impl private::SelectionPrivate for SelSerial {
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
+    }
+
     fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
     where
         Self: Sized,
@@ -243,11 +314,7 @@ impl private::SelectionPrivate for SelSerial {
     }
 }
 
-impl Selection for SelSerial {
-    fn index_arc(&self) -> &Arc<SVec> {
-        &self.index_storage
-    }
-}
+impl Selection for SelSerial {}
 
 impl_selection!(SelSerial, SelSerial);
 
@@ -303,9 +370,7 @@ impl System {
         })
     }
 
-    pub fn from_file(
-        fname: impl AsRef<Path>,
-    ) -> Result<Self, SelectionError> {
+    pub fn from_file(fname: impl AsRef<Path>) -> Result<Self, SelectionError> {
         let mut fh = FileHandler::open(fname)?;
         let (top, st) = fh.read()?;
         Ok(Self::new(top, st)?)
@@ -319,14 +384,17 @@ impl System {
         }
     }
 
-    /// Release and return [Topology] and [State]. 
+    /// Release and return [Topology] and [State].
     /// Fails if any selection is still pointing to them..
     pub fn release(self) -> Result<(Topology, State), SelectionError> {
         if self.topology.is_unique() && self.state.is_unique() {
-            Ok((Arc::unwrap_or_clone(self.topology), Arc::unwrap_or_clone(self.state)))
+            Ok((
+                Arc::unwrap_or_clone(self.topology),
+                Arc::unwrap_or_clone(self.state),
+            ))
         } else {
             Err(SelectionError::Release)
-        }        
+        }
     }
 
     pub fn select_all(&self) -> Result<SelSerial, SelectionError> {
@@ -404,6 +472,8 @@ impl System {
         }
         // Scale the box
         b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32])?;
+        // Re-assign resindex
+        self.topology.assign_resindex();
         Ok(())
     }
 }
@@ -417,6 +487,10 @@ pub struct SelPar {
 }
 
 impl private::SelectionPrivate for SelPar {
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
+    }
+
     fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
     where
         Self: Sized,
@@ -429,11 +503,7 @@ impl private::SelectionPrivate for SelPar {
     }
 }
 
-impl Selection for SelPar {
-    fn index_arc(&self) -> &Arc<SVec> {
-        &self.index_storage
-    }
-}
+impl Selection for SelPar {}
 
 impl_selection!(SelPar, SelSerial);
 
@@ -545,12 +615,12 @@ impl ParSplit {
 
 //██████  IO traits
 
-impl<T: private::HasTopState> WritableToFile for T {}
+impl<T: HasTopState> WritableToFile for T {}
 
-impl<T: private::HasTopState> TopologyIoProvider for T {}
-impl<T: private::HasTopState> StateIoProvider for T {}
+impl<T: HasTopState> TopologyIoProvider for T {}
+impl<T: HasTopState> StateIoProvider for T {}
 
-impl<T: private::HasTopState> TimeProvider for T {
+impl<T: HasTopState> TimeProvider for T {
     fn get_time(&self) -> f32 {
         self.get_state().get_time()
     }
@@ -558,13 +628,13 @@ impl<T: private::HasTopState> TimeProvider for T {
 
 //██████  Immutable analysis traits
 
-impl<T: private::HasTopState> BoxProvider for T {
+impl<T: HasTopState> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.get_state().get_box()
     }
 }
 
-impl<T: private::HasTopState> PosIterProvider for T {
+impl<T: HasTopState> PosIterProvider for T {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe {
             self.iter_index()
@@ -573,7 +643,7 @@ impl<T: private::HasTopState> PosIterProvider for T {
     }
 }
 
-impl<T: private::HasTopState> AtomIterProvider for T {
+impl<T: HasTopState> AtomIterProvider for T {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
             self.iter_index()
@@ -582,7 +652,7 @@ impl<T: private::HasTopState> AtomIterProvider for T {
     }
 }
 
-impl<T: private::HasTopState> AtomIterMutProvider for T {
+impl<T: HasTopState> AtomIterMutProvider for T {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
             self.iter_index()
@@ -591,7 +661,7 @@ impl<T: private::HasTopState> AtomIterMutProvider for T {
     }
 }
 
-impl<T: private::HasTopState> MassIterProvider for T {
+impl<T: HasTopState> MassIterProvider for T {
     fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
             self.iter_index()
@@ -600,28 +670,28 @@ impl<T: private::HasTopState> MassIterProvider for T {
     }
 }
 
-impl<T: private::HasTopState> RandomPosProvider for T {
+impl<T: HasTopState> RandomPosProvider for T {
     unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
         let ind = self.get_index_unchecked(i);
         self.get_state().get_pos_unchecked(ind)
     }
 }
 
-impl<T: private::HasTopState> RandomAtomProvider for T {
+impl<T: HasTopState> RandomAtomProvider for T {
     unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = self.get_index_unchecked(i);
         self.get_topology().get_atom_unchecked(ind)
     }
 }
 
-impl<T: private::HasTopState> RandomAtomMutProvider for T {
+impl<T: HasTopState> RandomAtomMutProvider for T {
     unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
         let ind = self.get_index_unchecked(i);
         self.get_topology().get_atom_mut_unchecked(ind)
     }
 }
 
-impl<T: private::HasTopState> MoleculesProvider for T {
+impl<T: HasTopState> MoleculesProvider for T {
     fn num_molecules(&self) -> usize {
         self.get_topology().num_molecules()
     }
@@ -635,7 +705,7 @@ impl<T: private::HasTopState> MoleculesProvider for T {
     }
 }
 
-impl<T: private::HasTopState> BondsProvider for T {
+impl<T: HasTopState> BondsProvider for T {
     fn num_bonds(&self) -> usize {
         self.get_topology().num_bonds()
     }
@@ -649,7 +719,7 @@ impl<T: private::HasTopState> BondsProvider for T {
     }
 }
 
-impl<T: private::HasTopState> RandomParticleProvider for T {
+impl<T: HasTopState> RandomParticleProvider for T {
     unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_> {
         let ind = self.get_index_unchecked(i);
         Particle {
@@ -662,21 +732,20 @@ impl<T: private::HasTopState> RandomParticleProvider for T {
 
 //██████  Measure traits
 
-impl<T: private::HasTopState> MeasurePos for T {}
-impl<T: private::HasTopState> MeasurePeriodic for T {}
-impl<T: private::HasTopState> MeasureMasses for T {}
-impl<T: private::HasTopState> MeasureRandomAccess for T {}
+impl<T: HasTopState> MeasurePos for T {}
+impl<T: HasTopState> MeasurePeriodic for T {}
+impl<T: HasTopState> MeasureMasses for T {}
+impl<T: HasTopState> MeasureRandomAccess for T {}
 
 //██████  Mutable analysis traits
 
 impl BoxMutProvider for System {
     fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        use private::HasTopState;
         self.get_state().get_box_mut()
     }
 }
 
-impl<T: private::HasTopState> PosIterMutProvider for T {
+impl<T: HasTopState> PosIterMutProvider for T {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.iter_index()
@@ -685,14 +754,14 @@ impl<T: private::HasTopState> PosIterMutProvider for T {
     }
 }
 
-impl<T: private::HasTopState> RandomPosMutProvider for T {
+impl<T: HasTopState> RandomPosMutProvider for T {
     unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
         let ind = self.get_index_unchecked(i);
         self.get_state().get_pos_mut_unchecked(ind)
     }
 }
 
-impl<T: private::HasTopState> RandomParticleMutProvider for T {
+impl<T: HasTopState> RandomParticleMutProvider for T {
     unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
         let ind = self.get_index_unchecked(i);
         ParticleMut {
@@ -705,9 +774,9 @@ impl<T: private::HasTopState> RandomParticleMutProvider for T {
 
 //██████  Modify traits
 
-impl<T: private::HasTopState> ModifyPos for T {}
-impl<T: private::HasTopState> ModifyPeriodic for T {}
-impl<T: private::HasTopState> ModifyRandomAccess for T {}
+impl<T: HasTopState> ModifyPos for T {}
+impl<T: HasTopState> ModifyPeriodic for T {}
+impl<T: HasTopState> ModifyRandomAccess for T {}
 
 //========================================================
 

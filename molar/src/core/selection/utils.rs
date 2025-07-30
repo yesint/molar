@@ -1,11 +1,18 @@
-use sorted_vec::SortedSet;
+use std::collections::HashSet;
+
 use crate::prelude::*;
+use sorted_vec::SortedSet;
 
 /// Verifies that topology and state have matching number of atoms
-pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> Result<(),super::TopologyStateSizes> {
+pub(crate) fn check_topology_state_sizes(
+    topology: &Topology,
+    state: &State,
+) -> Result<(), super::TopologyStateSizes> {
     let n1 = topology.len();
     let n2 = state.len();
-    if n1 != n2 { Err(super::TopologyStateSizes(n1,n2))? }
+    if n1 != n2 {
+        Err(super::TopologyStateSizes(n1, n2))?
+    }
     Ok(())
 }
 
@@ -14,7 +21,7 @@ pub(crate) fn check_topology_state_sizes(topology: &Topology, state: &State) -> 
 //------------------------------
 
 /// Computes the union of two sorted sets
-/// 
+///
 /// Returns a new set containing all elements that are in either set
 pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
     let mut l = 0;
@@ -22,11 +29,11 @@ pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T
 
     let mut ret = vec![];
 
-    while l<lhs.len() && r<rhs.len() {
+    while l < lhs.len() && r < rhs.len() {
         if lhs[l] < rhs[r] {
             ret.push(lhs[l]);
             l += 1;
-        } else if lhs[l] > rhs[r]{
+        } else if lhs[l] > rhs[r] {
             ret.push(rhs[r]);
             r += 1;
         } else {
@@ -36,29 +43,36 @@ pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T
         }
     }
 
-    if l<lhs.len() {
+    if l < lhs.len() {
         ret.extend(lhs[l..].into_iter().cloned());
-    } else if r<rhs.len() {
+    } else if r < rhs.len() {
         ret.extend(rhs[r..].into_iter().cloned());
     }
 
-    unsafe {SortedSet::from_sorted(ret)}
+    unsafe { SortedSet::from_sorted(ret) }
 }
 
 /// Computes the intersection of two sorted sets
-/// 
+///
 /// Returns a new set containing elements that appear in both sets
-pub fn intersection_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
+pub fn intersection_sorted<T: Ord + Clone + Copy>(
+    lhs: &SortedSet<T>,
+    rhs: &SortedSet<T>,
+) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
 
     let mut ret = vec![];
 
-    while l<lhs.len() && r<rhs.len() {
+    while l < lhs.len() && r < rhs.len() {
         if lhs[l] < rhs[r] {
-            while l<lhs.len() && lhs[l] < rhs[r] {l+=1}
-        } else if lhs[l] > rhs[r]{
-            while r<lhs.len() && lhs[l] > rhs[r] {r+=1}
+            while l < lhs.len() && lhs[l] < rhs[r] {
+                l += 1
+            }
+        } else if lhs[l] > rhs[r] {
+            while r < lhs.len() && lhs[l] > rhs[r] {
+                r += 1
+            }
         } else {
             ret.push(lhs[l]);
             l += 1;
@@ -66,37 +80,42 @@ pub fn intersection_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &Sort
         }
     }
 
-    unsafe {SortedSet::from_sorted(ret)}
+    unsafe { SortedSet::from_sorted(ret) }
 }
 
 /// Computes the difference between two sorted sets
-/// 
+///
 /// Returns a new set containing elements from the first set that do not appear in the second set
-pub fn difference_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
+pub fn difference_sorted<T: Ord + Clone + Copy>(
+    lhs: &SortedSet<T>,
+    rhs: &SortedSet<T>,
+) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
 
     let mut ret = vec![];
 
-    while l<lhs.len() && r<rhs.len() {
+    while l < lhs.len() && r < rhs.len() {
         if lhs[l] < rhs[r] {
-            while l<lhs.len() && lhs[l] < rhs[r] {
+            while l < lhs.len() && lhs[l] < rhs[r] {
                 ret.push(lhs[l]);
-                l+=1;
+                l += 1;
             }
-        } else if lhs[l] > rhs[r]{
-            while r<lhs.len() && lhs[l] > rhs[r] {r+=1}
+        } else if lhs[l] > rhs[r] {
+            while r < lhs.len() && lhs[l] > rhs[r] {
+                r += 1
+            }
         } else {
             l += 1;
             r += 1;
         }
     }
 
-    if l<lhs.len() {
+    if l < lhs.len() {
         ret.extend(lhs[l..].into_iter().cloned());
     }
 
-    unsafe {SortedSet::from_sorted(ret)}
+    unsafe { SortedSet::from_sorted(ret) }
 }
 
 // Convert local selection indexes to global
@@ -109,12 +128,11 @@ pub(super) fn local_to_global(
             subset
                 .get(i)
                 .cloned()
-                .ok_or_else(|| SelectionError::LocalToGlobal(i, subset.len()-1))
+                .ok_or_else(|| SelectionError::LocalToGlobal(i, subset.len() - 1))
         })
         .collect::<Result<Vec<_>, _>>()?
         .into())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -126,7 +144,8 @@ mod tests {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 3, 5, 7, 10, 12]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3, 6, 8]);
         let result = union_sorted(&set1, &set2);
-        let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3, 5, 6, 7, 8, 10, 12]);
+        let expected: SortedSet<usize> =
+            SortedSet::from_unsorted(vec![1, 2, 3, 5, 6, 7, 8, 10, 12]);
         assert_eq!(result, expected);
     }
 
@@ -172,7 +191,7 @@ mod tests {
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![4, 5, 6]);
         let result = intersection_sorted(&set1, &set2);
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
-        println!("{:?}",result);
+        println!("{:?}", result);
         assert_eq!(result, expected);
     }
 
@@ -230,4 +249,3 @@ mod tests {
         assert_eq!(result, expected);
     }
 }
-
