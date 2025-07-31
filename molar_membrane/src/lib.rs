@@ -6,12 +6,12 @@ use molar::{
 use nalgebra::{DVector, SMatrix, SVector};
 use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
-use triomphe::Arc;
 use std::{
     collections::{HashMap, HashSet},
     f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
 };
+use triomphe::Arc;
 
 #[cfg(not(test))]
 use log::{info, warn}; // Use log crate when building application
@@ -35,7 +35,10 @@ mod lipid_group;
 use lipid_group::LipidGroup;
 
 pub struct Membrane {
+    // Lipid molecules
     lipids: Vec<LipidMolecule>,
+    // Parallel lipid split
+    lipids_par: ParSplit,
     // Mapping from system resindexes to lipid ids
     resindex_to_id: HashMap<usize, usize>,
     // Lipid groups
@@ -99,15 +102,8 @@ impl Membrane {
         // Load lipids from provided source
         for (name, descr) in options.lipids.iter() {
             if let Ok(lips) = source_sel.select(&descr.whole) {
-                // Split into individual lipids (MutableParallel selections)
-                let mut lips = lips.split_par(|p| Some(p.atom.resindex))?;
-                // Unwrap all lipids in parallel
-                lips.par_iter_mut()
-                    .try_for_each(|lip| lip.unwrap_simple())?;
-
-                // Now we need selectections, which are not allowed for MutableParallel
-                // So convert to ImmutableParallel
-                let lips: Vec<_> = lips.iter().collect();
+                // Split into individual lipids
+                let lips: Vec<Sel> = lips.split_resindex_iter().collect();
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
@@ -116,7 +112,10 @@ impl Membrane {
 
                 // Now create individual lipids
                 for lip in lips {
-                    //let sp = &species[name];
+                    // Unwrap lipids
+                    lip.unwrap_simple()?;
+
+                    // set selections
                     let head_sel = lip.select(&sp.head_marker_offsets)?;
                     let mid_sel = lip.select(&sp.mid_marker_offsets)?;
 
@@ -179,6 +178,9 @@ impl Membrane {
             }
         }
 
+        // Create parallel split of lipid selections
+        let par_split = ParSplit::from_serial_selections(lipids.iter().map(|l| &l.sel))?;
+
         // If there are any groups in the input toml, create them
         let mut groups: HashMap<String, LipidGroup> = Default::default();
         for gr in &options.groups {
@@ -187,6 +189,7 @@ impl Membrane {
 
         Ok(Self {
             lipids,
+            lipids_par: par_split,
             groups,
             species,
             options,
@@ -398,7 +401,7 @@ impl Membrane {
             .get(gr_name)
             .ok_or_else(|| anyhow!("no such group: {gr_name}"))?
             .lipid_ids
-            .iter()            
+            .iter()
             .cloned()
             .filter(|i| self.lipids[*i].valid))
     }
@@ -532,10 +535,7 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state_from(
-        &mut self,
-        st: &impl Selectable,
-    ) -> anyhow::Result<()> {
+    pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
         // Go over all lipids and set their states
         for lip in &mut self.lipids {
             lip.set_state_from(st)?;
@@ -543,10 +543,7 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state(
-        &mut self,
-        st: impl Into<Arc<State>>,
-    ) -> anyhow::Result<()> {
+    pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
         let st: Arc<State> = st.into();
         // Go over all lipids and set their states
         for lip in &mut self.lipids {

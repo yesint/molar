@@ -2,6 +2,7 @@ use crate::{
     core::selection::sel::private::{AllowsSelecting, SelectionPrivate},
     prelude::*,
 };
+use ndarray::iter::IntoIter;
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::{marker::PhantomData, path::Path};
 use triomphe::Arc;
@@ -746,6 +747,48 @@ pub struct ParSplit {
 }
 
 impl ParSplit {
+    /// Creates a split from iterator over serial selections
+    pub fn from_serial_selections<'a>(
+        sels: impl IntoIterator<Item = &'a Sel>,
+    ) -> Result<Self, SelectionError> {
+        // For oerlap check
+        let mut used = vec![];
+        let mut selections = vec![];
+        let mut top_arc: Option<&Arc<Topology>> = None;
+        let mut st_arc: Option<&Arc<State>> = None;
+
+        for sel in sels {
+            // On first selection resize used
+            if used.is_empty() {
+                used.resize(sel.get_topology().len(), false);
+                top_arc = Some(sel.topology_arc());
+                st_arc = Some(sel.state_arc());
+            }
+
+            let top_arc = top_arc.unwrap();
+            let st_arc = st_arc.unwrap();
+            
+            if !(Arc::ptr_eq(top_arc, sel.topology_arc()) && Arc::ptr_eq(st_arc, sel.state_arc())) {
+                return Err(SelectionError::ParSplitDifferentSystems);
+            }
+
+            for i in sel.iter_index() {
+                if used[i] {
+                    return Err(SelectionError::ParSplitOverlap);
+                } else {
+                    used[i] = true;
+                }
+            }
+
+            selections.push(SelPar::new_sel(
+                Arc::clone(top_arc),
+                Arc::clone(st_arc),
+                Arc::clone(sel.index_arc()),
+            ));
+        }
+        Ok(Self { selections, _phantom: Default::default() })
+    }
+
     /// Returns parallel iterator over stored parallel selections.
     pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, SelPar> {
         self.selections.par_iter()

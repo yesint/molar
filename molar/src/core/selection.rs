@@ -119,6 +119,12 @@ pub enum SelectionError {
 
     #[error("selection as a definition for subselecting is ambigous")]
     SelDefInSubsel,
+
+    #[error("can't make par_split from overlapping selections")]
+    ParSplitOverlap,
+
+    #[error("can't make par_split from different systems")]
+    ParSplitDifferentSystems,
 }
 
 /// Errors related to accessing selection indexes
