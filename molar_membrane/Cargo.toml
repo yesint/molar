@@ -17,6 +17,7 @@ categories.workspace = true
 molar = {version = "0.9.0", path = "../molar"}
 anyhow.workspace = true
 clap.workspace = true
+triomphe.workspace = true
 env_logger = "0.11"
 log.workspace = true
 comfy-table.workspace = true

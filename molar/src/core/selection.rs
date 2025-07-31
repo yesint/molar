@@ -1,24 +1,18 @@
-mod holder;
-mod kinds;
-mod sel;
-mod sel_split;
 mod selection_def;
-mod source;
 mod utils;
-
-mod sel2;
-pub use sel2::*;
 
 use std::num::ParseIntError;
 
-pub use holder::*;
-pub use kinds::*;
-pub use sel::*;
-pub use sel_split::*;
-pub use source::*;
+// pub use holder::*;
+// pub use kinds::*;
+// pub use sel::*;
+// pub use sel_split::*;
+// pub use source::*;
 pub(crate) use utils::*;
 pub use selection_def::*;
 pub use molar_powersasa::SasaResults;
+mod sel;
+pub use sel::*;
 
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;
@@ -177,7 +171,7 @@ mod tests {
     fn builder_overlap() -> anyhow::Result<()> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
-        let b = Source::new_serial(top.into(), st.into())?;
+        let b = System::new(top, st)?;
         // Create two overlapping selections
         let _sel1 = b.select(0..10)?;
         let _sel2 = b.select(5..15)?;
@@ -188,24 +182,24 @@ mod tests {
     fn builder_par_no_overlap() {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
-        let b = Source::new_serial(top.into(), st.into()).unwrap();
+        let b = System::new(top, st).unwrap();
         // Create two non-overlapping selections.
         let _sel1 = b.select(0..10).unwrap();
         let _sel2 = b.select(11..15).unwrap();
     }
 
-    fn make_sel_all() -> anyhow::Result<Sel<MutableSerial>> {
+    fn make_sel_all() -> anyhow::Result<Sel> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
-        let b = Source::new_serial(top.into(), st.into())?;
+        let b = System::new(top, st)?;
         let sel = b.select_all()?;
         Ok(sel)
     }
 
-    fn make_sel_prot() -> anyhow::Result<Sel<MutableSerial>> {
+    fn make_sel_prot() -> anyhow::Result<Sel> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
-        let b = Source::new_serial(top.into(), st.into())?;
+        let b = System::new(top, st)?;
         let sel = b.select("not resname TIP3 POT CLA")?;
         Ok(sel)
     }
@@ -286,15 +280,6 @@ mod tests {
     }
 
     #[test]
-    fn split_test() -> anyhow::Result<()> {
-        let sel1 = make_sel_prot()?;
-        for res in sel1.split_iter(|p| Some(p.atom.resid))? {
-            println!("Res: {}", res.iter_atoms().next().unwrap().resid)
-        }
-        Ok(())
-    }
-
-    #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let sel1 = make_sel_all()?;
         let res = sel1.sasa();
@@ -349,7 +334,7 @@ mod tests {
     fn test_builder_append_from_self() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.len();
-        let builder = Source::new_builder(top.into(), st.into())?;
+        let builder = System::new(top, st)?;
         
         let sel = builder.select("resid 550:560")?;
         let added = sel.len();
@@ -362,23 +347,23 @@ mod tests {
     #[test]
     fn test_select_from_vec() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
-        let src = Source::new_serial(top.into(), st.into())?;
+        let src = System::new(top, st)?;
         let last = src.len()-1;
         let _sel = src.select([1usize,2,last].as_slice())?;
         Ok(())
     }
 
     #[test]
-    fn test_builder_remove_from_self() -> anyhow::Result<()> {
-        let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
+    #[should_panic]
+    fn test_builder_remove_from_self() {
+        let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
         let n = top.len();
-        let builder = Source::new_builder(top.into(), st.into())?;
-        let sel = builder.select("resid 550:560")?;
+        let builder = System::new(top, st).unwrap();
+        let sel = builder.select("resid 550:560").unwrap();
         let removed = sel.len();
-        builder.remove(&sel)?;
-        let all = builder.select_all()?;
+        builder.remove(&sel).unwrap(); // Should break here
+        let all = builder.select_all().unwrap();
         assert_eq!(all.len(), n - removed);
-        Ok(())
     }
 
     #[test]
@@ -388,7 +373,7 @@ mod tests {
             .unwrap()
             .read()
             .unwrap();
-        let builder = Source::new_builder(top.into(), st.into()).unwrap();
+        let builder = System::new(top, st).unwrap();
         let sel = builder.select("resid 809").unwrap(); // last residue
         builder.remove(&sel).unwrap();
         // Trying to call method on invalid selection
@@ -399,7 +384,7 @@ mod tests {
     // fn as_parrallel_test() -> anyhow::Result<()> {
     //     let top = TOPST.0.clone();
     //     let st = TOPST.1.clone();
-    //     let ser = Source::new_serial(top.into(), st.into())?;
+    //     let ser = System::new(top, st)?;
     //     let ser_sel = ser.select_all()?;
 
     //     let mut res = vec![];
@@ -423,10 +408,10 @@ mod tests {
     fn as_parrallel_test() -> anyhow::Result<()> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
-        let ser = Source::new_serial(top.into(), st.into())?;
+        let ser = System::new(top, st)?;
         let ser_sel = ser.select_all()?;
 
-        let mut parts = ser_sel.split_par_contig(|p| Some(p.atom.resindex))?;
+        let mut parts = ser_sel.split_par(|p| Some(p.atom.resindex))?;
         let coms = parts
             .par_iter()
             .map(|sel| sel.center_of_mass())
@@ -441,17 +426,4 @@ mod tests {
 
         Ok(())
     }
-
-    #[test]
-    fn test_or() -> anyhow::Result<()> {
-        let top = TOPST.0.clone();
-        let st = TOPST.1.clone();
-        let ser = Source::new_serial(top.into(), st.into())?;
-        let sel1 = ser.select("name CA")?;
-        let sel2 = ser.select("name CB")?;
-        let sel3 = sel1.union(&sel2);
-        assert_eq!(sel3.len(), sel1.len()+sel2.len());
-        Ok(())
-    }
-    
 }

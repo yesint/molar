@@ -11,7 +11,7 @@ pub(crate) fn command_solvate(
     exclude: &Option<String>,
 ) -> Result<()> {
     info!("Loading solute from file '{file}'...");
-    let solute = Source::builder_from_file(file)?;
+    let solute = System::from_file(file)?;
 
     // Check periodic box
     if solute.get_box().is_none() {
@@ -29,7 +29,7 @@ pub(crate) fn command_solvate(
         }
     };
     info!("Loading solvent from file '{solvent_file}'...");
-    let solvent = Source::builder_from_file(&solvent_file)?;
+    let solvent = System::from_file(&solvent_file)?;
     if solvent.get_box().is_none() {
         bail!("solvent lacks a periodic box");
     }
@@ -71,7 +71,7 @@ pub(crate) fn command_solvate(
     let mut inside_ind = vec![];
     let b = solute.get_box().unwrap();
     let all = solvent.select_all()?;
-    'outer: for res in all.split_resindex_into_iter() {
+    'outer: for res in all.split_resindex_iter() {
         for p in res.iter_pos() {
             if !b.is_inside(p) {
                 // Break without adding this residue to good list
@@ -82,7 +82,7 @@ pub(crate) fn command_solvate(
         inside_ind.extend(res.iter_index());
     }
     // It is safe to call here since indexes are guaranteed to be properly sorted
-    let inside_sel = unsafe { solvent.select_vec_unchecked(inside_ind)? };
+    let inside_sel = solvent.select(inside_ind)?;
 
     //inside_sel.save("target/inside.gro")?;
 
@@ -114,14 +114,14 @@ pub(crate) fn command_solvate(
     );
 
     let mut good_ind = vec![];
-    for res in inside_sel.split_resindex_into_iter() {
+    for res in inside_sel.split_resindex_iter() {
         if !resind_to_remove.contains(&res.first_atom().resindex) {
             good_ind.extend(res.iter_index());
         }
     }
     info!("{} atoms to add", good_ind.len());
 
-    let good_sel = unsafe { solvent.select_vec_unchecked(good_ind)? };
+    let good_sel = solvent.select(good_ind)?;
 
     // Add solvent
     solute.append(&good_sel);

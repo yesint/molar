@@ -226,7 +226,4 @@ macro_rules! impl_topology_traits {
 // Impls for Topology itself
 impl_topology_traits!(Topology);
 // Impls for smart pointers
-impl_topology_traits!(Holder<Topology,MutableSerial>);
-impl_topology_traits!(Holder<Topology,BuilderSerial>);
-impl_topology_traits!(Holder<Topology,MutableParallel>);
-impl_topology_traits!(Holder<Topology,ImmutableParallel>);
+impl_topology_traits!(triomphe::Arc<Topology>);

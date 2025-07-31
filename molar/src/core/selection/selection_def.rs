@@ -192,7 +192,7 @@ impl SelectionDef for &SVec {
     }
 }
 
-impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
+impl SelectionDef for &Sel {
     fn into_sel_index(
         self,
         top: &Topology,
@@ -204,11 +204,11 @@ impl<K: UserCreatableKind> SelectionDef for &Sel<K> {
         }
 
         let n = top.len();
-        if self.first_index() >= n || self.last_index() >= n {
-            return Err(SelectionError::IndexValidation(self.first_index(), self.last_index(), n-1));
+        if self.get_first_index() >= n || self.get_last_index() >= n {
+            return Err(SelectionError::IndexValidation(self.get_first_index(), self.get_last_index(), n-1));
         }
 
-        Ok(self.get_index_vec().clone())
+        Ok( unsafe {SVec::from_sorted( Vec::from(self.get_index()) )} )
     }
 }
 

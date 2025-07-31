@@ -244,7 +244,7 @@ where
     let context = AnalysisContext {
         args,
         consumed_frames: 0,
-        src: Source::new(top, state)?,
+        src: System::new(top, state)?,
     };
 
     // Create analysis object instance
@@ -258,7 +258,7 @@ where
 
 /// Context passed to all frame processing methods
 pub struct AnalysisContext<A> {
-    pub src: Source<MutableSerial>,
+    pub src: System,
     pub consumed_frames: usize,
     pub args: A,
 }

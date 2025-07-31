@@ -190,7 +190,4 @@ macro_rules! impl_state_traits {
 // Impls for State itself
 impl_state_traits!(State);
 // Impls for smart pointers
-impl_state_traits!(Holder<State,MutableSerial>);
-impl_state_traits!(Holder<State,BuilderSerial>);
-impl_state_traits!(Holder<State,MutableParallel>);
-impl_state_traits!(Holder<State,ImmutableParallel>);
+impl_state_traits!(triomphe::Arc<State>);

@@ -6,11 +6,11 @@ use molar::{
 use nalgebra::{DVector, SMatrix, SVector};
 use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
+use triomphe::Arc;
 use std::{
     collections::{HashMap, HashSet},
     f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 #[cfg(not(test))]
@@ -84,7 +84,7 @@ impl Default for MembraneOptions {
 }
 
 impl Membrane {
-    pub fn new<K: SerialKind>(source: &Source<K>, optstr: &str) -> anyhow::Result<Self> {
+    pub fn new(source: &System, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
@@ -98,16 +98,16 @@ impl Membrane {
 
         // Load lipids from provided source
         for (name, descr) in options.lipids.iter() {
-            if let Ok(lips) = source_sel.subsel(&descr.whole) {
+            if let Ok(lips) = source_sel.select(&descr.whole) {
                 // Split into individual lipids (MutableParallel selections)
-                let mut lips = lips.split_par_contig(|p| Some(p.atom.resindex))?;
+                let mut lips = lips.split_par(|p| Some(p.atom.resindex))?;
                 // Unwrap all lipids in parallel
                 lips.par_iter_mut()
                     .try_for_each(|lip| lip.unwrap_simple())?;
 
-                // Now we need subselections, which are not allowed for MutableParallel
+                // Now we need selectections, which are not allowed for MutableParallel
                 // So convert to ImmutableParallel
-                let lips = unsafe { lips.into_immutable() };
+                let lips: Vec<_> = lips.iter().collect();
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
@@ -117,16 +117,16 @@ impl Membrane {
                 // Now create individual lipids
                 for lip in lips {
                     //let sp = &species[name];
-                    let head_sel = lip.subsel(&sp.head_marker_offsets)?;
-                    let mid_sel = lip.subsel(&sp.mid_marker_offsets)?;
+                    let head_sel = lip.select(&sp.head_marker_offsets)?;
+                    let mid_sel = lip.select(&sp.mid_marker_offsets)?;
 
                     let mut tail_sels = vec![];
                     let mut tail_ends = vec![];
                     for t in sp.tails.iter() {
-                        tail_sels.push(lip.subsel(&t.offsets)?);
+                        tail_sels.push(lip.select(&t.offsets)?);
                         tail_ends.push(*t.offsets.last().unwrap());
                     }
-                    let tail_end_sel = lip.subsel(tail_ends)?;
+                    let tail_end_sel = lip.select(tail_ends)?;
 
                     // Compute markers
                     let head_marker = head_sel.center_of_mass()?;
@@ -532,20 +532,27 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state(
+    pub fn set_state_from(
         &mut self,
-        st: impl Into<Holder<State, ImmutableParallel>>,
+        st: &impl Selectable,
     ) -> anyhow::Result<()> {
-        let st: Holder<State, ImmutableParallel> = st.into();
         // Go over all lipids and set their states
         for lip in &mut self.lipids {
-            lip.set_state(st.new_ref())?;
+            lip.set_state_from(st)?;
         }
         Ok(())
     }
 
-    pub fn get_state(&self) -> Holder<State, ImmutableParallel> {
-        self.lipids.first().unwrap().sel.get_state()
+    pub fn set_state(
+        &mut self,
+        st: impl Into<Arc<State>>,
+    ) -> anyhow::Result<()> {
+        let st: Arc<State> = st.into();
+        // Go over all lipids and set their states
+        for lip in &mut self.lipids {
+            lip.set_state(Arc::clone(&st))?;
+        }
+        Ok(())
     }
 
     fn compute_patches(&mut self, d: f32) -> anyhow::Result<()> {
@@ -667,7 +674,7 @@ impl Membrane {
             .collect::<Vec<_>>();
 
         self.lipids
-            .par_iter_mut()
+            .iter_mut()
             .filter(|lip| lip.valid)
             .for_each(|lip| {
                 // Get local-to-lab transform
@@ -862,7 +869,7 @@ mod tests {
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
-        let src = Source::serial_from_file("tests/membr.gro")?;
+        let src = System::from_file("tests/membr.gro")?;
         let pope = src.select("resid 60")?;
         let descr = LipidSpeciesDescr {
             whole: "resname POPE".into(),
@@ -897,7 +904,7 @@ mod tests {
     fn test_descr_serde() -> anyhow::Result<()> {
         let top = FileHandler::open("tests/POPE.itp")?.read_topology()?;
         let n = top.len();
-        let src = Source::new_serial(top.into(), State::new_fake(n).into())?;
+        let src = System::new(top, State::new_fake(n))?;
 
         let descr: LipidSpeciesDescr = toml::from_str(
             r#"
@@ -954,7 +961,7 @@ mod tests {
     #[test]
     fn test_whole() -> anyhow::Result<()> {
         let path = PathBuf::from("tests");
-        let src = Source::serial_from_file(path.join("membr.gro"))?;
+        let src = System::from_file(path.join("membr.gro"))?;
 
         // let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping");
         // let src = Source::serial_from_file(path.join("inp_7.gro"))?;
@@ -998,7 +1005,7 @@ mod tests {
     #[test]
     fn test_vmd_vis() -> anyhow::Result<()> {
         let path = PathBuf::from("tests");
-        let src = Source::serial_from_file(path.join("membr.gro"))?;
+        let src = System::from_file(path.join("membr.gro"))?;
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
@@ -1035,7 +1042,7 @@ mod tests {
     #[test]
     fn test_vmd_vis_cg() -> anyhow::Result<()> {
         let path = PathBuf::from("tests");
-        let src = Source::serial_from_file(path.join("cg.gro"))?;
+        let src = System::from_file(path.join("cg.gro"))?;
         src.select_all()?.set_same_mass(1.0);
 
         let mut toml = String::new();

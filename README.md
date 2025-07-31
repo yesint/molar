@@ -104,7 +104,7 @@ The simples way of loading the molecular system in MolAR is to use a `Source` - 
 
 ```rust,ignore
 // Load the source file from the first command line argument
-let src = Source::serial_from_file(&args[0])?;
+let src = System::from_file(&args[0])?;
 ```
 
 Unlike other molecular analysis libraries, there are four kinds of sources and atom selections in MolAR: `serial`, `serial builder`, `parallel mutable` and `parallel immutable`. This is required to enforce memory safety and to guarantee the absense of data races in paralell programs. For now we will just work with the simplest `serial` kind of sources and selections, which behave in the most intuitive way similar to what you see in other analysis libraries. `Source::serial_from_file()` creates such serial `Source` by reading a file specified in the first command line argument.
@@ -242,10 +242,10 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     // Load the source file from the first command line argument
-    let src = Source::serial_from_file(&args[0])?;
+    let src = System::from_file(&args[0])?;
 
     // Make empty output system
-    let out = Source::empty_builder();
+    let out = System::new_empty();
 
     let water = src.select("resname TIP3")?;
     let non_water = src.select("not resname TIP3")?;
@@ -254,7 +254,7 @@ fn main() -> Result<()> {
     out.append(&non_water);
 
     // Go over water molecules one by one                   
-    for mol in water.split_resindex_into_iter() {
+    for mol in water.split_resindex_iter() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
@@ -276,7 +276,7 @@ fn main() -> Result<()> {
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms(
+        out.append_atoms_pos(
             mol.iter_atoms().cloned().chain(std::iter::once(m_at)),
             mol.iter_pos().cloned().chain(std::iter::once(m_pos)),
         );
@@ -334,7 +334,7 @@ struct UserArgs {
 // Our analysis task type
 struct ComTask {
     // Selection to use
-    sel: Sel<MutableSerial>,
+    sel: Sel,
     // COM vector
     com_aver: nalgebra::Vector3<f32>,
 }
@@ -365,7 +365,7 @@ impl AnalysisTask<UserArgs> for ComTask {
     // Function to be called at each frame.
     fn process_frame(&mut self, context: &AnalysisContext<UserArgs>) -> anyhow::Result<()> {
         // We need to update the state in our selection
-        self.sel.set_state(context.src.get_state())?;
+        self.sel.set_state_from(&context.src)?;
         // Compute the center of mass
         let com = self.sel.center_of_mass()?;
         // Print current center of mass. We get current time stamp from the context

@@ -6,9 +6,9 @@ const XTC: &str = "traj_comp.xtc";
 fn test1() {
     let t = std::time::Instant::now();
 
-    let src = Source::serial_from_file(PDB).unwrap();
+    let src = System::from_file(PDB).unwrap();
     let ref_sel = src.select_all().unwrap();
-    let mut cur_sel = src.select_all().unwrap();
+    let cur_sel = src.select_all().unwrap();
 
     let mut rmsd = vec![];
 
@@ -26,8 +26,8 @@ fn test1() {
 fn test2() {
     let t = std::time::Instant::now();
 
-    let src = Source::serial_from_file(PDB).unwrap();
-    let mut sel = src.select("within 1.0 of protein").unwrap();
+    let src = System::from_file(PDB).unwrap();
+    let sel = src.select("within 1.0 of protein").unwrap();
     let mut cm = vec![];
     let trj = FileHandler::open(XTC).unwrap().into_iter();
     for st in trj.take(500) {
@@ -41,8 +41,8 @@ fn test2() {
 fn test3() {
     let t = std::time::Instant::now();
 
-    let src = Source::serial_from_file(PDB).unwrap();
-    let mut sel = src.select("protein").unwrap();
+    let src = System::from_file(PDB).unwrap();
+    let sel = src.select("protein").unwrap();
 
     let in_trj = FileHandler::open(XTC).unwrap().into_iter();
     let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use log::info;
 use molar::prelude::*;
 
@@ -31,17 +31,17 @@ pub(super) fn command_rearrange(
 
     // Make selections
     info!("Rearranging file '{infile}'...");
-    let in_source = Source::serial_from_file(infile)?;
+    let in_source = System::from_file(infile)?;
     let begin_sels = begin
         .iter()
-        .map(|s| in_source.select(s).map_err(|e| anyhow!(e)))
-        .collect::<Result<Vec<Sel<MutableSerial>>>>()
+        .map(|s| in_source.select(s))
+        .collect::<Result<Vec<Sel>,_>>()
         .with_context(|| "can't create begin selections for rearranging")?;
 
     let end_sels = end
         .iter()
-        .map(|s| in_source.select(s).map_err(|e| anyhow!(e)))
-        .collect::<Result<Vec<Sel<MutableSerial>>>>()
+        .map(|s| in_source.select(s))
+        .collect::<Result<Vec<Sel>,_>>()
         .with_context(|| "can't create end selections for rearranging")?;
 
     // Check overlap of selections
@@ -62,7 +62,7 @@ pub(super) fn command_rearrange(
         .ok();
 
     // Create output builder
-    let out = Source::empty_builder();
+    let out = System::new_empty();
     // Add beginning selections
     for sel in begin_sels {
         out.append(&sel);

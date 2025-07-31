@@ -1,17 +1,17 @@
 use molar::prelude::*;
 use nalgebra::{DVector, SMatrix, SVector};
-use std::sync::Arc;
+use triomphe::Arc;
 
 use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule {
     // Lipid selections and markers
-    pub sel: Sel<ImmutableParallel>,
+    pub sel: Sel,
     pub species: Arc<LipidSpecies>,
-    pub head_sel: Sel<ImmutableParallel>,
-    pub mid_sel: Sel<ImmutableParallel>,
-    pub tail_end_sel: Sel<ImmutableParallel>,
-    pub tail_sels: Vec<Sel<ImmutableParallel>>,
+    pub head_sel: Sel,
+    pub mid_sel: Sel,
+    pub tail_end_sel: Sel,
+    pub tail_sels: Vec<Sel>,
     pub head_marker: Pos,
     pub mid_marker: Pos,
     pub tail_marker: Pos,
@@ -54,24 +54,40 @@ impl LipidMolecule {
         self.tail_sels.len()
     }
 
-    pub fn set_state(
+    pub fn set_state_from(
         &mut self,
-        st: impl Into<Holder<State, ImmutableParallel>>,
+        st: &impl Selectable,
     ) -> anyhow::Result<()> {
-        let st = st.into();
-
-        self.sel.set_state(st.new_ref())?;
-        self.head_sel.set_state(st.new_ref())?;
-        self.mid_sel.set_state(st.new_ref())?;
-        for t in &mut self.tail_sels {
-            t.set_state(st.new_ref())?;
+        self.sel.set_state_from(st)?;
+        self.head_sel.set_state_from(st)?;
+        self.mid_sel.set_state_from(st)?;
+        for t in &self.tail_sels {
+            t.set_state_from(st)?;
         }
         // Unwrap lipid
-        unsafe {
-            self.sel.as_other_kind(|sel: &mut Sel<MutableSerial>| {
-                sel.unwrap_simple().unwrap();
-            })
-        };
+        self.sel.unwrap_simple().unwrap();
+
+        // Update lipid markers
+        self.head_marker = self.head_sel.center_of_mass()?;
+        self.mid_marker = self.mid_sel.center_of_mass()?;
+        self.tail_marker = self.tail_end_sel.center_of_mass()?;
+        Ok(())
+    }
+
+    pub fn set_state(
+        &mut self,
+        st: impl Into<Arc<State>>,
+    ) -> anyhow::Result<()> {
+        let st: Arc<State> = st.into();
+
+        self.sel.set_state(Arc::clone(&st))?;
+        self.head_sel.set_state(Arc::clone(&st))?;
+        self.mid_sel.set_state(Arc::clone(&st))?;
+        for t in &self.tail_sels {
+            t.set_state(Arc::clone(&st))?;
+        }
+        // Unwrap lipid
+        self.sel.unwrap_simple().unwrap();
 
         // Update lipid markers
         self.head_marker = self.head_sel.center_of_mass()?;

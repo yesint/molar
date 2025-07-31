@@ -66,7 +66,7 @@ impl NdxFile {
         Ok(self.groups.get(gr).ok_or_else(|| NdxError::NoGroup(gr.to_owned()))?)
     }
 
-    pub fn get_group_as_sel<K: UserCreatableKind>(&self, name: impl AsRef<str>, src: &Source<K>) -> Result<Sel<K>, SelectionError> {
+    pub fn get_group_as_sel(&self, name: impl AsRef<str>, src: &System) -> Result<Sel, SelectionError> {
         let gr = name.as_ref();
         let ind = self.groups.get(gr).ok_or_else(|| NdxError::NoGroup(gr.to_owned()))?;
         Ok(src.select(ind)?)

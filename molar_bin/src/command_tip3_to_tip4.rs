@@ -10,18 +10,18 @@ pub(crate) fn command_tip3_to_tip4(
     outfile: &str
 ) -> Result<()> {
     info!("Loading file '{file}'...");
-    let inp = Source::serial_from_file(file)?;
+    let inp = System::from_file(file)?;
 
     // Make output system
-    let out = Source::empty_builder();
+    let out = System::new_empty();
 
     // Select water
     let water = inp.select("resname TIP3")?;
 
     // For correct re-assembly of the system
     // select what is before and what is after water
-    let w_first = water.first_index();
-    let w_last = water.last_index();
+    let w_first = water.get_first_index();
+    let w_last = water.get_last_index();
 
     let sel_before = inp.select(0..w_first)?;
     let sel_after = inp.select(w_last+1..inp.len())?;
@@ -30,7 +30,7 @@ pub(crate) fn command_tip3_to_tip4(
     out.append(&sel_before);
 
     // Now go over water molecules one by one                   
-    for mol in water.split_resindex_into_iter() {
+    for mol in water.split_resindex_iter() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
@@ -56,7 +56,7 @@ pub(crate) fn command_tip3_to_tip4(
         
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms(
+        out.append_atoms_pos(
             mol.iter_atoms().cloned().chain(iter::once(m_at)),
             mol.iter_pos().cloned().chain(iter::once(m_pos)),
         );

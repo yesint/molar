@@ -41,7 +41,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
     }
 
     fn process_frame(&mut self, context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
-        self.membr.set_state(unsafe{context.src.get_state_as_kind()})?;
+        self.membr.set_state_from(&context.src)?;
 
         // if context.consumed_frames == 500 {
         //     context.src.save("0.gro")?;

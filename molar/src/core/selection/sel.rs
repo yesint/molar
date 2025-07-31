@@ -1,659 +1,176 @@
-use crate::prelude::*;
-use itertools::Itertools;
-use molar_powersasa::SasaResults;
-use sorted_vec::SortedSet;
-use std::collections::HashMap;
+use crate::{
+    core::selection::sel::private::{AllowsSelecting, SelectionPrivate},
+    prelude::*,
+};
+use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
+use std::{marker::PhantomData, path::Path};
+use triomphe::Arc;
 
-use super::{next_split, utils::*, SplitData};
+// Private module containing internal methods implemented by all selection types
+mod private {
+    use crate::core::{SVec, State, Topology};
+    use triomphe::Arc;
 
-//═══════════════════
-//███  Selection
-//═══════════════════
+    // Trait for things that allow creating selections from them
+    //(System, Sel, SelPar)
+    pub trait AllowsSelecting {
+        fn topology_arc(&self) -> &Arc<Topology>;
+        fn state_arc(&self) -> &Arc<State>;
+        fn index_slice(&self) -> Option<&[usize]>;
+    }
 
-/// Selection type that acts as a view into given set of indexes from [Topology] and [State].
-/// Selections allow to query various properties of the groups of atoms and to
-/// change them in different ways.
-///
-/// # Kinds of selections
-/// There are four kinds of selections set by the generic marker parameter:
-/// ### Serial mutable ([MutableSerial])
-/// * May overlap.
-/// * Mutable.
-/// * Could only be accessed from the same thread where they were created (they are neither [Send] nor [Sync]).
-/// ### Builder selections ([BuilderSerial])
-/// * May overlap.
-/// * Mutable.
-/// * Could only be accessed from the same thread where they were created (they are neither [Send] nor [Sync]).
-/// * Should be used together with `[Source::<BuilderSerial>]` to add or delete atoms from the system 
-/// (other selection kinds don't allow this). 
-/// <section class="warning">
-/// This selection kind involves additional checks to ensure that selection
-/// indexes are valid after potential deletion of atoms, so marginally slower than other selection kinds.
-/// </section>
-/// ### Parallel immutable ([ImmutableParallel])
-/// * May overlap.
-/// * Immutable.
-/// * Could be processed in parallel from multiple threads and sent between threads.
-/// ### Parallel mutable ([MutableParallel])
-/// * _Can't_ overlap
-/// * Mutable
-/// * Could be processed in parallel from multiple threads and sent between threads.
-/// * Can't be created directly. Obtained by splitting MutableSerial selections only.
-///
-/// Immutable selections implement the traits that allow to query properties, while
-/// mutable also implement traits that allow to modify atoms and coordinates.
-///
-/// # Subselections
-/// It is possible to select within existing selection using `subsel` methods.
+    // Internal trait for selections
+    pub trait SelectionPrivate: AllowsSelecting {
+        fn index_arc(&self) -> &Arc<SVec>;
 
-#[derive(Debug)]
-pub struct Sel<K> {
-    topology: Holder<Topology, K>,
-    state: Holder<State, K>,
-    index_storage: SortedSet<usize>,
+        // Calling new is forbidden for users, thus it is in the private trait
+        fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+        where
+            Self: Sized;
+    }
 }
 
-//══════════════════════════════════════════════
-//███  Functions shared by all selection kinds
-//══════════════════════════════════════════════
+//----------------------------------------------------------
+// Trait for things that can provide refs to Topology and State
+// (for implementing analysis traits, both Systems and Selections)
+pub trait HasTopState: LenProvider + IndexProvider {
+    fn get_topology(&self) -> &Topology;
+    fn get_state(&self) -> &State;
+}
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━
-//       Public API
-//━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// Trait for things that supports selecting atoms (Systems and Selections)
+pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
+    type DerivedSel: private::SelectionPrivate;
 
-impl<K: SelectionKind> Sel<K> {
-    #[inline(always)]
-    pub(super) fn index(&self) -> &SortedSet<usize> {
-        self.validate_index().unwrap();
-        &self.index_storage
-    }
-
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        // We need to validate index here manually
-        self.validate_index().unwrap();
-        self.index_storage.len()
-    }
-
-    //=================================
-    // Getters, Setters and Accessors
-    //=================================
-
-    /// Returns reference to index vector.
-    pub fn get_index_vec(&self) -> &SortedSet<usize> {
-        &self.index()
-    }
-
-    pub fn first_index(&self) -> usize {
-        self.index()[0]
-    }
-
-    pub fn last_index(&self) -> usize {
-        self.index()[self.index().len() - 1]
-    }
-
-    pub fn get_index(&self, i: usize) -> Option<usize> {
-        self.index().get(i).cloned()
-    }
-    
-    /// Get a Particle for the last selection index.
-    pub fn last_particle(&self) -> Particle {
-        unsafe { self.get_particle_unchecked(self.index().len() - 1) }
-    }
-
-    pub fn get_topology(&self) -> Holder<Topology, K> {
-        unsafe {self.topology.new_ref_with_kind()}
-    }
-
-    pub fn get_state(&self) -> Holder<State, K> {
-        unsafe {self.state.new_ref_with_kind()}
-    }
-
-    pub fn set_topology(
-        &mut self,
-        topology: impl Into<Holder<Topology, K>>,
-    ) -> Result<Holder<Topology, K>, SelectionError> {
-        let topology = topology.into();
-        if !self.topology.interchangeable(&topology) {
+    fn set_topology(
+        &self,
+        topology: impl Into<Arc<Topology>>,
+    ) -> Result<Arc<Topology>, SelectionError> {
+        let topology: Arc<Topology> = topology.into();
+        if !self.topology_arc().interchangeable(&topology) {
             return Err(SelectionError::IncompatibleState);
         }
-        Ok(std::mem::replace(&mut self.topology, topology))
+        let p = self.topology_arc() as *const Arc<Topology> as *mut Arc<Topology>;
+        unsafe { Ok(std::ptr::replace(p, topology)) }
     }
 
     /// Sets new [State] in [Sel].
     /// This is "shallow" operation, which doesn't affect other
     /// [Sel]s that point to the same [State].
-    pub fn set_state(
-        &mut self,
-        state: impl Into<Holder<State, K>>,
-    ) -> Result<Holder<State, K>, SelectionError> {
-        let state: Holder<State,K> = state.into();
-        if !self.state.interchangeable(&state) {
+    fn set_state(&self, state: impl Into<Arc<State>>) -> Result<Arc<State>, SelectionError> {
+        let state: Arc<State> = state.into();
+        if !self.state_arc().interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);
         }
-        Ok(std::mem::replace(&mut self.state, state))
+        let p = self.state_arc() as *const Arc<State> as *mut Arc<State>;
+        unsafe { Ok(std::ptr::replace(p, state)) }
     }
 
-    pub unsafe fn as_other_kind<KO: SelectionKind>(&mut self, mut op: impl FnMut(&mut Sel<KO>)) {
-        let mut sel = std::mem::transmute::<&mut Sel<K>,&mut Sel<KO>>(self);
-        op(&mut sel);
-    }
-}
-
-impl<K: UserCreatableKind> Sel<K> {
-    pub fn set_same_name(&self, val: &str) {
-        for a in self.iter_atoms_mut() {
-            a.name = val.into();
-        }
+    fn set_state_from(&self, other: &impl Selectable) -> Result<Arc<State>, SelectionError> {
+        let cloned_arc = Arc::clone(other.state_arc());
+        Ok(self.set_state(cloned_arc)?)
     }
 
-    pub fn set_same_resname(&self, val: &str) {
-        for a in self.iter_atoms_mut() {
-            a.resname = val.into();
-        }
-    }
-
-    pub fn set_same_resid(&self, val: i32) {
-        for a in self.iter_atoms_mut() {
-            a.resid = val;
-        }
-    }
-
-    pub fn set_same_chain(&self, val: char) {
-        for a in self.iter_atoms_mut() {
-            a.chain = val;
-        }
-    }
-
-    pub fn set_same_mass(&self, val: f32) {
-        for a in self.iter_atoms_mut() {
-            a.mass = val;
-        }
-    }
-
-    pub fn set_same_bfactor(&self, val: f32) {
-        for a in self.iter_atoms_mut() {
-            a.bfactor = val;
-        }
-    }
-}
-
-//──────────────────────────
-//      Private API
-//──────────────────────────
-
-impl<K: SelectionKind> Sel<K> {
-    pub(super) unsafe fn into_other_kind<KO: UserCreatableKind>(self) -> Sel<KO> {
-        Sel {
-            topology: self.topology.new_ref_with_kind(),
-            state: self.state.new_ref_with_kind(),
-            index_storage: self.index_storage,
-        }
-    }
-
-    #[inline(always)]
-    fn validate_index(&self) -> Result<(), SelectionError> {
-        K::validate_index(&self.index_storage, &self.topology, &self.state)
-    }
-
-    // This method doesn't check if the vector is sorted and has duplicates and thus unsafe
-    pub(super) unsafe fn subsel_from_sorted_vec_unchecked<KO: SelectionKind>(
-        &self,
-        index: Vec<usize>,
-    ) -> Result<Sel<KO>, SelectionError> {
-        if index.len() > 0 {
-            Ok(Sel {
-                topology: self.topology.new_ref_with_kind(),
-                state: self.state.new_ref_with_kind(),
-                index_storage: SortedSet::from_sorted(index),
-            })
-        } else {
-            Err(SelectionError::FromVec {
-                first: index[0],
-                last: index[index.len() - 1],
-                size: index.len(),
-                source: SelectionIndexError::IndexEmpty,
-            })
-        }
-    }
-
-    pub(super) unsafe fn subsel_from_unsorted_vec_unchecked<KO: SelectionKind>(
-        &self,
-        index: Vec<usize>,
-    ) -> Result<Sel<KO>, SelectionError> {
-        if index.len() > 0 {
-            Ok(Sel {
-                topology: self.topology.new_ref_with_kind(),
-                state: self.state.new_ref_with_kind(),
-                index_storage: SortedSet::from_unsorted(index),
-            })
-        } else {
-            Err(SelectionError::FromVec {
-                first: index[0],
-                last: index[index.len() - 1],
-                size: index.len(),
-                source: SelectionIndexError::IndexEmpty,
-            })
-        }
-    }
-
-    pub(super) fn from_holders_and_index(
-        top_holder: Holder<Topology, K>,
-        st_holder: Holder<State, K>,
-        index: SortedSet<usize>,
-    ) -> Result<Self, SelectionError> {
-        let sel = Sel {
-            topology: top_holder,
-            state: st_holder,
-            index_storage: index,
-        };
-        sel.validate_index()?;
-        Ok(sel)
-    }
-}
-
-//══════════════════════════════════════════════
-//███  Functions shared by user creatable kinds
-//══════════════════════════════════════════════
-
-//──────────────────────────
-//      Private API
-//──────────────────────────
-
-impl<K: UserCreatableKind> Sel<K> {
-    // Helper splitting function doing actual work
-    fn split_collect_internal<RT, F, C, KO>(&self, func: F) -> Result<C, SelectionError>
+    // Sub-selection
+    fn select(&self, def: impl SelectionDef) -> Result<Self::DerivedSel, SelectionError>
     where
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> Option<RT>,
-        C: FromIterator<Sel<KO>> + Default,
-        KO: SelectionKind,
+        Self: Sized,
     {
-        self.validate_index()?;
-        let mut values = HashMap::<RT, Vec<usize>>::default();
+        use private::SelectionPrivate;
 
-        for p in self.iter_particle() {
-            let i = p.id;
-            if let Some(val) = func(p) {
-                if let Some(el) = values.get_mut(&val) {
-                    el.push(i);
-                } else {
-                    values.insert(val, vec![i]);
-                }
-            }
-        }
-
-        Ok(C::from_iter(
-            values
-                .into_values()
-                .map(|ind| unsafe { self.subsel_from_unsorted_vec_unchecked(ind).unwrap() }),
-            // This should never fail because `ind` can't be empty and can't contain duplicates
+        let ind = def.into_sel_index(self.topology_arc(), self.state_arc(), self.index_slice())?;
+        Ok(Self::DerivedSel::new_sel(
+            Arc::clone(&self.topology_arc()),
+            Arc::clone(&self.state_arc()),
+            Arc::new(ind),
         ))
     }
 
-    fn split_par_contig_internal<F, RT>(
-        &self,
-        split_fn: F,
-    ) -> Result<Vec<Sel<MutableParallel>>, SelectionError>
+    // Parallel split
+    fn split_par<F, R>(&self, func: F) -> Result<ParSplit, SelectionError>
     where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
+        F: Fn(Particle) -> Option<R>,
+        R: Default + PartialOrd,
+        Self: Sized,
     {
-        let mut data = SplitData {
-            func: split_fn,
-            cur: 0,
-            val: RT::default(),
+        let selections: Vec<SelPar> = split_iter_as(self, func).collect();
+
+        if selections.is_empty() {
+            return Err(SelectionError::EmptySplit);
+        }
+
+        Ok(ParSplit {
+            selections,
+            _phantom: Default::default(),
+        })
+    }
+
+    // Serial split
+    fn split_iter<RT, F>(&self, func: F) -> impl Iterator<Item = Self::DerivedSel>
+    where
+        RT: Default + std::cmp::PartialEq,
+        F: Fn(Particle) -> Option<RT>,
+        Self: Sized,
+        Self::DerivedSel: Selectable,
+    {
+        split_iter_as(self, func)
+    }
+
+    fn split_resindex_iter(&self) -> impl Iterator<Item = Self::DerivedSel>
+    where
+        Self: Sized,
+    {
+        split_iter_as(self, |p| Some(p.atom.resindex))
+    }
+
+    // Split by molecule
+    fn split_mol_iter(&self) -> impl Iterator<Item = Self::DerivedSel>
+    where
+        Self: Sized,
+    {
+        // Iterate over molecules and find those inside selection
+        let (first, last) = match self.index_slice() {
+            Some(ind) => (*ind.first().unwrap(), *ind.last().unwrap()),
+            None => (0, self.len()),
         };
 
-        let mut parts = vec![];
-        while let Some(part) = next_split(&mut data, self) {
-            parts.push(part);
-        }
-        Ok(parts)
-    }
-}
+        let mut molid = 0;
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━
-//       Public API
-//━━━━━━━━━━━━━━━━━━━━━━━━━━
+        let next_fn = move || {
+            if self.topology_arc().num_molecules() == 0 {
+                return None;
+            }
 
-impl<K: UserCreatableKind> Sel<K> {
-    //============================
-    // Splitting
-    //============================
-
-    // Naming convention is
-    // split[_into][_<property>][_[par_]iter]
-
-    //----------------------
-    // Consuming splitters
-    //----------------------
-
-    /// Splits selection to pieces that could be disjoint
-    /// according to the value of function. Parent selection is consumed.    
-    ///
-    /// The number of selections correspond to the distinct values returned by `func`.
-    /// Selections are stored in a container `C` and has the same kind as parent selection.
-    pub fn split_into<RT, F, C>(self, func: F) -> Result<C, SelectionError>
-    where
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> Option<RT>,
-        C: FromIterator<Sel<K>> + Default,
-    {
-        self.split_collect_internal(func)
-    }
-
-    /// Helper method that splits selection into the parts with distinct resids.
-    /// Parent selection is consumed.
-    pub fn split_resid_into<C>(self) -> Result<C, SelectionError>
-    where
-        C: FromIterator<Sel<K>> + Default,
-    {
-        self.split_collect_internal(|p| Some(p.atom.resid))
-    }
-
-    /// Return iterator that splits selection into contigous pieces according to the value of function.
-    /// Consumes a selection and returns selections of the same kind.
-    ///
-    /// Whenever `func` returns a value different from the previous one, new selection is created.
-    /// Selections are computed lazily when iterating.
-    pub fn split_into_iter<RT, F>(self, func: F) -> IntoFragmentsIterator<RT, F, K>
-    where
-        RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> Option<RT>,
-    {
-        IntoFragmentsIterator::new(self, func)
-    }
-
-    /// Return iterator over contigous pieces of selection with distinct contigous resids.
-    /// Parent selection is consumed.
-    pub fn split_resindex_into_iter(
-        self,
-    ) -> IntoFragmentsIterator<usize, impl Fn(Particle) -> Option<usize>, K> {
-        self.split_into_iter(|p| Some(p.atom.resindex))
-    }
-
-    pub fn split_chain_into_iter(
-        self,
-    ) -> IntoFragmentsIterator<char, impl Fn(Particle) -> Option<char>, K> {
-        self.split_into_iter(|p| Some(p.atom.chain))
-    }
-
-    pub fn split_mol_into<C>(self) -> Result<C, SelectionError>
-    where
-        C: FromIterator<Sel<K>> + Default,
-    {
-        // Error if no molecules
-        if self.topology.num_molecules() == 0 {
-            return Err(SelectionError::NoMolecules);
-        }
-
-        // Iterate over molecules and find those inside selection
-        let first = self.first_index();
-        let last = self.last_index();
-
-        Ok(self
-            .topology
-            .iter_molecules()
-            .cloned()
-            .filter_map(|[b, e]| {
-                if b < first && e >= first && e <= last {
-                    // molecule starts before Sel
-                    Some(0..=e - first)
-                } else if b >= first && e <= last {
-                    // molecule inside Sel
-                    Some(b - first..=e - first)
-                } else if b >= first && b <= last && e > last {
-                    // molecule ends after Sel
-                    Some(b - first..=last - first)
-                } else {
-                    None
+            let res = match self.get_molecule(molid) {
+                Some(mol) => {
+                    let b = mol[0];
+                    let e = mol[1];
+                    if b < first && e >= first && e <= last {
+                        // molecule starts before Sel
+                        Some(0..=e - first)
+                    } else if b >= first && e <= last {
+                        // molecule inside Sel
+                        Some(b - first..=e - first)
+                    } else if b >= first && b <= last && e > last {
+                        // molecule ends after Sel
+                        Some(b - first..=last - first)
+                    } else {
+                        None
+                    }
                 }
-            })
-            .map(|r| self.subsel(r))
-            .collect::<Result<C, SelectionError>>()?)
+                None => None,
+            }
+            .map(|r| self.select(r).unwrap());
+
+            molid += 1;
+            res
+        };
+
+        std::iter::from_fn(next_fn)
     }
 
-    //--------------------------
-    // Non-consuming splitters
-    //-------------------------
-
-    /// Splits selection to pieces that could be disjoint
-    /// according to the value of function. Parent selection is kept intact.
-    ///
-    /// The number of selections correspond to the distinct values returned by `func`.
-    /// Selections are stored in a container `C` and has the same kind as subselections.
-    pub fn split<RT, F, C>(&self, func: F) -> Result<C, SelectionError>
-    where
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-        F: Fn(Particle) -> Option<RT>,
-        C: FromIterator<Sel<K>> + Default,
-    {
-        self.split_collect_internal(func)
-    }
-
-    /// Helper method that splits selection into the parts with distinct resids.
-    /// Parent selection is left alive.
-    pub fn split_resid<C>(&self) -> Result<C, SelectionError>
-    where
-        C: FromIterator<Sel<K>> + Default,
-    {
-        self.split_collect_internal(|p| Some(p.atom.resid))
-    }
-
-    /// Helper method that splits selection into the parts with distinct resindexes.
-    /// Parent selection is left alive.
-    pub fn split_resindex<C>(&self) -> Result<C, SelectionError>
-    where
-        C: FromIterator<Sel<K>> + Default,
-    {
-        self.split_collect_internal(|p| Some(p.atom.resindex))
-    }
-
-    /// Return serial iterator that splits selection into contigous pieces according to the value of function.
-    /// Selection is not consumed.
-    ///
-    /// Whenever `func` returns `Some(value)` different from the previous one, new selection is created.
-    /// If `func` returns `None` the atom is skipped and do not added to new selection.
-    /// Selections are computed lazily when iterating.
-    pub fn split_iter<'a, RT, F>(
-        &'a self,
-        func: F,
-    ) -> Result<FragmentsIterator<'a, RT, F, K>, SelectionError>
-    where
-        RT: Default + std::cmp::PartialEq,
-        F: Fn(Particle) -> Option<RT> + 'a,
-    {
-        self.validate_index()?;
-        Ok(FragmentsIterator::new(self, func))
-    }
-
-    /// Return serial iterator over contigous pieces of selection with distinct contigous resids.
-    /// Parent selection is left alive.
-    pub fn split_resindex_iter<'a>(
-        &'a self,
-    ) -> Result<
-        FragmentsIterator<'a, usize, impl Fn(Particle) -> Option<usize> + 'a, K>,
-        SelectionError,
-    > {
-        self.split_iter(|p| Some(p.atom.resindex))
-    }
-
-    pub fn split_molecules_iter(&self) -> Result<MoleculesIterator<K>, SelectionError> {
-        Ok(MoleculesIterator { sel: self, cur: 0 })
-    }
-
-    //============================
-    // Misceleneous
-    //============================
-
-    /// Tests if two selections are from the same source
-    pub fn is_same_source(&self, other: &Sel<K>) -> bool {
-        self.topology.same_data(&other.topology) && self.state.same_data(&other.state)
-    }
-
-    /// Computes the Solvet Accessible Surface Area (SASA).
-    pub fn sasa(&self) -> SasaResults {
-        molar_powersasa::compute_sasa(
-            self.len(),
-            0.14,
-            |i| unsafe {
-                let ind = *self.index().get_unchecked(i);
-                self.state.get_pos_mut_unchecked(ind).coords.as_mut_ptr()
-            },
-            |i: usize| self.get_particle(i).unwrap().atom.vdw(),
-        )
-    }
-
-    //===================
-    // Subselections
-    //===================
-
-    /// Subselection from expression
-    pub fn subsel(&self, def: impl SelectionDef) -> Result<Sel<K>, SelectionError> {
-        Self::from_holders_and_index(
-            unsafe {self.topology.new_ref_with_kind()},
-            unsafe {self.state.new_ref_with_kind()},
-            def.into_sel_index(&self.topology, &self.state, Some(self.index().as_slice()))?,
-        )
-    }
-
-    //==============================================
-    // Direct creation of selections without Source
-    //==============================================
-    pub fn new(
-        topology: impl Into<Holder<Topology, K>>,
-        state: impl Into<Holder<State, K>>,
-        def: impl SelectionDef,
-    ) -> Result<Self, SelectionError> {
-        let topology = topology.into();
-        let state = state.into();
-        check_topology_state_sizes(&topology, &state)?;
-        Self::from_holders_and_index(
-            unsafe {topology.new_ref_with_kind()},
-            unsafe {state.new_ref_with_kind()},
-            def.into_sel_index(&topology, &state, None)?,
-        )
-    }
-
-    /// Selects all
-    pub fn new_all(
-        topology: impl Into<Holder<Topology, K>>,
-        state: impl Into<Holder<State, K>>,
-    ) -> Result<Self, SelectionError> {
-        let topology = topology.into();
-        let state = state.into();
-        check_topology_state_sizes(&topology, &state)?;
-        Self::from_holders_and_index(
-            unsafe {topology.new_ref_with_kind()},
-            unsafe {state.new_ref_with_kind()},
-            unsafe { SortedSet::from_sorted((0..topology.len()).collect()) },
-        )
-    }
-
-    //==============================================
-    // Logic on selections that modify existing ones
-    //==============================================
-    pub fn add(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
-        self.index_storage.extend(
-            other
-                .into_sel_index(&self.topology, &self.state, None)?
-                .iter()
-                .cloned(),
-        );
-        self.validate_index()?;
-        Ok(())
-    }
-
-    pub fn remove_global(&mut self, other: impl SelectionDef) -> Result<(), SelectionError> {
-        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
-        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(
-            other
-                .into_sel_index(&self.topology, &self.state, None)?
-                .iter()
-                .cloned(),
-        );
-        let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
-        self.index_storage = SortedSet::from_unsorted(v);
-        Ok(())
-    }
-
-    pub fn remove_local(&mut self, other: impl IntoIterator<Item = usize>) {
-        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
-        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(other);
-        let v: Vec<usize> = lhs
-            .difference(&rhs)
-            .map(|i| self.index_storage[*i])
-            .collect();
-        self.index_storage = SortedSet::from_unsorted(v);
-    }
-
-    pub fn invert(&mut self) {
-        let lhs = rustc_hash::FxHashSet::<usize>::from_iter(0..self.len());
-        let rhs = rustc_hash::FxHashSet::<usize>::from_iter(self.iter_index());
-        let v: Vec<usize> = lhs.difference(&rhs).cloned().collect();
-        self.index_storage = SortedSet::from_unsorted(v);
-    }
-
-    //==============================================
-    // Logic on selections that create new ones
-    //==============================================
-
-    pub fn union<KO: UserCreatableKind>(&self, other: &Sel<KO>) -> Self {
-        let ind = union_sorted(self.index(), other.index());
-        Self {
-            topology: unsafe {self.topology.new_ref_with_kind()},
-            state: unsafe {self.state.new_ref_with_kind()},
-            index_storage: ind,
-        }
-    }
-
-    pub fn intersection<KO: UserCreatableKind>(
-        &self,
-        other: &Sel<KO>,
-    ) -> Result<Self, SelectionError> {
-        let ind = intersection_sorted(self.index(), other.index());
-        if ind.is_empty() {
-            return Err(SelectionError::EmptyIntersection);
-        }
-        Ok(Self {
-            topology: unsafe {self.topology.new_ref_with_kind()},
-            state: unsafe {self.state.new_ref_with_kind()},
-            index_storage: ind,
-        })
-    }
-
-    pub fn difference<KO: UserCreatableKind>(
-        &self,
-        other: &Sel<KO>,
-    ) -> Result<Self, SelectionError> {
-        let ind = difference_sorted(self.index(), other.index());
-        if ind.is_empty() {
-            return Err(SelectionError::EmptyDifference);
-        }
-        Ok(Self {
-            topology: unsafe {self.topology.new_ref_with_kind()},
-            state: unsafe {self.state.new_ref_with_kind()},
-            index_storage: ind,
-        })
-    }
-
-    pub fn complement(&self) -> Result<Self, SelectionError> {
-        let ind = difference_sorted(
-            unsafe { &SortedSet::from_sorted((0..self.topology.len()).collect()) },
-            self.index(),
-        );
-        if ind.is_empty() {
-            return Err(SelectionError::EmptyComplement);
-        }
-        Ok(Self {
-            topology: unsafe {self.topology.new_ref_with_kind()},
-            state: unsafe {self.state.new_ref_with_kind()},
-            index_storage: ind,
-        })
-    }
-
-    pub fn to_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+    fn to_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+        use itertools::Itertools;
         let name = name.as_ref();
         let mut s = format!("[ {} ]\n", name);
         for chunk in &self.iter_index().chunks(15) {
@@ -664,401 +181,793 @@ impl<K: UserCreatableKind> Sel<K> {
         s
     }
 
-    pub fn from_gromacs_ndx_str(
-        topology: &Holder<Topology, K>,
-        state: &Holder<State, K>,
-        ndx_str: impl AsRef<str>,
-        group_name: impl AsRef<str>,
-    ) -> Result<Self, SelectionError> {
-        let group_name = group_name.as_ref();
-        let ndx_str = ndx_str.as_ref();
+    fn set_same_name(&self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.name = val.into();
+        }
+    }
 
-        // Find the group header
-        let group_header = format!("[ {} ]", group_name);
-        let mut found_group = false;
-        let mut numbers = Vec::new();
+    fn set_same_resname(&self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resname = val.into();
+        }
+    }
 
-        for line in ndx_str.lines() {
-            let line = line.trim();
+    fn set_same_resid(&self, val: i32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resid = val;
+        }
+    }
 
-            if line == group_header {
-                found_group = true;
-                continue;
-            }
+    fn set_same_chain(&self, val: char)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.chain = val;
+        }
+    }
 
-            // If we hit another group header, stop reading
-            if found_group && line.starts_with('[') {
-                break;
-            }
+    fn set_same_mass(&self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.mass = val;
+        }
+    }
 
-            // Parse numbers if we're in the right group
-            if found_group && !line.is_empty() {
-                numbers.extend(
-                    line.split_whitespace()
-                        .map(|s| s.parse::<usize>())
-                        .map_ok(|i| i - 1) // Convert to zero-based
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|e| NdxError::Parse(group_name.into(), e))?,
-                );
+    fn set_same_bfactor(&self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.bfactor = val;
+        }
+    }
+}
+
+// Public trait for selections
+pub trait Selection: private::SelectionPrivate + Selectable {
+    fn get_index(&self) -> &[usize] {
+        self.index_slice().unwrap()
+    }
+
+    fn get_first_index(&self) -> usize {
+        *self.index_slice().unwrap().first().unwrap()
+    }
+
+    fn get_last_index(&self) -> usize {
+        *self.index_slice().unwrap().last().unwrap()
+    }
+
+    fn new_view(&self) -> Sel {
+        Sel::new_sel(
+            Arc::clone(self.topology_arc()),
+            Arc::clone(self.state_arc()),
+            Arc::clone(self.index_arc()),
+        )
+    }
+
+    fn whole_attr<T>(&self, attr_fn: fn(&Atom) -> &T) -> Self::DerivedSel
+    where
+        T: Eq + std::hash::Hash + Copy,
+        Self: Sized,
+    {
+        // Collect all properties from the inner
+        let mut properties = std::collections::HashSet::<T>::new();
+        for at in self.iter_atoms() {
+            properties.insert(*attr_fn(at));
+        }
+
+        let mut ind = vec![];
+        // Loop over all atoms with the same property
+        for (i, at) in self.get_topology().iter_atoms().enumerate() {
+            let cur_prop = attr_fn(at);
+            if properties.contains(cur_prop) {
+                ind.push(i);
             }
         }
 
-        if !found_group {
-            return Err(NdxError::NoGroup(group_name.into()))?;
-        }
+        Self::DerivedSel::new_sel(
+            Arc::clone(&self.topology_arc()),
+            Arc::clone(&self.state_arc()),
+            Arc::new(unsafe { SVec::from_sorted(ind) }),
+        )
+    }
 
-        if numbers.is_empty() {
-            return Err(NdxError::EmptyGroup(group_name.into()))?;
-        }
+    fn whole_residues(&self) -> Self::DerivedSel
+    where
+        Self: Sized,
+    {
+        self.whole_attr(|at| &at.resindex)
+    }
 
-        // Create and return new selection
-        Self::from_holders_and_index(
-            unsafe {topology.new_ref_with_kind()},
-            unsafe {state.new_ref_with_kind()},
-            numbers.into(),
+    fn whole_chains(&self) -> Self::DerivedSel
+    where
+        Self: Sized,
+    {
+        self.whole_attr(|at| &at.chain)
+    }
+
+    /// Computes the Solvet Accessible Surface Area (SASA).
+    fn sasa(&self) -> SasaResults
+    where
+        Self: Sized,
+    {
+        molar_powersasa::compute_sasa(
+            self.len(),
+            0.14,
+            |i| unsafe {
+                let ind = *self.index_arc().get_unchecked(i);
+                self.state_arc()
+                    .get_pos_mut_unchecked(ind)
+                    .coords
+                    .as_mut_ptr()
+            },
+            |i: usize| self.get_particle(i).unwrap().atom.vdw(),
         )
     }
 }
 
-impl<K: SerialKind> Sel<K> {
-    //---------------------------------------------------------
-    // Splitting into parallel selections (non-consuming)
-    //---------------------------------------------------------
-
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces may not be contigous and are arranged in random order.
-    /// Parent selection is kept intact.
-    ///
-    /// Each produced selection correspond to the distinct values returned by `split_fn`.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_collect_internal(split_fn)?,
-            _marker: Default::default(),
-        })
+impl<T: Selectable> HasTopState for T {
+    fn get_topology(&self) -> &Topology {
+        self.topology_arc()
     }
 
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces are contigous and are arranged in order of appearance.
-    /// Parent selection is kept intact.
-    ///
-    /// New selection starts when `split_fn` returns a value different from the previous one.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_par_contig_internal(split_fn)?,
-            _marker: Default::default(),
-        })
+    fn get_state(&self) -> &State {
+        self.state_arc()
     }
 }
 
-impl Sel<ImmutableParallel> {
-    //---------------------------------------------------------
-    // Splitting into parallel selections (non-consuming)
-    //---------------------------------------------------------
+// Internal splitting function
+fn split_iter_as<RT, F, S, SO>(sel: &S, func: F) -> impl Iterator<Item = SO> + use<'_, RT, F, S, SO>
+where
+    RT: Default + std::cmp::PartialEq,
+    F: Fn(Particle) -> Option<RT>,
+    S: Selectable,
+    SO: private::SelectionPrivate,
+{
+    let mut cur_val = RT::default();
+    let mut cur = 0usize;
 
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces may not be contigous and are arranged in random order.
-    /// Parent selection is kept intact.
-    ///
-    /// Each produced selection correspond to the distinct values returned by `split_fn`.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub unsafe fn split_par_disjoint<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_collect_internal(split_fn)?,
-            _marker: Default::default(),
-        })
-    }
+    let next_fn = move || {
+        let mut index = Vec::<usize>::new();
 
-    /// Splits selection to pieces that could be processed in parallel.
-    /// Pieces are contigous and are arranged in order of appearance.
-    /// Parent selection is kept intact.
-    ///
-    /// New selection starts when `split_fn` returns a value different from the previous one.
-    /// Selections are stored in a special container [ParallelSplit].
-    pub unsafe fn split_par_contig<F, RT>(&self, split_fn: F) -> Result<ParallelSplit, SelectionError>
-    where
-        F: Fn(Particle) -> Option<RT>,
-        RT: Default + std::hash::Hash + std::cmp::Eq,
-    {
-        Ok(ParallelSplit {
-            parts: self.split_par_contig_internal(split_fn)?,
-            _marker: Default::default(),
-        })
-    }
+        while cur < sel.len() {
+            let p = unsafe { sel.get_particle_unchecked(cur) };
+            let id = p.id;
+            let val = func(p);
 
+            if let Some(val) = val {
+                if val == cur_val {
+                    // Current selection continues. Add current index
+                    index.push(id);
+                } else if index.is_empty() {
+                    // The very first id is not default, this is Ok, add index
+                    // and update self.id
+                    cur_val = val;
+                    index.push(id);
+                } else {
+                    // The end of current selection
+                    cur_val = val; // Update val for the next selection
+                    return Some(SO::new_sel(
+                        Arc::clone(sel.topology_arc()),
+                        Arc::clone(sel.state_arc()),
+                        Arc::new(unsafe { SVec::from_sorted(index) }),
+                    ));
+                }
+            }
+            // Next particle
+            cur += 1;
+        }
+
+        // Return any remaining index as last selection
+        if !index.is_empty() {
+            return Some(SO::new_sel(
+                Arc::clone(sel.topology_arc()),
+                Arc::clone(sel.state_arc()),
+                Arc::new(unsafe { SVec::from_sorted(index) }),
+            ));
+        }
+
+        // If we are here stop iterating
+        None
+    };
+
+    std::iter::from_fn(next_fn)
 }
 
-//══════════════════════════════════════════════
-//███  Iterator over Particles
-//══════════════════════════════════════════════
-/// Iterator over [particles](Particle) in selection
-pub struct SelectionIterator<'a, K: SelectionKind> {
-    sel: &'a Sel<K>,
-    cur: usize,
+//-----------------------------------------
+
+macro_rules! impl_selection {
+    ($t:ty, $d:ident) => {
+        impl Selectable for $t {
+            type DerivedSel = $d;
+        }
+
+        impl private::AllowsSelecting for $t {
+            fn index_slice(&self) -> Option<&[usize]> {
+                Some(&self.index_storage)
+            }
+
+            fn state_arc(&self) -> &Arc<State> {
+                &self.state
+            }
+
+            fn topology_arc(&self) -> &Arc<Topology> {
+                &self.topology
+            }
+        }
+
+        impl LenProvider for $t {
+            fn len(&self) -> usize {
+                self.index_storage.len()
+            }
+        }
+
+        impl IndexProvider for $t {
+            fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+                self.index_storage.iter().cloned()
+            }
+
+            unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+                *self.index_storage.get_unchecked(i)
+            }
+        }
+    };
 }
 
-impl<'a, K: SelectionKind> Iterator for SelectionIterator<'a, K> {
-    type Item = Particle<'a>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.cur < self.sel.len() {
-            let ret = unsafe { self.sel.get_particle_unchecked(self.cur) };
-            self.cur += 1;
-            Some(ret)
-        } else {
-            None
+//-----------------------------------------
+// Primary serial selections
+pub struct Sel {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    index_storage: Arc<SVec>,
+    _phantom: PhantomData<*const ()>,
+}
+
+impl private::SelectionPrivate for Sel {
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
+    }
+
+    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            topology,
+            state,
+            index_storage: index,
+            _phantom: Default::default(),
         }
     }
 }
 
-impl<K: SelectionKind> ExactSizeIterator for SelectionIterator<'_, K> {
+impl Selection for Sel {}
+
+impl_selection!(Sel, Sel);
+
+//-------------------------------------------------------
+
+pub struct System {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    _phantom: PhantomData<*const ()>,
+}
+
+impl private::AllowsSelecting for System {
+    fn index_slice(&self) -> Option<&[usize]> {
+        None
+    }
+
+    fn state_arc(&self) -> &Arc<State> {
+        &self.state
+    }
+
+    fn topology_arc(&self) -> &Arc<Topology> {
+        &self.topology
+    }
+}
+
+impl Selectable for System {
+    type DerivedSel = Sel;
+}
+
+impl LenProvider for System {
     fn len(&self) -> usize {
-        self.sel.len()
+        self.state.len()
     }
 }
 
-impl<K: SelectionKind> ParticleIterProvider for Sel<K> {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
-        SelectionIterator { sel: self, cur: 0 }
-    }
-}
-
-//══════════════════════════════════════════════
-//███  Mutable iterator over Particles
-//══════════════════════════════════════════════
-/// Iterator over [mutable particles](ParticleMut) in selection
-pub struct SelectionIteratorMut<'a, K> {
-    sel: &'a Sel<K>,
-    cur: usize,
-}
-
-impl<'a, K: MutableKind> Iterator for SelectionIteratorMut<'a, K> {
-    type Item = ParticleMut<'a>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.cur < self.sel.len() {
-            let ret = unsafe { self.sel.get_particle_mut_unchecked(self.cur) };
-            self.cur += 1;
-            Some(ret)
-        } else {
-            None
-        }
-    }
-}
-
-impl<K: MutableKind> ExactSizeIterator for SelectionIteratorMut<'_, K> {
-    fn len(&self) -> usize {
-        self.sel.len()
-    }
-}
-
-impl<K: MutableKind> ParticleIterMutProvider for Sel<K> {
-    fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>> {
-        SelectionIteratorMut { sel: self, cur: 0 }
-    }
-}
-
-//══════════════════════════════════════════════
-//███  IO traits
-//══════════════════════════════════════════════
-
-impl<K: SelectionKind> WritableToFile for Sel<K> {}
-
-impl<K: SelectionKind> IndexProvider for Sel<K> {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
-        self.index().iter().cloned()
+impl IndexProvider for System {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+        0..self.len()
     }
 
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index_storage.get_unchecked(i)
+        i
     }
 }
 
-impl<K: SelectionKind> TopologyIoProvider for Sel<K> {}
+impl System {
+    pub fn new(
+        top: impl Into<Arc<Topology>>,
+        st: impl Into<Arc<State>>,
+    ) -> Result<Self, SelectionError> {
+        let top: Arc<Topology> = top.into();
+        let st: Arc<State> = st.into();
+        check_topology_state_sizes(&top, &st)?;
+        Ok(Self {
+            topology: top,
+            state: st,
+            _phantom: Default::default(),
+        })
+    }
 
-impl<K: SelectionKind> StateIoProvider for Sel<K> {}
+    pub fn from_file(fname: impl AsRef<Path>) -> Result<Self, SelectionError> {
+        let mut fh = FileHandler::open(fname)?;
+        let (top, st) = fh.read()?;
+        Ok(Self::new(top, st)?)
+    }
 
-impl<K: SelectionKind> TimeProvider for Sel<K> {
+    pub fn new_empty() -> Self {
+        Self {
+            topology: Arc::new(Topology::default()),
+            state: Arc::new(State::default()),
+            _phantom: Default::default(),
+        }
+    }
+
+    /// Release and return [Topology] and [State].
+    /// Fails if any selection is still pointing to them..
+    pub fn release(self) -> Result<(Topology, State), SelectionError> {
+        if self.topology.is_unique() && self.state.is_unique() {
+            Ok((
+                Arc::unwrap_or_clone(self.topology),
+                Arc::unwrap_or_clone(self.state),
+            ))
+        } else {
+            Err(SelectionError::Release)
+        }
+    }
+
+    pub fn select_all(&self) -> Result<Sel, SelectionError> {
+        self.select(0..self.len())
+    }
+
+    pub fn append(&self, data: &(impl PosIterProvider + AtomIterProvider)) -> Sel {
+        let first_added_index = self.len();
+        self.topology
+            .get_storage_mut()
+            .add_atoms(data.iter_atoms().cloned());
+        self.state
+            .get_storage_mut()
+            .add_coords(data.iter_pos().cloned());
+        let last_added_index = self.len();
+        self.select(first_added_index..last_added_index).unwrap()
+    }
+
+    pub fn append_atoms_pos(
+        &self,
+        atoms: impl Iterator<Item = Atom>,
+        coords: impl Iterator<Item = Pos>,
+    ) -> Sel {
+        let first_added_index = self.len();
+        self.topology.get_storage_mut().add_atoms(atoms);
+        self.state.get_storage_mut().add_coords(coords);
+        let last_added_index = self.len();
+        self.select(first_added_index..last_added_index).unwrap()
+    }
+
+    // This method only works if this system has no selections
+    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
+        if self.topology.is_unique() && self.state.is_unique() {
+            self.topology
+                .get_storage_mut()
+                .remove_atoms(to_remove.iter_index())?;
+            self.state
+                .get_storage_mut()
+                .remove_coords(to_remove.iter_index())?;
+            Ok(())
+        } else {
+            Err(SelectionError::Release)
+        }
+    }
+
+    /// Sets periodic box replacing current one
+    pub fn set_box(&self, new_box: Option<PeriodicBox>) {
+        self.state.get_storage_mut().pbox = new_box;
+    }
+
+    /// Replace periodic box with the box from other object
+    pub fn set_box_from(&self, box_provider: &impl BoxProvider) {
+        self.state.get_storage_mut().pbox = box_provider.get_box().cloned();
+    }
+
+    pub fn set_time(&self, t: f32) {
+        self.state.set_time(t);
+    }
+
+    pub fn multiply_periodically(&self, nbox: [usize; 3]) -> Result<(), SelectionError> {
+        if self.get_box().is_none() {
+            return Err(PeriodicBoxError::NoPbc)?;
+        }
+        let b = self.get_box_mut().unwrap();
+        let m = b.get_matrix();
+        let all = self.select_all()?;
+        for x in 0..=nbox[0] {
+            for y in 0..=nbox[1] {
+                for z in 0..=nbox[2] {
+                    if x == 0 && y == 0 && z == 0 {
+                        continue;
+                    }
+                    let added = self.append(&all);
+                    let shift =
+                        m.column(0) * x as f32 + m.column(1) * y as f32 + m.column(2) * z as f32;
+                    added.translate(&shift);
+                }
+            }
+        }
+        // Scale the box
+        b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32])?;
+        // Re-assign resindex
+        self.topology.assign_resindex();
+        Ok(())
+    }
+}
+
+//---------------------------------------------------
+
+pub struct SelPar {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    index_storage: Arc<SVec>,
+}
+
+impl private::SelectionPrivate for SelPar {
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
+    }
+
+    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            topology,
+            state,
+            index_storage: index,
+        }
+    }
+}
+
+impl Selection for SelPar {}
+
+impl_selection!(SelPar, Sel);
+
+//--------------------------------------------------------------------
+
+macro_rules! impl_logical_ops {
+    ($t:ident) => {
+        impl<S: Selection> std::ops::BitOr<&S> for &$t {
+            type Output = Sel;
+
+            fn bitor(self, rhs: &S) -> Self::Output {
+                let ind = union_sorted(&self.index_storage, rhs.index_arc());
+                Sel::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl<S: Selection> std::ops::BitAnd<&S> for &$t {
+            type Output = Sel;
+
+            fn bitand(self, rhs: &S) -> Self::Output {
+                let ind = intersection_sorted(&self.index_storage, rhs.index_arc());
+                if ind.is_empty() {
+                    panic!("'and' of selections is empty");
+                }
+                Sel::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl<S: Selection> std::ops::Sub<&S> for &$t {
+            type Output = Sel;
+
+            fn sub(self, rhs: &S) -> Self::Output {
+                let ind = difference_sorted(&self.index_storage, rhs.index_arc());
+                Sel::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl<S: Selection> std::ops::Add<&S> for &$t {
+            type Output = Sel;
+
+            fn add(self, rhs: &S) -> Self::Output {
+                let ind = union_sorted(&self.index_storage, rhs.index_arc());
+                Sel::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+
+        impl std::ops::Not for &$t {
+            type Output = Sel;
+
+            fn not(self) -> Self::Output {
+                let ind = difference_sorted(
+                    unsafe { &SVec::from_sorted((0..self.topology.len()).collect()) },
+                    self.index_arc(),
+                );
+                if ind.is_empty() {
+                    panic!("negated selection is empty");
+                }
+                Sel::new_sel(
+                    Arc::clone(self.topology_arc()),
+                    Arc::clone(self.state_arc()),
+                    Arc::new(ind),
+                )
+            }
+        }
+    };
+}
+
+impl_logical_ops!(Sel);
+impl_logical_ops!(SelPar);
+
+//--------------------------------------------------------------------
+pub struct ParSplit {
+    selections: Vec<SelPar>,
+    _phantom: PhantomData<*const ()>,
+}
+
+impl ParSplit {
+    /// Returns parallel iterator over stored parallel selections.
+    pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, SelPar> {
+        self.selections.par_iter()
+    }
+
+    /// Returns parallel mutable iterator over stored parallel selections.
+    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, SelPar> {
+        self.selections.par_iter_mut()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Sel> + '_ {
+        self.selections.iter().map(|sel| sel.new_view())
+    }
+}
+
+//═══════════════════════════════════════════════════════════
+//  Blanket trait implementations for Selections and System
+//═══════════════════════════════════════════════════════════
+
+//██████  IO traits
+
+impl<T: HasTopState> WritableToFile for T {}
+
+impl<T: HasTopState> TopologyIoProvider for T {}
+impl<T: HasTopState> StateIoProvider for T {}
+
+impl<T: HasTopState> TimeProvider for T {
     fn get_time(&self) -> f32 {
-        self.state.get_time()
+        self.get_state().get_time()
     }
 }
 
-//══════════════════════════════════════════════
-//███  Immutable analysis traits
-//══════════════════════════════════════════════
+//██████  Immutable analysis traits
 
-impl<K: SelectionKind> BoxProvider for Sel<K> {
+impl<T: HasTopState> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
+        self.get_state().get_box()
     }
 }
 
-impl<K: SelectionKind> MeasurePeriodic for Sel<K> {}
-
-impl<K: SelectionKind> PosIterProvider for Sel<K> {
+impl<T: HasTopState> PosIterProvider for T {
     fn iter_pos(&self) -> impl PosIterator<'_> {
         unsafe {
-            self.index()
-                .iter()
-                .map(|i| self.state.get_pos_unchecked(*i))
+            self.iter_index()
+                .map(|i| self.get_state().get_pos_unchecked(i))
         }
     }
 }
 
-impl<K: SelectionKind> MeasurePos for Sel<K> {}
-
-impl<K: SelectionKind> AtomIterProvider for Sel<K> {
+impl<T: HasTopState> AtomIterProvider for T {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe {
-            self.index()
-                .iter()
-                .map(|i| self.topology.get_atom_unchecked(*i))
+            self.iter_index()
+                .map(|i| self.get_topology().get_atom_unchecked(i))
         }
     }
 }
 
-impl<K: UserCreatableKind> AtomIterMutProvider for Sel<K> {
+impl<T: HasTopState> AtomIterMutProvider for T {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
-            self.index()
-                .iter()
-                .map(|i| self.topology.get_atom_mut_unchecked(*i))
+            self.iter_index()
+                .map(|i| self.get_topology().get_atom_mut_unchecked(i))
         }
     }
 }
 
-
-impl<K: SelectionKind> MassIterProvider for Sel<K> {
+impl<T: HasTopState> MassIterProvider for T {
     fn iter_masses(&self) -> impl Iterator<Item = f32> {
         unsafe {
-            self.index()
-                .iter()
-                .map(|i| self.topology.get_atom_unchecked(*i).mass)
+            self.iter_index()
+                .map(|i| self.get_topology().get_atom_unchecked(i).mass)
         }
     }
 }
 
-impl<K: SelectionKind> MeasureMasses for Sel<K> {}
-
-impl<K: SelectionKind> LenProvider for Sel<K> {
-    fn len(&self) -> usize {
-        self.index().len()
-    }
-}
-
-impl<K: SelectionKind> RandomPosProvider for Sel<K> {
+impl<T: HasTopState> RandomPosProvider for T {
     unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = *self.index().get_unchecked(i);
-        self.state.get_pos_unchecked(ind)
+        let ind = self.get_index_unchecked(i);
+        self.get_state().get_pos_unchecked(ind)
     }
 }
 
-impl<K: SelectionKind> RandomAtomProvider for Sel<K> {
+impl<T: HasTopState> RandomAtomProvider for T {
     unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = *self.index().get_unchecked(i);
-        self.topology.get_atom_unchecked(ind)
+        let ind = self.get_index_unchecked(i);
+        self.get_topology().get_atom_unchecked(ind)
     }
 }
 
-impl<K: SelectionKind> RandomAtomMutProvider for Sel<K> {
+impl<T: HasTopState> RandomAtomMutProvider for T {
     unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        let ind = *self.index().get_unchecked(i);
-        self.topology.get_atom_mut_unchecked(ind)
+        let ind = self.get_index_unchecked(i);
+        self.get_topology().get_atom_mut_unchecked(ind)
     }
 }
 
-impl<K: SelectionKind> MeasureRandomAccess for Sel<K> {}
-
-impl<K: SelectionKind> MoleculesProvider for Sel<K> {
+impl<T: HasTopState> MoleculesProvider for T {
     fn num_molecules(&self) -> usize {
-        self.topology.num_molecules()
+        self.get_topology().num_molecules()
     }
 
     fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.topology.iter_molecules()
+        self.get_topology().iter_molecules()
     }
 
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology.get_molecule_unchecked(i)
+        self.get_topology().get_molecule_unchecked(i)
     }
 }
 
-impl<K: SelectionKind> BondsProvider for Sel<K> {
+impl<T: HasTopState> BondsProvider for T {
     fn num_bonds(&self) -> usize {
-        self.topology.num_bonds()
+        self.get_topology().num_bonds()
     }
 
     fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.topology.iter_bonds()
+        self.get_topology().iter_bonds()
     }
 
     unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.topology.get_bond_unchecked(i)
+        self.get_topology().get_bond_unchecked(i)
     }
 }
 
-impl<K: SelectionKind> RandomParticleProvider for Sel<K> {
+impl<T: HasTopState> RandomParticleProvider for T {
     unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = *self.index_storage.get_unchecked(i);
+        let ind = self.get_index_unchecked(i);
         Particle {
             id: ind,
-            atom: self.topology.get_atom_unchecked(ind),
-            pos: self.state.get_pos_unchecked(ind),
+            atom: self.get_topology().get_atom_unchecked(ind),
+            pos: self.get_state().get_pos_unchecked(ind),
         }
     }
 }
 
-//═══════════════════════════════════════════════════════════
-//███  Mutable analysis traits (only for mutable selections)
-//═══════════════════════════════════════════════════════════
+//██████  Measure traits
 
-impl<K: MutableKind> PosIterMutProvider for Sel<K> {
+impl<T: HasTopState> MeasurePos for T {}
+impl<T: HasTopState> MeasurePeriodic for T {}
+impl<T: HasTopState> MeasureMasses for T {}
+impl<T: HasTopState> MeasureRandomAccess for T {}
+
+//██████  Mutable analysis traits
+
+impl BoxMutProvider for System {
+    fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
+        self.get_state().get_box_mut()
+    }
+}
+
+impl<T: HasTopState> PosIterMutProvider for T {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
-            self.index()
-                .iter()
-                .map(|i| self.state.get_pos_mut_unchecked(*i))
+            self.iter_index()
+                .map(|i| self.get_state().get_pos_mut_unchecked(i))
         }
     }
 }
 
-impl<K: MutableKind> RandomPosMutProvider for Sel<K> {
-    fn get_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-        self.index()
-            .get(i)
-            .map(|i| unsafe { self.state.get_pos_mut_unchecked(*i) })
-    }
-
+impl<T: HasTopState> RandomPosMutProvider for T {
     unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
         let ind = self.get_index_unchecked(i);
-        self.state.get_pos_mut_unchecked(ind)
+        self.get_state().get_pos_mut_unchecked(ind)
     }
 }
 
-impl<K: MutableKind> RandomParticleMutProvider for Sel<K> {
+impl<T: HasTopState> RandomParticleMutProvider for T {
     unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
-        let ind = *self.index_storage.get_unchecked(i);
+        let ind = self.get_index_unchecked(i);
         ParticleMut {
             id: ind,
-            atom: self.topology.get_atom_mut_unchecked(ind),
-            pos: self.state.get_pos_mut_unchecked(ind),
+            atom: self.get_topology().get_atom_mut_unchecked(ind),
+            pos: self.get_state().get_pos_mut_unchecked(ind),
         }
     }
 }
 
+//██████  Modify traits
 
-impl<K: MutableKind> ModifyPos for Sel<K> {}
-impl<K: MutableKind> ModifyPeriodic for Sel<K> {}
-impl<K: MutableKind> ModifyRandomAccess for Sel<K> {}
+impl<T: HasTopState> ModifyPos for T {}
+impl<T: HasTopState> ModifyPeriodic for T {}
+impl<T: HasTopState> ModifyRandomAccess for T {}
+
+//========================================================
+
+#[allow(unused_imports)]
+mod tests {
+    use super::*;
+    use crate::prelude::*;
+
+    #[test]
+    fn test1() -> anyhow::Result<()> {
+        let (top, st) = FileHandler::open("tests/albumin.pdb")?.read()?;
+        let sys = System::new(top, st)?;
+
+        let mut par = sys.split_par(|p| {
+            if p.atom.resname != "SOL" {
+                Some(p.atom.resindex)
+            } else {
+                None
+            }
+        })?;
+
+        par.par_iter().try_for_each(|sel| {
+            println!("{} {}", sel.len(), sel.first_atom().resname);
+            if sel.first_atom().resname == "ALA" {
+                let subsel = sel.select("name CA")?;
+                let pos = subsel.first_pos();
+                println!("{}", pos);
+            }
+            Ok::<_, SelectionError>(())
+        })?;
+
+        // Add serial selection
+        let ca = sys.select("name CA")?;
+        println!("#ca: {}", ca.len());
+
+        //Iter serial views
+        let serials: Vec<Sel> = par.iter().collect();
+        println!("serial #5: {}", serials[5].first_atom().resname);
+
+        Ok(())
+    }
+}

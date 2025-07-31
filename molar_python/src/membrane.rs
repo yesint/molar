@@ -1,5 +1,6 @@
 use crate::{map_const_pyarray_to_vec3, Sel, Source};
 use pyo3::prelude::*;
+use triomphe::Arc;
 
 #[pyclass(unsendable)]
 pub(crate) struct Membrane(molar_membrane::Membrane);
@@ -20,7 +21,7 @@ impl Membrane {
     }
 
     fn set_state(&mut self, st: &crate::State) -> anyhow::Result<()> {
-        unsafe { self.0.set_state(st.0.new_ref_with_kind())? };
+        self.0.set_state(Arc::clone(&st.0))?;
         Ok(())
     }
 

@@ -4,6 +4,7 @@ use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
 use log::{debug, error, warn};
+use triomphe::Arc;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -793,7 +794,7 @@ macro_rules! impl_io_traits_for_tuples {
 }
 
 impl_io_traits_for_tuples!(Topology, State);
-impl_io_traits_for_tuples!(Holder<Topology,BuilderSerial>,Holder<State,BuilderSerial>);
+impl_io_traits_for_tuples!(Arc<Topology>,Arc<State>);
 
 //--------------------------------------------------------
 /// An error that occurred during file IO operations
@@ -920,7 +921,7 @@ mod tests {
         let st2 = st1.clone();
         println!("#1: {}", top1.len());
 
-        let b = Source::new_serial(top1.into(), st2.into())?;
+        let b = System::new(top1, st2)?;
         let sel = b.select_all()?;
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
@@ -941,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_io_gro_traj() -> Result<()> {
-        let src = Source::serial_from_file("tests/protein.pdb")?;
+        let src = System::from_file("tests/protein.pdb")?;
         println!(env!("OUT_DIR"));
         let groname = concat!(env!("OUT_DIR"), "/multi.gro");
         let mut w = FileHandler::create(groname)?;

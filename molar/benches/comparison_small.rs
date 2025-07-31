@@ -7,7 +7,7 @@ fn molar_benchmark(c: &mut Criterion) {
     c.bench_function("align", |b| b.iter(
         black_box(
         || {
-            let src = Source::serial_from_file("tests/protein.pdb").unwrap();
+            let src = System::from_file("tests/protein.pdb").unwrap();
             let ref_sel = src.select_all().unwrap();
             let mut cur_sel = src.select_all().unwrap();
 
@@ -26,7 +26,7 @@ fn molar_benchmark(c: &mut Criterion) {
 
     c.bench_function("within", |b| b.iter(
         black_box(|| {
-            let src = Source::serial_from_file("tests/protein.pdb").unwrap();
+            let src = System::from_file("tests/protein.pdb").unwrap();
             let mut sel = src.select("within 1.0 of resid 560").unwrap();
             let mut cm = vec![];
             let trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
@@ -40,7 +40,7 @@ fn molar_benchmark(c: &mut Criterion) {
 
     c.bench_function("trjconv", |b| b.iter(
         black_box(|| {
-            let src = Source::serial_from_file("tests/protein.pdb").unwrap();
+            let src = System::from_file("tests/protein.pdb").unwrap();
             let mut sel = src.select("resid 560").unwrap();
 
             let in_trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();

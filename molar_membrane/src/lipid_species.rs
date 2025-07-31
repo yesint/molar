@@ -32,12 +32,12 @@ pub struct LipidTail {
 }
 
 impl LipidSpecies {
-    pub fn new<K: UserCreatableKind>(
+    pub fn new(
         name: String,
         descr: LipidSpeciesDescr,
-        lipid: &Sel<K>,
+        lipid: &Sel,
     ) -> anyhow::Result<Self> {
-        let first_index = lipid.first_index();
+        let first_index = lipid.get_first_index();
         let mut tails = vec![];
 
         for t in &descr.tails {
@@ -66,11 +66,11 @@ impl LipidSpecies {
             // Convert names to offsets
             let offsets = names.iter()
                 .map(|name| {
-                    let atom = lipid.subsel(format!("name {name}"))?;
+                    let atom = lipid.select(format!("name {name}"))?;
                     if atom.len() > 1 {
                         bail!("more than one tail atom {name} in lipid");
                     }
-                    Ok(atom.first_index() - first_index)
+                    Ok(atom.get_first_index() - first_index)
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -85,13 +85,13 @@ impl LipidSpecies {
             name,
             //descr: descr.clone(),
             head_marker_offsets: SortedSet::from_unsorted(
-                lipid.subsel(descr.head)?
+                lipid.select(descr.head)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),
             ),
             mid_marker_offsets: SortedSet::from_unsorted(
-                lipid.subsel(descr.mid)?
+                lipid.select(descr.mid)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),

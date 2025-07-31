@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use molar::core::Source;
+    use molar::core::{Selectable, System};
     use std::io::prelude::*;
     use std::{fs::File, io::BufWriter};
 
@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn within_size_benchmark() -> anyhow::Result<()> {
-        let src = Source::serial_from_file("tests/albumin.pdb")?;
+        let src = System::from_file("tests/albumin.pdb")?;
 
         for pbc in vec!["",] {
         //for pbc in vec!["","pbc"] {

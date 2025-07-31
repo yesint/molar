@@ -963,13 +963,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::core::Source;
-
+    use crate::core::{Selectable, System};
     use super::WritableToFile;
 
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {
-        let src = Source::serial_from_file("tests/albumin.pdb")?;
+        let src = System::from_file("tests/albumin.pdb")?;
         let t = std::time::Instant::now();
         src.select("within 4.0 of resid 10:300")?;
         println!("elapsed {}", t.elapsed().as_secs_f32());
@@ -978,7 +977,7 @@ mod tests {
 
     #[test]
     fn within_pbc() -> anyhow::Result<()> {
-        let src = Source::serial_from_file("tests/albumin.pdb")?;
+        let src = System::from_file("tests/albumin.pdb")?;
         let sel = src.select("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
         sel.save("../target/pbc_sel.pdb")?;
         Ok(())
