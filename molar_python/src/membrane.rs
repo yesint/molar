@@ -128,22 +128,22 @@ impl LipidMolecule {
 
     #[getter]
     fn get_sel(&self) -> Sel {
-        Sel::new_ref(&self.get().sel)
+        unsafe { Sel::new_ref(std::mem::transmute(&self.get().sel)) }
     }
 
     #[getter]
     fn get_head_sel(&self) -> Sel {
-        Sel::new_ref(&self.get().head_sel)
+        unsafe { Sel::new_ref(std::mem::transmute(&self.get().head_sel)) }
     }
 
     #[getter]
     fn get_mid_sel(&self) -> Sel {
-        Sel::new_ref(&self.get().mid_sel)
+        unsafe { Sel::new_ref(std::mem::transmute(&self.get().mid_sel)) }
     }
 
     #[getter]
     fn get_tail_end_sel(&self) -> Sel {
-        Sel::new_ref(&self.get().tail_end_sel)
+        unsafe { Sel::new_ref(std::mem::transmute(&self.get().tail_end_sel)) }
     }
 
     #[getter]

@@ -2,7 +2,6 @@ use crate::{
     core::selection::sel::private::{AllowsSelecting, SelectionPrivate},
     prelude::*,
 };
-use ndarray::iter::IntoIter;
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::{marker::PhantomData, path::Path};
 use triomphe::Arc;
@@ -181,60 +180,6 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         }
         s
     }
-
-    fn set_same_name(&self, val: &str)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.name = val.into();
-        }
-    }
-
-    fn set_same_resname(&self, val: &str)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.resname = val.into();
-        }
-    }
-
-    fn set_same_resid(&self, val: i32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.resid = val;
-        }
-    }
-
-    fn set_same_chain(&self, val: char)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.chain = val;
-        }
-    }
-
-    fn set_same_mass(&self, val: f32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.mass = val;
-        }
-    }
-
-    fn set_same_bfactor(&self, val: f32)
-    where
-        Self: Sized,
-    {
-        for a in self.iter_atoms_mut() {
-            a.bfactor = val;
-        }
-    }
 }
 
 // Public trait for selections
@@ -317,6 +262,63 @@ pub trait Selection: private::SelectionPrivate + Selectable {
             },
             |i: usize| self.get_particle(i).unwrap().atom.vdw(),
         )
+    }
+}
+
+// Market trait for mutable selections
+pub trait MutableSelectable: HasTopState {
+    fn set_same_name(&self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.name = val.into();
+        }
+    }
+
+    fn set_same_resname(&self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resname = val.into();
+        }
+    }
+
+    fn set_same_resid(&self, val: i32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resid = val;
+        }
+    }
+
+    fn set_same_chain(&self, val: char)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.chain = val;
+        }
+    }
+
+    fn set_same_mass(&self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.mass = val;
+        }
+    }
+
+    fn set_same_bfactor(&self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.bfactor = val;
+        }
     }
 }
 
@@ -437,6 +439,8 @@ pub struct Sel {
     _phantom: PhantomData<*const ()>,
 }
 
+impl MutableSelectable for Sel {}
+
 impl private::SelectionPrivate for Sel {
     fn index_arc(&self) -> &Arc<SVec> {
         &self.index_storage
@@ -458,6 +462,51 @@ impl private::SelectionPrivate for Sel {
 impl Selection for Sel {}
 
 impl_selection!(Sel, Sel);
+
+impl Sel {
+    pub fn to_par_immut(self) -> SelParImmut {
+        SelParImmut {
+            topology: self.topology,
+            state: self.state,
+            index_storage: self.index_storage,
+        }
+    }
+}
+
+//-------------------------------------------------------
+// Primary serial selections
+pub struct SelParImmut {
+    topology: Arc<Topology>,
+    state: Arc<State>,
+    index_storage: Arc<SVec>,
+}
+
+impl private::SelectionPrivate for SelParImmut {
+    fn index_arc(&self) -> &Arc<SVec> {
+        &self.index_storage
+    }
+
+    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            topology,
+            state,
+            index_storage: index,
+        }
+    }
+}
+
+impl Selection for SelParImmut {}
+
+impl_selection!(SelParImmut, SelParImmut);
+
+impl SelParImmut {
+    pub unsafe fn as_mut(&self) -> &Sel {
+        std::mem::transmute(self)
+    }
+}
 
 //-------------------------------------------------------
 
@@ -484,6 +533,8 @@ impl private::AllowsSelecting for System {
 impl Selectable for System {
     type DerivedSel = Sel;
 }
+
+impl MutableSelectable for System {}
 
 impl LenProvider for System {
     fn len(&self) -> usize {
@@ -655,6 +706,8 @@ impl private::SelectionPrivate for SelPar {
 
 impl Selection for SelPar {}
 
+impl MutableSelectable for SelPar {}
+
 impl_selection!(SelPar, Sel);
 
 //--------------------------------------------------------------------
@@ -662,11 +715,11 @@ impl_selection!(SelPar, Sel);
 macro_rules! impl_logical_ops {
     ($t:ident) => {
         impl<S: Selection> std::ops::BitOr<&S> for &$t {
-            type Output = Sel;
+            type Output = <$t as Selectable>::DerivedSel;
 
             fn bitor(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
-                Sel::new_sel(
+                Self::Output::new_sel(
                     Arc::clone(self.topology_arc()),
                     Arc::clone(self.state_arc()),
                     Arc::new(ind),
@@ -675,14 +728,14 @@ macro_rules! impl_logical_ops {
         }
 
         impl<S: Selection> std::ops::BitAnd<&S> for &$t {
-            type Output = Sel;
+            type Output = <$t as Selectable>::DerivedSel;
 
             fn bitand(self, rhs: &S) -> Self::Output {
                 let ind = intersection_sorted(&self.index_storage, rhs.index_arc());
                 if ind.is_empty() {
                     panic!("'and' of selections is empty");
                 }
-                Sel::new_sel(
+                Self::Output::new_sel(
                     Arc::clone(self.topology_arc()),
                     Arc::clone(self.state_arc()),
                     Arc::new(ind),
@@ -691,11 +744,11 @@ macro_rules! impl_logical_ops {
         }
 
         impl<S: Selection> std::ops::Sub<&S> for &$t {
-            type Output = Sel;
+            type Output = <$t as Selectable>::DerivedSel;
 
             fn sub(self, rhs: &S) -> Self::Output {
                 let ind = difference_sorted(&self.index_storage, rhs.index_arc());
-                Sel::new_sel(
+                Self::Output::new_sel(
                     Arc::clone(self.topology_arc()),
                     Arc::clone(self.state_arc()),
                     Arc::new(ind),
@@ -704,11 +757,11 @@ macro_rules! impl_logical_ops {
         }
 
         impl<S: Selection> std::ops::Add<&S> for &$t {
-            type Output = Sel;
+            type Output = <$t as Selectable>::DerivedSel;
 
             fn add(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
-                Sel::new_sel(
+                Self::Output::new_sel(
                     Arc::clone(self.topology_arc()),
                     Arc::clone(self.state_arc()),
                     Arc::new(ind),
@@ -717,7 +770,7 @@ macro_rules! impl_logical_ops {
         }
 
         impl std::ops::Not for &$t {
-            type Output = Sel;
+            type Output = <$t as Selectable>::DerivedSel;
 
             fn not(self) -> Self::Output {
                 let ind = difference_sorted(
@@ -727,7 +780,7 @@ macro_rules! impl_logical_ops {
                 if ind.is_empty() {
                     panic!("negated selection is empty");
                 }
-                Sel::new_sel(
+                Self::Output::new_sel(
                     Arc::clone(self.topology_arc()),
                     Arc::clone(self.state_arc()),
                     Arc::new(ind),
@@ -739,6 +792,7 @@ macro_rules! impl_logical_ops {
 
 impl_logical_ops!(Sel);
 impl_logical_ops!(SelPar);
+impl_logical_ops!(SelParImmut);
 
 //--------------------------------------------------------------------
 pub struct ParSplit {
@@ -767,7 +821,7 @@ impl ParSplit {
 
             let top_arc = top_arc.unwrap();
             let st_arc = st_arc.unwrap();
-            
+
             if !(Arc::ptr_eq(top_arc, sel.topology_arc()) && Arc::ptr_eq(st_arc, sel.state_arc())) {
                 return Err(SelectionError::ParSplitDifferentSystems);
             }
@@ -786,7 +840,10 @@ impl ParSplit {
                 Arc::clone(sel.index_arc()),
             ));
         }
-        Ok(Self { selections, _phantom: Default::default() })
+        Ok(Self {
+            selections,
+            _phantom: Default::default(),
+        })
     }
 
     /// Returns parallel iterator over stored parallel selections.
@@ -847,7 +904,7 @@ impl<T: HasTopState> AtomIterProvider for T {
     }
 }
 
-impl<T: HasTopState> AtomIterMutProvider for T {
+impl<T: HasTopState + MutableSelectable> AtomIterMutProvider for T {
     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
         unsafe {
             self.iter_index()
@@ -879,7 +936,7 @@ impl<T: HasTopState> RandomAtomProvider for T {
     }
 }
 
-impl<T: HasTopState> RandomAtomMutProvider for T {
+impl<T: HasTopState + MutableSelectable> RandomAtomMutProvider for T {
     unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
         let ind = self.get_index_unchecked(i);
         self.get_topology().get_atom_mut_unchecked(ind)
@@ -940,7 +997,7 @@ impl BoxMutProvider for System {
     }
 }
 
-impl<T: HasTopState> PosIterMutProvider for T {
+impl<T: HasTopState + MutableSelectable> PosIterMutProvider for T {
     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
         unsafe {
             self.iter_index()
@@ -949,14 +1006,14 @@ impl<T: HasTopState> PosIterMutProvider for T {
     }
 }
 
-impl<T: HasTopState> RandomPosMutProvider for T {
+impl<T: HasTopState + MutableSelectable> RandomPosMutProvider for T {
     unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
         let ind = self.get_index_unchecked(i);
         self.get_state().get_pos_mut_unchecked(ind)
     }
 }
 
-impl<T: HasTopState> RandomParticleMutProvider for T {
+impl<T: HasTopState + MutableSelectable> RandomParticleMutProvider for T {
     unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
         let ind = self.get_index_unchecked(i);
         ParticleMut {
@@ -969,9 +1026,9 @@ impl<T: HasTopState> RandomParticleMutProvider for T {
 
 //██████  Modify traits
 
-impl<T: HasTopState> ModifyPos for T {}
-impl<T: HasTopState> ModifyPeriodic for T {}
-impl<T: HasTopState> ModifyRandomAccess for T {}
+impl<T: HasTopState + MutableSelectable> ModifyPos for T {}
+impl<T: HasTopState + MutableSelectable> ModifyPeriodic for T {}
+impl<T: HasTopState + MutableSelectable> ModifyRandomAccess for T {}
 
 //========================================================
 

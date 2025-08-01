@@ -37,8 +37,6 @@ use lipid_group::LipidGroup;
 pub struct Membrane {
     // Lipid molecules
     lipids: Vec<LipidMolecule>,
-    // Parallel lipid split
-    lipids_par: ParSplit,
     // Mapping from system resindexes to lipid ids
     resindex_to_id: HashMap<usize, usize>,
     // Lipid groups
@@ -93,7 +91,7 @@ impl Membrane {
         let options: MembraneOptions = toml::from_str(optstr)?;
 
         // Create working selection
-        let source_sel = source.select(&options.sel)?;
+        let source_sel = source.select(&options.sel)?.to_par_immut();
 
         let mut lipids = vec![];
         let mut species = vec![];
@@ -103,18 +101,19 @@ impl Membrane {
         for (name, descr) in options.lipids.iter() {
             if let Ok(lips) = source_sel.select(&descr.whole) {
                 // Split into individual lipids
-                let lips: Vec<Sel> = lips.split_resindex_iter().collect();
+                let mut lips: Vec<_> = lips.split_resindex_iter().collect();
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
                 let sp = Arc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
                 species.push(Arc::clone(&sp));
 
+                // Unwrap lipids in parallel
+                lips.par_iter_mut()
+                    .try_for_each(|l| unsafe { l.as_mut() }.unwrap_simple())?;
+
                 // Now create individual lipids
                 for lip in lips {
-                    // Unwrap lipids
-                    lip.unwrap_simple()?;
-
                     // set selections
                     let head_sel = lip.select(&sp.head_marker_offsets)?;
                     let mid_sel = lip.select(&sp.mid_marker_offsets)?;
@@ -178,9 +177,6 @@ impl Membrane {
             }
         }
 
-        // Create parallel split of lipid selections
-        let par_split = ParSplit::from_serial_selections(lipids.iter().map(|l| &l.sel))?;
-
         // If there are any groups in the input toml, create them
         let mut groups: HashMap<String, LipidGroup> = Default::default();
         for gr in &options.groups {
@@ -189,7 +185,6 @@ impl Membrane {
 
         Ok(Self {
             lipids,
-            lipids_par: par_split,
             groups,
             species,
             options,
@@ -671,7 +666,7 @@ impl Membrane {
             .collect::<Vec<_>>();
 
         self.lipids
-            .iter_mut()
+            .par_iter_mut()
             .filter(|lip| lip.valid)
             .for_each(|lip| {
                 // Get local-to-lab transform
@@ -867,7 +862,7 @@ mod tests {
     #[test]
     fn test_descr() -> anyhow::Result<()> {
         let src = System::from_file("tests/membr.gro")?;
-        let pope = src.select("resid 60")?;
+        let pope = src.select("resid 60")?.to_par_immut();
         let descr = LipidSpeciesDescr {
             whole: "resname POPE".into(),
             head: "name P N".into(),
@@ -915,7 +910,8 @@ mod tests {
         "#,
         )?;
 
-        let lip_sp = LipidSpecies::new("DOPE".to_owned(), descr, &src.select_all()?)?;
+        let lip_sp =
+            LipidSpecies::new("DOPE".to_owned(), descr, &src.select_all()?.to_par_immut())?;
         println!("{lip_sp:?}");
         Ok(())
     }
@@ -1059,7 +1055,7 @@ mod tests {
         memb.write_vmd_visualization("../target/vis_cg.tcl")?;
 
         for l in memb.iter_valid_lipids_mut() {
-            l.sel.set_same_bfactor(l.mean_curv);
+            unsafe { l.sel.as_mut() }.set_same_bfactor(l.mean_curv);
         }
         src.save("../target/colored.pdb")?;
 

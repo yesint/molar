@@ -6,12 +6,12 @@ use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule {
     // Lipid selections and markers
-    pub sel: Sel,
+    pub sel: SelParImmut,
     pub species: Arc<LipidSpecies>,
-    pub head_sel: Sel,
-    pub mid_sel: Sel,
-    pub tail_end_sel: Sel,
-    pub tail_sels: Vec<Sel>,
+    pub head_sel: SelParImmut,
+    pub mid_sel: SelParImmut,
+    pub tail_end_sel: SelParImmut,
+    pub tail_sels: Vec<SelParImmut>,
     pub head_marker: Pos,
     pub mid_marker: Pos,
     pub tail_marker: Pos,
@@ -54,10 +54,7 @@ impl LipidMolecule {
         self.tail_sels.len()
     }
 
-    pub fn set_state_from(
-        &mut self,
-        st: &impl Selectable,
-    ) -> anyhow::Result<()> {
+    pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
         self.sel.set_state_from(st)?;
         self.head_sel.set_state_from(st)?;
         self.mid_sel.set_state_from(st)?;
@@ -65,7 +62,7 @@ impl LipidMolecule {
             t.set_state_from(st)?;
         }
         // Unwrap lipid
-        self.sel.unwrap_simple().unwrap();
+        unsafe { self.sel.as_mut() }.unwrap_simple().unwrap();
 
         // Update lipid markers
         self.head_marker = self.head_sel.center_of_mass()?;
@@ -74,10 +71,7 @@ impl LipidMolecule {
         Ok(())
     }
 
-    pub fn set_state(
-        &mut self,
-        st: impl Into<Arc<State>>,
-    ) -> anyhow::Result<()> {
+    pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
         let st: Arc<State> = st.into();
 
         self.sel.set_state(Arc::clone(&st))?;
@@ -87,7 +81,7 @@ impl LipidMolecule {
             t.set_state(Arc::clone(&st))?;
         }
         // Unwrap lipid
-        self.sel.unwrap_simple().unwrap();
+        unsafe { self.sel.as_mut() }.unwrap_simple().unwrap();
 
         // Update lipid markers
         self.head_marker = self.head_sel.center_of_mass()?;

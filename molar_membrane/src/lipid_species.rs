@@ -3,7 +3,6 @@ use molar::prelude::*;
 use serde::Deserialize;
 use sorted_vec::SortedSet;
 
-
 #[derive(Clone, Debug, Deserialize)]
 pub struct LipidSpeciesDescr {
     pub(super) whole: String,
@@ -35,7 +34,7 @@ impl LipidSpecies {
     pub fn new(
         name: String,
         descr: LipidSpeciesDescr,
-        lipid: &Sel,
+        lipid: &SelParImmut,
     ) -> anyhow::Result<Self> {
         let first_index = lipid.get_first_index();
         let mut tails = vec![];
@@ -64,7 +63,8 @@ impl LipidSpecies {
             names.push(&cur);
 
             // Convert names to offsets
-            let offsets = names.iter()
+            let offsets = names
+                .iter()
                 .map(|name| {
                     let atom = lipid.select(format!("name {name}"))?;
                     if atom.len() > 1 {
@@ -85,13 +85,15 @@ impl LipidSpecies {
             name,
             //descr: descr.clone(),
             head_marker_offsets: SortedSet::from_unsorted(
-                lipid.select(descr.head)?
+                lipid
+                    .select(descr.head)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),
             ),
             mid_marker_offsets: SortedSet::from_unsorted(
-                lipid.select(descr.mid)?
+                lipid
+                    .select(descr.mid)?
                     .iter_index()
                     .map(|i| i - first_index)
                     .collect(),
