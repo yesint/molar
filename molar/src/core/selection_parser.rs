@@ -6,7 +6,7 @@ use sorted_vec::SortedSet;
 mod ast;
 mod grammar;
 
-mod grammar3;
+//mod grammar3;
 
 pub use ast::SelectionParserError;
 use ast::{EvaluationContext, LogicalNode};
@@ -16,7 +16,7 @@ use ast::{EvaluationContext, LogicalNode};
 //##############################
 
 /// A compiled selection expression that can be used to select atoms based on various criteria
-/// 
+///
 /// Selection expressions are parsed from strings and compiled into an abstract syntax tree (AST)
 /// that can be evaluated against a molecular system to select atoms matching the criteria.
 #[derive(Debug)]
@@ -34,14 +34,14 @@ impl SelectionExpr {
 
 impl SelectionExpr {
     /// Creates a new selection expression from a string
-    /// 
+    ///
     /// # Arguments
     /// * `s` - The selection expression string to parse
-    /// 
+    ///
     /// # Returns
     /// * `Ok(SelectionExpr)` if parsing succeeds
     /// * `Err(SelectionParserError)` if there's a syntax error in the expression
-    /// 
+    ///
     /// # Examples
     /// ```
     /// # use molar::core::SelectionExpr;
@@ -49,14 +49,16 @@ impl SelectionExpr {
     /// ```
     pub fn new(s: &str) -> Result<Self, SelectionParserError> {
         Ok(Self {
-            ast: RefCell::new(grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {
-                let s = format!(
-                    "\n{s}\n{}^\nExpected {}",
-                    "-".repeat(e.location.column - 1),
-                    e.expected
-                );
-                SelectionParserError::SyntaxError(s)
-            })?),
+            ast: RefCell::new(
+                grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {
+                    let s = format!(
+                        "\n{s}\n{}^\nExpected {}",
+                        "-".repeat(e.location.column - 1),
+                        e.expected
+                    );
+                    SelectionParserError::SyntaxError(s)
+                })?,
+            ),
             sel_str: s.to_owned(),
         })
     }
@@ -143,20 +145,20 @@ mod tests {
 
     #[test]
     fn test_dist_syntax() {
-        let _ast = SelectionExpr::new("dist point 1.9 2.9 3.8 > 0.4")
-            .expect("Error generating AST");
+        let _ast =
+            SelectionExpr::new("dist point 1.9 2.9 3.8 > 0.4").expect("Error generating AST");
     }
 
     #[test]
     fn test_leading_space() {
-        let _ast = SelectionExpr::new("  dist point 1.9 2.9 3.8 > 0.4")
-            .expect("Error generating AST");
+        let _ast =
+            SelectionExpr::new("  dist point 1.9 2.9 3.8 > 0.4").expect("Error generating AST");
     }
 
     #[test]
     fn test_trainling_space() {
-        let _ast = SelectionExpr::new("dist point 1.9 2.9 3.8 > 0.4  ")
-            .expect("Error generating AST");
+        let _ast =
+            SelectionExpr::new("dist point 1.9 2.9 3.8 > 0.4  ").expect("Error generating AST");
     }
 
     #[test]

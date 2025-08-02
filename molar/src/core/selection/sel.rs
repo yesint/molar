@@ -196,8 +196,8 @@ pub trait Selection: private::SelectionPrivate + Selectable {
         *self.index_slice().unwrap().last().unwrap()
     }
 
-    fn new_view(&self) -> Sel {
-        Sel::new_sel(
+    fn new_view(&self) -> Self::DerivedSel {
+        Self::DerivedSel::new_sel(
             Arc::clone(self.topology_arc()),
             Arc::clone(self.state_arc()),
             Arc::clone(self.index_arc()),
@@ -474,7 +474,7 @@ impl Sel {
 }
 
 //-------------------------------------------------------
-// Primary serial selections
+// Immutable parallel selection
 pub struct SelParImmut {
     topology: Arc<Topology>,
     state: Arc<State>,
