@@ -1,4 +1,4 @@
-use crate::{map_const_pyarray_to_vec3, Sel, Source};
+use crate::{map_const_pyarray_to_vec3, Sel, System};
 use pyo3::prelude::*;
 use triomphe::Arc;
 
@@ -8,7 +8,7 @@ pub(crate) struct Membrane(molar_membrane::Membrane);
 #[pymethods]
 impl Membrane {
     #[new]
-    fn new(src: &Source, opt_str: &str) -> anyhow::Result<Self> {
+    fn new(src: &System, opt_str: &str) -> anyhow::Result<Self> {
         Ok(Self(molar_membrane::Membrane::new(&src.0, opt_str)?))
     }
 

@@ -124,7 +124,7 @@ impl FileHandler {
             .0
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
+        if let Ok(s) = data.extract::<PyRef<'_, System>>() {
             h.write(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             h.write(&s.0)?;
@@ -153,7 +153,7 @@ impl FileHandler {
             .0
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
+        if let Ok(s) = data.extract::<PyRef<'_, System>>() {
             h.write_topology(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             h.write_topology(&s.0)?;
@@ -173,7 +173,7 @@ impl FileHandler {
             .0
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.extract::<PyRef<'_, Source>>() {
+        if let Ok(s) = data.extract::<PyRef<'_, System>>() {
             h.write_state(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             h.write_state(&s.0)?;
@@ -298,16 +298,16 @@ impl FileStats {
 }
 
 #[pyclass(unsendable, sequence)]
-struct Source(molar::core::System);
+struct System(molar::core::System);
 
 #[pymethods]
-impl Source {
+impl System {
     #[new]
     #[pyo3(signature = (*py_args))]
     fn new<'py>(py_args: &Bound<'py, PyTuple>) -> PyResult<Self> {
         if py_args.len() == 1 {
             // From file
-            Ok(Source(
+            Ok(System(
                 molar::core::System::from_file(&py_args.get_item(0)?.extract::<String>()?)
                     .map_err(|e| anyhow!(e))?,
             ))
@@ -317,13 +317,13 @@ impl Source {
                 .downcast::<Topology>()?
                 .try_borrow_mut()?;
             let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
-            Ok(Source(
+            Ok(System(
                 molar::core::System::new(Arc::clone(&top.0), Arc::clone(&st.0))
                     .map_err(|e| anyhow!(e))?,
             ))
         } else {
             // Empty builder
-            Ok(Source(molar::core::System::new_empty()))
+            Ok(System(molar::core::System::new_empty()))
         }
     }
 
@@ -404,7 +404,7 @@ impl Source {
         // In the future other types can be used as well
         if let Ok(sel) = arg.downcast::<Sel>() {
             self.0.append(&sel.borrow().0);
-        } else if let Ok(sel) = arg.downcast::<Source>() {
+        } else if let Ok(sel) = arg.downcast::<System>() {
             self.0.append(&sel.borrow().0);
         } else {
             anyhow::bail!("Unsupported type to append a Source")
@@ -436,17 +436,13 @@ impl Sel {
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {
         if let Ok(val) = arg.extract::<String>() {
-            Ok(Sel::new_owned(
-                self.0.select(val).map_err(|e| anyhow!(e))?,
-            ))
+            Ok(Sel::new_owned(self.0.select(val).map_err(|e| anyhow!(e))?))
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             Ok(Sel::new_owned(
                 self.0.select(val.0..=val.1).map_err(|e| anyhow!(e))?,
             ))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-            Ok(Sel::new_owned(
-                self.0.select(val).map_err(|e| anyhow!(e))?,
-            ))
+            Ok(Sel::new_owned(self.0.select(val).map_err(|e| anyhow!(e))?))
         } else {
             Err(anyhow!(
                 "Invalid argument type {} when creating selection",
@@ -502,7 +498,7 @@ impl Sel {
     }
 
     fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
-        // Instead we allocate an uninitialized PyArray manually and fill it by data.
+        // We allocate an uninitialized PyArray manually and fill it with data.
         // By doing this we save on unnecessary initiallization and extra allocation
         unsafe {
             let arr = numpy::PyArray2::<f32>::new(py, [3, self.0.len()], true);
@@ -664,10 +660,7 @@ impl Sel {
     }
 
     fn split_resindex(&self) -> Vec<Sel> {
-        self.0
-            .split_resindex_iter()
-            .map(|s| Sel(s))
-            .collect()
+        self.0.split_resindex_iter().map(|s| Sel(s)).collect()
     }
 
     fn split_chain(&self) -> Vec<Sel> {
@@ -807,9 +800,7 @@ fn distance_search<'py>(
                     sel2.0.iter_pos(),
                     sel1.0.iter_index(),
                     sel2.0.iter_index(),
-                    sel1.0
-                        .get_box()
-                        .ok_or_else(|| anyhow!("no periodic box"))?,
+                    sel1.0.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             } else {
@@ -827,17 +818,12 @@ fn distance_search<'py>(
                     d,
                     sel1.0.iter_pos(),
                     sel1.0.iter_index(),
-                    sel1.0
-                        .get_box()
-                        .ok_or_else(|| anyhow!("no periodic box"))?,
+                    sel1.0.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             } else {
-                res = molar::core::distance_search_single(
-                    d,
-                    sel1.0.iter_pos(),
-                    sel1.0.iter_index(),
-                );
+                res =
+                    molar::core::distance_search_single(d, sel1.0.iter_pos(), sel1.0.iter_index());
             }
         }
     } else if let Ok(s) = cutoff.extract::<String>() {
@@ -873,9 +859,7 @@ fn distance_search<'py>(
                     sel2.0.iter_pos(),
                     &vdw1,
                     &vdw2,
-                    sel1.0
-                        .get_box()
-                        .ok_or_else(|| anyhow!("no periodic box"))?,
+                    sel1.0.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
                     pbc_dims,
                 );
             }
@@ -923,7 +907,7 @@ impl NdxFile {
         Ok(NdxFile(molar::core::NdxFile::new(fname)?))
     }
 
-    fn get_group_as_sel(&self, gr_name: &str, src: &Source) -> anyhow::Result<Sel> {
+    fn get_group_as_sel(&self, gr_name: &str, src: &System) -> anyhow::Result<Sel> {
         Ok(Sel::new_owned(self.0.get_group_as_sel(gr_name, &src.0)?))
     }
 }
@@ -945,7 +929,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<State>()?;
     m.add_class::<PeriodicBox>()?;
     m.add_class::<FileHandler>()?;
-    m.add_class::<Source>()?;
+    m.add_class::<System>()?;
     m.add_class::<Sel>()?;
     m.add_class::<SasaResults>()?;
     m.add_class::<NdxFile>()?;

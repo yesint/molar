@@ -3,10 +3,10 @@ use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
+use serde::Deserialize;
 use std::f32::consts::PI;
 use std::iter::zip;
 use thiserror::Error;
-use serde::Deserialize;
 
 //==============================================================
 // Traits for measuring (immutable access)
@@ -36,7 +36,7 @@ pub enum MeasureError {
     Disjoint,
 
     #[error("lipid order error")]
-    LipidOrder(#[from] LipidOrderError)
+    LipidOrder(#[from] LipidOrderError),
 }
 
 /// Trait for analysis requiring only positions
@@ -409,13 +409,13 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         if self.len() < 3 {
             return Err(LipidOrderError::TailTooShort(self.len()));
         }
-        
+
         if normals.len() != 1 && normals.len() != self.len() - 2 {
-            return Err(LipidOrderError::NormalsCount(self.len(), self.len()-2));
+            return Err(LipidOrderError::NormalsCount(self.len(), self.len() - 2));
         }
 
         if bond_orders.len() != self.len() - 1 {
-            return Err(LipidOrderError::BondOrderCount(self.len(), self.len()-1));
+            return Err(LipidOrderError::BondOrderCount(self.len(), self.len() - 1));
         }
 
         let mut order = DVector::from_element(self.len() - 2, 0.0);
@@ -577,13 +577,13 @@ pub enum OrderType {
 }
 
 /// Errors related to computing lipid order parameter
-#[derive(Error,Debug)]
+#[derive(Error, Debug)]
 pub enum LipidOrderError {
     #[error("for {0} tail carbons # of normals should be 1 or {1}")]
-    NormalsCount(usize,usize),
-    
+    NormalsCount(usize, usize),
+
     #[error("for {0} tail carbons # of bond orders should be {1}")]
-    BondOrderCount(usize,usize),
+    BondOrderCount(usize, usize),
 
     #[error("tail should have at least 3 carbons, not {0}")]
     TailTooShort(usize),
