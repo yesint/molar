@@ -411,6 +411,11 @@ impl System {
         }
         Ok(())
     }
+
+    fn set_box_from(&self, sys: &System) {
+        self.0.set_box_from(&sys.0);
+
+    }
 }
 
 //====================================
