@@ -6,10 +6,16 @@ use sorted_vec::SortedSet;
 //--------------------------------------------------------------
 
 /// Trait for providing topology I/O operations
-pub trait TopologyIoProvider: RandomAtomProvider + AtomIterProvider + MoleculesProvider + BondsProvider {}
+pub trait TopologyIoProvider:
+    RandomAtomProvider + AtomIterProvider + MoleculesProvider + BondsProvider
+{
+}
 
 /// Trait for providing state I/O operations
-pub trait StateIoProvider: RandomPosProvider + PosIterProvider + BoxProvider + TimeProvider {}
+pub trait StateIoProvider:
+    RandomPosProvider + PosIterProvider + BoxProvider + TimeProvider
+{
+}
 
 /// Trait for providing file writing for topology and state data
 pub trait WritableToFile: TopologyIoProvider + StateIoProvider
@@ -33,7 +39,7 @@ pub trait IndexProvider {
 }
 
 impl IndexProvider for SortedSet<usize> {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.iter().cloned()
     }
 
@@ -43,7 +49,7 @@ impl IndexProvider for SortedSet<usize> {
 }
 
 impl IndexProvider for Vec<usize> {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone{
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.iter().cloned()
     }
 
@@ -66,7 +72,7 @@ pub trait PosIterProvider {
     fn iter_pos(&self) -> impl PosIterator<'_>;
 }
 
-/// Trait for providing iteration over atomic masses 
+/// Trait for providing iteration over atomic masses
 pub trait MassIterProvider {
     fn iter_masses(&self) -> impl Iterator<Item = f32>;
 }
@@ -76,11 +82,17 @@ pub trait AtomIterProvider {
     fn iter_atoms(&self) -> impl AtomIterator<'_>;
 }
 
+impl<T: AtomIterProvider> MassIterProvider for T {
+    fn iter_masses(&self) -> impl Iterator<Item = f32> {
+        self.iter_atoms().map(|at| at.mass)
+    }
+}
+
 /// Trait for providing access to periodic box
 pub trait BoxProvider {
     /// Get reference to the periodic box or `None` if there is no box.
     fn get_box(&self) -> Option<&PeriodicBox>;
-    
+
     /// Get reference to the periodic box or an error if there is no box.
     fn require_box(&self) -> Result<&PeriodicBox, PeriodicBoxError> {
         self.get_box().ok_or_else(|| PeriodicBoxError::NoPbc)
@@ -98,7 +110,7 @@ pub trait ParticleIterProvider: IndexProvider {
 }
 
 /// Trait for providing random access to particles
-pub trait RandomParticleProvider: RandomPosProvider+RandomAtomProvider {
+pub trait RandomParticleProvider: RandomPosProvider + RandomAtomProvider {
     unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_>;
 
     fn first_particle(&self) -> Particle {
@@ -135,7 +147,7 @@ pub trait RandomPosProvider: LenProvider {
     }
 
     fn last_pos(&self) -> &Pos {
-        unsafe { self.get_pos_unchecked(self.len()-1) }
+        unsafe { self.get_pos_unchecked(self.len() - 1) }
     }
 }
 
@@ -214,13 +226,13 @@ pub trait RandomPosMutProvider: RandomPosProvider {
             None
         }
     }
-    
+
     fn first_pos_mut(&self) -> &mut Pos {
         unsafe { self.get_pos_mut_unchecked(0) }
     }
-    
+
     fn last_pos_mut(&self) -> &mut Pos {
-        unsafe { self.get_pos_mut_unchecked(self.len()-1) }
+        unsafe { self.get_pos_mut_unchecked(self.len() - 1) }
     }
 }
 

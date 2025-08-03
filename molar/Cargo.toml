@@ -15,10 +15,10 @@ readme = "../README.md"
 
 [dependencies]
 # Workspace member crates
-molar_molfile = {path = "../molar_molfile", version = "0.9.0"}
-molar_xdrfile = {path = "../molar_xdrfile", version = "0.9.0"}
-molar_powersasa = {path = "../molar_powersasa", version = "0.9.0"}
-molar_gromacs = {path = "../molar_gromacs", version = "0.9.0"}
+molar_molfile = { path = "../molar_molfile", version = "0.9.0" }
+molar_xdrfile = { path = "../molar_xdrfile", version = "0.9.0" }
+molar_powersasa = { path = "../molar_powersasa", version = "0.9.0" }
+molar_gromacs = { path = "../molar_gromacs", version = "0.9.0" }
 
 # Normal dependencies
 thiserror.workspace = true
@@ -40,6 +40,7 @@ anyhow.workspace = true
 #nalgebra-lapack = "0.24"
 clap.workspace = true
 serde.workspace = true
+bio = "2.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

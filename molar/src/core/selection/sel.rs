@@ -40,7 +40,7 @@ pub trait HasTopState: LenProvider + IndexProvider {
 
 /// Trait for things that supports selecting atoms (Systems and Selections)
 pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
-    type DerivedSel: private::SelectionPrivate;
+    type DerivedSel: private::SelectionPrivate + Selectable;
 
     fn set_topology(
         &self,
@@ -582,7 +582,7 @@ impl System {
     }
 
     /// Release and return [Topology] and [State].
-    /// Fails if any selection is still pointing to them..
+    /// Fails if any selection is still pointing to them.
     pub fn release(self) -> Result<(Topology, State), SelectionError> {
         if self.topology.is_unique() && self.state.is_unique() {
             Ok((
@@ -909,15 +909,6 @@ impl<T: HasTopState + MutableSelectable> AtomIterMutProvider for T {
         unsafe {
             self.iter_index()
                 .map(|i| self.get_topology().get_atom_mut_unchecked(i))
-        }
-    }
-}
-
-impl<T: HasTopState> MassIterProvider for T {
-    fn iter_masses(&self) -> impl Iterator<Item = f32> {
-        unsafe {
-            self.iter_index()
-                .map(|i| self.get_topology().get_atom_unchecked(i).mass)
         }
     }
 }

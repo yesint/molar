@@ -48,7 +48,7 @@ impl TopologyStorage {
                 self.atoms.len(),
             ));
         }
-        
+
         let mut it = ind.iter().cloned();
         let mut to_remove = it.next().unwrap_or(usize::MAX);
         let mut i = 0;
@@ -60,7 +60,7 @@ impl TopologyStorage {
             }
             ok
         });
-        
+
         Ok(())
     }
 }
@@ -165,12 +165,6 @@ macro_rules! impl_topology_traits {
             }
         }
 
-        impl MassIterProvider for $t {
-            fn iter_masses(&self) -> impl Iterator<Item = f32> {
-                self.get_storage().atoms.iter().map(|at| at.mass)
-            }
-        }
-
         impl LenProvider for $t {
             fn len(&self) -> usize {
                 self.get_storage_mut().atoms.len()
@@ -198,7 +192,7 @@ macro_rules! impl_topology_traits {
                 self.get_storage().bonds.len()
             }
 
-            unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize;2] {
+            unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.get_storage().bonds.get_unchecked(i)
             }
 
@@ -206,13 +200,13 @@ macro_rules! impl_topology_traits {
                 self.get_storage().bonds.iter()
             }
         }
-        
+
         impl MoleculesProvider for $t {
             fn num_molecules(&self) -> usize {
                 self.get_storage().molecules.len()
             }
-            
-            unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize;2] {
+
+            unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.get_storage().molecules.get_unchecked(i)
             }
 

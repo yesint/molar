@@ -1,8 +1,8 @@
+use crate::prelude::*;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::collections::HashSet;
 use thiserror::Error;
-use crate::prelude::*;
 
 //##############################
 //#  AST node types
@@ -291,14 +291,6 @@ impl RandomAtomProvider for ActiveSubset<'_> {
     }
 }
 
-impl MassIterProvider for ActiveSubset<'_> {
-    fn iter_masses(&self) -> impl Iterator<Item = f32> {
-        self.subset
-            .iter()
-            .map(|i| unsafe { self.topology.get_atom_unchecked(*i).mass })
-    }
-}
-
 impl BoxProvider for ActiveSubset<'_> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
@@ -313,24 +305,17 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //#  AST nodes logic implementation
 //###################################
 impl DistanceNode {
-    fn closest_image(
-        &mut self,
-        point: &mut Pos,
-        data: &EvaluationContext,
-    ) {
+    fn closest_image(&mut self, point: &mut Pos, data: &EvaluationContext) {
         if let Some(pbox) = data.state.get_box() {
             match self {
-                  Self::Point(target, dims)
+                Self::Point(target, dims)
                 | Self::Line(target, _, dims)
                 | Self::LineDir(target, _, dims)
                 | Self::Plane(target, _, _, dims)
                 | Self::PlaneNormal(target, _, dims) => {
                     if dims.any() {
-                        *point = pbox.closest_image_dims(
-                            point,
-                            target.get_vec(data).unwrap(),
-                            *dims,
-                        )
+                        *point =
+                            pbox.closest_image_dims(point, target.get_vec(data).unwrap(), *dims)
                     }
                 }
             }
@@ -356,13 +341,10 @@ impl VectorNode {
             Self::Cog(inner, dims) => {
                 let res = inner.apply(data)?;
                 let v = if *dims == PBC_NONE {
-                    data
-                    .custom_subset(&res)
-                    .center_of_geometry()
+                    data.custom_subset(&res).center_of_geometry()
                 } else {
-                    data
-                    .custom_subset(&res)
-                    .center_of_geometry_pbc_dims(*dims)?
+                    data.custom_subset(&res)
+                        .center_of_geometry_pbc_dims(*dims)?
                 };
                 *self = Self::Const(v);
                 self.get_vec(data)
@@ -385,7 +367,7 @@ impl VectorNode {
             _ => {
                 *self = Self::UnitConst(Pos::from(self.get_vec(data)?.coords.normalize()));
                 self.get_unit_vec(data)
-            },
+            }
         }
     }
 }

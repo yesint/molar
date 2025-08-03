@@ -743,6 +743,12 @@ fn fit_transform(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
     Ok(IsometryTransform(tr))
 }
 
+#[pyfunction(name = "fit_transform_matching")]
+fn fit_transform_matching_py(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
+    let tr = molar::core::fit_transform_matching(&sel1.0, &sel2.0)?;
+    Ok(IsometryTransform(tr))
+}
+
 #[pyfunction]
 fn rmsd(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
     Ok(molar::core::Sel::rmsd(&sel1.0, &sel2.0)?)
@@ -936,6 +942,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Histogram1D>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_transform_matching_py, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd_mw, m)?)?;
     m.add_function(wrap_pyfunction!(distance_search, m)?)?;

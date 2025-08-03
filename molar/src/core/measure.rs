@@ -1,9 +1,12 @@
+use crate::core::{Selectable, SelectionError};
+
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::iter::zip;
 use thiserror::Error;
@@ -37,6 +40,9 @@ pub enum MeasureError {
 
     #[error("lipid order error")]
     LipidOrder(#[from] LipidOrderError),
+
+    #[error("selection error")]
+    Sel,
 }
 
 /// Trait for analysis requiring only positions
@@ -562,6 +568,106 @@ pub trait MeasureRandomAccess: RandomPosProvider {
         }
         Ok(order)
     }
+}
+
+pub fn matching_atom_names<T1, T2>(seq1: &T1, seq2: &T2) -> (Vec<usize>, Vec<usize>)
+where
+    T1: AtomIterProvider,
+    T2: AtomIterProvider,
+{
+    use bio::alignment::pairwise::*;
+    use bio::alignment::AlignmentOperation::*;
+
+    // rust_bio aligns sequences of u8, so we need to code atom names as u8 first
+    // make mapping
+    let mut name_to_u8 = HashMap::<&str, u8>::new();
+    let mut i: u8 = 0;
+    for name in seq1
+        .iter_atoms()
+        .chain(seq2.iter_atoms())
+        .map(|at| at.name.as_str())
+    {
+        if !name_to_u8.contains_key(name) {
+            name_to_u8.insert(name, i);
+            i += 1;
+        }
+    }
+    // Produce sequences
+    let x_seq = seq1
+        .iter_atoms()
+        .map(|at| name_to_u8[at.name.as_str()])
+        .collect::<Vec<_>>();
+    let y_seq = seq2
+        .iter_atoms()
+        .map(|at| name_to_u8[at.name.as_str()])
+        .collect::<Vec<_>>();
+
+    // Simple identity scoring function
+    let generic_score = |a: u8, b: u8| -> i32 {
+        if a == b {
+            1
+        } else {
+            -1
+        }
+    };
+
+    let alignment = Aligner::new(-10, -1, &generic_score).global(&x_seq, &y_seq);
+
+    // Extract indexes of matched atoms
+    let mut x_idx = alignment.xstart;
+    let mut y_idx = alignment.ystart;
+    let mut matches_x = Vec::new();
+    let mut matches_y = Vec::new();
+
+    for op in alignment.operations.iter() {
+        match op {
+            Match => {
+                matches_x.push(x_idx);
+                matches_y.push(y_idx);
+                x_idx += 1;
+                y_idx += 1;
+            }
+            Subst => {
+                x_idx += 1;
+                y_idx += 1;
+            }
+            Del => x_idx += 1,        // gap in y
+            Ins => y_idx += 1,        // gap in x
+            Xclip(_) | Yclip(_) => {} // ignore soft clipping if present
+        }
+    }
+
+    // Returns aligned indexes
+    (matches_x, matches_y)
+}
+
+/// Computes the transformation that best fits sel1 onto sel2 taking into
+/// account only matching atoms. The sequences of atom names from both
+/// selections are aligned first with Needleman–Wunsch Global Alignment algorithm
+/// and then only the matching atoms are used to compute a fit transform
+pub fn fit_transform_matching<T1, T2>(
+    sel1: &T1,
+    sel2: &T2,
+) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
+where
+    T1: Selectable + Sized,
+    T2: Selectable + Sized,
+{
+    let (ind1, ind2) = matching_atom_names(sel1, sel2);
+    let matched_sel1 = sel1.select(&ind1).map_err(|_| MeasureError::Sel)?;
+    let matched_sel2 = sel2.select(&ind2).map_err(|_| MeasureError::Sel)?;
+
+    let cm1 = matched_sel1.center_of_mass()?;
+    let cm2 = matched_sel2.center_of_mass()?;
+
+    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    let rot = rot_transform(
+        matched_sel1.iter_pos().map(|p| *p - cm1),
+        matched_sel1.iter_pos().map(|p| *p - cm2),
+        matched_sel1.iter_masses(),
+    )?;
+
+    Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
 }
 
 /// Type of order parameter calculation
