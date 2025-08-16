@@ -15,6 +15,7 @@ mod private {
     //(System, Sel, SelPar)
     pub trait AllowsSelecting {
         fn get_topology_arc(&self) -> &Arc<Topology>;
+        fn set_topology_arc(&mut self, top: Arc<Topology>);
         fn get_state_arc(&self) -> &Arc<State>;
         fn set_state_arc(&mut self, st: Arc<State>);
         fn index_slice(&self) -> Option<&[usize]>;
@@ -44,15 +45,17 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     type DerivedSel: private::SelectionPrivate + Selectable;
 
     fn set_topology(
-        &self,
+        &mut self,
         topology: impl Into<Arc<Topology>>,
     ) -> Result<Arc<Topology>, SelectionError> {
         let topology: Arc<Topology> = topology.into();
         if !self.get_topology_arc().interchangeable(&topology) {
             return Err(SelectionError::IncompatibleState);
         }
-        let p = self.get_topology_arc() as *const Arc<Topology> as *mut Arc<Topology>;
-        unsafe { Ok(std::ptr::replace(p, topology)) }
+
+        let ret = Arc::clone(self.get_topology_arc());
+        self.set_topology_arc(topology);
+        Ok(ret)
     }
 
     fn set_state(&mut self, state: impl Into<Arc<State>>) -> Result<Arc<State>, SelectionError> {
@@ -61,8 +64,6 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
             return Err(SelectionError::IncompatibleState);
         }
         
-        // let p = self.get_state_arc() as *const Arc<State> as *mut Arc<State>;
-        // unsafe { Ok(std::ptr::replace(p, state)) }
         let ret = Arc::clone(self.get_state_arc());
         self.set_state_arc(state);
         Ok(ret)
@@ -420,6 +421,10 @@ macro_rules! impl_selection {
             fn get_topology_arc(&self) -> &Arc<Topology> {
                 &self.topology
             }
+
+            fn set_topology_arc(&mut self, top: Arc<Topology>) {
+                self.topology = top;
+            }
         }
 
         impl LenProvider for $t {
@@ -541,6 +546,10 @@ impl private::AllowsSelecting for System {
 
     fn get_topology_arc(&self) -> &Arc<Topology> {
         &self.topology
+    }
+
+    fn set_topology_arc(&mut self, top: Arc<Topology>) {
+        self.topology = top;
     }
 }
 
