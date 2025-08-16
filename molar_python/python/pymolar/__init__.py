@@ -43,10 +43,10 @@ class AnalysisTask:
         self.register_args(parser)
         # Parse arguments
         self.args = parser.parse_args()
-        
+
         if len(self.args.files) < 2:
             raise Exception('At least one trajectory file is required')
-        
+
         self.top = FileHandler(self.args.files[0],'r').read_topology()
 
         bfr,bt = _process_suffix(self.args.begin)
@@ -55,16 +55,16 @@ class AnalysisTask:
         # Read trajectories and call process_frame on each frame
         self.consumed_frames = 0
         valid_frames = 0
-        
+
         for trj_file in self.args.files[1:]:
             logging.info(f'Processing trajectory "{trj_file}"...')
-            trj_handler = FileHandler(trj_file,'r')    
-            
+            trj_handler = FileHandler(trj_file,'r')
+
             if bfr:
                 trj_handler.skip_to_frame(bfr)
             elif bt:
                 trj_handler.skip_to_time(bt)
-            
+
             # Read next frame untill available
             for st in trj_handler:
                 # See if end is reached
@@ -72,23 +72,23 @@ class AnalysisTask:
                     break
                 if et and st.time > et:
                     break
-                
-                # We have a valid frame, 
+
+                # We have a valid frame,
                 valid_frames += 1
-                
+
                 # see if we need to skip a frame
                 if (valid_frames-1) % self.args.skip > 0:
                     continue
 
                 self.state = st
-                
+
                 if self.consumed_frames == 0:
-                    self.src = Source(self.top,self.state)
+                    self.src = System(self.top,self.state)
                     # Call pre-processing
                     self.pre_process()
                 else:
                     self.src.set_state(self.state)
-                        
+
                 if self.consumed_frames % self.args.log == 0:
                     self.__log_time()
 

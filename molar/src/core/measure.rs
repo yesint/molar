@@ -1,4 +1,4 @@
-use crate::core::{Selectable, SelectionError};
+use crate::core::Selectable;
 
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
@@ -116,60 +116,6 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
         }
     }
 
-    /// Computes the transformation that best fits sel1 onto sel2
-    fn fit_transform(
-        sel1: &Self,
-        sel2: &impl MeasureMasses,
-    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
-        let cm1 = sel1.center_of_mass()?;
-        let cm2 = sel2.center_of_mass()?;
-
-        //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-        let rot = rot_transform(
-            sel1.iter_pos().map(|p| *p - cm1),
-            sel2.iter_pos().map(|p| *p - cm2),
-            sel1.iter_masses(),
-        )?;
-
-        Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
-    }
-
-    /// Like fit_transform but assumes both selections are centered at origin
-    fn fit_transform_at_origin(
-        sel1: &Self,
-        sel2: &impl MeasureMasses,
-    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
-        let rot = rot_transform(
-            sel1.iter_pos().map(|p| p.coords),
-            sel2.iter_pos().map(|p| p.coords),
-            sel1.iter_masses(),
-        )?;
-        Ok(nalgebra::convert(rot))
-    }
-
-    /// Calculates the mass-weighted Root Mean Square Deviation between two selections
-    fn rmsd_mw(sel1: &Self, sel2: &impl MeasureMasses) -> Result<f32, MeasureError> {
-        let mut res = 0.0;
-        let mut m_tot = 0.0;
-        let iter1 = sel1.iter_pos();
-        let iter2 = sel2.iter_pos();
-
-        if sel1.len() != sel2.len() {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-        }
-
-        for (p1, p2, m) in izip!(iter1, iter2, sel1.iter_masses()) {
-            res += (p2 - p1).norm_squared() * m;
-            m_tot += m;
-        }
-
-        if m_tot == 0.0 {
-            Err(MeasureError::ZeroMass)
-        } else {
-            Ok((res / m_tot).sqrt())
-        }
-    }
-
     /// Calculates the radius of gyration of the selection
     fn gyration(&self) -> Result<f32, MeasureError> {
         let c = self.center_of_mass()?;
@@ -193,6 +139,60 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
         let c = self.center_of_mass()?;
         let (_, axes) = do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses());
         Ok(do_principal_transform(axes, c.coords))
+    }
+}
+
+/// Computes the transformation that best fits sel1 onto sel2
+pub fn fit_transform(
+    sel1: &impl MeasureMasses,
+    sel2: &impl MeasureMasses,
+) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+    let cm1 = sel1.center_of_mass()?;
+    let cm2 = sel2.center_of_mass()?;
+
+    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    let rot = rot_transform(
+        sel1.iter_pos().map(|p| *p - cm1),
+        sel2.iter_pos().map(|p| *p - cm2),
+        sel1.iter_masses(),
+    )?;
+
+    Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
+}
+
+/// Like fit_transform but assumes both selections are centered at origin
+pub fn fit_transform_at_origin(
+    sel1: &impl MeasureMasses,
+    sel2: &impl MeasureMasses,
+) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+    let rot = rot_transform(
+        sel1.iter_pos().map(|p| p.coords),
+        sel2.iter_pos().map(|p| p.coords),
+        sel1.iter_masses(),
+    )?;
+    Ok(nalgebra::convert(rot))
+}
+
+/// Calculates the mass-weighted Root Mean Square Deviation between two selections
+pub fn rmsd_mw(sel1: &impl MeasureMasses, sel2: &impl MeasureMasses) -> Result<f32, MeasureError> {
+    let mut res = 0.0;
+    let mut m_tot = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
+
+    if sel1.len() != sel2.len() {
+        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
+    }
+
+    for (p1, p2, m) in izip!(iter1, iter2, sel1.iter_masses()) {
+        res += (p2 - p1).norm_squared() * m;
+        m_tot += m;
+    }
+
+    if m_tot == 0.0 {
+        Err(MeasureError::ZeroMass)
+    } else {
+        Ok((res / m_tot).sqrt())
     }
 }
 
@@ -614,25 +614,25 @@ where
     let alignment = Aligner::new(-10, -1, &generic_score).global(&x_seq, &y_seq);
 
     // Extract indexes of matched atoms
-    let mut x_idx = alignment.xstart;
-    let mut y_idx = alignment.ystart;
     let mut matches_x = Vec::new();
     let mut matches_y = Vec::new();
+    let mut sel1_idx = 0;
+    let mut sel2_idx = 0;
 
     for op in alignment.operations.iter() {
         match op {
             Match => {
-                matches_x.push(x_idx);
-                matches_y.push(y_idx);
-                x_idx += 1;
-                y_idx += 1;
+                matches_x.push(sel1_idx);
+                matches_y.push(sel2_idx);
+                sel1_idx += 1;
+                sel2_idx += 1;
             }
             Subst => {
-                x_idx += 1;
-                y_idx += 1;
+                sel1_idx += 1;
+                sel2_idx += 1;
             }
-            Del => x_idx += 1,        // gap in y
-            Ins => y_idx += 1,        // gap in x
+            Del => sel2_idx += 1,     // gap in y
+            Ins => sel1_idx += 1,     // gap in x
             Xclip(_) | Yclip(_) => {} // ignore soft clipping if present
         }
     }
@@ -654,20 +654,9 @@ where
     T2: Selectable + Sized,
 {
     let (ind1, ind2) = matching_atom_names(sel1, sel2);
-    let matched_sel1 = sel1.select(&ind1).map_err(|_| MeasureError::Sel)?;
-    let matched_sel2 = sel2.select(&ind2).map_err(|_| MeasureError::Sel)?;
-
-    let cm1 = matched_sel1.center_of_mass()?;
-    let cm2 = matched_sel2.center_of_mass()?;
-
-    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-    let rot = rot_transform(
-        matched_sel1.iter_pos().map(|p| *p - cm1),
-        matched_sel1.iter_pos().map(|p| *p - cm2),
-        matched_sel1.iter_masses(),
-    )?;
-
-    Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
+    let matched_sel1 = sel1.select(&ind1).unwrap();
+    let matched_sel2 = sel2.select(&ind2).unwrap();
+    fit_transform(&matched_sel1, &matched_sel2)
 }
 
 /// Type of order parameter calculation

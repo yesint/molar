@@ -58,7 +58,7 @@ impl LipidMolecule {
         self.sel.set_state_from(st)?;
         self.head_sel.set_state_from(st)?;
         self.mid_sel.set_state_from(st)?;
-        for t in &self.tail_sels {
+        for t in &mut self.tail_sels {
             t.set_state_from(st)?;
         }
         // Unwrap lipid
@@ -77,7 +77,7 @@ impl LipidMolecule {
         self.sel.set_state(Arc::clone(&st))?;
         self.head_sel.set_state(Arc::clone(&st))?;
         self.mid_sel.set_state(Arc::clone(&st))?;
-        for t in &self.tail_sels {
+        for t in &mut self.tail_sels {
             t.set_state(Arc::clone(&st))?;
         }
         // Unwrap lipid

@@ -11,14 +11,14 @@ fn molar_benchmark_large(c: &mut Criterion) {
         b.iter(black_box(|| {
             let src = System::from_file(PDB).unwrap();
             let ref_sel = src.select("protein").unwrap();
-            let cur_sel = src.select("protein").unwrap();
+            let mut cur_sel = src.select("protein").unwrap();
 
             let mut rmsd = vec![];
 
             let trj = FileHandler::open(XTC).unwrap().into_iter();
             for st in trj {
                 cur_sel.set_state(st).unwrap();
-                let tr = MeasureMasses::fit_transform(&cur_sel, &ref_sel).unwrap();
+                let tr = fit_transform(&cur_sel, &ref_sel).unwrap();
                 cur_sel.apply_transform(&tr);
                 rmsd.push(MeasurePos::rmsd(&cur_sel, &ref_sel).unwrap());
             }
@@ -29,7 +29,7 @@ fn molar_benchmark_large(c: &mut Criterion) {
     c.bench_function("within_large", |b| {
         b.iter(black_box(|| {
             let src = System::from_file(PDB).unwrap();
-            let sel = src.select("within 1.0 of protein").unwrap();
+            let mut sel = src.select("within 1.0 of protein").unwrap();
             let mut cm = vec![];
             let trj = FileHandler::open(XTC).unwrap().into_iter();
             for st in trj {
@@ -43,7 +43,7 @@ fn molar_benchmark_large(c: &mut Criterion) {
     c.bench_function("trjconv_large", |b| {
         b.iter(black_box(|| {
             let src = System::from_file(PDB).unwrap();
-            let sel = src.select("protein").unwrap();
+            let mut sel = src.select("protein").unwrap();
 
             let in_trj = FileHandler::open(XTC).unwrap().into_iter();
             let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();

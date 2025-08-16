@@ -14,8 +14,9 @@ mod private {
     // Trait for things that allow creating selections from them
     //(System, Sel, SelPar)
     pub trait AllowsSelecting {
-        fn topology_arc(&self) -> &Arc<Topology>;
-        fn state_arc(&self) -> &Arc<State>;
+        fn get_topology_arc(&self) -> &Arc<Topology>;
+        fn get_state_arc(&self) -> &Arc<State>;
+        fn set_state_arc(&mut self, st: Arc<State>);
         fn index_slice(&self) -> Option<&[usize]>;
     }
 
@@ -47,27 +48,28 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         topology: impl Into<Arc<Topology>>,
     ) -> Result<Arc<Topology>, SelectionError> {
         let topology: Arc<Topology> = topology.into();
-        if !self.topology_arc().interchangeable(&topology) {
+        if !self.get_topology_arc().interchangeable(&topology) {
             return Err(SelectionError::IncompatibleState);
         }
-        let p = self.topology_arc() as *const Arc<Topology> as *mut Arc<Topology>;
+        let p = self.get_topology_arc() as *const Arc<Topology> as *mut Arc<Topology>;
         unsafe { Ok(std::ptr::replace(p, topology)) }
     }
 
-    /// Sets new [State] in [Sel].
-    /// This is "shallow" operation, which doesn't affect other
-    /// [Sel]s that point to the same [State].
-    fn set_state(&self, state: impl Into<Arc<State>>) -> Result<Arc<State>, SelectionError> {
+    fn set_state(&mut self, state: impl Into<Arc<State>>) -> Result<Arc<State>, SelectionError> {
         let state: Arc<State> = state.into();
-        if !self.state_arc().interchangeable(&state) {
+        if !self.get_state_arc().interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);
         }
-        let p = self.state_arc() as *const Arc<State> as *mut Arc<State>;
-        unsafe { Ok(std::ptr::replace(p, state)) }
+        
+        // let p = self.get_state_arc() as *const Arc<State> as *mut Arc<State>;
+        // unsafe { Ok(std::ptr::replace(p, state)) }
+        let ret = Arc::clone(self.get_state_arc());
+        self.set_state_arc(state);
+        Ok(ret)
     }
 
-    fn set_state_from(&self, other: &impl Selectable) -> Result<Arc<State>, SelectionError> {
-        let cloned_arc = Arc::clone(other.state_arc());
+    fn set_state_from(&mut self, other: &impl Selectable) -> Result<Arc<State>, SelectionError> {
+        let cloned_arc = Arc::clone(other.get_state_arc());
         Ok(self.set_state(cloned_arc)?)
     }
 
@@ -78,10 +80,14 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     {
         use private::SelectionPrivate;
 
-        let ind = def.into_sel_index(self.topology_arc(), self.state_arc(), self.index_slice())?;
+        let ind = def.into_sel_index(
+            self.get_topology_arc(),
+            self.get_state_arc(),
+            self.index_slice(),
+        )?;
         Ok(Self::DerivedSel::new_sel(
-            Arc::clone(&self.topology_arc()),
-            Arc::clone(&self.state_arc()),
+            Arc::clone(&self.get_topology_arc()),
+            Arc::clone(&self.get_state_arc()),
             Arc::new(ind),
         ))
     }
@@ -137,7 +143,7 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         let mut molid = 0;
 
         let next_fn = move || {
-            if self.topology_arc().num_molecules() == 0 {
+            if self.get_topology_arc().num_molecules() == 0 {
                 return None;
             }
 
@@ -198,8 +204,8 @@ pub trait Selection: private::SelectionPrivate + Selectable {
 
     fn new_view(&self) -> Self::DerivedSel {
         Self::DerivedSel::new_sel(
-            Arc::clone(self.topology_arc()),
-            Arc::clone(self.state_arc()),
+            Arc::clone(self.get_topology_arc()),
+            Arc::clone(self.get_state_arc()),
             Arc::clone(self.index_arc()),
         )
     }
@@ -225,8 +231,8 @@ pub trait Selection: private::SelectionPrivate + Selectable {
         }
 
         Self::DerivedSel::new_sel(
-            Arc::clone(&self.topology_arc()),
-            Arc::clone(&self.state_arc()),
+            Arc::clone(&self.get_topology_arc()),
+            Arc::clone(&self.get_state_arc()),
             Arc::new(unsafe { SVec::from_sorted(ind) }),
         )
     }
@@ -255,7 +261,7 @@ pub trait Selection: private::SelectionPrivate + Selectable {
             0.14,
             |i| unsafe {
                 let ind = *self.index_arc().get_unchecked(i);
-                self.state_arc()
+                self.get_state_arc()
                     .get_pos_mut_unchecked(ind)
                     .coords
                     .as_mut_ptr()
@@ -324,11 +330,11 @@ pub trait MutableSelectable: HasTopState {
 
 impl<T: Selectable> HasTopState for T {
     fn get_topology(&self) -> &Topology {
-        self.topology_arc()
+        self.get_topology_arc()
     }
 
     fn get_state(&self) -> &State {
-        self.state_arc()
+        self.get_state_arc()
     }
 }
 
@@ -364,8 +370,8 @@ where
                     // The end of current selection
                     cur_val = val; // Update val for the next selection
                     return Some(SO::new_sel(
-                        Arc::clone(sel.topology_arc()),
-                        Arc::clone(sel.state_arc()),
+                        Arc::clone(sel.get_topology_arc()),
+                        Arc::clone(sel.get_state_arc()),
                         Arc::new(unsafe { SVec::from_sorted(index) }),
                     ));
                 }
@@ -377,8 +383,8 @@ where
         // Return any remaining index as last selection
         if !index.is_empty() {
             return Some(SO::new_sel(
-                Arc::clone(sel.topology_arc()),
-                Arc::clone(sel.state_arc()),
+                Arc::clone(sel.get_topology_arc()),
+                Arc::clone(sel.get_state_arc()),
                 Arc::new(unsafe { SVec::from_sorted(index) }),
             ));
         }
@@ -403,11 +409,15 @@ macro_rules! impl_selection {
                 Some(&self.index_storage)
             }
 
-            fn state_arc(&self) -> &Arc<State> {
+            fn get_state_arc(&self) -> &Arc<State> {
                 &self.state
             }
 
-            fn topology_arc(&self) -> &Arc<Topology> {
+            fn set_state_arc(&mut self, st: Arc<State>) {
+                self.state = st;
+            }
+
+            fn get_topology_arc(&self) -> &Arc<Topology> {
                 &self.topology
             }
         }
@@ -521,11 +531,15 @@ impl private::AllowsSelecting for System {
         None
     }
 
-    fn state_arc(&self) -> &Arc<State> {
+    fn get_state_arc(&self) -> &Arc<State> {
         &self.state
     }
 
-    fn topology_arc(&self) -> &Arc<Topology> {
+    fn set_state_arc(&mut self, st: Arc<State>) {
+        self.state = st;
+    }
+
+    fn get_topology_arc(&self) -> &Arc<Topology> {
         &self.topology
     }
 }
@@ -720,8 +734,8 @@ macro_rules! impl_logical_ops {
             fn bitor(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
-                    Arc::clone(self.topology_arc()),
-                    Arc::clone(self.state_arc()),
+                    Arc::clone(self.get_topology_arc()),
+                    Arc::clone(self.get_state_arc()),
                     Arc::new(ind),
                 )
             }
@@ -736,8 +750,8 @@ macro_rules! impl_logical_ops {
                     panic!("'and' of selections is empty");
                 }
                 Self::Output::new_sel(
-                    Arc::clone(self.topology_arc()),
-                    Arc::clone(self.state_arc()),
+                    Arc::clone(self.get_topology_arc()),
+                    Arc::clone(self.get_state_arc()),
                     Arc::new(ind),
                 )
             }
@@ -749,8 +763,8 @@ macro_rules! impl_logical_ops {
             fn sub(self, rhs: &S) -> Self::Output {
                 let ind = difference_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
-                    Arc::clone(self.topology_arc()),
-                    Arc::clone(self.state_arc()),
+                    Arc::clone(self.get_topology_arc()),
+                    Arc::clone(self.get_state_arc()),
                     Arc::new(ind),
                 )
             }
@@ -762,8 +776,8 @@ macro_rules! impl_logical_ops {
             fn add(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
-                    Arc::clone(self.topology_arc()),
-                    Arc::clone(self.state_arc()),
+                    Arc::clone(self.get_topology_arc()),
+                    Arc::clone(self.get_state_arc()),
                     Arc::new(ind),
                 )
             }
@@ -781,8 +795,8 @@ macro_rules! impl_logical_ops {
                     panic!("negated selection is empty");
                 }
                 Self::Output::new_sel(
-                    Arc::clone(self.topology_arc()),
-                    Arc::clone(self.state_arc()),
+                    Arc::clone(self.get_topology_arc()),
+                    Arc::clone(self.get_state_arc()),
                     Arc::new(ind),
                 )
             }
@@ -815,14 +829,16 @@ impl ParSplit {
             // On first selection resize used
             if used.is_empty() {
                 used.resize(sel.get_topology().len(), false);
-                top_arc = Some(sel.topology_arc());
-                st_arc = Some(sel.state_arc());
+                top_arc = Some(sel.get_topology_arc());
+                st_arc = Some(sel.get_state_arc());
             }
 
             let top_arc = top_arc.unwrap();
             let st_arc = st_arc.unwrap();
 
-            if !(Arc::ptr_eq(top_arc, sel.topology_arc()) && Arc::ptr_eq(st_arc, sel.state_arc())) {
+            if !(Arc::ptr_eq(top_arc, sel.get_topology_arc())
+                && Arc::ptr_eq(st_arc, sel.get_state_arc()))
+            {
                 return Err(SelectionError::ParSplitDifferentSystems);
             }
 
@@ -1059,6 +1075,34 @@ mod tests {
         let serials: Vec<Sel> = par.iter().collect();
         println!("serial #5: {}", serials[5].first_atom().resname);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test1_set_state() -> anyhow::Result<()> {
+        let (top, st1) = FileHandler::open("tests/albumin.pdb")?.read()?;
+        let st2 = FileHandler::open("tests/albumin.pdb")?
+            .read_state()?
+            .unwrap();
+        st2.set_time(100.0);
+
+        let sys = System::new(top, st1)?;
+        let mut sel1 = sys.select("name CA")?;
+        let sel2 = sys.select("name CB")?;
+
+        println!(
+            "Before set_state(): sys: {} sel1: {} sel2: {}",
+            sys.get_time(),
+            sel1.get_time(),
+            sel2.get_time()
+        );
+        sel1.set_state(Arc::new(st2))?;
+        println!(
+            "After set_state(): sys: {} sel1: {} sel2: {}",
+            sys.get_time(),
+            sel1.get_time(),
+            sel2.get_time()
+        );
         Ok(())
     }
 }

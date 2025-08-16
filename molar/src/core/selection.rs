@@ -8,9 +8,9 @@ use std::num::ParseIntError;
 // pub use sel::*;
 // pub use sel_split::*;
 // pub use source::*;
-pub(crate) use utils::*;
-pub use selection_def::*;
 pub use molar_powersasa::SasaResults;
+pub use selection_def::*;
+pub(crate) use utils::*;
 mod sel;
 pub use sel::*;
 
@@ -101,10 +101,10 @@ pub enum SelectionError {
 
     #[error("selection intersection is empy")]
     EmptyIntersection,
-    
+
     #[error("selection difference is empy")]
     EmptyDifference,
-    
+
     #[error("selection complement is empy")]
     EmptyComplement,
 
@@ -141,20 +141,19 @@ pub enum SelectionIndexError {
 pub enum NdxError {
     #[error("group {0} not found")]
     NoGroup(String),
-    
+
     #[error("group {0} is empty")]
     EmptyGroup(String),
-    
+
     #[error("index parse error in group {0}")]
     Parse(String, #[source] ParseIntError),
 
     #[error("error reading ndx file {0}")]
     NdxIo(std::path::PathBuf, #[source] std::io::Error),
-    
+
     #[error("malformed ndx file {0}")]
     MalformedNdxFile(std::path::PathBuf),
 }
-
 
 //############################################################
 //#  Tests
@@ -164,8 +163,8 @@ pub enum NdxError {
 mod tests {
     use super::*;
     use crate::prelude::*;
-    pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
     use rayon::iter::IndexedParallelIterator;
+    pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
     use std::sync::LazyLock;
 
     static TOPST: LazyLock<(Topology, State)> = LazyLock::new(|| {
@@ -273,15 +272,15 @@ mod tests {
 
         sel2.save(concat!(env!("OUT_DIR"), "/sel2.pdb"))?;
         sel1.save(concat!(env!("OUT_DIR"), "/sel1_before.pdb"))?;
-        println!("Initial RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
+        println!("Initial RMSD:{}", rmsd_mw(&sel1, &sel2)?);
 
-        let m = Sel::fit_transform(&sel1, &sel2)?;
+        let m = fit_transform(&sel1, &sel2)?;
         println!("{m}");
 
         sel1.apply_transform(&m);
 
         sel1.save(concat!(env!("OUT_DIR"), "/sel1_after.pdb"))?;
-        println!("Final RMSD:{}", Sel::rmsd_mw(&sel1, &sel2)?);
+        println!("Final RMSD:{}", rmsd_mw(&sel1, &sel2)?);
         Ok(())
     }
 
@@ -289,7 +288,11 @@ mod tests {
     fn sasa_test() -> anyhow::Result<()> {
         let sel1 = make_sel_all()?;
         let res = sel1.sasa();
-        println!("Sasa: {a}, Volume: {v}",a=res.total_area(),v=res.total_volume());
+        println!(
+            "Sasa: {a}, Volume: {v}",
+            a = res.total_area(),
+            v = res.total_volume()
+        );
         Ok(())
     }
 
@@ -341,7 +344,7 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let n = top.len();
         let builder = System::new(top, st)?;
-        
+
         let sel = builder.select("resid 550:560")?;
         let added = sel.len();
         builder.append(&sel);
@@ -354,15 +357,18 @@ mod tests {
     fn test_select_from_vec() -> anyhow::Result<()> {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let src = System::new(top, st)?;
-        let last = src.len()-1;
-        let _sel = src.select([1usize,2,last].as_slice())?;
+        let last = src.len() - 1;
+        let _sel = src.select([1usize, 2, last].as_slice())?;
         Ok(())
     }
 
     #[test]
     #[should_panic]
     fn test_builder_remove_from_self() {
-        let (top, st) = FileHandler::open("tests/protein.pdb").unwrap().read().unwrap();
+        let (top, st) = FileHandler::open("tests/protein.pdb")
+            .unwrap()
+            .read()
+            .unwrap();
         let n = top.len();
         let builder = System::new(top, st).unwrap();
         let sel = builder.select("resid 550:560").unwrap();
@@ -421,7 +427,7 @@ mod tests {
         let coms = parts
             .par_iter()
             .map(|sel| sel.center_of_mass())
-            .collect::<Result<Vec<_>,_>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         parts
             .par_iter()

@@ -39,8 +39,13 @@ impl State {
     }
 
     #[getter]
-    fn time(&self) -> f32 {
+    fn get_time(&self) -> f32 {
         self.0.get_time()
+    }
+
+    #[setter]
+    fn set_time(&self, t: f32) {
+        self.0.set_time(t);
     }
 
     #[getter]
@@ -412,9 +417,18 @@ impl System {
         Ok(())
     }
 
+    #[getter]
+    fn get_time(&self) -> f32 {
+        self.0.get_time()
+    }
+
+    // #[setter]
+    // fn set_time(&self, t: f32) {
+    //     self.0.set_time(t);
+    // }
+
     fn set_box_from(&self, sys: &System) {
         self.0.set_box_from(&sys.0);
-
     }
 }
 
@@ -538,12 +552,28 @@ impl Sel {
         Ok(())
     }
 
-    fn set_state(&self, st: Bound<'_, State>) -> PyResult<()> {
-        let _ = self
-            .0
-            .set_state(Arc::clone(&st.try_borrow_mut()?.0))
-            .map_err(|e| anyhow!(e));
-        Ok(())
+    fn set_state(&mut self, st: &State) -> anyhow::Result<State> {
+        let old_state = self.0.set_state(Arc::clone(&st.0))?;
+        Ok(State(old_state))
+    }
+
+    fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<State> {
+        if let Ok(val) = arg.downcast::<System>() {
+            Ok(State(self.0.set_state_from(&val.borrow().0)?))
+        } else if let Ok(val) = arg.downcast::<Sel>() {
+            Ok(State(self.0.set_state_from(&val.borrow().0)?))
+        } else {
+            Err(anyhow!(
+                "Invalid argument type {} in set_state_from()",
+                arg.get_type()
+            )
+            .into())
+        }
+    }
+
+    fn set_topology(&mut self, top: &Topology) -> anyhow::Result<Topology> {
+        let old_top = self.0.set_topology(Arc::clone(&top.0))?;
+        Ok(Topology(old_top))
     }
 
     pub fn set_same_chain(&self, val: char) {
@@ -568,6 +598,11 @@ impl Sel {
 
     pub fn set_same_bfactor(&mut self, val: f32) {
         self.0.set_same_bfactor(val)
+    }
+
+    #[getter]
+    fn get_time(&self) -> f32 {
+        self.0.get_time()
     }
 
     #[pyo3(signature = (dims=[false,false,false]))]
@@ -742,9 +777,9 @@ struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 
 // Free functions
 
-#[pyfunction]
-fn fit_transform(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
-    let tr = molar::core::Sel::fit_transform(&sel1.0, &sel2.0)?;
+#[pyfunction(name = "fit_transform")]
+fn fit_transform_py(sel1: &Sel, sel2: &Sel) -> anyhow::Result<IsometryTransform> {
+    let tr = molar::prelude::fit_transform(&sel1.0, &sel2.0)?;
     Ok(IsometryTransform(tr))
 }
 
@@ -759,9 +794,9 @@ fn rmsd(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
     Ok(molar::core::Sel::rmsd(&sel1.0, &sel2.0)?)
 }
 
-#[pyfunction]
-fn rmsd_mw(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
-    Ok(molar::core::Sel::rmsd_mw(&sel1.0, &sel2.0)?)
+#[pyfunction(name = "rmsd_mw")]
+fn rmsd_mw_py(sel1: &Sel, sel2: &Sel) -> anyhow::Result<f32> {
+    Ok(molar::core::rmsd_mw(&sel1.0, &sel2.0)?)
 }
 
 #[pyclass]
@@ -946,10 +981,10 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NdxFile>()?;
     m.add_class::<Histogram1D>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
-    m.add_function(wrap_pyfunction!(fit_transform, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_transform_py, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform_matching_py, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;
-    m.add_function(wrap_pyfunction!(rmsd_mw, m)?)?;
+    m.add_function(wrap_pyfunction!(rmsd_mw_py, m)?)?;
     m.add_function(wrap_pyfunction!(distance_search, m)?)?;
     m.add_class::<LipidMolecule>()?;
     m.add_class::<Membrane>()?;

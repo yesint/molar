@@ -1,3 +1,5 @@
+use std::mem;
+
 use crate::prelude::*;
 use sync_unsafe_cell::SyncUnsafeCell;
 

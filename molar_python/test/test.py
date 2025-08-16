@@ -2,10 +2,29 @@ from pymolar import *
 from sys import getrefcount
 import numpy as np
 
-#sel = Source('../../molar/tests/protein.pdb').select("resid 5:600")
+#sel = System('../../molar/tests/protein.pdb').select("resid 5:600")
+
+def test_ste_state():
+    top,st1 = FileHandler('../../molar/tests/protein.pdb','r').read()
+    st2 = FileHandler('../../molar/tests/protein.pdb','r').read_state()
+    st2.time = 100
+    print(f'st1: {st1.time}, st2: {st2.time}')
+
+    sys = System(top,st1)
+    sel1 = sys('name CA')
+    sel2 = sys('name CB')
+
+    print(f'Before: sys: {sys.time}, sel1: {sel1.time}, sel2: {sel2.time}')
+
+    old = sel1.set_state(st2)
+
+    print(f'st1: {st1.time}, st2: {st2.time}')
+    print(f'After: sys: {sys.time}, sel1: {sel1.time}, sel2: {sel2.time}')
+    print(f'old: {old.time}')
+    
 
 def test1():
-    sel = Source('../../tests/protein.pdb')("resid 5:600")
+    sel = System('../../tests/protein.pdb')("resid 5:600")
     trj = FileHandler('../../tests/protein.xtc')
     for st in trj:
         sel.set_state(st)
@@ -15,7 +34,7 @@ def test2():
     fh = FileHandler('../../tests/protein.pdb')
     top = fh.read_topology()
     st = fh.read_state()
-    src = Source(top,st)
+    src = System(top,st)
     sel = src("resid 5:600")
     del top,st,src,fh
     pos0 = sel[0].pos
@@ -74,7 +93,7 @@ def test7():
     print(sel[5].atom.resname)
 
 def test8():
-    src = Source.from_file('../../tests/protein.pdb')
+    src = System.from_file('../../tests/protein.pdb')
     sel = []
     sel.append( src("resid 500:600") )
     sel.append( src(None) )
@@ -93,7 +112,7 @@ def test9():
 
 
 def test_distance_search():
-    s = Source('molar/tests/topol.tpr')
+    s = System('molar/tests/topol.tpr')
     sel1 = s("resid 5:100")
     sel2 = s("resid 101:200")
     pairs,dist = distance_search('vdw',sel1,sel2)
@@ -102,4 +121,5 @@ def test_distance_search():
 
 #test3()
 #test2()
-test_distance_search()
+#test_distance_search()
+test_ste_state()
