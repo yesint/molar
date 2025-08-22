@@ -486,7 +486,8 @@ macro_rules! impl_selection {
 
 //-----------------------------------------
 /// Serial selection. 
-/// This a primary selection type that should be used by default.
+/// This a primary selection type that should be used by default. 
+/// Most of [Sel] functionality is provided by implemented traits.
 pub struct Sel {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -565,7 +566,8 @@ impl SelParImmut {
 
 //-------------------------------------------------------
 
-/// System is a container for matching [Topology] and [State]
+/// System is a container for matching [Topology] and [State].
+/// Most of [System] functionality is provided by implemented traits.
 pub struct System {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -780,7 +782,8 @@ macro_rules! impl_logical_ops {
     ($t:ident) => {
         impl<S: Selection> std::ops::BitOr<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
-
+            
+            /// Creates new selection which is a logical OR (union) of operands
             fn bitor(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
@@ -793,7 +796,8 @@ macro_rules! impl_logical_ops {
 
         impl<S: Selection> std::ops::BitAnd<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
-
+            
+            /// Creates new selection which is a logical AND (intersection) of operands
             fn bitand(self, rhs: &S) -> Self::Output {
                 let ind = intersection_sorted(&self.index_storage, rhs.index_arc());
                 if ind.is_empty() {
@@ -810,6 +814,7 @@ macro_rules! impl_logical_ops {
         impl<S: Selection> std::ops::Sub<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
 
+            /// Creates new selection with atoms from rhs removed from self (logical difference).
             fn sub(self, rhs: &S) -> Self::Output {
                 let ind = difference_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
@@ -823,6 +828,7 @@ macro_rules! impl_logical_ops {
         impl<S: Selection> std::ops::Add<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
 
+            /// Creates new selection which is a logical OR (union) of operands. The same as `self | rhs`.
             fn add(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
@@ -836,6 +842,9 @@ macro_rules! impl_logical_ops {
         impl std::ops::Not for &$t {
             type Output = <$t as Selectable>::DerivedSel;
 
+            /// Inverts selection i.e. selects all atoms that were not selected.
+            /// ## Panics
+            /// Panics if inverted selection is empty (happens if you invert "all" selection).
             fn not(self) -> Self::Output {
                 let ind = difference_sorted(
                     unsafe { &SVec::from_sorted((0..self.topology.len()).collect()) },
