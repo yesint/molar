@@ -28,7 +28,7 @@ pub type SVec = sorted_vec::SortedSet<usize>;
 /// Error for different sizes of topology and state
 #[derive(Error, Debug)]
 #[error("topology and state have different sizes ({0},{1})")]
-pub struct TopologyStateSizes(usize, usize);
+pub struct TopologyStateSizesError(usize, usize);
 
 /// Error related to creation of selections
 #[derive(Error, Debug)]
@@ -37,7 +37,7 @@ pub enum SelectionError {
     Parser(#[from] SelectionParserError),
 
     #[error(transparent)]
-    DifferentSizes(#[from] TopologyStateSizes),
+    DifferentSizes(#[from] TopologyStateSizesError),
 
     #[error("creating selection from expression {expr_str}")]
     FromExpr {

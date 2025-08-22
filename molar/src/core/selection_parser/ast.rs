@@ -960,7 +960,7 @@ pub enum SelectionParserError {
     SyntaxError(String),
 
     #[error("selection has incompatible topology and state: {0}")]
-    DifferentSizes(#[from] TopologyStateSizes),
+    DifferentSizes(#[from] TopologyStateSizesError),
 
     #[error("periodic selection for non-periodic system: {0}")]
     PbcUnwrap(#[from] PeriodicBoxError),

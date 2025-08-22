@@ -850,7 +850,7 @@ enum FileFormatError {
     NotTopologyWriteFormat,
 
     #[error(transparent)]
-    DifferentSizes(#[from] TopologyStateSizes),
+    DifferentSizes(#[from] TopologyStateSizesError),
 
     #[error("not a trajectory write format")]
     NotTrajectoryWriteFormat,
