@@ -58,8 +58,9 @@ class AnalysisTask:
         valid_frames = 0
         added_time = 0.0
 
-        for trj_file in self.args.files[1:]:
+        for trj_ind,trj_file in enumerate(self.args.files[1:]):
             logging.info(f'Processing trajectory "{trj_file}"...')
+            self.trj_ind = trj_ind
             trj_handler = FileHandler(trj_file,'r')
 
             if bfr:
