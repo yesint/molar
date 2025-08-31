@@ -234,8 +234,6 @@ impl XtcFileHandler {
         if ok as u32 == exdrOK {
             // C function populated the coordinates, set the vector size for Rust
             unsafe { st.coords.set_len(self.natoms) };
-            // Convert box to column-major form.
-            box_matrix.transpose_mut();
             st.pbox = Some(PeriodicBox::from_matrix(box_matrix)?);
         }
 
@@ -251,7 +249,7 @@ impl XtcFileHandler {
 
         // Box have to be transposed because XTC contains row-major box
         let box_ = match data.get_box() {
-            Some(b) => b.get_matrix().transpose(),
+            Some(b) => b.get_matrix(),
             None => Matrix3::<f32>::zeros(),
         };
 
