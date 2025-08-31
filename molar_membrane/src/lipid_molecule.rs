@@ -6,12 +6,12 @@ use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule {
     // Lipid selections and markers
-    pub sel: SelParImmut,
+    pub sel: Sel,
     pub species: Arc<LipidSpecies>,
-    pub head_sel: SelParImmut,
-    pub mid_sel: SelParImmut,
-    pub tail_end_sel: SelParImmut,
-    pub tail_sels: Vec<SelParImmut>,
+    pub head_sel: Sel,
+    pub mid_sel: Sel,
+    pub tail_end_sel: Sel,
+    pub tail_sels: Vec<Sel>,
     pub head_marker: Pos,
     pub mid_marker: Pos,
     pub tail_marker: Pos,
@@ -62,7 +62,7 @@ impl LipidMolecule {
             t.set_state_from(st)?;
         }
         // Unwrap lipid
-        unsafe { self.sel.as_mut() }.unwrap_simple().unwrap();
+        self.sel.unwrap_simple().unwrap();
 
         // Update lipid markers
         self.head_marker = self.head_sel.center_of_mass()?;
@@ -81,7 +81,7 @@ impl LipidMolecule {
             t.set_state(Arc::clone(&st))?;
         }
         // Unwrap lipid
-        unsafe { self.sel.as_mut() }.unwrap_simple().unwrap();
+        self.sel.unwrap_simple().unwrap();
 
         // Update lipid markers
         self.head_marker = self.head_sel.center_of_mass()?;

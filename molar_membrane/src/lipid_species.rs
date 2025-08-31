@@ -34,7 +34,7 @@ impl LipidSpecies {
     pub fn new(
         name: String,
         descr: LipidSpeciesDescr,
-        lipid: &SelParImmut,
+        lipid: &Sel,
     ) -> anyhow::Result<Self> {
         let first_index = lipid.get_first_index();
         let mut tails = vec![];

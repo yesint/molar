@@ -91,7 +91,7 @@ impl Membrane {
         let options: MembraneOptions = toml::from_str(optstr)?;
 
         // Create working selection
-        let source_sel = source.select(&options.sel)?.to_par_immut();
+        let source_sel = source.select(&options.sel)?;
 
         let mut lipids = vec![];
         let mut species = vec![];
@@ -110,7 +110,7 @@ impl Membrane {
 
                 // Unwrap lipids in parallel
                 lips.par_iter_mut()
-                    .try_for_each(|l| unsafe { l.as_mut() }.unwrap_simple())?;
+                    .try_for_each(|l| l.unwrap_simple())?;
 
                 // Now create individual lipids
                 for lip in lips {
@@ -862,7 +862,7 @@ mod tests {
     #[test]
     fn test_descr() -> anyhow::Result<()> {
         let src = System::from_file("tests/membr.gro")?;
-        let pope = src.select("resid 60")?.to_par_immut();
+        let pope = src.select("resid 60")?;
         let descr = LipidSpeciesDescr {
             whole: "resname POPE".into(),
             head: "name P N".into(),
@@ -911,7 +911,7 @@ mod tests {
         )?;
 
         let lip_sp =
-            LipidSpecies::new("DOPE".to_owned(), descr, &src.select_all()?.to_par_immut())?;
+            LipidSpecies::new("DOPE".to_owned(), descr, &src.select_all()?)?;
         println!("{lip_sp:?}");
         Ok(())
     }
@@ -1055,7 +1055,7 @@ mod tests {
         memb.write_vmd_visualization("../target/vis_cg.tcl")?;
 
         for l in memb.iter_valid_lipids_mut() {
-            unsafe { l.sel.as_mut() }.set_same_bfactor(l.mean_curv);
+            l.sel.set_same_bfactor(l.mean_curv);
         }
         src.save("../target/colored.pdb")?;
 

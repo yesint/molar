@@ -112,7 +112,7 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         R: Default + PartialOrd,
         Self: Sized,
     {
-        let selections: Vec<SelPar> = split_iter_as(self, func).collect();
+        let selections: Vec<Sel> = split_iter_as(self, func).collect();
 
         if selections.is_empty() {
             return Err(SelectionError::EmptySplit);
@@ -485,14 +485,14 @@ macro_rules! impl_selection {
 }
 
 //-----------------------------------------
-/// Serial selection. 
+/// Selection. 
 /// This a primary selection type that should be used by default. 
 /// Most of [Sel] functionality is provided by implemented traits.
 pub struct Sel {
     topology: Arc<Topology>,
     state: Arc<State>,
     index_storage: Arc<SVec>,
-    _phantom: PhantomData<*const ()>,
+    //_phantom: PhantomData<*const ()>,
 }
 
 impl MutableSelectable for Sel {}
@@ -510,7 +510,7 @@ impl private::SelectionPrivate for Sel {
             topology,
             state,
             index_storage: index,
-            _phantom: Default::default(),
+            //_phantom: Default::default(),
         }
     }
 }
@@ -518,51 +518,6 @@ impl private::SelectionPrivate for Sel {
 impl Selection for Sel {}
 
 impl_selection!(Sel, Sel);
-
-impl Sel {
-    pub fn to_par_immut(self) -> SelParImmut {
-        SelParImmut {
-            topology: self.topology,
-            state: self.state,
-            index_storage: self.index_storage,
-        }
-    }
-}
-
-//-------------------------------------------------------
-/// Immutable parallel selection
-pub struct SelParImmut {
-    topology: Arc<Topology>,
-    state: Arc<State>,
-    index_storage: Arc<SVec>,
-}
-
-impl private::SelectionPrivate for SelParImmut {
-    fn index_arc(&self) -> &Arc<SVec> {
-        &self.index_storage
-    }
-
-    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            topology,
-            state,
-            index_storage: index,
-        }
-    }
-}
-
-impl Selection for SelParImmut {}
-
-impl_selection!(SelParImmut, SelParImmut);
-
-impl SelParImmut {
-    pub unsafe fn as_mut(&self) -> &Sel {
-        std::mem::transmute(self)
-    }
-}
 
 //-------------------------------------------------------
 
@@ -703,18 +658,19 @@ impl System {
         }
     }
 
-    /// Sets periodic box replacing current one
+    /// Sets periodic box replacing current one of viewed [State]
     pub fn set_box(&self, new_box: Option<PeriodicBox>) {
-        self.state.get_storage_mut().pbox = new_box;
+        self.get_state().get_storage_mut().pbox = new_box;
     }
 
-    /// Replace periodic box with the box from other object
+    /// Replace periodic box of viewed [State] with the box from other object
     pub fn set_box_from(&self, box_provider: &impl BoxProvider) {
-        self.state.get_storage_mut().pbox = box_provider.get_box().cloned();
+        self.get_state().get_storage_mut().pbox = box_provider.get_box().cloned();
     }
 
+    /// Set time of viewed [State]
     pub fn set_time(&self, t: f32) {
-        self.state.set_time(t);
+        self.get_state().set_time(t);
     }
 
     pub fn multiply_periodically(&self, nbox: [usize; 3]) -> Result<(), SelectionError> {
@@ -744,37 +700,6 @@ impl System {
         Ok(())
     }
 }
-
-//---------------------------------------------------
-
-pub struct SelPar {
-    topology: Arc<Topology>,
-    state: Arc<State>,
-    index_storage: Arc<SVec>,
-}
-
-impl private::SelectionPrivate for SelPar {
-    fn index_arc(&self) -> &Arc<SVec> {
-        &self.index_storage
-    }
-
-    fn new_sel(topology: Arc<Topology>, state: Arc<State>, index: Arc<SVec>) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            topology,
-            state,
-            index_storage: index,
-        }
-    }
-}
-
-impl Selection for SelPar {}
-
-impl MutableSelectable for SelPar {}
-
-impl_selection!(SelPar, Sel);
 
 //--------------------------------------------------------------------
 
@@ -864,12 +789,10 @@ macro_rules! impl_logical_ops {
 }
 
 impl_logical_ops!(Sel);
-impl_logical_ops!(SelPar);
-impl_logical_ops!(SelParImmut);
 
 //--------------------------------------------------------------------
 pub struct ParSplit {
-    selections: Vec<SelPar>,
+    selections: Vec<Sel>,
     _phantom: PhantomData<*const ()>,
 }
 
@@ -909,7 +832,7 @@ impl ParSplit {
                 }
             }
 
-            selections.push(SelPar::new_sel(
+            selections.push(Sel::new_sel(
                 Arc::clone(top_arc),
                 Arc::clone(st_arc),
                 Arc::clone(sel.index_arc()),
@@ -922,12 +845,12 @@ impl ParSplit {
     }
 
     /// Returns parallel iterator over stored parallel selections.
-    pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, SelPar> {
+    pub fn par_iter(&mut self) -> rayon::slice::Iter<'_, Sel> {
         self.selections.par_iter()
     }
 
     /// Returns parallel mutable iterator over stored parallel selections.
-    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, SelPar> {
+    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<'_, Sel> {
         self.selections.par_iter_mut()
     }
 
