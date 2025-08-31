@@ -33,8 +33,8 @@ mod private {
 }
 
 //----------------------------------------------------------
-// Trait for things that can provide refs to Topology and State
-// (for implementing analysis traits, both Systems and Selections)
+/// Trait for things that can provide refs to Topology and State (Systems and Selections)
+/// Used for implementing analysis traits.
 pub trait HasTopState: LenProvider + IndexProvider {
     fn get_topology(&self) -> &Topology;
     fn get_state(&self) -> &State;
@@ -44,6 +44,9 @@ pub trait HasTopState: LenProvider + IndexProvider {
 pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     type DerivedSel: private::SelectionPrivate + Selectable;
 
+    /// Sets new [Topology] and returns a shared pointer to the old one
+    /// This is "shallow" operation that only affects current object and doesn't influence
+    /// other objects that refer to the same [Topology].
     fn set_topology(
         &mut self,
         topology: impl Into<Arc<Topology>>,
@@ -58,6 +61,9 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         Ok(ret)
     }
 
+    /// Sets new [State] and returns a shared pointer to the old one
+    /// This is "shallow" operation that only affects current object and doesn't influence
+    /// other objects that refer to the same [State].
     fn set_state(&mut self, state: impl Into<Arc<State>>) -> Result<Arc<State>, SelectionError> {
         let state: Arc<State> = state.into();
         if !self.get_state_arc().interchangeable(&state) {
@@ -69,12 +75,16 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         Ok(ret)
     }
 
+    /// Sets new [State] grabbed from other [Selectable] object
+    /// This is "shallow" operation that only affects current object and doesn't influence
+    /// other objects that refer to the same [State].
     fn set_state_from(&mut self, other: &impl Selectable) -> Result<Arc<State>, SelectionError> {
         let cloned_arc = Arc::clone(other.get_state_arc());
         Ok(self.set_state(cloned_arc)?)
     }
 
-    // Sub-selection
+    /// Create new selection based on provided definition.
+    /// If self is already a selection then sub-selection is performed.
     fn select(&self, def: impl SelectionDef) -> Result<Self::DerivedSel, SelectionError>
     where
         Self: Sized,
@@ -93,7 +103,9 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         ))
     }
 
-    // Parallel split
+    /// Creates a parallel split based on provided closure.
+    /// A closure takes a [Particle] and returns a distinct value for each piece.
+    /// New selection is created whenever new return value differes from the previous one.
     fn split_par<F, R>(&self, func: F) -> Result<ParSplit, SelectionError>
     where
         F: Fn(Particle) -> Option<R>,
@@ -112,7 +124,9 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         })
     }
 
-    // Serial split
+    /// Split based on provided closure and return iterator over pieces.
+    /// A closure takes a [Particle] and returns a distinct value for each piece.
+    /// New selection is created whenever new return value differes from the previous one.
     fn split_iter<RT, F>(&self, func: F) -> impl Iterator<Item = Self::DerivedSel>
     where
         RT: Default + std::cmp::PartialEq,
@@ -130,7 +144,9 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         split_iter_as(self, |p| Some(p.atom.resindex))
     }
 
-    // Split by molecule
+    /// Splits by molecule and returns an iterator over them. 
+    /// If molecule is only partially contained in self then only this part is returned (molecules are clipped).
+    /// If there are no molecules in [Topology] return an empty iterator.
     fn split_mol_iter(&self) -> impl Iterator<Item = Self::DerivedSel>
     where
         Self: Sized,
@@ -176,7 +192,8 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         std::iter::from_fn(next_fn)
     }
 
-    fn to_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+    /// Creates a string in Gromacs index format representing self.
+    fn as_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
         use itertools::Itertools;
         let name = name.as_ref();
         let mut s = format!("[ {} ]\n", name);
@@ -189,20 +206,25 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
     }
 }
 
-// Public trait for selections
+/// Trait for selections
 pub trait Selection: private::SelectionPrivate + Selectable {
+    /// Get selection index as a slice
     fn get_index(&self) -> &[usize] {
         self.index_slice().unwrap()
     }
 
+    /// Returns first selection index
     fn get_first_index(&self) -> usize {
         *self.index_slice().unwrap().first().unwrap()
     }
 
+    /// Returns last selection index
     fn get_last_index(&self) -> usize {
         *self.index_slice().unwrap().last().unwrap()
     }
 
+    /// Creates new view of the current selection. 
+    /// All views share the same index and thus are very cheap to create (no allocations needed).
     fn new_view(&self) -> Self::DerivedSel {
         Self::DerivedSel::new_sel(
             Arc::clone(self.get_topology_arc()),
@@ -211,6 +233,15 @@ pub trait Selection: private::SelectionPrivate + Selectable {
         )
     }
 
+    /// Creates an "expanded" selection that includes all atoms with the same attributes as encountered in current selection.
+    /// Provided closure takes an [Atom] and returns an "attribute" value (for example resid, resindex, chain).
+    /// All atoms in the parent [Topology] that have the same attribute as any atom of the current selection will be selected.
+    /// Functionally this method is equivalent to "same <whatever> as" selections in VMD or Gromacs.
+    /// ## Example - select whole residues
+    /// ```ignore
+    /// let sel = system.select("name CA and resid 1:10")?;
+    /// let whole_res = sel.whole_attr(|atom| &atom.resid);
+    /// ```
     fn whole_attr<T>(&self, attr_fn: fn(&Atom) -> &T) -> Self::DerivedSel
     where
         T: Eq + std::hash::Hash + Copy,
@@ -238,6 +269,7 @@ pub trait Selection: private::SelectionPrivate + Selectable {
         )
     }
 
+    /// Selects whole residiues present in the current selection (in terms of resindex)
     fn whole_residues(&self) -> Self::DerivedSel
     where
         Self: Sized,
@@ -245,6 +277,7 @@ pub trait Selection: private::SelectionPrivate + Selectable {
         self.whole_attr(|at| &at.resindex)
     }
 
+    /// Selects whole chains present in the current selection
     fn whole_chains(&self) -> Self::DerivedSel
     where
         Self: Sized,
@@ -272,8 +305,9 @@ pub trait Selection: private::SelectionPrivate + Selectable {
     }
 }
 
-// Market trait for mutable selections
+/// Trait for mutable selections
 pub trait MutableSelectable: HasTopState {
+    /// Sets same name to all selected atoms
     fn set_same_name(&self, val: &str)
     where
         Self: Sized,
@@ -283,6 +317,7 @@ pub trait MutableSelectable: HasTopState {
         }
     }
 
+    /// Sets same resname to all selected atoms
     fn set_same_resname(&self, val: &str)
     where
         Self: Sized,
@@ -292,6 +327,7 @@ pub trait MutableSelectable: HasTopState {
         }
     }
 
+    /// Sets same resid to all selected atoms
     fn set_same_resid(&self, val: i32)
     where
         Self: Sized,
@@ -301,6 +337,7 @@ pub trait MutableSelectable: HasTopState {
         }
     }
 
+    /// Sets same chain to all selected atoms
     fn set_same_chain(&self, val: char)
     where
         Self: Sized,
@@ -310,6 +347,7 @@ pub trait MutableSelectable: HasTopState {
         }
     }
 
+    /// Sets same mass to all selected atoms
     fn set_same_mass(&self, val: f32)
     where
         Self: Sized,
@@ -319,6 +357,7 @@ pub trait MutableSelectable: HasTopState {
         }
     }
 
+    /// Sets same B-factor to all selected atoms
     fn set_same_bfactor(&self, val: f32)
     where
         Self: Sized,
@@ -446,7 +485,9 @@ macro_rules! impl_selection {
 }
 
 //-----------------------------------------
-// Primary serial selections
+/// Serial selection. 
+/// This a primary selection type that should be used by default. 
+/// Most of [Sel] functionality is provided by implemented traits.
 pub struct Sel {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -489,7 +530,7 @@ impl Sel {
 }
 
 //-------------------------------------------------------
-// Immutable parallel selection
+/// Immutable parallel selection
 pub struct SelParImmut {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -525,6 +566,8 @@ impl SelParImmut {
 
 //-------------------------------------------------------
 
+/// System is a container for matching [Topology] and [State].
+/// Most of [System] functionality is provided by implemented traits.
 pub struct System {
     topology: Arc<Topology>,
     state: Arc<State>,
@@ -739,7 +782,8 @@ macro_rules! impl_logical_ops {
     ($t:ident) => {
         impl<S: Selection> std::ops::BitOr<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
-
+            
+            /// Creates new selection which is a logical OR (union) of operands
             fn bitor(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
@@ -752,7 +796,8 @@ macro_rules! impl_logical_ops {
 
         impl<S: Selection> std::ops::BitAnd<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
-
+            
+            /// Creates new selection which is a logical AND (intersection) of operands
             fn bitand(self, rhs: &S) -> Self::Output {
                 let ind = intersection_sorted(&self.index_storage, rhs.index_arc());
                 if ind.is_empty() {
@@ -769,6 +814,7 @@ macro_rules! impl_logical_ops {
         impl<S: Selection> std::ops::Sub<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
 
+            /// Creates new selection with atoms from rhs removed from self (logical difference).
             fn sub(self, rhs: &S) -> Self::Output {
                 let ind = difference_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
@@ -782,6 +828,7 @@ macro_rules! impl_logical_ops {
         impl<S: Selection> std::ops::Add<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
 
+            /// Creates new selection which is a logical OR (union) of operands. The same as `self | rhs`.
             fn add(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
                 Self::Output::new_sel(
@@ -795,6 +842,9 @@ macro_rules! impl_logical_ops {
         impl std::ops::Not for &$t {
             type Output = <$t as Selectable>::DerivedSel;
 
+            /// Inverts selection i.e. selects all atoms that were not selected.
+            /// ## Panics
+            /// Panics if inverted selection is empty (happens if you invert "all" selection).
             fn not(self) -> Self::Output {
                 let ind = difference_sorted(
                     unsafe { &SVec::from_sorted((0..self.topology.len()).collect()) },

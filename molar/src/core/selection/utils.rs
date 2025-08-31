@@ -5,11 +5,11 @@ use sorted_vec::SortedSet;
 pub(crate) fn check_topology_state_sizes(
     topology: &Topology,
     state: &State,
-) -> Result<(), super::TopologyStateSizes> {
+) -> Result<(), super::TopologyStateSizesError> {
     let n1 = topology.len();
     let n2 = state.len();
     if n1 != n2 {
-        Err(super::TopologyStateSizes(n1, n2))?
+        Err(super::TopologyStateSizesError(n1, n2))?
     }
     Ok(())
 }

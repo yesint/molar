@@ -718,7 +718,7 @@ impl Sel {
     }
 
     fn to_gromacs_ndx(&self, name: &str) -> String {
-        self.0.to_gromacs_ndx_str(name)
+        self.0.as_gromacs_ndx_str(name)
     }
 
     /// operator |

@@ -570,7 +570,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
     }
 }
 
-pub fn matching_atom_names<T1, T2>(seq1: &T1, seq2: &T2) -> (Vec<usize>, Vec<usize>)
+fn matching_atom_names<T1, T2>(seq1: &T1, seq2: &T2) -> (Vec<usize>, Vec<usize>)
 where
     T1: AtomIterProvider,
     T2: AtomIterProvider,

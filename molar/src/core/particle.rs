@@ -20,10 +20,50 @@ pub struct ParticleMut<'a> {
 
 impl<'a> From<ParticleMut<'a>> for Particle<'a> {
     fn from(p: ParticleMut<'a>) -> Self {
-        Particle{
+        Particle {
             id: p.id,
             atom: p.atom,
             pos: p.pos,
         }
     }
 }
+
+//------------------------------------------------------
+
+impl super::PosIterProvider for Particle<'_> {
+    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+        std::iter::once(self.pos)
+    }
+}
+
+impl super::AtomIterProvider for Particle<'_> {
+    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+        std::iter::once(self.atom)
+    }
+}
+
+impl super::IndexProvider for Particle<'_> {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        if i != 0 {
+            panic!("Particle only has id=0, not {i}")
+        } else {
+            self.id
+        }
+    }
+
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+        std::iter::once(self.id)
+    }
+}
+
+impl super::ParticleIterProvider for Particle<'_> {
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
+        std::iter::once(Particle {
+            id: self.id,
+            pos: self.pos,
+            atom: self.atom,
+        } )
+    }
+}
+
+//-----------------------------------------------------------------
