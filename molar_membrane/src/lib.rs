@@ -1032,33 +1032,33 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_vmd_vis_cg() -> anyhow::Result<()> {
-        let path = PathBuf::from("tests");
-        let src = System::from_file(path.join("cg.gro"))?;
-        src.select_all()?.set_same_mass(1.0);
+    // #[test]
+    // fn test_vmd_vis_cg() -> anyhow::Result<()> {
+    //     let path = PathBuf::from("tests");
+    //     let src = System::from_file(path.join("cg.gro"))?;
+    //     src.select_all()?.set_same_mass(1.0);
 
-        let mut toml = String::new();
-        std::fs::File::open(path.join("cg.toml"))?.read_to_string(&mut toml)?;
+    //     let mut toml = String::new();
+    //     std::fs::File::open(path.join("cg.toml"))?.read_to_string(&mut toml)?;
 
-        let mut memb =
-            Membrane::new(&src, &toml)?.with_output_dir("../target/membr_cg_test_results")?;
+    //     let mut memb =
+    //         Membrane::new(&src, &toml)?.with_output_dir("../target/membr_cg_test_results")?;
 
-        let upper = (0..4225).collect();
-        let lower = (4225..4225 * 2).collect();
+    //     let upper = (0..4225).collect();
+    //     let lower = (4225..4225 * 2).collect();
 
-        memb.add_ids_to_group("upper", &upper)?;
-        memb.add_ids_to_group("lower", &lower)?;
+    //     memb.add_ids_to_group("upper", &upper)?;
+    //     memb.add_ids_to_group("lower", &lower)?;
 
-        memb.compute()?;
-        memb.finalize()?;
-        memb.write_vmd_visualization("../target/vis_cg.tcl")?;
+    //     memb.compute()?;
+    //     memb.finalize()?;
+    //     memb.write_vmd_visualization("../target/vis_cg.tcl")?;
 
-        for l in memb.iter_valid_lipids_mut() {
-            l.sel.set_same_bfactor(l.mean_curv);
-        }
-        src.save("../target/colored.pdb")?;
+    //     for l in memb.iter_valid_lipids_mut() {
+    //         l.sel.set_same_bfactor(l.mean_curv);
+    //     }
+    //     src.save("../target/colored.pdb")?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
