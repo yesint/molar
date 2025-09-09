@@ -737,31 +737,35 @@ macro_rules! impl_io_traits_for_tuples {
             }
         }
 
-        impl MoleculesProvider for ($t, $s) {
+        impl RandomMoleculeProvider for ($t, $s) {
             fn num_molecules(&self) -> usize {
                 self.0.num_molecules()
             }
-
-            fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-                self.0.iter_molecules()
-            }
-
+            
             unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.0.get_molecule_unchecked(i)
             }
         }
 
-        impl BondsProvider for ($t, $s) {
+        impl MoleculeIterProvider for ($t, $s) {
+            fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.0.iter_molecules()
+            }
+        }
+
+        impl RandomBondProvider for ($t, $s) {
             fn num_bonds(&self) -> usize {
                 self.0.num_bonds()
             }
 
-            fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-                self.0.iter_bonds()
-            }
-
             unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.0.get_bond_unchecked(i)
+            }
+        }
+
+        impl BondIterProvider for ($t, $s) {
+            fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+                self.0.iter_bonds()
             }
         }
 

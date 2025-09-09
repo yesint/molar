@@ -932,13 +932,9 @@ impl<T: HasTopState + MutableSelectable> RandomAtomMutProvider for T {
     }
 }
 
-impl<T: HasTopState> MoleculesProvider for T {
+impl<T: HasTopState> RandomMoleculeProvider for T {
     fn num_molecules(&self) -> usize {
         self.get_topology().num_molecules()
-    }
-
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.get_topology().iter_molecules()
     }
 
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
@@ -946,17 +942,25 @@ impl<T: HasTopState> MoleculesProvider for T {
     }
 }
 
-impl<T: HasTopState> BondsProvider for T {
+impl<T: HasTopState> MoleculeIterProvider for T {
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.get_topology().iter_molecules()
+    }
+}
+
+impl<T: HasTopState> RandomBondProvider for T {
     fn num_bonds(&self) -> usize {
         self.get_topology().num_bonds()
     }
 
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.get_topology().iter_bonds()
-    }
-
     unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
         self.get_topology().get_bond_unchecked(i)
+    }
+}
+
+impl<T: HasTopState> BondIterProvider for T {
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.get_topology().iter_bonds()
     }
 }
 
