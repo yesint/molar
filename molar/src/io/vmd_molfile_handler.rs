@@ -39,7 +39,7 @@ unsafe impl Send for VmdMolFileHandler {}
 
 #[derive(Error, Debug)]
 pub enum VmdHandlerError {
-    #[error("unexpected null characted")]
+    #[error("unexpected null characte")]
     CStringNull(#[from] NulError),
 
     #[error("invalid utf8")]

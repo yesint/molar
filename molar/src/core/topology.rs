@@ -187,7 +187,7 @@ macro_rules! impl_topology_traits {
             }
         }
 
-        impl BondsProvider for $t {
+        impl RandomBondProvider for $t {
             fn num_bonds(&self) -> usize {
                 self.get_storage().bonds.len()
             }
@@ -195,13 +195,15 @@ macro_rules! impl_topology_traits {
             unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.get_storage().bonds.get_unchecked(i)
             }
+        }
 
+        impl BondIterProvider for $t {
             fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
                 self.get_storage().bonds.iter()
             }
         }
 
-        impl MoleculesProvider for $t {
+        impl RandomMoleculeProvider for $t {
             fn num_molecules(&self) -> usize {
                 self.get_storage().molecules.len()
             }
@@ -209,7 +211,9 @@ macro_rules! impl_topology_traits {
             unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.get_storage().molecules.get_unchecked(i)
             }
+        }
 
+        impl MoleculeIterProvider for $t {
             fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
                 self.get_storage().molecules.iter()
             }

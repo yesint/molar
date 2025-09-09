@@ -7,7 +7,7 @@ use sorted_vec::SortedSet;
 
 /// Trait for providing topology I/O operations
 pub trait TopologyIoProvider:
-    RandomAtomProvider + AtomIterProvider + MoleculesProvider + BondsProvider
+    RandomAtomProvider + AtomIterProvider + RandomMoleculeProvider + RandomBondProvider
 {
 }
 
@@ -173,10 +173,8 @@ pub trait RandomAtomProvider: LenProvider {
 }
 
 /// Trait for providing access to bonds
-pub trait BondsProvider {
+pub trait RandomBondProvider {
     fn num_bonds(&self) -> usize;
-
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]>;
 
     unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2];
 
@@ -189,11 +187,13 @@ pub trait BondsProvider {
     }
 }
 
-/// Trait for providing access to molecules (atoms subsets connected by bonds)
-pub trait MoleculesProvider {
-    fn num_molecules(&self) -> usize;
+pub trait BondIterProvider {
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]>;
+}
 
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]>;
+/// Trait for providing access to molecules (atoms subsets connected by bonds)
+pub trait RandomMoleculeProvider {
+    fn num_molecules(&self) -> usize;
 
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2];
 
@@ -204,6 +204,10 @@ pub trait MoleculesProvider {
             None
         }
     }
+}
+
+pub trait MoleculeIterProvider {
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]>;
 }
 
 //--------------------------------------------------------------

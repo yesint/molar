@@ -932,7 +932,7 @@ impl<T: HasTopState + MutableSelectable> RandomAtomMutProvider for T {
     }
 }
 
-impl<T: HasTopState> MoleculesProvider for T {
+impl<T: HasTopState> RandomMoleculeProvider for T {
     fn num_molecules(&self) -> usize {
         self.get_topology().num_molecules()
     }
@@ -946,7 +946,7 @@ impl<T: HasTopState> MoleculesProvider for T {
     }
 }
 
-impl<T: HasTopState> BondsProvider for T {
+impl<T: HasTopState> RandomBondProvider for T {
     fn num_bonds(&self) -> usize {
         self.get_topology().num_bonds()
     }
