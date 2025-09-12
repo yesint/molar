@@ -69,7 +69,7 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         if !self.get_state_arc().interchangeable(&state) {
             return Err(SelectionError::IncompatibleState);
         }
-        
+
         let ret = Arc::clone(self.get_state_arc());
         self.set_state_arc(state);
         Ok(ret)
@@ -144,7 +144,7 @@ pub trait Selectable: private::AllowsSelecting + LenProvider + IndexProvider {
         split_iter_as(self, |p| Some(p.atom.resindex))
     }
 
-    /// Splits by molecule and returns an iterator over them. 
+    /// Splits by molecule and returns an iterator over them.
     /// If molecule is only partially contained in self then only this part is returned (molecules are clipped).
     /// If there are no molecules in [Topology] return an empty iterator.
     fn split_mol_iter(&self) -> impl Iterator<Item = Self::DerivedSel>
@@ -223,7 +223,7 @@ pub trait Selection: private::SelectionPrivate + Selectable {
         *self.index_slice().unwrap().last().unwrap()
     }
 
-    /// Creates new view of the current selection. 
+    /// Creates new view of the current selection.
     /// All views share the same index and thus are very cheap to create (no allocations needed).
     fn new_view(&self) -> Self::DerivedSel {
         Self::DerivedSel::new_sel(
@@ -485,14 +485,13 @@ macro_rules! impl_selection {
 }
 
 //-----------------------------------------
-/// Selection. 
-/// This a primary selection type that should be used by default. 
+/// Selection.
+/// This a primary selection type that should be used by default.
 /// Most of [Sel] functionality is provided by implemented traits.
 pub struct Sel {
     topology: Arc<Topology>,
     state: Arc<State>,
     index_storage: Arc<SVec>,
-    //_phantom: PhantomData<*const ()>,
 }
 
 impl MutableSelectable for Sel {}
@@ -631,7 +630,11 @@ impl System {
         self.select(first_added_index..last_added_index).unwrap()
     }
 
-    pub fn append_atoms_pos(
+    pub fn append_atom(&self, atom: Atom, pos: Pos) -> Sel {
+        self.append_atoms(std::iter::once(atom), std::iter::once(pos))
+    }
+
+    pub fn append_atoms(
         &self,
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
@@ -707,7 +710,7 @@ macro_rules! impl_logical_ops {
     ($t:ident) => {
         impl<S: Selection> std::ops::BitOr<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
-            
+
             /// Creates new selection which is a logical OR (union) of operands
             fn bitor(self, rhs: &S) -> Self::Output {
                 let ind = union_sorted(&self.index_storage, rhs.index_arc());
@@ -721,7 +724,7 @@ macro_rules! impl_logical_ops {
 
         impl<S: Selection> std::ops::BitAnd<&S> for &$t {
             type Output = <$t as Selectable>::DerivedSel;
-            
+
             /// Creates new selection which is a logical AND (intersection) of operands
             fn bitand(self, rhs: &S) -> Self::Output {
                 let ind = intersection_sorted(&self.index_storage, rhs.index_arc());
@@ -1029,6 +1032,14 @@ impl<T: HasTopState + MutableSelectable> ModifyRandomAccess for T {}
 mod tests {
     use super::*;
     use crate::prelude::*;
+
+    #[test]
+    fn test_not() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let ca = sys.select("name CA")?;
+        let _not_ca = !&ca;
+        Ok(())
+    }
 
     #[test]
     fn test1() -> anyhow::Result<()> {

@@ -56,7 +56,7 @@ pub(crate) fn command_tip3_to_tip4(
         
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms_pos(
+        out.append_atoms(
             mol.iter_atoms().cloned().chain(iter::once(m_at)),
             mol.iter_pos().cloned().chain(iter::once(m_pos)),
         );

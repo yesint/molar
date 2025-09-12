@@ -37,14 +37,22 @@ MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molec
 * Trajectory processing with powerful built-in features
 * Python bindings
 
+
 # Design and Performance
-Please refer to the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
+Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 0.10 it was simplified dramatically. Now selections provide mutable access to the underlying system in parallel at the cost of losing the strong gurantee of the absence of race conditions. MolAR is still memory safe in the sense that you _always_ operate on valid data and _can't get_ any kind of out of bounds errors or dangling references. However, if you are not careful you _can_ get race condition when accessing the same atoms from different threads. Currently this is your responsibility to avoid this.
+
+Performance of MalAR is still the same or better as reported in the [paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
+
+I'm currently exploring other approahes to ensuring safety of parallel processing, but so far all of them are 
+complicating the API to the point that it doesn't worth it in practice.
+
 
 # Current status
 Molar is close to be feature complete and usable in useful projects. Documentation is still rudimentary.
 
+
 # Installation
-Molar requires Rust 1.80 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
+Molar requires Rust 1.83 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
 
 To add MolAR to your Rust project just use `cargo add molar`.
 
@@ -100,15 +108,12 @@ fn main() -> Result<()> {
 Now we can start writing our program.
 
 ## Reading an input file
-The simples way of loading the molecular system in MolAR is to use a `Source` - an object that holds a `Topology` and `State` of the system and is used to create atom selections for manipulating this data:
+The simples way of loading the molecular system in MolAR is to use a `System` - an object that holds a `Topology` and `State` of the system and is used to create atom selections for manipulating this data:
 
 ```rust,ignore
 // Load the source file from the first command line argument
-let src = System::from_file(&args[0])?;
+let sys = System::from_file(&args[0])?;
 ```
-
-Unlike other molecular analysis libraries, there are four kinds of sources and atom selections in MolAR: `serial`, `serial builder`, `parallel mutable` and `parallel immutable`. This is required to enforce memory safety and to guarantee the absense of data races in paralell programs. For now we will just work with the simplest `serial` kind of sources and selections, which behave in the most intuitive way similar to what you see in other analysis libraries. `Source::serial_from_file()` creates such serial `Source` by reading a file specified in the first command line argument.
-
 The file type (PDB, GRO, etc) is automatically recognized by its extention.
 
 If reading the file fails for whatever reason the `?` operator will return an error, which will be nicely printed by `anyhow` crate.
@@ -117,8 +122,9 @@ If reading the file fails for whatever reason the `?` operator will return an er
 Now we need to select all waters that are going to be converted to TIP4. We also need to select all non-water part of the system to keep it as is.
 
 ```rust,ignore
-let water = src.select("resname TIP3")?;
-let non_water = src.select("not resname TIP3")?;
+let water = sys.select("resname TIP3")?;
+// Invert selection to select not water
+let non_water = !&water;
 ```
 
 Selections are created with the syntax that is very similar to one used in VMD Pteros and Gromacs. Here we select water and non-water by residue name.
@@ -130,12 +136,12 @@ We selected all water molecules as a single selection but we need to loop over i
 
 ```rust,ignore
 // Go over water molecules one by one                   
-for mol in water.split_resindex_into_iter() {
+for mol in water.split_resindex_iter() {
     // Do something with mol
 }
 ```
 
-The method `split_resindex_into_iter()` returns a Rust iterator, which produces contigous selections containig distinct residue index each. There are many other ways of splitting selections into parts using arbitrary logic in MolAR, but this simplest one is what we need now. 
+The method `split_resindex_iter()` returns a Rust iterator, which produces contigous selections containig distinct residue each. There are other ways of splitting selections into parts using arbitrary logic in MolAR, but this is simplest one for what we need now.
 
 ## Working with coordinates
 Now we need to get the coordinates of atoms for current water molecules and compute a position of the dummy atom.
@@ -159,9 +165,9 @@ for mol in water.split_resindex_into_iter() {
     let m_at = Atom {   
         resname: "TIP4".into(),
         name: "M".into(),
+        // Other fields are copyied from oxygen atom
         ..mol.first_particle().atom.clone()
-    };
-    println!("{:?} {:?}",m_at,m_pos);
+    };    
 }
 ```
 
@@ -178,10 +184,10 @@ All this is fine, but we still have no system to write our converted water molec
 
 ```rust,ignore
 // Load the source file from the first command line argument
-let src = Source::serial_from_file(&args[0])?;
+let src = System::serial_from_file(&args[0])?;
 
 // Make empty output system
-let out = Source::empty_builder();
+let out = System::empty_builder();
 ```
 
 Here we are creating new empty `Source` of kind `builder`. This means that we will be able to add and delete the atoms to this source. Conventional `serial` source can access and alter existing atoms, but can't add or delete them. Such a distinction is dictated by performance and memory safety reasons - `builder` sources and selections require additional range checks, which make them a tiny bit slower, so it only makes sense to use them when you actually need to add or delete the atoms.
@@ -213,7 +219,7 @@ Out output system is now fully constructed but it still lacks an important eleme
 
 ```rust,ignore
 // Transfer the box from original file
-out.set_box_from(&src);
+out.set_box_from(&sys);
 ```
 
 Here we provide a reference to the input system, so the box is cloned from it to the output system.
@@ -242,13 +248,14 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     // Load the source file from the first command line argument
-    let src = System::from_file(&args[0])?;
+    let sys = System::from_file(&args[0])?;
 
     // Make empty output system
     let out = System::new_empty();
 
-    let water = src.select("resname TIP3")?;
-    let non_water = src.select("not resname TIP3")?;
+    let water = sys.select("resname TIP3")?;
+    // Invert selection to select not water
+    let non_water = !&water;
 
     // Add non-water atoms to the output
     out.append(&non_water);
@@ -271,20 +278,20 @@ fn main() -> Result<()> {
         let m_at = Atom {   
             resname: "TIP4".into(),
             name: "M".into(),
+            // Other fields are copyied from oxygen atom
             ..mol.first_particle().atom.clone()
         };
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms_pos(
+        out.append_atoms(
             mol.iter_atoms().cloned().chain(std::iter::once(m_at)),
             mol.iter_pos().cloned().chain(std::iter::once(m_pos)),
         );
-
     }
 
     // Transfer the box
-    out.set_box_from(&src);
+    out.set_box_from(&sys);
 
     // Write out new system
     out.save(&args[1])?;

@@ -142,6 +142,14 @@ pub trait RandomPosProvider: LenProvider {
         }
     }
 
+    fn get_multiple_pos(&self, ind: impl ExactSizeIterator<Item=usize>) -> Option<Vec<&Pos>> {
+        let mut buf = Vec::with_capacity(ind.len());
+        for i in ind {
+            buf.push(self.get_pos(i)?);
+        }
+        Some(buf)
+    }
+
     fn first_pos(&self) -> &Pos {
         unsafe { self.get_pos_unchecked(0) }
     }
@@ -161,6 +169,14 @@ pub trait RandomAtomProvider: LenProvider {
         } else {
             None
         }
+    }
+
+    fn get_multiple_atoms(&self, ind: impl ExactSizeIterator<Item=usize>) -> Option<Vec<&Atom>> {
+        let mut buf = Vec::with_capacity(ind.len());
+        for i in ind {
+            buf.push(self.get_atom(i)?);
+        }
+        Some(buf)
     }
 
     fn first_atom(&self) -> &Atom {
