@@ -52,7 +52,7 @@ pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
         info!("Fast-forward is not possible, reading the whole trajectory...");
         trj.into_iter().last()
     } else {
-        trj.read_state()?
+        Some(trj.read_state()?)
     }
     .ok_or_else(|| anyhow!("Last frame can't be read"))?;
 

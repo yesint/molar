@@ -244,11 +244,18 @@ mod tests {
 
     #[test]
     fn test_write_to_file() -> anyhow::Result<()> {
-        let sel = make_sel_all()?;
+        let sys = System::from_file("tests/protein.pdb")?;
+        let sel = sys.select("name CA")?;
+        sel.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
 
-        let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
-        h.write_topology(&sel)?;
-        h.write_state(&sel)?;
+        // let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
+        // h.write(&sel)?;
+         
+         
+        println!("test {:p}",&sel);
+        println!("out {}",env!("OUT_DIR"));
+
+        //h.write(&sel)?;
         Ok(())
     }
 

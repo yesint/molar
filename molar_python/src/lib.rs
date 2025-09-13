@@ -117,11 +117,8 @@ impl FileHandler {
             .0
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        if let Some(st) = h.read_state()? {
-            Ok(State(st.into()))
-        } else {
-            Err(anyhow!("can't read state"))
-        }
+        let st = h.read_state()?;
+        Ok(State(st.into()))
     }
 
     fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {

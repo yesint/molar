@@ -151,8 +151,6 @@ impl Topology {
 //---------------------------
 macro_rules! impl_topology_traits {
     ( $t:ty ) => {
-        impl TopologyIoProvider for $t {}
-
         impl AtomIterProvider for $t {
             fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
                 self.get_storage().atoms.iter()
@@ -218,6 +216,8 @@ macro_rules! impl_topology_traits {
                 self.get_storage().molecules.iter()
             }
         }
+
+        impl TopologyWrite for $t {}
     };
 }
 

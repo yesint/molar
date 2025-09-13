@@ -1,11 +1,14 @@
-#[cfg(gromacs)]
-pub use internal_tpr_enabled::*;
 #[cfg(not(gromacs))]
 pub use internal_tpr_disabled::*;
+#[cfg(gromacs)]
+pub use internal_tpr_enabled::*;
 
 #[cfg(gromacs)]
 mod internal_tpr_enabled {
-    use crate::core::*;
+    use crate::{
+        core::*,
+        io::{FileFormatError, FileFormatHandler},
+    };
     use molar_gromacs::gromacs_bindings::*;
     use nalgebra::Matrix3;
     use std::{
@@ -15,6 +18,7 @@ mod internal_tpr_enabled {
 
     pub struct TprFileHandler {
         handle: TprHelper,
+        already_read: bool,
     }
 
     // Allow sending handler between threads
@@ -40,15 +44,24 @@ mod internal_tpr_enabled {
             let f_name = CString::new(fname.as_ref().to_str().unwrap())?;
             Ok(TprFileHandler {
                 handle: unsafe { TprHelper::new(f_name.as_ptr()) },
+                already_read: false,
             })
         }
+    }
 
-        pub fn open(fname: impl AsRef<Path>) -> Result<Self, TprHandlerError> {
-            TprFileHandler::new(fname)
+    impl FileFormatHandler for TprFileHandler {
+        fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+        where
+            Self: Sized,
+        {
+            Ok(TprFileHandler::new(fname)?)
         }
 
         #[allow(non_snake_case)]
-        pub fn read(&mut self) -> Result<(Topology, State), TprHandlerError> {
+        fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
+            if self.already_read {
+                return Err(FileFormatError::Eof);
+            }
             //================
             // Read top
             //================
@@ -206,9 +219,9 @@ mod internal_tpr_enabled {
 
 #[cfg(not(gromacs))]
 mod internal_tpr_disabled {
+    use crate::core::{State, Topology};
     use std::path::Path;
     use thiserror::Error;
-    use crate::core::{State, Topology};
 
     pub struct TprFileHandler {}
 
@@ -219,12 +232,12 @@ mod internal_tpr_disabled {
 
         pub fn read(&mut self) -> Result<(Topology, State), TprHandlerError> {
             Err(TprHandlerError::GromacsDisabled)
-        }   
+        }
     }
 
     #[derive(Debug, Error)]
     pub enum TprHandlerError {
         #[error("gromacs support disabled")]
         GromacsDisabled,
-    }     
+    }
 }

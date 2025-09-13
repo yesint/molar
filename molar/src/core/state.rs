@@ -128,7 +128,7 @@ impl State {
 //------------------------
 macro_rules! impl_state_traits {
     ( $t:ty ) => {
-        impl StateIoProvider for $t {}
+        impl StateWrite for $t {}
         
         impl TimeProvider for $t {
             fn get_time(&self) -> f32 {

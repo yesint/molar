@@ -519,6 +519,10 @@ impl Selection for Sel {}
 
 impl_selection!(Sel, Sel);
 
+impl TopologyWrite for Sel {}
+impl StateWrite for Sel {}
+impl TopologyStateWrite for Sel {}
+
 //-------------------------------------------------------
 
 /// System is a container for matching [Topology] and [State].
@@ -572,6 +576,10 @@ impl IndexProvider for System {
         i
     }
 }
+
+impl TopologyWrite for System {}
+impl StateWrite for System {}
+impl TopologyStateWrite for System {}
 
 impl System {
     pub fn new(
@@ -865,11 +873,6 @@ impl ParSplit {
 
 //██████  IO traits
 
-impl<T: HasTopState> WritableToFile for T {}
-
-impl<T: HasTopState> TopologyIoProvider for T {}
-impl<T: HasTopState> StateIoProvider for T {}
-
 impl<T: HasTopState> TimeProvider for T {
     fn get_time(&self) -> f32 {
         self.get_state().get_time()
@@ -1068,8 +1071,7 @@ mod tests {
     fn test1_set_state() -> anyhow::Result<()> {
         let (top, st1) = FileHandler::open("tests/albumin.pdb")?.read()?;
         let st2 = FileHandler::open("tests/albumin.pdb")?
-            .read_state()?
-            .unwrap();
+            .read_state()?;
         st2.set_time(100.0);
 
         let sys = System::new(top, st1)?;

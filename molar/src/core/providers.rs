@@ -5,29 +5,6 @@ use sorted_vec::SortedSet;
 // Basic providers
 //--------------------------------------------------------------
 
-/// Trait for providing topology I/O operations
-pub trait TopologyIoProvider:
-    RandomAtomProvider + AtomIterProvider + RandomMoleculeProvider + RandomBondProvider
-{
-}
-
-/// Trait for providing state I/O operations
-pub trait StateIoProvider:
-    RandomPosProvider + PosIterProvider + BoxProvider + TimeProvider
-{
-}
-
-/// Trait for providing file writing for topology and state data
-pub trait WritableToFile: TopologyIoProvider + StateIoProvider
-where
-    Self: Sized,
-{
-    fn save(&self, fname: &str) -> Result<(), FileIoError> {
-        let mut h = FileHandler::create(fname)?;
-        h.write(self)
-    }
-}
-
 //--------------------------------------------------------------
 // Index
 //--------------------------------------------------------------
