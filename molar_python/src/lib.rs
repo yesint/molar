@@ -379,9 +379,10 @@ impl System {
         Ok(Topology(old_top))
     }
 
-    // fn get_state(&self) -> State {
-    //     State(self.0.get_state())
-    // }
+    
+    fn get_box(&self) -> anyhow::Result<PeriodicBox> {
+        Ok(self.0.require_box().cloned().map(|b| PeriodicBox(b))?)
+    }
 
     // fn get_topology(&self) -> Topology {
     //     Topology(self.0.get_topology())
@@ -743,6 +744,23 @@ impl Sel {
 
     fn sasa(&self) -> SasaResults {
         SasaResults(self.0.sasa())
+    }
+
+    fn min_max<'py>(&self, py: Python<'py>) -> (Bound<'py, numpy::PyArray1<f32>>,Bound<'py, numpy::PyArray1<f32>>) {
+        let (min,max) = self.0.min_max();
+        (clone_vec_to_pyarray1(&min.coords, py), clone_vec_to_pyarray1(&max.coords, py))
+    }
+
+    fn unwrap_connectivity(&self, cutoff: f32) -> anyhow::Result<Vec<Sel>> {
+        let mut res = vec![];
+        for s in self.0.unwrap_connectivity(cutoff)? {
+            res.push(Sel(s));
+        }
+        Ok(res)
+    }
+
+    fn unwrap_simple(&self) -> anyhow::Result<()> {
+        Ok(self.0.unwrap_simple()?)
     }
 }
 

@@ -10,7 +10,7 @@ impl SearchConnectivity {
         self.0.len()
     }
 
-    pub fn iter(&self) -> SearchConnectivityIter {
+    pub fn iter(&self) -> SearchConnectivityIter<'_> {
         SearchConnectivityIter(self.0.iter())
     }
 
@@ -30,6 +30,10 @@ impl SearchConnectivity {
             }
         }
         res
+    }
+
+    pub fn get(&self, i: usize) -> Option<&Vec<usize>> {
+        self.0.get(&i)
     }
 }
 
