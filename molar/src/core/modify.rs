@@ -70,6 +70,12 @@ pub trait ModifyRandomAccess:
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
 
+    fn split_connectivity(&self, cutoff: f32) -> Result<Vec<Self::DerivedSel>, MeasureError> 
+    where Self: Sized + Selectable
+    {
+        self.split_connectivity_dim(cutoff, PBC_FULL)
+    }
+
     fn unwrap_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<Vec<Self::DerivedSel>, MeasureError> 
     where Self: Sized + Selectable
     {
@@ -98,6 +104,72 @@ pub trait ModifyRandomAccess:
                         if !used[*ind] {
                             let p = unsafe { self.get_pos_mut_unchecked(*ind) };
                             *p = b.closest_image_dims(p, &p0, dims);
+                            // Add it to the stack
+                            todo.push(*ind);
+                            used[*ind] = true;
+                            // Add to current sel
+                            sel_vec.push(*ind);
+                        }
+                    }
+                }
+                //println!(">> {:?}",todo);
+            }
+
+            // Check if any unused points remained
+            if let Some((i, _)) = used.iter().find_position(|el| **el == false) {
+                // If any found, add it to used and go on
+                todo.push(i);
+                used[i] = true;
+                // Create output selection
+                if !sel_vec.is_empty() {
+                    res_sels.push( self.select(&sel_vec).unwrap() );
+                }
+                sel_vec.clear();
+            } else {
+                // Add remaining indices to the last selection
+                if !sel_vec.is_empty() {
+                    res_sels.push( self.select(&sel_vec).unwrap() );
+                }
+                break;
+            }
+        }
+
+        // if used.len() != conn.len() {
+        //     Err(MeasureError::Disjoint)
+        // } else {
+        //     Ok(())
+        // }
+        Ok(res_sels)
+    }
+
+    fn split_connectivity_dim(&self, cutoff: f32, dims: PbcDims) -> Result<Vec<Self::DerivedSel>, MeasureError> 
+    where Self: Sized + Selectable
+    {
+        let b = self.require_box()?.to_owned();
+        let conn: SearchConnectivity =
+            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.len(), &b, dims);
+
+        // used atoms
+        let mut used = vec![false; self.len()];
+        // Centers to unwrap
+        let mut todo = Vec::<usize>::with_capacity(conn.len() / 2);
+        // Place first center to the stack
+        todo.push(0);
+        used[0] = true;
+        let mut sel_vec= vec![];
+        let mut res_sels = vec![];
+        loop {
+            // Loop while stack is not empty
+            while let Some(c) = todo.pop() {
+                // Central point
+                let p0 = unsafe { self.get_pos_unchecked(c) }.to_owned();
+                // Iterate over connected points
+                if let Some(v) = conn.get(c) {
+                    for ind in v {
+                        // Unwrap this point if it is not used yet
+                        if !used[*ind] {
+                            // let p = unsafe { self.get_pos_mut_unchecked(*ind) };
+                            // *p = b.closest_image_dims(p, &p0, dims);
                             // Add it to the stack
                             todo.push(*ind);
                             used[*ind] = true;

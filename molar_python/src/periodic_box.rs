@@ -150,4 +150,12 @@ impl PeriodicBox {
     ) -> anyhow::Result<f32> {
         Ok(self.distance_squared(p1, p2, dims)?.sqrt())
     }
+
+    fn wrap_point<'py>(&self, py: Python<'py>, p: PyArrayLike1<'py, f32, AllowTypeChange>,) -> anyhow::Result<Bound<'py, PyArray1<f32>>> {
+        let v: VectorView<f32, Const<3>, Dyn> = p
+            .try_as_matrix()
+            .ok_or_else(|| anyhow!("conversion of point to Vector3 has failed"))?;
+        Ok(clone_vec_to_pyarray1(&self.0.wrap_vec(&v), py))
+        
+    }
 }

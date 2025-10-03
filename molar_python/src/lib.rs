@@ -759,6 +759,30 @@ impl Sel {
         Ok(res)
     }
 
+    fn split_connectivity(&self, cutoff: f32) -> anyhow::Result<Vec<Sel>> {
+        let mut res = vec![];
+        for s in self.0.split_connectivity(cutoff)? {
+            res.push(Sel(s));
+        }
+        Ok(res)
+    }
+
+    #[pyo3(signature = (cutoff,dims=[true,true,true]))]
+    fn unwrap_connectivity_dim(&self, cutoff: f32, dims: [bool; 3]) -> anyhow::Result<Vec<Sel>> {
+        let mut res = vec![];
+        let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
+        for s in self.0.unwrap_connectivity_dim(cutoff,pbc_dims)? {
+            res.push(Sel(s));
+        }
+        Ok(res)
+    }
+
+    #[pyo3(signature = (dims=[true,true,true]))]
+    fn unwrap_simple_dim(&self, dims: [bool; 3]) -> anyhow::Result<()> {
+        let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
+        Ok(self.0.unwrap_simple_dim(pbc_dims)?)
+    }
+
     fn unwrap_simple(&self) -> anyhow::Result<()> {
         Ok(self.0.unwrap_simple()?)
     }
