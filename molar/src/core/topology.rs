@@ -1,5 +1,6 @@
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use crate::prelude::*;
-use sync_unsafe_cell::SyncUnsafeCell;
 use thiserror::Error;
 
 #[doc(hidden)]
@@ -21,15 +22,6 @@ impl TopologyStorage {
     pub(crate) fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
         self.atoms.extend(atoms);
     }
-
-    // pub(crate) fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-    //     todo!("Check if bond already exists");
-    //     self.bonds.extend(added);
-    // }
-
-    // pub(crate) fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-    //     self.molecules.extend(added);
-    // }
 
     pub(crate) fn remove_atoms(
         &mut self,
@@ -72,64 +64,31 @@ impl TopologyStorage {
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
-pub struct Topology(SyncUnsafeCell<TopologyStorage>);
+pub struct Topology(RwLock<TopologyStorage>);
 
-impl std::fmt::Debug for Topology {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.get_storage();
-        f.debug_struct("Topology")
-            .field("atoms", &s.atoms)
-            .field("bonds", &s.bonds)
-            .field("molecules", &s.molecules)
-            .finish()
-    }
-}
-
-impl Clone for Topology {
-    fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get_storage().clone()))
-    }
-}
-
-impl From<TopologyStorage> for Topology {
-    fn from(value: TopologyStorage) -> Self {
-        Topology(SyncUnsafeCell::new(value))
-    }
-}
+pub struct TopologyReadGuard<'a>(pub(crate) RwLockReadGuard<'a, TopologyStorage>);
+pub struct TopologyWriteGuard<'a>(pub(crate) RwLockWriteGuard<'a, TopologyStorage>);
 
 impl Topology {
-    // Private convenience accessors
-    #[inline(always)]
-    pub(super) fn get_storage(&self) -> &TopologyStorage {
-        unsafe { &*self.0.get() }
+    pub fn read(&self) -> TopologyReadGuard<'_> {
+        TopologyReadGuard(self.0.read().unwrap())
     }
 
-    #[inline(always)]
-    pub(super) fn get_storage_mut(&self) -> &mut TopologyStorage {
-        unsafe { &mut *self.0.get() }
+    pub fn write(&self) -> TopologyWriteGuard<'_> {
+        TopologyWriteGuard(self.0.write().unwrap())
     }
 
-    // #[inline(always)]
-    // pub unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-    //     self.get_storage().atoms.get_unchecked(i)
-    // }
+    pub fn interchangeable(&self, other: &Topology) -> bool {
+        let g1 = self.read();
+        let g2 = other.read();
+        g1.0.atoms.len() == g2.0.atoms.len()
+            && g1.0.bonds.len() == g2.0.bonds.len()
+            && g1.0.molecules.len() == g2.0.molecules.len()
+    }
+}
 
-    // #[inline(always)]
-    // pub unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-    //     self.get_storage_mut().atoms.get_unchecked_mut(i)
-    // }
-
-    // #[inline(always)]
-    // pub fn get_atom(&self, i: usize) -> Option<&Atom> {
-    //     self.get_storage().atoms.get(i)
-    // }
-
-    // #[inline(always)]
-    // pub fn get_atom_mut(&self, i: usize) -> Option<&mut Atom> {
-    //     self.get_storage_mut().atoms.get_mut(i)
-    // }
-
-    pub fn assign_resindex(&self) {
+impl TopologyWriteGuard<'_> {
+    pub fn assign_resindex(&mut self) {
         let mut resindex = 0usize;
         let mut cur_resid = unsafe { self.get_atom_unchecked(0) }.resid;
         for at in self.iter_atoms_mut() {
@@ -140,12 +99,6 @@ impl Topology {
             at.resindex = resindex;
         }
     }
-
-    pub fn interchangeable(&self, other: &Topology) -> bool {
-        self.get_storage().atoms.len() == other.get_storage().atoms.len()
-            && self.get_storage().bonds.len() == other.get_storage().bonds.len()
-            && self.get_storage().molecules.len() == other.get_storage().molecules.len()
-    }
 }
 
 //---------------------------
@@ -153,67 +106,51 @@ macro_rules! impl_topology_traits {
     ( $t:ty ) => {
         impl AtomIterProvider for $t {
             fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
-                self.get_storage().atoms.iter()
-            }
-        }
-
-        impl AtomIterMutProvider for $t {
-            fn iter_atoms_mut(&self) -> impl super::AtomMutIterator<'_> {
-                self.get_storage_mut().atoms.iter_mut()
+                self.0.atoms.iter()
             }
         }
 
         impl LenProvider for $t {
             fn len(&self) -> usize {
-                self.get_storage_mut().atoms.len()
+                self.0.atoms.len()
             }
         }
 
         impl RandomAtomProvider for $t {
             unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-                self.get_storage().atoms.get_unchecked(i)
-            }
-        }
-
-        impl RandomAtomMutProvider for $t {
-            fn get_atom_mut(&self, i: usize) -> Option<&mut Atom> {
-                self.get_storage_mut().atoms.get_mut(i)
-            }
-
-            unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-                self.get_storage_mut().atoms.get_unchecked_mut(i)
+                self.0.atoms.get_unchecked(i)
             }
         }
 
         impl RandomBondProvider for $t {
             fn num_bonds(&self) -> usize {
-                self.get_storage().bonds.len()
+                self.0.bonds.len()
             }
 
             unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-                self.get_storage().bonds.get_unchecked(i)
+                self.0.bonds.get_unchecked(i)
             }
         }
 
         impl BondIterProvider for $t {
             fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-                self.get_storage().bonds.iter()
+                self.0.bonds.iter()
             }
         }
 
         impl RandomMoleculeProvider for $t {
             fn num_molecules(&self) -> usize {
-                self.get_storage().molecules.len()
+                self.0.molecules.len()
             }
 
             unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-                self.get_storage().molecules.get_unchecked(i)
+                self.0.molecules.get_unchecked(i)
             }
         }
 
         impl MoleculeIterProvider for $t {
             fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-                self.get_storage().molecules.iter()
+                self.0.molecules.iter()
             }
         }
 
@@ -221,7 +158,29 @@ macro_rules! impl_topology_traits {
     };
 }
 
+macro_rules! impl_topology_mut_traits {
+    ( $t:ty ) => {
+        impl AtomIterMutProvider for $t {
+            fn iter_atoms_mut(&mut self) -> impl super::AtomMutIterator<'_> {
+                self.0.atoms.iter_mut()
+            }
+        }
+
+        impl RandomAtomMutProvider for $t {
+            fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
+                self.0.atoms.get_mut(i)
+            }
+
+            unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom {
+                self.0.atoms.get_unchecked_mut(i)
+            }
+        }
+    }
+}
+
 // Impls for Topology itself
-impl_topology_traits!(Topology);
+impl_topology_traits!(TopologyReadGuard<'_>);
+impl_topology_traits!(TopologyWriteGuard<'_>);
+impl_topology_mut_traits!(TopologyWriteGuard<'_>);
 // Impls for smart pointers
-impl_topology_traits!(triomphe::Arc<Topology>);
+//impl_topology_traits!(triomphe::Arc<Topology>);

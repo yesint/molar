@@ -1,5 +1,6 @@
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use crate::prelude::*;
-use sync_unsafe_cell::SyncUnsafeCell;
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
@@ -60,64 +61,32 @@ impl StateStorage {
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 #[derive(Default)]
-pub struct State(SyncUnsafeCell<StateStorage>);
+pub struct State(RwLock<StateStorage>);
 
-impl std::fmt::Debug for State {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.get_storage();
-        f.debug_struct("State")
-            .field("coords", &s.coords)
-            .field("time", &s.time)
-            .field("pbox", &s.pbox)
-            .finish()
-    }
-}
-
-impl Clone for State {
-    fn clone(&self) -> Self {
-        Self(SyncUnsafeCell::new(self.get_storage().clone()))
-    }
-}
-
-impl From<StateStorage> for State {
-    fn from(value: StateStorage) -> Self {
-        State(SyncUnsafeCell::new(value))
-    }
-}
+pub struct StateReadGuard<'a>(pub(crate) RwLockReadGuard<'a, StateStorage>);
+pub struct StateWriteGuard<'a>(pub(crate) RwLockWriteGuard<'a, StateStorage>);
 
 impl State {
-    // Private convenience accessors
-    #[inline(always)]
-    pub(crate) fn get_storage(&self) -> &StateStorage {
-        unsafe { &*self.0.get() }
+    pub fn read(&self) -> StateReadGuard<'_> {
+        StateReadGuard(self.0.read().unwrap())
+    }
+
+    pub fn write(&self) -> StateWriteGuard<'_> {
+        StateWriteGuard(self.0.write().unwrap())
     }
 
     #[inline(always)]
-    pub(crate) fn get_storage_mut(&self) -> &mut StateStorage {
-        unsafe { &mut *self.0.get() }
-    }
-
-    #[inline(always)]
-    pub fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_storage().pbox.as_ref()
-    }
-
-    #[inline(always)]
-    pub fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        self.get_storage_mut().pbox.as_mut()
-    }
-
     pub fn interchangeable(&self, other: &State) -> bool {
-        self.get_storage().coords.len() == other.get_storage().coords.len()
-            // && (
-            //     (self.get_storage().pbox.is_none() && other.get_storage().pbox.is_none())
-            //     || 
-            //     (self.get_storage().pbox.is_some() && other.get_storage().pbox.is_some())
-            // )
+        self.read().0.coords.len() == other.read().0.coords.len()
+        // && (
+        //     (self.get_storage().pbox.is_none() && other.get_storage().pbox.is_none())
+        //     ||
+        //     (self.get_storage().pbox.is_some() && other.get_storage().pbox.is_some())
+        // )
     }
 
     pub fn new_fake(n: usize) -> Self {
-        Self(SyncUnsafeCell::new(StateStorage {
+        Self(RwLock::new(StateStorage {
             coords: vec![Pos::origin(); n],
             pbox: None,
             time: 0.0,
@@ -128,57 +97,35 @@ impl State {
 //------------------------
 macro_rules! impl_state_traits {
     ( $t:ty ) => {
-        impl StateWrite for $t {}
-        
+        //impl StateWrite for $t {}
+
         impl TimeProvider for $t {
             fn get_time(&self) -> f32 {
-                self.get_storage().time
-            }
-        }
-
-        impl TimeMutProvider for $t {
-            fn set_time(&self, t: f32) {
-                self.get_storage_mut().time = t;
+                self.0.time
             }
         }
 
         impl PosIterProvider for $t {
             fn iter_pos(&self) -> impl super::PosIterator<'_> + Clone {
-                self.get_storage().coords.iter()
+                self.0.coords.iter()
             }
         }
 
         impl LenProvider for $t {
             fn len(&self) -> usize {
-                self.get_storage().coords.len()
+                self.0.coords.len()
             }
         }
 
         impl RandomPosProvider for $t {
             unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-                self.get_storage().coords.get_unchecked(i)
+                self.0.coords.get_unchecked(i)
             }
         }
 
         impl BoxProvider for $t {
             fn get_box(&self) -> Option<&PeriodicBox> {
-                self.get_storage().pbox.as_ref()
-            }
-        }
-
-        impl PosIterMutProvider for $t {
-            fn iter_pos_mut(&self) -> impl super::PosMutIterator<'_> {
-                self.get_storage_mut().coords.iter_mut()
-            }
-        }
-
-        impl RandomPosMutProvider for $t {
-            fn get_pos_mut(&self, i: usize) -> Option<&mut Pos> {
-                self.get_storage_mut().coords.get_mut(i)
-            }
-
-            unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-                self.get_storage_mut().coords.get_unchecked_mut(i)
+                self.0.pbox.as_ref()
             }
         }
 
@@ -187,7 +134,35 @@ macro_rules! impl_state_traits {
     };
 }
 
+macro_rules! impl_state_mut_traits {
+    ( $t:ty ) => {
+        impl TimeMutProvider for $t {
+            fn set_time(&mut self, t: f32) {
+                self.0.time = t;
+            }
+        }
+        
+        impl PosIterMutProvider for $t {
+            fn iter_pos_mut(&mut self) -> impl super::PosMutIterator<'_> {
+                self.0.coords.iter_mut()
+            }
+        }
+
+        impl RandomPosMutProvider for $t {
+            fn get_pos_mut(&mut self, i: usize) -> Option<&mut Pos> {
+                self.0.coords.get_mut(i)
+            }
+
+            unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos {
+                self.0.coords.get_unchecked_mut(i)
+            }
+        }
+    };
+}
+
 // Impls for State itself
-impl_state_traits!(State);
+impl_state_traits!(StateReadGuard<'_>);
+impl_state_traits!(StateWriteGuard<'_>);
+impl_state_mut_traits!(StateWriteGuard<'_>);
 // Impls for smart pointers
-impl_state_traits!(triomphe::Arc<State>);
+//impl_state_traits!(triomphe::Arc<State>);

@@ -495,6 +495,36 @@ pub struct Sel {
     //_phantom: PhantomData<*const ()>,
 }
 
+pub struct SelReadGuard<'a> {
+    topology_guard: TopologyReadGuard<'a>,
+    state_guard: StateReadGuard<'a>,
+    index_storage: Arc<SVec>,
+}
+
+pub struct SelWriteGuard<'a> {
+    topology_guard: TopologyWriteGuard<'a>,
+    state_guard: StateWriteGuard<'a>,
+    index_storage: Arc<SVec>,
+}
+
+impl Sel {
+    fn read(&self) -> SelReadGuard<'_> {
+        SelReadGuard {
+            topology_guard: self.topology.read(),
+            state_guard: self.state.read(),
+            index_storage: Arc::clone(&self.index_storage),
+        }
+    }
+
+    fn write(&self) -> SelWriteGuard<'_> {
+        SelWriteGuard {
+            topology_guard: self.topology.write(),
+            state_guard: self.state.write(),
+            index_storage: Arc::clone(&self.index_storage),
+        }
+    }
+}
+
 impl MutableSelectable for Sel {}
 
 impl private::SelectionPrivate for Sel {
@@ -532,6 +562,33 @@ pub struct System {
     state: Arc<State>,
     _phantom: PhantomData<*const ()>,
 }
+
+pub struct SystemReadGuard<'a> {
+    topology_guard: TopologyReadGuard<'a>,
+    state_guard: StateReadGuard<'a>,
+}
+
+pub struct SystemWriteGuard<'a> {
+    topology_guard: TopologyWriteGuard<'a>,
+    state_guard: StateWriteGuard<'a>,
+}
+
+impl System {
+    fn read(&self) -> SystemReadGuard<'_> {
+        SystemReadGuard {
+            topology_guard: self.topology.read(),
+            state_guard: self.state.read(),
+        }
+    }
+
+    fn write(&self) -> SystemWriteGuard<'_> {
+        SystemWriteGuard {
+            topology_guard: self.topology.write(),
+            state_guard: self.state.write(),
+        }
+    }
+}
+
 
 impl private::AllowsSelecting for System {
     fn index_slice(&self) -> Option<&[usize]> {
@@ -613,53 +670,47 @@ impl System {
     /// Release and return [Topology] and [State].
     /// Fails if any selection is still pointing to them.
     pub fn release(self) -> Result<(Topology, State), SelectionError> {
-        if self.topology.is_unique() && self.state.is_unique() {
-            Ok((
-                Arc::unwrap_or_clone(self.topology),
-                Arc::unwrap_or_clone(self.state),
-            ))
-        } else {
-            Err(SelectionError::Release)
-        }
+        Ok((
+            Arc::try_unwrap(self.topology).map_err(|_| SelectionError::Release)?,
+            Arc::try_unwrap(self.state).map_err(|_| SelectionError::Release)?,
+        ))
     }
 
     pub fn select_all(&self) -> Result<Sel, SelectionError> {
         self.select(0..self.len())
     }
 
-    pub fn append(&self, data: &(impl PosIterProvider + AtomIterProvider)) -> Sel {
+    pub fn append(&mut self, data: &(impl PosIterProvider + AtomIterProvider)) -> Sel {
+        let mut top_g = self.topology.write();
+        let mut st_g = self.state.write();
         let first_added_index = self.len();
-        self.topology
-            .get_storage_mut()
-            .add_atoms(data.iter_atoms().cloned());
-        self.state
-            .get_storage_mut()
-            .add_coords(data.iter_pos().cloned());
+        top_g.0.add_atoms(data.iter_atoms().cloned());
+        st_g.0.add_coords(data.iter_pos().cloned());
         let last_added_index = self.len();
         self.select(first_added_index..last_added_index).unwrap()
     }
 
     pub fn append_atoms_pos(
-        &self,
+        &mut self,
         atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = Pos>,
     ) -> Sel {
+        let mut top_g = self.topology.write();
+        let mut st_g = self.state.write();
         let first_added_index = self.len();
-        self.topology.get_storage_mut().add_atoms(atoms);
-        self.state.get_storage_mut().add_coords(coords);
+        top_g.0.add_atoms(atoms);
+        st_g.0.add_coords(coords);
         let last_added_index = self.len();
         self.select(first_added_index..last_added_index).unwrap()
     }
 
     // This method only works if this system has no selections
-    pub fn remove(&self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
+    pub fn remove(&mut self, to_remove: &impl IndexProvider) -> Result<(), SelectionError> {
+        let mut top_g = self.topology.write();
+        let mut st_g = self.state.write();
         if self.topology.is_unique() && self.state.is_unique() {
-            self.topology
-                .get_storage_mut()
-                .remove_atoms(to_remove.iter_index())?;
-            self.state
-                .get_storage_mut()
-                .remove_coords(to_remove.iter_index())?;
+            top_g.0.remove_atoms(to_remove.iter_index())?;
+            st_g.0.remove_coords(to_remove.iter_index())?;
             Ok(())
         } else {
             Err(SelectionError::Release)
@@ -681,11 +732,13 @@ impl System {
         self.get_state().set_time(t);
     }
 
-    pub fn multiply_periodically(&self, nbox: [usize; 3]) -> Result<(), SelectionError> {
-        if self.get_box().is_none() {
+    pub fn multiply_periodically(&mut self, nbox: [usize; 3]) -> Result<(), SelectionError> {
+        let mut top_g = self.topology.write();
+        let mut st_g = self.state.write();
+        if st_g.get_box().is_none() {
             return Err(PeriodicBoxError::NoPbc)?;
         }
-        let b = self.get_box_mut().unwrap();
+        let b = st_g.get_box_mut().unwrap();
         let m = b.get_matrix();
         let all = self.select_all()?;
         for x in 0..=nbox[0] {
@@ -704,7 +757,7 @@ impl System {
         // Scale the box
         b.scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32])?;
         // Re-assign resindex
-        self.topology.assign_resindex();
+        top_g.assign_resindex();
         Ok(())
     }
 }
