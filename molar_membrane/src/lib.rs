@@ -613,10 +613,21 @@ impl Membrane {
                 }
             }
 
-            let m = neib_list.iter().map(|id| mean_curv[*id]).sum::<f32>();
-            self.lipids[i].mean_curv = (mean_curv[i] + m) / (neib_list.len() + 1) as f32;
-            let g = neib_list.iter().map(|id| gauss_curv[*id]).sum::<f32>();
-            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (neib_list.len() + 1) as f32;
+            let mut m =0.0;
+            let mut g = 0.0;
+            let mut n_valid = 0;
+            // Compute sums and num of valid
+            for id in neib_list.iter() {
+                if !self.lipids[*id].valid {
+                    continue
+                }
+                m += mean_curv[*id];
+                g += gauss_curv[*id];
+                n_valid += 1;
+            }
+            
+            self.lipids[i].mean_curv = (mean_curv[i] + m) / (n_valid + 1) as f32;            
+            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (n_valid + 1) as f32;
         }
     }
 
