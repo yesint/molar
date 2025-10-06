@@ -47,7 +47,7 @@ pub struct Membrane {
     options: MembraneOptions,
     pbox: PeriodicBox,
     // Monolayers. Patches are computer inside the monolayer only
-    monolayers: Vec<usize>,
+    _monolayers: Vec<usize>,
 }
 
 #[derive(Deserialize)]
@@ -189,7 +189,7 @@ impl Membrane {
             species,
             options,
             pbox: source.require_box()?.clone(),
-            monolayers: vec![],
+            _monolayers: vec![],
             resindex_to_id,
         })
     }
