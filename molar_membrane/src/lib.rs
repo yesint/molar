@@ -686,6 +686,7 @@ impl Membrane {
                 // Compute fitted surface coefs
                 let c = get_quad_coefs(&local_points);
                 if c.is_none() {
+                    lip.valid = false;
                     return;
                 }
                 let quad_coefs = c.unwrap();
