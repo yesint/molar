@@ -3,7 +3,7 @@ use molar::{
     prelude::*,
     voronoi_cell::{Vector2f, VoronoiCell},
 };
-use nalgebra::{DVector, SMatrix, SVector};
+use nalgebra::{DMatrix, DVector, SMatrix, SVector};
 use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{
@@ -164,8 +164,8 @@ impl Membrane {
                         neib_ids: vec![],
                         voro_vertexes: vec![],
                         normal: Default::default(),
-                        mean_curv: 0.0,
-                        gaussian_curv: 0.0,
+                        mean_curv: -100.0,
+                        gaussian_curv: -100.0,
                         princ_dirs: Default::default(),
                         princ_curvs: Default::default(),
                         area: 0.0,
@@ -683,7 +683,12 @@ impl Membrane {
                 // Get local-to-lab transform
                 let to_lab = lip.get_to_lab_transform();
                 // Inverse transform
-                let to_local = to_lab.try_inverse().unwrap();
+                let to_local = to_lab.try_inverse();
+                if to_local.is_none() {
+                    lip.valid = false;
+                    return;
+                }
+                let to_local = to_local.unwrap();
                 // Local points
                 // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
                 // Central point is assumed to be at local zero.
@@ -758,10 +763,10 @@ impl Membrane {
                 }
 
                 // Check if area is too large (if max_area is set for lipid type)
-                if lip.species.max_area > 0.0 && lip.area > lip.species.max_area {
-                    lip.valid = false;
-                    return;
-                }
+                // if lip.species.max_area > 0.0 && lip.area > lip.species.max_area {
+                //     lip.valid = false;
+                //     return;
+                // }
 
                 //Save fitted positions of patch markers
                 lip.fitted_patch_points = local_points
@@ -818,34 +823,57 @@ impl Membrane {
     }
 }
 
-pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<f32, 6>> {
-    //============================
-    // Fitting polynomial
-    //============================
+// pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<f32, 6>> {
+//     //============================
+//     // Fitting polynomial
+//     //============================
 
-    // We fit with polynomial fit = a*x^2 + b*y^2 + c*xy + d*x + e*y + f
-    // Thus we need a linear system of size 6
+//     // We fit with polynomial fit = a*x^2 + b*y^2 + c*xy + d*x + e*y + f
+//     // Thus we need a linear system of size 6
+//     let mut m = SMatrix::<f32, 6, 6>::zeros();
+//     let mut rhs = SVector::<f32, 6>::zeros(); // Right hand side and result
+
+//     let mut powers = SVector::<f32, 6>::zeros();
+//     powers[5] = 1.0; //free term, the same everywhere
+//     for loc in local_points {
+//         // Compute powers
+//         powers[0] = loc[0] * loc[0]; //xx
+//         powers[1] = loc[1] * loc[1]; //yy
+//         powers[2] = loc[0] * loc[1]; //xy
+//         powers[3] = loc[0]; //x
+//         powers[4] = loc[1]; //y
+//                             // Add to the matrix
+//         m += powers * powers.transpose();
+//         // rhs
+//         rhs += powers * loc[2];
+//     }
+
+//     // Now solve and returs coeffs
+//     m.solve_lower_triangular(&rhs)
+// }
+
+pub fn get_quad_coefs(local_points: &Vec<Vector3f>) -> Option<SVector<f32, 6>> {
     let mut m = SMatrix::<f32, 6, 6>::zeros();
-    let mut rhs = SVector::<f32, 6>::zeros(); // Right hand side and result
+    let mut rhs = SVector::<f32, 6>::zeros();
 
     let mut powers = SVector::<f32, 6>::zeros();
-    powers[5] = 1.0; //free term, the same everywhere
+    powers[5] = 1.0;
+
     for loc in local_points {
-        // Compute powers
-        powers[0] = loc[0] * loc[0]; //xx
-        powers[1] = loc[1] * loc[1]; //yy
-        powers[2] = loc[0] * loc[1]; //xy
-        powers[3] = loc[0]; //x
-        powers[4] = loc[1]; //y
-                            // Add to the matrix
+        powers[0] = loc[0] * loc[0];
+        powers[1] = loc[1] * loc[1];
+        powers[2] = loc[0] * loc[1];
+        powers[3] = loc[0];
+        powers[4] = loc[1];
+
         m += powers * powers.transpose();
-        // rhs
         rhs += powers * loc[2];
     }
 
-    // Now solve and returs coeffs
-    m.solve_lower_triangular(&rhs)
+    m.cholesky().map(|chol| chol.solve(&rhs))
 }
+
+
 
 fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
     // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
@@ -869,7 +897,7 @@ mod tests {
 
     use molar::prelude::*;
 
-    use crate::{LipidSpecies, LipidSpeciesDescr, Membrane};
+    use crate::{get_quad_coefs, lipid_molecule::coeffs_to_curvature, LipidSpecies, LipidSpeciesDescr, Membrane};
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
@@ -1073,4 +1101,44 @@ mod tests {
 
     //     Ok(())
     // }
+    
+    #[test]
+    fn test_curvature_sphere() -> anyhow::Result<()> {
+        use rand::Rng;
+        use std::f32::consts::PI;
+
+        let mut rng = rand::rng();
+        let radius = 500.0;
+        
+        // Generate random points on sphere segment around positive z axis
+        let mut points = Vec::new();
+        for _ in 0..6 {
+            // Generate random angles with restrictions to stay near positive z
+            let theta = rng.random_range(0.0..PI/3.0); // angle from z axis
+            let phi = rng.random_range(0.0..2.0*PI);   // angle in xy plane
+            
+            // Convert to cartesian coordinates
+            let x = radius * theta.sin() * phi.cos();
+            let y = radius * theta.sin() * phi.sin();
+            let z = radius * theta.cos();
+            
+            // Project to local coordinates (x,y plane)
+            let local_z = z - radius; // shift sphere down by radius to get local coords
+            points.push(Vector3f::new(x, y, local_z));
+        }
+        //points.push(Vector3f::new(0.0,0.0,0.0));
+
+        // Get surface coefficients
+        let coefs = get_quad_coefs(&points).unwrap();
+        
+        // For a sphere, both principal curvatures should be 1/radius
+        let expected_curv = 1.0/radius;
+        let c = coeffs_to_curvature(&coefs);
+        
+        println!("mean curvature: {} {}", c.mean, expected_curv);
+        println!("Gaussian curvature: {}", c.gauss);
+        println!("principal curvatures: {:?}", c.princ_curvs);
+        
+        Ok(())
+    }
 }

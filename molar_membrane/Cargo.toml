@@ -26,3 +26,4 @@ sorted-vec.workspace = true
 serde.workspace = true
 toml = "0.8"
 rayon = "1.10"
+rand = "0.9"
