@@ -74,7 +74,7 @@ mod internal_tpr_enabled {
             let natoms = gmx_top.atoms.nr as usize;
             let nres = gmx_top.atoms.nres as usize;
 
-            let mut top = TopologyStorage::default();
+            let mut top = Topology::default();
             top.atoms.reserve(natoms);
 
             let gmx_atoms = c_array_to_slice(gmx_top.atoms.atom, natoms);
@@ -152,13 +152,12 @@ mod internal_tpr_enabled {
             } //unsafe
 
             // Assign resindexes
-            let top: Topology = top.into();
             top.assign_resindex();
 
             //================
             // Now read state
             //================
-            let mut st = StateStorage::default();
+            let mut st = State::default();
             // Gromacs stores coordinates in TPR in internal non-standard vectors
             // So we will need to copy them atom by atom
             st.coords.resize(natoms, Default::default());
@@ -176,7 +175,7 @@ mod internal_tpr_enabled {
             let m = Matrix3::from_column_slice(sl);
             st.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| TprHandlerError::Pbc(e))?);
 
-            Ok((top, st.into()))
+            Ok((top, st))
         }
     }
 

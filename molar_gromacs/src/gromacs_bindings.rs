@@ -698,6 +698,7 @@ pub struct TprHelper {
     pub state: t_state,
     pub ir: t_inputrec,
 }
+unsafe impl Send for TprHelper {}
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN9TprHelper7get_topEv"]
     pub fn TprHelper_get_top(this: *mut TprHelper) -> *mut t_topology;

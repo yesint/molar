@@ -29,7 +29,7 @@ pub struct VmdMolFileHandler {
 }
 
 // Allow sending handler between threads
-//unsafe impl Send for VmdMolFileHandler {}
+unsafe impl Send for VmdMolFileHandler {}
 
 #[derive(Error, Debug)]
 pub enum VmdHandlerError {
@@ -193,7 +193,7 @@ impl FileFormatHandler for VmdMolFileHandler {
         unsafe { vmd_atoms.set_len(self.natoms) }
 
         // Convert to Structure
-        let mut top: TopologyStorage = Default::default();
+        let mut top: Topology = Default::default();
         top.atoms.reserve(self.natoms);
 
         for ref vmd_at in vmd_atoms {
@@ -219,7 +219,6 @@ impl FileFormatHandler for VmdMolFileHandler {
         }
 
         // Assign resindexes
-        let top: Topology = top.into();
         top.assign_resindex();
 
         Ok(top)
@@ -267,7 +266,7 @@ impl FileFormatHandler for VmdMolFileHandler {
     }
 
     fn read_state(&mut self) -> Result<State, super::FileFormatError> {
-        let mut state: StateStorage = Default::default();
+        let mut state: State = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
         // This doesn't waste time for initialization, which will be overwritten anyway
@@ -320,7 +319,7 @@ impl FileFormatHandler for VmdMolFileHandler {
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(state.into()),
+            MOLFILE_SUCCESS => Ok(state),
             MOLFILE_EOF => Err(FileFormatError::Eof),
             _ => Err(VmdHandlerError::ReadState)?,
         }

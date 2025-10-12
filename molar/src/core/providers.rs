@@ -218,7 +218,7 @@ pub trait RandomPosMutProvider: LenProvider {
 }
 
 /// Trait for providing mutable iteration over atoms
-pub trait AtomIterMutProvider: AtomIterProvider {
+pub trait AtomIterMutProvider {
     fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_>;
 }
 
@@ -228,7 +228,7 @@ pub trait ParticleIterMutProvider: IndexProvider {
 }
 
 /// Trait for providing mutable random access to atoms
-pub trait RandomAtomMutProvider: RandomAtomProvider {
+pub trait RandomAtomMutProvider {
     fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
         if i < self.len() {
             Some(unsafe { self.get_atom_mut_unchecked(i) })
@@ -250,7 +250,7 @@ pub trait RandomAtomMutProvider: RandomAtomProvider {
 
 /// Trait for providing mutable access to periodic box
 pub trait BoxMutProvider {
-    fn get_box_mut(&self) -> Option<&mut PeriodicBox>;
+    fn get_box_mut(&mut self) -> Option<&mut PeriodicBox>;
 }
 
 /// Trait for setting simulation time
@@ -260,17 +260,17 @@ pub trait TimeMutProvider {
 
 /// Trait for providing mutable random access to particles
 pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvider {
-    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut;
+    unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut;
 
-    fn first_particle_mut(&self) -> ParticleMut {
+    fn first_particle_mut(&mut self) -> ParticleMut {
         unsafe { self.get_particle_mut_unchecked(0) }
     }
 
-    fn last_particle_mut(&self) -> ParticleMut {
+    fn last_particle_mut(&mut self) -> ParticleMut {
         unsafe { self.get_particle_mut_unchecked(self.len() - 1) }
     }
 
-    fn get_particle_mut(&self, i: usize) -> Option<ParticleMut> {
+    fn get_particle_mut(&mut self, i: usize) -> Option<ParticleMut> {
         if i < self.len() {
             Some(unsafe { self.get_particle_mut_unchecked(i) })
         } else {

@@ -7,7 +7,7 @@ use std::{
 };
 use thiserror::Error;
 
-use super::{Topology, TopologyStorage};
+use super::Topology;
 use regex;
 
 pub struct ItpFileHandler {
@@ -31,7 +31,7 @@ impl FileFormatHandler for ItpFileHandler {
             return Err(super::FileFormatError::Eof);
         }
         
-        let mut top = TopologyStorage::default();
+        let mut top = Topology::default();
 
         let mut reader = BufReader::new(&self.file);
         let mut line = String::new();

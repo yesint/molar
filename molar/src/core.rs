@@ -15,6 +15,7 @@ mod selection_parser;
 mod distance_search;
 mod connectivity;
 mod ndx_file;
+mod system;
 
 pub use {
     atom::*, 

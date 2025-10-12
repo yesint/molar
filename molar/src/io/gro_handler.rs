@@ -127,8 +127,8 @@ impl FileFormatHandler for GroFileHandler {
     }
 
     fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
-        let mut top = TopologyStorage::default();
-        let mut state = StateStorage::default();
+        let mut top = Topology::default();
+        let mut state = State::default();
 
         let buf = self.reader.as_mut().unwrap();
         let mut line = String::new();
@@ -241,8 +241,6 @@ impl FileFormatHandler for GroFileHandler {
         }
         state.pbox = Some(PeriodicBox::from_matrix(m).map_err(GroHandlerError::Pbc)?);
 
-        let state: State = state.into();
-        let top: Topology = top.into();
         // Assign resindex
         top.assign_resindex();
 

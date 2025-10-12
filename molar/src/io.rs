@@ -46,7 +46,7 @@ pub trait TopologyStateWrite: TopologyWrite + StateWrite {
 
 // If no more data available Eof error is returned
 #[allow(unused_variables)]
-pub(crate) trait FileFormatHandler {
+pub(crate) trait FileFormatHandler: Send {
     fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
         Err(FileFormatError::NotReadable)
     }
@@ -114,24 +114,24 @@ impl IoStateIterator {
         use std::sync::mpsc::sync_channel;
         let (sender, receiver) = sync_channel(10);
 
-        // Spawn reading thread
-        // std::thread::spawn(move || {
-        //     let mut terminate = false;
-        //     while !terminate {
-        //         let res = fh.read_state();
-        //         terminate = match res.as_ref() {
-        //             Err(_) => true,   // terminate if reading failed or Eof returned
-        //             _ => false,       // otherwise continut reading
-        //         };
+       //Spawn reading thread
+        std::thread::spawn(move || {
+            let mut terminate = false;
+            while !terminate {
+                let res = fh.read_state();
+                terminate = match res.as_ref() {
+                    Err(_) => true,   // terminate if reading failed or Eof returned
+                    _ => false,       // otherwise continut reading
+                };
 
-        //         // Send to channel.
-        //         // An error means that the reciever has closed the channel already.
-        //         // This is fine, just exit in this case.
-        //         if sender.send(res).is_err() {
-        //             break;
-        //         }
-        //     }
-        // });
+                // Send to channel.
+                // An error means that the reciever has closed the channel already.
+                // This is fine, just exit in this case.
+                if sender.send(res).is_err() {
+                    break;
+                }
+            }
+        });
 
         IoStateIterator { receiver }
     }

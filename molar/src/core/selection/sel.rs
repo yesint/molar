@@ -495,18 +495,6 @@ pub struct Sel {
     //_phantom: PhantomData<*const ()>,
 }
 
-pub struct SelReadGuard<'a> {
-    topology_guard: TopologyReadGuard<'a>,
-    state_guard: StateReadGuard<'a>,
-    index_storage: Arc<SVec>,
-}
-
-pub struct SelWriteGuard<'a> {
-    topology_guard: TopologyWriteGuard<'a>,
-    state_guard: StateWriteGuard<'a>,
-    index_storage: Arc<SVec>,
-}
-
 impl Sel {
     fn read(&self) -> SelReadGuard<'_> {
         SelReadGuard {
@@ -920,164 +908,164 @@ impl ParSplit {
     }
 }
 
-//═══════════════════════════════════════════════════════════
-//  Blanket trait implementations for Selections and System
-//═══════════════════════════════════════════════════════════
+// //═══════════════════════════════════════════════════════════
+// //  Blanket trait implementations for Selections and System
+// //═══════════════════════════════════════════════════════════
 
-//██████  IO traits
+// //██████  IO traits
 
-impl<T: HasTopState> TimeProvider for T {
-    fn get_time(&self) -> f32 {
-        self.get_state().get_time()
-    }
-}
+// impl<T: HasTopState> TimeProvider for T {
+//     fn get_time(&self) -> f32 {
+//         self.get_state().get_time()
+//     }
+// }
 
-//██████  Immutable analysis traits
+// //██████  Immutable analysis traits
 
-impl<T: HasTopState> BoxProvider for T {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get_state().get_box()
-    }
-}
+// impl<T: HasTopState> BoxProvider for T {
+//     fn get_box(&self) -> Option<&PeriodicBox> {
+//         self.get_state().get_box()
+//     }
+// }
 
-impl<T: HasTopState> PosIterProvider for T {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        unsafe {
-            self.iter_index()
-                .map(|i| self.get_state().get_pos_unchecked(i))
-        }
-    }
-}
+// impl<T: HasTopState> PosIterProvider for T {
+//     fn iter_pos(&self) -> impl PosIterator<'_> {
+//         unsafe {
+//             self.iter_index()
+//                 .map(|i| self.get_state().get_pos_unchecked(i))
+//         }
+//     }
+// }
 
-impl<T: HasTopState> AtomIterProvider for T {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        unsafe {
-            self.iter_index()
-                .map(|i| self.get_topology().get_atom_unchecked(i))
-        }
-    }
-}
+// impl<T: HasTopState> AtomIterProvider for T {
+//     fn iter_atoms(&self) -> impl AtomIterator<'_> {
+//         unsafe {
+//             self.iter_index()
+//                 .map(|i| self.get_topology().get_atom_unchecked(i))
+//         }
+//     }
+// }
 
-impl<T: HasTopState + MutableSelectable> AtomIterMutProvider for T {
-    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
-        unsafe {
-            self.iter_index()
-                .map(|i| self.get_topology().get_atom_mut_unchecked(i))
-        }
-    }
-}
+// impl<T: HasTopState + MutableSelectable> AtomIterMutProvider for T {
+//     fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_> {
+//         unsafe {
+//             self.iter_index()
+//                 .map(|i| self.get_topology().get_atom_mut_unchecked(i))
+//         }
+//     }
+// }
 
-impl<T: HasTopState> RandomPosProvider for T {
-    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = self.get_index_unchecked(i);
-        self.get_state().get_pos_unchecked(ind)
-    }
-}
+// impl<T: HasTopState> RandomPosProvider for T {
+//     unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+//         let ind = self.get_index_unchecked(i);
+//         self.get_state().get_pos_unchecked(ind)
+//     }
+// }
 
-impl<T: HasTopState> RandomAtomProvider for T {
-    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = self.get_index_unchecked(i);
-        self.get_topology().get_atom_unchecked(ind)
-    }
-}
+// impl<T: HasTopState> RandomAtomProvider for T {
+//     unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+//         let ind = self.get_index_unchecked(i);
+//         self.get_topology().get_atom_unchecked(ind)
+//     }
+// }
 
-impl<T: HasTopState + MutableSelectable> RandomAtomMutProvider for T {
-    unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
-        let ind = self.get_index_unchecked(i);
-        self.get_topology().get_atom_mut_unchecked(ind)
-    }
-}
+// impl<T: HasTopState + MutableSelectable> RandomAtomMutProvider for T {
+//     unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom {
+//         let ind = self.get_index_unchecked(i);
+//         self.get_topology().get_atom_mut_unchecked(ind)
+//     }
+// }
 
-impl<T: HasTopState> RandomMoleculeProvider for T {
-    fn num_molecules(&self) -> usize {
-        self.get_topology().num_molecules()
-    }
+// impl<T: HasTopState> RandomMoleculeProvider for T {
+//     fn num_molecules(&self) -> usize {
+//         self.get_topology().num_molecules()
+//     }
 
-    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.get_topology().get_molecule_unchecked(i)
-    }
-}
+//     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+//         self.get_topology().get_molecule_unchecked(i)
+//     }
+// }
 
-impl<T: HasTopState> MoleculeIterProvider for T {
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.get_topology().iter_molecules()
-    }
-}
+// impl<T: HasTopState> MoleculeIterProvider for T {
+//     fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+//         self.get_topology().iter_molecules()
+//     }
+// }
 
-impl<T: HasTopState> RandomBondProvider for T {
-    fn num_bonds(&self) -> usize {
-        self.get_topology().num_bonds()
-    }
+// impl<T: HasTopState> RandomBondProvider for T {
+//     fn num_bonds(&self) -> usize {
+//         self.get_topology().num_bonds()
+//     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.get_topology().get_bond_unchecked(i)
-    }
-}
+//     unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+//         self.get_topology().get_bond_unchecked(i)
+//     }
+// }
 
-impl<T: HasTopState> BondIterProvider for T {
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-        self.get_topology().iter_bonds()
-    }
-}
+// impl<T: HasTopState> BondIterProvider for T {
+//     fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+//         self.get_topology().iter_bonds()
+//     }
+// }
 
-impl<T: HasTopState> RandomParticleProvider for T {
-    unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_> {
-        let ind = self.get_index_unchecked(i);
-        Particle {
-            id: ind,
-            atom: self.get_topology().get_atom_unchecked(ind),
-            pos: self.get_state().get_pos_unchecked(ind),
-        }
-    }
-}
+// impl<T: HasTopState> RandomParticleProvider for T {
+//     unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_> {
+//         let ind = self.get_index_unchecked(i);
+//         Particle {
+//             id: ind,
+//             atom: self.get_topology().get_atom_unchecked(ind),
+//             pos: self.get_state().get_pos_unchecked(ind),
+//         }
+//     }
+// }
 
-//██████  Measure traits
+// //██████  Measure traits
 
-impl<T: HasTopState> MeasurePos for T {}
-impl<T: HasTopState> MeasurePeriodic for T {}
-impl<T: HasTopState> MeasureMasses for T {}
-impl<T: HasTopState> MeasureRandomAccess for T {}
+// impl<T: HasTopState> MeasurePos for T {}
+// impl<T: HasTopState> MeasurePeriodic for T {}
+// impl<T: HasTopState> MeasureMasses for T {}
+// impl<T: HasTopState> MeasureRandomAccess for T {}
 
-//██████  Mutable analysis traits
+// //██████  Mutable analysis traits
 
-impl BoxMutProvider for System {
-    fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
-        self.get_state().get_box_mut()
-    }
-}
+// impl BoxMutProvider for System {
+//     fn get_box_mut(&self) -> Option<&mut PeriodicBox> {
+//         self.get_state().get_box_mut()
+//     }
+// }
 
-impl<T: HasTopState + MutableSelectable> PosIterMutProvider for T {
-    fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
-        unsafe {
-            self.iter_index()
-                .map(|i| self.get_state().get_pos_mut_unchecked(i))
-        }
-    }
-}
+// impl<T: HasTopState + MutableSelectable> PosIterMutProvider for T {
+//     fn iter_pos_mut(&self) -> impl PosMutIterator<'_> {
+//         unsafe {
+//             self.iter_index()
+//                 .map(|i| self.get_state().get_pos_mut_unchecked(i))
+//         }
+//     }
+// }
 
-impl<T: HasTopState + MutableSelectable> RandomPosMutProvider for T {
-    unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
-        let ind = self.get_index_unchecked(i);
-        self.get_state().get_pos_mut_unchecked(ind)
-    }
-}
+// impl<T: HasTopState + MutableSelectable> RandomPosMutProvider for T {
+//     unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos {
+//         let ind = self.get_index_unchecked(i);
+//         self.get_state().get_pos_mut_unchecked(ind)
+//     }
+// }
 
-impl<T: HasTopState + MutableSelectable> RandomParticleMutProvider for T {
-    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
-        let ind = self.get_index_unchecked(i);
-        ParticleMut {
-            id: ind,
-            atom: self.get_topology().get_atom_mut_unchecked(ind),
-            pos: self.get_state().get_pos_mut_unchecked(ind),
-        }
-    }
-}
+// impl<T: HasTopState + MutableSelectable> RandomParticleMutProvider for T {
+//     unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+//         let ind = self.get_index_unchecked(i);
+//         ParticleMut {
+//             id: ind,
+//             atom: self.get_topology().get_atom_mut_unchecked(ind),
+//             pos: self.get_state().get_pos_mut_unchecked(ind),
+//         }
+//     }
+// }
 
-//██████  Modify traits
+// //██████  Modify traits
 
-impl<T: HasTopState + MutableSelectable> ModifyPos for T {}
-impl<T: HasTopState + MutableSelectable> ModifyPeriodic for T {}
-impl<T: HasTopState + MutableSelectable> ModifyRandomAccess for T {}
+// impl<T: HasTopState + MutableSelectable> ModifyPos for T {}
+// impl<T: HasTopState + MutableSelectable> ModifyPeriodic for T {}
+// impl<T: HasTopState + MutableSelectable> ModifyRandomAccess for T {}
 
 //========================================================
 

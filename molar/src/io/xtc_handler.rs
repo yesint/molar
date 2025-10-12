@@ -3,7 +3,7 @@ use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 use thiserror::Error;
 
-use crate::core::{PeriodicBox, StateStorage};
+use crate::core::PeriodicBox;
 use crate::io::FileFormatHandler;
 
 use log::{debug, warn};
@@ -151,7 +151,7 @@ impl FileFormatHandler for XtcFileHandler {
 
     #[allow(non_upper_case_globals)]
     fn read_state(&mut self) -> Result<State, super::FileFormatError> {
-        let mut st: StateStorage = Default::default();
+        let mut st: State = Default::default();
         // Prepare variables
         let mut prec: f32 = 0.0;
         // Allocate storage for coordinates, but don't initialize them
@@ -178,7 +178,7 @@ impl FileFormatHandler for XtcFileHandler {
         }
 
         match ok as u32 {
-            exdrOK => Ok(st.into()),
+            exdrOK => Ok(st),
             exdrENDOFFILE => Err(super::FileFormatError::Eof),
             _ => Err(XtcHandlerError::ReadState)?,
         }
