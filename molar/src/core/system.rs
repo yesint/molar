@@ -88,6 +88,18 @@ impl System {
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
     }
+
+    fn set_state(&mut self, st: State) -> State {
+        std::mem::replace(&mut self.st, st)
+    }
+
+    fn set_topology(&mut self, top: Topology) -> Topology {
+        std::mem::replace(&mut self.top, top)
+    }
+
+    fn release(self) -> (Topology,State) {
+        (self.top,self.st)
+    }
 }
 
 //================================================
