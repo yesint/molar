@@ -228,7 +228,7 @@ pub trait ParticleIterMutProvider: IndexProvider {
 }
 
 /// Trait for providing mutable random access to atoms
-pub trait RandomAtomMutProvider {
+pub trait RandomAtomMutProvider: LenProvider {
     fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
         if i < self.len() {
             Some(unsafe { self.get_atom_mut_unchecked(i) })
