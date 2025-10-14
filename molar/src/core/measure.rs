@@ -1,5 +1,3 @@
-use crate::core::Selectable;
-
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
@@ -650,8 +648,8 @@ pub fn fit_transform_matching<T1, T2>(
     sel2: &T2,
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
 where
-    T1: Selectable + Sized,
-    T2: Selectable + Sized,
+    T1: AtomIterProvider + Sized,
+    T2: AtomIterProvider + Sized,
 {
     let (ind1, ind2) = matching_atom_names(sel1, sel2);
     let matched_sel1 = sel1.select(&ind1).unwrap();

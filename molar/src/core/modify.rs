@@ -61,7 +61,7 @@ pub trait ModifyPeriodic: PosIterMutProvider + BoxMutProvider + LenProvider {
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: PosIterMutProvider + BoxMutProvider + RandomPosMutProvider {
+pub trait ModifyRandomAccess: PosIterMutProvider + BoxMutProvider + RandomPosMutProvider + Sized {
     fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
