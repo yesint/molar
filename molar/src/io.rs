@@ -764,9 +764,9 @@ mod tests {
         let st2 = st1.clone();
         println!("#1: {}", top1.len());
 
-        let b = System::new(top1, st2)?;
-        let sel = b.select_all()?;
-        sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
+        let mut b = System::new(top1, st2)?;
+        let sel = b.select("all")?;
+        sel.bind_mut(&mut b)?.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn test_io_gro_traj() -> Result<()> {
-        let src = System::from_file("tests/protein.pdb")?;
+        let mut src = System::from_file("tests/protein.pdb")?;
         println!(env!("OUT_DIR"));
         let groname = concat!(env!("OUT_DIR"), "/multi.gro");
         let mut w = FileHandler::create(groname)?;

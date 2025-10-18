@@ -1,7 +1,7 @@
 mod selection_def;
 mod utils;
 
-use std::num::ParseIntError;
+use std::{cell::{BorrowError, BorrowMutError}, num::ParseIntError};
 
 // pub use holder::*;
 // pub use kinds::*;
@@ -33,6 +33,12 @@ pub struct TopologyStateSizesError(usize, usize);
 /// Error related to creation of selections
 #[derive(Error, Debug)]
 pub enum SelectionError {
+    #[error("can't bind selection")]
+    Borrow(#[from] BorrowError),
+
+    #[error("can't bind selection mutably")]
+    BorrowMut(#[from] BorrowMutError),
+
     #[error("selection parser failed")]
     Parser(#[from] SelectionParserError),
 
@@ -197,7 +203,7 @@ mod tests {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let b = System::new(top, st)?;
-        let sel = b.select_all()?;
+        let sel = b.select("all")?;
         Ok(sel)
     }
 
@@ -212,14 +218,15 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()> {
         let sel = make_sel_all()?;
-        println!("before {}", sel.iter_pos().next().unwrap());
+        let selb = sel.bind()?;
+        println!("before {}", selb.iter_pos().next().unwrap());
 
-        let (minv, maxv) = sel.min_max();
+        let (minv, maxv) = selb.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}", sel.iter_pos().next().unwrap());
-        println!("{:?}", sel.min_max());
+        println!("after {}", selb.iter_pos().next().unwrap());
+        println!("{:?}", selb.min_max());
         Ok(())
     }
 
@@ -227,7 +234,7 @@ mod tests {
     fn test_measure_pbc() -> anyhow::Result<()> {
         let sel = make_sel_all()?;
 
-        let cm = sel.center_of_mass()?;
+        let cm = sel.bind()?.center_of_mass()?;
         println!("{cm}");
         Ok(())
     }
@@ -235,10 +242,11 @@ mod tests {
     #[test]
     fn test_translate() -> anyhow::Result<()> {
         let sel = make_sel_all()?;
+        let selb = sel.bind()?;
 
-        println!("before {}", sel.iter_pos().next().unwrap());
-        sel.translate(&Vector3f::new(10.0, 10.0, 10.0));
-        println!("after {}", sel.iter_pos().next().unwrap());
+        println!("before {}", selb.iter_pos().next().unwrap());
+        sel.bind_mut()?.translate(&Vector3f::new(10.0, 10.0, 10.0));
+        println!("after {}", selb.iter_pos().next().unwrap());
         Ok(())
     }
 
@@ -246,7 +254,7 @@ mod tests {
     fn test_write_to_file() -> anyhow::Result<()> {
         let sys = System::from_file("tests/protein.pdb")?;
         let sel = sys.select("name CA")?;
-        sel.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
+        sel.bind()?.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
 
         // let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         // h.write(&sel)?;
@@ -262,11 +270,11 @@ mod tests {
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let sel = make_sel_prot()?;
-        sel.unwrap_connectivity_dim(0.2, PBC_FULL)?;
+        sel.bind_mut()?.unwrap_connectivity_dim(0.2, PBC_FULL)?;
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
-        h.write_topology(&sel)?;
-        h.write_state(&sel)?;
+        h.write_topology(&sel.bind()?)?;
+        h.write_state(&sel.bind()?)?;
         Ok(())
     }
 

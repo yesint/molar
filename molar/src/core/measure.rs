@@ -1,3 +1,5 @@
+use crate::core::SelectableGuard;
+
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
@@ -142,8 +144,8 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
 
 /// Computes the transformation that best fits sel1 onto sel2
 pub fn fit_transform(
-    sel1: &impl MeasureMasses,
-    sel2: &impl MeasureMasses,
+    sel1: &impl SelectableGuard,
+    sel2: &impl SelectableGuard,
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
     let cm1 = sel1.center_of_mass()?;
     let cm2 = sel2.center_of_mass()?;
@@ -648,12 +650,12 @@ pub fn fit_transform_matching<T1, T2>(
     sel2: &T2,
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
 where
-    T1: AtomIterProvider + Sized,
-    T2: AtomIterProvider + Sized,
+    T1: SelectableGuard,
+    T2: SelectableGuard,
 {
     let (ind1, ind2) = matching_atom_names(sel1, sel2);
-    let matched_sel1 = sel1.select(&ind1).unwrap();
-    let matched_sel2 = sel2.select(&ind2).unwrap();
+    let matched_sel1 = sel1.select_bound(&ind1).unwrap();
+    let matched_sel2 = sel2.select_bound(&ind2).unwrap();
     fit_transform(&matched_sel1, &matched_sel2)
 }
 
