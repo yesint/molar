@@ -1,4 +1,4 @@
-use crate::core::SelectableGuard;
+use crate::core::{Guarded, SelectableGuard, SelectionError};
 
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
@@ -85,7 +85,7 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
             return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
         }
 
-        let n = sel1.len();
+        let n = 1.len();
         if n == 0 {
             return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
         }

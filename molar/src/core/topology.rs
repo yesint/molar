@@ -3,7 +3,7 @@ use thiserror::Error;
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Topology {
+pub struct Topology {
     pub atoms: Vec<Atom>,
     pub bonds: Vec<[usize; 2]>,
     pub molecules: Vec<[usize; 2]>,

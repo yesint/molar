@@ -282,27 +282,27 @@ mod tests {
     fn eigen_test() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
         let sel2 = make_sel_prot()?;
+        
+        sel2.bind_mut()?.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
 
-        sel2.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
+        sel2.bind()?.save(concat!(env!("OUT_DIR"), "/sel2.pdb"))?;
+        sel1.bind()?.save(concat!(env!("OUT_DIR"), "/sel1_before.pdb"))?;
+        println!("Initial RMSD:{}", rmsd_mw(&sel1.bind()?, &sel2.bind()?)?);
 
-        sel2.save(concat!(env!("OUT_DIR"), "/sel2.pdb"))?;
-        sel1.save(concat!(env!("OUT_DIR"), "/sel1_before.pdb"))?;
-        println!("Initial RMSD:{}", rmsd_mw(&sel1, &sel2)?);
-
-        let m = fit_transform(&sel1, &sel2)?;
+        let m = fit_transform(&sel1.bind()?, &sel2.bind()?)?;
         println!("{m}");
 
-        sel1.apply_transform(&m);
+        sel1.bind_mut()?.apply_transform(&m);
 
-        sel1.save(concat!(env!("OUT_DIR"), "/sel1_after.pdb"))?;
-        println!("Final RMSD:{}", rmsd_mw(&sel1, &sel2)?);
+        sel1.bind()?.save(concat!(env!("OUT_DIR"), "/sel1_after.pdb"))?;
+        println!("Final RMSD:{}", rmsd_mw(&sel1.bind()?, &sel2.bind()?)?);
         Ok(())
     }
 
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let sel1 = make_sel_all()?;
-        let res = sel1.sasa();
+        let res = sel1.bind()?.sasa();
         println!(
             "Sasa: {a}, Volume: {v}",
             a = res.total_area(),
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn tets_gyration() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        let g = sel1.gyration_pbc()?;
+        let g = sel1.bind()?.gyration_pbc()?;
         println!("Gyration radius: {g}");
         Ok(())
     }
@@ -326,7 +326,7 @@ mod tests {
         //    &UnitVector3::new_normalize(Vector3f::new(1.0,2.0,3.0)),
         //    0.45
         //);
-        let (moments, axes) = sel1.inertia_pbc()?;
+        let (moments, axes) = sel1.bind()?.inertia_pbc()?;
         println!("Inertia moments: {moments}");
         println!("Inertia axes: {axes:?}");
         Ok(())
@@ -338,18 +338,18 @@ mod tests {
     #[test]
     fn test_principal_transform() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        let tr = sel1.principal_transform()?;
+        let tr = sel1.bind()?.principal_transform()?;
         println!("Transform: {tr}");
 
-        let (_, axes) = sel1.inertia()?;
+        let (_, axes) = sel1.bind()?.inertia()?;
         println!("Axes before: {axes}");
 
-        sel1.apply_transform(&tr);
+        sel1.bind_mut()?.apply_transform(&tr);
 
-        let (_, axes) = sel1.inertia()?;
+        let (_, axes) = sel1.bind()?.inertia()?;
         println!("Axes after: {axes}");
 
-        sel1.save(concat!(env!("OUT_DIR"), "/oriented.pdb"))?;
+        sel1.bind()?.save(concat!(env!("OUT_DIR"), "/oriented.pdb"))?;
 
         Ok(())
     }

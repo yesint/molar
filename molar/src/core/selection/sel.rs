@@ -9,6 +9,18 @@ use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use crate::prelude::*;
 
 //===========================================================================
+
+pub trait Guarded {
+    type Guard<'a> where Self: 'a;
+    fn bind(&self) -> Result<Self::Guard<'_>, SelectionError>;
+} 
+
+pub trait GuardedMut {
+    type GuardMut<'a> where Self: 'a;
+    fn bind_mut(&self) -> Result<Self::GuardMut<'_>, SelectionError>;
+} 
+
+//===========================================================================
 /// Selection is just an index detached from the Topology and State.
 /// Has to be bound to System before doing something with the subset of atoms.
 /// It is guaranteed to be non-empty so no run-time checks for this
@@ -20,8 +32,53 @@ pub struct Sel {
 }
 
 impl Sel {
-    /// Binds Sel to System for read-only access
-    pub fn bind<'a>(&'a self) -> Result<SelBound<'a>, SelectionError> {
+    // /// Binds Sel to System for read-only access
+    // pub fn bind<'a>(&'a self) -> Result<SelBound<'a>, SelectionError> {
+    //     let guard = self.sys.try_borrow()?;
+    //     let last_ind = self.index.len() - 1;
+    //     if unsafe { *self.index.get_unchecked(last_ind) } < guard.top.len() {
+    //         Ok(SelBound {
+    //             guard,
+    //             index: &self.index,
+    //             sys: &self.sys,
+    //         })
+    //     } else {
+    //         Err(SelectionError::OutOfBounds(0, 0))
+    //     }
+    // }
+
+    // /// Binds Sel to System for read-write access
+    // pub fn bind_mut<'a>(&'a self) -> Result<SelBoundMut<'a>, SelectionError> {
+    //     let guard = self.sys.try_borrow_mut()?;
+    //     let last_ind = self.index.len() - 1;
+    //     if unsafe { *self.index.get_unchecked(last_ind) } < guard.top.len() {
+    //         Ok(SelBoundMut {
+    //             guard,
+    //             index: &self.index,
+    //             _sys: &self.sys,
+    //         })
+    //     } else {
+    //         Err(SelectionError::OutOfBounds(0, 0))
+    //     }
+    // }
+
+    /// Creates a string in Gromacs index format.
+    pub fn as_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+        use itertools::Itertools;
+        let name = name.as_ref();
+        let mut s = format!("[ {} ]\n", name);
+        for chunk in &self.index.iter().chunks(15) {
+            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s
+    }
+}
+
+impl Guarded for Sel {
+    type Guard<'a> = SelBound<'a>;
+    fn bind(&self) -> Result<Self::Guard<'_>, SelectionError> {
         let guard = self.sys.try_borrow()?;
         let last_ind = self.index.len() - 1;
         if unsafe { *self.index.get_unchecked(last_ind) } < guard.top.len() {
@@ -34,32 +91,22 @@ impl Sel {
             Err(SelectionError::OutOfBounds(0, 0))
         }
     }
+}
 
-    /// Binds Sel to System for read-write access
-    pub fn bind_mut<'a>(&'a self) -> Result<SelBoundMut<'a>, SelectionError> {
+impl GuardedMut for Sel {
+    type GuardMut<'a> = SelBoundMut<'a>;
+    fn bind_mut(&self) -> Result<Self::GuardMut<'_>, SelectionError> {
         let guard = self.sys.try_borrow_mut()?;
         let last_ind = self.index.len() - 1;
         if unsafe { *self.index.get_unchecked(last_ind) } < guard.top.len() {
             Ok(SelBoundMut {
                 guard,
                 index: &self.index,
+                _sys: &self.sys,
             })
         } else {
             Err(SelectionError::OutOfBounds(0, 0))
         }
-    }
-
-    /// Creates a string in Gromacs index format.
-    fn as_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
-        use itertools::Itertools;
-        let name = name.as_ref();
-        let mut s = format!("[ {} ]\n", name);
-        for chunk in &self.index.iter().chunks(15) {
-            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
-            s.push_str(&line);
-            s.push('\n');
-        }
-        s
     }
 }
 
@@ -135,14 +182,33 @@ impl System {
         Ok((s.top, s.st))
     }
 
-    pub fn bind<'a>(&'a self) -> Result<SystemBound<'a>, SelectionError> {
+    // pub fn bind<'a>(&'a self) -> Result<SystemBound<'a>, SelectionError> {
+    //     Ok(SystemBound {
+    //         guard: self.0.try_borrow()?,
+    //         sys: &self.0,
+    //     })
+    // }
+
+    // pub fn bind_mut<'a>(&'a self) -> Result<SystemBoundMut<'a>, SelectionError> {
+    //     Ok(SystemBoundMut {
+    //         guard: self.0.try_borrow_mut()?,
+    //     })
+    // }
+}
+
+impl Guarded for System {
+    type Guard<'a> = SystemBound<'a>;
+    fn bind(&self) -> Result<Self::Guard<'_>, SelectionError> {
         Ok(SystemBound {
             guard: self.0.try_borrow()?,
             sys: &self.0,
         })
     }
+}
 
-    pub fn bind_mut<'a>(&'a self) -> Result<SystemBoundMut<'a>, SelectionError> {
+impl GuardedMut for System {
+    type GuardMut<'a> = SystemBoundMut<'a>;
+    fn bind_mut(&self) -> Result<Self::GuardMut<'_>, SelectionError> {
         Ok(SystemBoundMut {
             guard: self.0.try_borrow_mut()?,
         })
@@ -154,6 +220,14 @@ pub struct SystemBound<'a> {
     guard: Ref<'a, SystemStorage>,
     sys: &'a Rc<RefCell<SystemStorage>>,
 }
+
+impl Guarded for SystemBound<'_> {
+    type Guard<'a> = &'a Self where Self: 'a;
+    fn bind(&self) -> Result<Self::Guard<'_>, SelectionError> {
+        Ok(self)
+    }
+}
+
 
 impl LenProvider for SystemBound<'_> {
     fn len(&self) -> usize {
@@ -183,7 +257,7 @@ impl SelectableGuard for SystemBound<'_> {
         })
     }
 
-    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn, SelectionError> {
+    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn<'_>, SelectionError> {
         Ok(SelBoundOwn {
             guard: Ref::clone(&self.guard),
             index: def.into_sel_index(&self.guard.top, &self.guard.st, None)?,
@@ -220,6 +294,14 @@ impl TopologyStateWrite for SystemBound<'_> {}
 pub struct SystemBoundMut<'a> {
     guard: RefMut<'a, SystemStorage>,
 }
+
+impl GuardedMut for SystemBoundMut<'_> {
+    type GuardMut<'a> = &'a Self where Self: 'a;
+    fn bind_mut(&self) -> Result<Self::GuardMut<'_>, SelectionError> {
+        Ok(self)
+    }
+}
+
 
 impl LenProvider for SystemBoundMut<'_> {
     fn len(&self) -> usize {
@@ -287,6 +369,24 @@ pub struct SelBound<'a> {
     sys: &'a Rc<RefCell<SystemStorage>>,
 }
 
+impl Guarded for SelBound<'_> {
+    type Guard<'a> = &'a Self where Self: 'a;
+    fn bind(&self) -> Result<Self::Guard<'_>, SelectionError> {
+        Ok(self)
+    }
+}
+
+impl<'a> SelBound<'a> {
+    pub fn into_mut(self) -> Result<SelBoundMut<'a>, SelectionError> {
+        drop(self.guard);
+        Ok(SelBoundMut {
+            index: self.index,
+            _sys: self.sys,
+            guard: self.sys.try_borrow_mut()?,
+        })
+    }
+}
+
 impl LenProvider for SelBound<'_> {
     fn len(&self) -> usize {
         self.index.len()
@@ -315,7 +415,7 @@ impl SelectableGuard for SelBound<'_> {
         })
     }
 
-    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn, SelectionError> {
+    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn<'_>, SelectionError> {
         Ok(SelBoundOwn {
             guard: Ref::clone(&self.guard),
             index: def.into_sel_index(&self.guard.top, &self.guard.st, Some(self.index))?,
@@ -357,6 +457,13 @@ pub struct SelBoundOwn<'a> {
     sys: &'a Rc<RefCell<SystemStorage>>,
 }
 
+impl Guarded for SelBoundOwn<'_> {
+    type Guard<'a> = &'a Self where Self: 'a;
+    fn bind(&self) -> Result<Self::Guard<'_>, SelectionError> {
+        Ok(self)
+    }
+}
+
 impl SelBoundOwn<'_> {
     /// Convert to unbound [Sel]
     pub fn into_unbound(self) -> Sel {
@@ -395,7 +502,7 @@ impl SelectableGuard for SelBoundOwn<'_> {
         })
     }
 
-    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn, SelectionError> {
+    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn<'_>, SelectionError> {
         Ok(SelBoundOwn {
             guard: Ref::clone(&self.guard),
             index: def.into_sel_index(&self.guard.top, &self.guard.st, Some(&self.index))?,
@@ -434,7 +541,27 @@ impl TopologyStateWrite for SelBoundOwn<'_> {}
 pub struct SelBoundMut<'a> {
     guard: RefMut<'a, SystemStorage>,
     index: &'a SVec,
+    _sys: &'a Rc<RefCell<SystemStorage>>,
 }
+
+impl GuardedMut for SelBoundMut<'_> {
+    type GuardMut<'a> = &'a Self where Self: 'a;
+    fn bind_mut(&self) -> Result<Self::GuardMut<'_>, SelectionError> {
+        Ok(self)
+    }
+}
+
+impl<'a> SelBoundMut<'a> {
+    pub fn into_immut(self) -> Result<SelBound<'a>, SelectionError> {
+        drop(self.guard);
+        Ok(SelBound {
+            index: self.index,
+            sys: self._sys,
+            guard: self._sys.try_borrow()?,
+        })
+    }
+}
+
 
 impl LenProvider for SelBoundMut<'_> {
     fn len(&self) -> usize {
@@ -469,6 +596,16 @@ impl AtomPosAnalysisMut for SelBoundMut<'_> {
 
     fn pos_mut_ptr(&mut self) -> *mut Pos {
         self.guard.st.coords.as_mut_ptr()
+    }
+}
+
+impl NonAtomPosAnalysis for SelBoundMut<'_> {
+    fn st_ref(&self) -> &State {
+        &self.guard.st
+    }
+
+    fn top_ref(&self) -> &Topology {
+        &self.guard.top
     }
 }
 
@@ -547,7 +684,7 @@ pub struct ParSplit {
 /// Bound parallel split
 pub struct ParSplitBound<'a> {
     pub selections: &'a mut Vec<SubSystemParMut>,
-    guard: RefMut<'a, SystemStorage>,
+    _guard: RefMut<'a, SystemStorage>,
 }
 
 impl ParSplit {
@@ -557,17 +694,13 @@ impl ParSplit {
         // The cost calling is just one comparison
         if self.max_index < g.top.len() {
             // Set correct pointers in each selection
-            self
-                .selections
-                .iter_mut()
-                .map(|sel| {
-                    sel.pos_ptr = g.st.coords.as_mut_ptr();
-                    sel.atom_ptr = g.top.atoms.as_mut_ptr();
-                }
-                );
+            self.selections.iter_mut().for_each(|sel| {
+                sel.pos_ptr = g.st.coords.as_mut_ptr();
+                sel.atom_ptr = g.top.atoms.as_mut_ptr();
+            });
             Ok(ParSplitBound {
                 selections: &mut self.selections,
-                guard: g,
+                _guard: g,
             })
         } else {
             Err(SelectionError::OutOfBounds(0, 0))
@@ -605,8 +738,8 @@ pub trait SelectableGuard: AtomPosAnalysis {
     fn sys_ref(&self) -> &Rc<RefCell<SystemStorage>>;
 
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError>;
-    
-    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn, SelectionError>;
+
+    fn select_bound(&self, def: impl SelectionDef) -> Result<SelBoundOwn<'_>, SelectionError>;
 
     /// Creates a parallel split based on provided closure.
     /// A closure takes a [Particle] and returns a distinct value for each piece.
@@ -627,11 +760,14 @@ pub trait SelectableGuard: AtomPosAnalysis {
         let max_index = *svecs.iter().map(|v| v.last().unwrap()).max().unwrap();
 
         Ok(ParSplit {
-            selections: svecs.into_iter().map(|v| SubSystemParMut{
-                index: v,
-                atom_ptr: std::ptr::null_mut(),
-                pos_ptr: std::ptr::null_mut(),
-            }).collect(),
+            selections: svecs
+                .into_iter()
+                .map(|v| SubSystemParMut {
+                    index: v,
+                    atom_ptr: std::ptr::null_mut(),
+                    pos_ptr: std::ptr::null_mut(),
+                })
+                .collect(),
             sys: Rc::clone(self.sys_ref()),
             max_index,
         })
@@ -971,7 +1107,7 @@ impl<T: AtomPosAnalysisMut> RandomPosMutProvider for T {
 }
 
 impl<T: AtomPosAnalysisMut> RandomParticleMutProvider for T {
-    unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut {
+    unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut<'_> {
         let ind = self.get_index_unchecked(i);
         ParticleMut {
             id: ind,
@@ -1016,7 +1152,10 @@ impl<T: AtomPosAnalysis> MeasureRandomAccess for T {}
 
 impl<T: AtomPosAnalysisMut> ModifyPos for T {}
 impl<T: AtomPosAnalysisMut + NonAtomPosAnalysis + NonAtomPosAnalysisMut> ModifyPeriodic for T {}
-impl<T: AtomPosAnalysis + AtomPosAnalysisMut + NonAtomPosAnalysis + NonAtomPosAnalysisMut> ModifyRandomAccess for T {}
+impl<T: AtomPosAnalysis + AtomPosAnalysisMut + NonAtomPosAnalysis + NonAtomPosAnalysisMut>
+    ModifyRandomAccess for T
+{
+}
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------

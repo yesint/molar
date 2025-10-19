@@ -764,9 +764,9 @@ mod tests {
         let st2 = st1.clone();
         println!("#1: {}", top1.len());
 
-        let mut b = System::new(top1, st2)?;
+        let b = System::new(top1, st2)?;
         let sel = b.select("all")?;
-        sel.bind_mut(&mut b)?.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
+        sel.bind_mut()?.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
@@ -789,10 +789,10 @@ mod tests {
         println!(env!("OUT_DIR"));
         let groname = concat!(env!("OUT_DIR"), "/multi.gro");
         let mut w = FileHandler::create(groname)?;
-        src.set_time(1.0);
-        w.write(&src)?;
-        src.set_time(2.0);
-        w.write(&src)?;
+        src.bind_mut()?.set_time(1.0);
+        w.write(&src.bind()?)?;
+        src.bind_mut()?.set_time(2.0);
+        w.write(&src.bind()?)?;
         drop(w); // To flush buffer
 
         // Read it back

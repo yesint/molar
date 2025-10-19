@@ -963,7 +963,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::core::System;
+    use crate::core::{Guarded, System};
     use super::TopologyStateWrite;
 
     #[test]
