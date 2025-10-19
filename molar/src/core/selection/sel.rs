@@ -1010,7 +1010,7 @@ impl<T: HasTopState + MutableSelectable> RandomPosMutProvider for T {
 }
 
 impl<T: HasTopState + MutableSelectable> RandomParticleMutProvider for T {
-    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut {
+    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut<'_> {
         let ind = self.get_index_unchecked(i);
         ParticleMut {
             id: ind,

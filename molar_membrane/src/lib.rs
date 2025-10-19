@@ -3,7 +3,7 @@ use molar::{
     prelude::*,
     voronoi_cell::{Vector2f, VoronoiCell},
 };
-use nalgebra::{DMatrix, DVector, SMatrix, SVector};
+use nalgebra::{DVector, SMatrix, SVector};
 use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{

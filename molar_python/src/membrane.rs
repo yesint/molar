@@ -147,19 +147,19 @@ impl LipidMolecule {
     }
 
     #[getter]
-    fn get_head_marker(slf: Bound<Self>) -> Bound<'_, PyAny> {
+    fn get_head_marker(slf: Bound<'_,Self>) -> Bound<'_, PyAny> {
         let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().head_marker.coords, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
 
     #[getter]
-    fn get_mid_marker(slf: Bound<Self>) -> Bound<'_, PyAny> {
+    fn get_mid_marker(slf: Bound<'_,Self>) -> Bound<'_, PyAny> {
         let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().mid_marker.coords, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
 
     #[getter]
-    fn get_tail_marker(slf: Bound<Self>) -> Bound<'_, PyAny> {
+    fn get_tail_marker(slf: Bound<'_,Self>) -> Bound<'_, PyAny> {
         let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().tail_marker.coords, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }
@@ -180,7 +180,7 @@ impl LipidMolecule {
     }
 
     #[getter]
-    fn get_normal(slf: Bound<Self>) -> Bound<'_, PyAny> {
+    fn get_normal(slf: Bound<'_,Self>) -> Bound<'_, PyAny> {
         let ptr = map_const_pyarray_to_vec3(slf.py(), &slf.borrow().get().normal, &slf);
         unsafe { Bound::from_owned_ptr(slf.py(), ptr.cast()) }
     }

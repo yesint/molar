@@ -360,7 +360,6 @@ impl PeriodicBox {
 mod tests {
     use crate::core::{Matrix3f, PbcDims, Pos, Vector3f, PBC_FULL, PBC_NONE};
     use super::PeriodicBox;
-    use nalgebra;
 
     const EPSILON: f32 = 1e-6;
 

@@ -162,7 +162,7 @@ pub trait ModifyRandomAccess:
             // Loop while stack is not empty
             while let Some(c) = todo.pop() {
                 // Central point
-                let p0 = unsafe { self.get_pos_unchecked(c) }.to_owned();
+                //let p0 = unsafe { self.get_pos_unchecked(c) }.to_owned();
                 // Iterate over connected points
                 if let Some(v) = conn.get(c) {
                     for ind in v {
