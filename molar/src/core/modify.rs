@@ -13,7 +13,19 @@ use nalgebra::Unit;
 //==============================================================
 
 /// Trait for modification requiring only positions
-pub trait ModifyPos: PosIterMutProvider {
+pub trait ModifyPos {
+    fn translate<S>(&mut self, shift: &nalgebra::Matrix<f32, Const<3>, Const<1>, S>)
+    where
+        S: nalgebra::storage::Storage<f32, Const<3>, Const<1>>;
+
+    fn rotate(&mut self, ax: &Unit<Vector3f>, ang: f32);
+
+    fn apply_transform(&mut self, tr: &nalgebra::IsometryMatrix3<f32>);
+}
+
+impl<T> ModifyPos for T
+where T: PosIterMutProvider,
+{
     //pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
     //where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
 
@@ -41,7 +53,17 @@ pub trait ModifyPos: PosIterMutProvider {
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: PosIterMutProvider + BoxMutProvider + LenProvider + BoxProvider {
+pub trait ModifyPeriodic {
+    fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<(), MeasureError>;
+    
+    fn unwrap_simple(&mut self) -> Result<(), MeasureError> {
+        self.unwrap_simple_dim(PBC_FULL)
+    }
+}
+
+impl<T> ModifyPeriodic for T 
+where T: PosIterMutProvider + BoxMutProvider + LenProvider + BoxProvider,
+{
     fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<(), MeasureError> {
         let n = self.len();
         let b = self.require_box()?.to_owned();
@@ -54,18 +76,20 @@ pub trait ModifyPeriodic: PosIterMutProvider + BoxMutProvider + LenProvider + Bo
         }
         Ok(())
     }
-
-    fn unwrap_simple(&mut self) -> Result<(), MeasureError> {
-        self.unwrap_simple_dim(PBC_FULL)
-    }
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: PosIterProvider + PosIterMutProvider + BoxMutProvider + BoxProvider + RandomPosMutProvider + Sized {
+pub trait ModifyRandomAccess {
+    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError>;
+    
     fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
+}
 
+impl<T> ModifyRandomAccess for T
+where T: PosIterProvider + PosIterMutProvider + BoxMutProvider + BoxProvider + RandomPosMutProvider + Sized,
+{
     fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
         let b = self.require_box()?.to_owned();
         let conn: SearchConnectivity =
@@ -106,7 +130,13 @@ pub trait ModifyRandomAccess: PosIterProvider + PosIterMutProvider + BoxMutProvi
 }
 
 /// Trait for modification requiring atoms
-pub trait ModifyAtoms: AtomIterMutProvider + LenProvider {
+pub trait ModifyAtoms {
+    fn assign_resindex(&mut self);
+}
+
+impl<T> ModifyAtoms for T
+where T: AtomIterMutProvider + LenProvider,
+{
     fn assign_resindex(&mut self) {
         let n = self.len();
         let mut resindex = 0usize;

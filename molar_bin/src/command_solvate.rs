@@ -12,9 +12,10 @@ pub(crate) fn command_solvate(
 ) -> Result<()> {
     info!("Loading solute from file '{file}'...");
     let solute = System::from_file(file)?;
+    let solute_g = solute.bind()?;
 
     // Check periodic box
-    if solute.get_box().is_none() {
+    if solute_g.get_box().is_none() {
         bail!("can't solvate a system without a periodic box");
     }
 
@@ -30,20 +31,21 @@ pub(crate) fn command_solvate(
     };
     info!("Loading solvent from file '{solvent_file}'...");
     let solvent = System::from_file(&solvent_file)?;
-    if solvent.get_box().is_none() {
+    let solvent_g = solvent.bind()?;
+    if solvent_g.get_box().is_none() {
         bail!("solvent lacks a periodic box");
     }
-    if solvent.get_box().unwrap().is_triclinic() {
+    if solvent_g.get_box().unwrap().is_triclinic() {
         bail!("triclinic solvent boxes are not supported yet");
     }
 
     // Get solute extents
-    let solute_max_ext = solute.get_box().unwrap().get_lab_extents();
+    let solute_max_ext = solute_g.get_box().unwrap().get_lab_extents();
 
     // We will fill the rectangular region with solvent
     // even if the actual box is triclinic and then we will
     // remove molecules outside the box
-    let solvent_ext = solvent.get_box().unwrap().get_box_extents();
+    let solvent_ext = solvent_g.get_box().unwrap().get_box_extents();
     let mut nbox = [0; 3];
     for i in 0..=2 {
         nbox[i] = (solute_max_ext[i] / solvent_ext[i]).ceil() as usize;

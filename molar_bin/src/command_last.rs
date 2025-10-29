@@ -4,7 +4,7 @@ use molar::prelude::*;
 
 pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
     let mut trj; // Trajectory file
-                 // Reading topology
+    // Reading topology
     let top = if files.len() == 1 {
         trj = FileHandler::open(&files[0])?;
         let top = trj

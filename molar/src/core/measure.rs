@@ -15,38 +15,20 @@ use thiserror::Error;
 // Traits for measuring (immutable access)
 //==============================================================
 
-/// Errors that can occur during measurements
-#[derive(Error, Debug)]
-pub enum MeasureError {
-    /// Mismatch in sizes between two selections
-    #[error("incompatible sizes: {0} and {1}")]
-    Sizes(usize, usize),
-
-    /// Total mass of the selection is zero
-    #[error("zero mass")]
-    ZeroMass,
-
-    /// Singular Value Decomposition failed
-    #[error("SVD failed")]
-    Svd,
-
-    /// Operation requires periodic boundary conditions but none is defined
-    #[error(transparent)]
-    Pbc(#[from] PeriodicBoxError),
-
-    /// Cannot unwrap coordinates due to disjoint pieces
-    #[error("can't unwrap disjoint pieces")]
-    Disjoint,
-
-    #[error("lipid order error")]
-    LipidOrder(#[from] LipidOrderError),
-
-    #[error("selection error")]
-    Sel,
+/// Trait for analysis requiring only positions
+pub trait MeasurePos {
+    /// Returns the minimum and maximum coordinates across all dimensions
+    fn min_max(&self) -> (Pos, Pos);
+    /// Calculates the geometric center (centroid) of all positions
+    fn center_of_geometry(&self) -> Pos;
+    /// Calculates the Root Mean Square Deviation between two selections
+    fn rmsd(&self, other: &Self) -> Result<f32, MeasureError>;
 }
 
-/// Trait for analysis requiring only positions
-pub trait MeasurePos: PosIterProvider + LenProvider {
+impl<T> MeasurePos for T
+where
+    T: PosIterProvider + LenProvider,
+{
     /// Returns the minimum and maximum coordinates across all dimensions
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -67,27 +49,25 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
     /// Calculates the geometric center (centroid) of all positions
     fn center_of_geometry(&self) -> Pos {
         let iter = self.iter_pos();
-        let n = self.len();
+        let mut n: usize = 0;
         let mut cog = Vector3f::zeros();
         for c in iter {
             cog += c.coords;
+            n += 1;
         }
         Pos::from(cog / n as f32)
     }
 
     /// Calculates the Root Mean Square Deviation between two selections
-    fn rmsd(sel1: &Self, sel2: &Self) -> Result<f32, MeasureError> {
+    fn rmsd(&self, other: &Self) -> Result<f32, MeasureError> {
         let mut res = 0.0;
-        let iter1 = sel1.iter_pos();
-        let iter2 = sel2.iter_pos();
+        let iter1 = self.iter_pos();
+        let iter2 = other.iter_pos();
 
-        if sel1.len() != sel2.len() {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-        }
+        let n = self.len();
 
-        let n = 1.len();
-        if n == 0 {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
+        if (n != other.len()) || n == 0 {
+            return Err(MeasureError::Sizes(n, other.len()));
         }
 
         for (p1, p2) in std::iter::zip(iter1, iter2) {
@@ -99,7 +79,17 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
 }
 
 /// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
+pub trait MeasureMasses {
+    fn center_of_mass(&self) -> Result<Pos, MeasureError>;
+    fn gyration(&self) -> Result<f32, MeasureError>;
+    fn inertia(&self) -> Result<(Vector3f, Matrix3f), MeasureError>;
+    fn principal_transform(&self) -> Result<IsometryMatrix3<f32>, MeasureError>;
+}
+
+impl<T> MeasureMasses for T
+where
+    T: PosIterProvider + MassIterProvider + LenProvider,
+{
     /// Calculates the center of mass of the selection
     fn center_of_mass(&self) -> Result<Pos, MeasureError> {
         let mut cm = Vector3f::zeros();
@@ -162,8 +152,8 @@ pub fn fit_transform(
 
 /// Like fit_transform but assumes both selections are centered at origin
 pub fn fit_transform_at_origin(
-    sel1: &impl MeasureMasses,
-    sel2: &impl MeasureMasses,
+    sel1: &(impl PosIterProvider + MassIterProvider + LenProvider),
+    sel2: &(impl PosIterProvider + MassIterProvider + LenProvider),
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
     let rot = rot_transform(
         sel1.iter_pos().map(|p| p.coords),
@@ -174,7 +164,10 @@ pub fn fit_transform_at_origin(
 }
 
 /// Calculates the mass-weighted Root Mean Square Deviation between two selections
-pub fn rmsd_mw(sel1: &impl MeasureMasses, sel2: &impl MeasureMasses) -> Result<f32, MeasureError> {
+pub fn rmsd_mw(
+    sel1: &(impl PosIterProvider + MassIterProvider + LenProvider),
+    sel2: &(impl PosIterProvider + MassIterProvider + LenProvider),
+) -> Result<f32, MeasureError> {
     let mut res = 0.0;
     let mut m_tot = 0.0;
     let iter1 = sel1.iter_pos();
@@ -197,7 +190,20 @@ pub fn rmsd_mw(sel1: &impl MeasureMasses, sel2: &impl MeasureMasses) -> Result<f
 }
 
 /// Trait for analysis requiring positions, masses and periodic boundary conditions
-pub trait MeasurePeriodic: PosIterProvider + MassIterProvider + BoxProvider + LenProvider {
+pub trait MeasurePeriodic {
+    fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError>;
+    fn center_of_mass_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError>;
+    fn center_of_geometry_pbc(&self) -> Result<Pos, MeasureError>;
+    fn center_of_geometry_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError>;
+    fn gyration_pbc(&self) -> Result<f32, MeasureError>;
+    fn inertia_pbc(&self) -> Result<(Vector3f, Matrix3f), MeasureError>;
+    fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<f32>, MeasureError>;
+}
+
+impl<T> MeasurePeriodic for T
+where
+    T: PosIterProvider + MassIterProvider + BoxProvider + LenProvider ,
+{
     fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError> {
         let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
@@ -391,7 +397,19 @@ fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait MeasureRandomAccess: RandomPosProvider {
+pub trait MeasureRandomAccess {
+    fn lipid_tail_order(
+        &self,
+        order_type: OrderType,
+        normals: &Vec<Vector3f>,
+        bond_orders: &Vec<u8>,
+    ) -> Result<DVector<f32>, LipidOrderError>;
+}
+
+impl<T> MeasureRandomAccess for T 
+where
+    T: RandomPosProvider,
+{
     /// Computes order parameter of the lipid tail. Each position in [Self] is
     /// supposed to represent a carbon atom of a single lipid tail. The size of the array
     /// of normals is either `1` or `N-2`, where `N` is the number of position in [Self].
@@ -682,4 +700,34 @@ pub enum LipidOrderError {
 
     #[error("tail should have at least 3 carbons, not {0}")]
     TailTooShort(usize),
+}
+
+/// Errors that can occur during measurements
+#[derive(Error, Debug)]
+pub enum MeasureError {
+    /// Mismatch in sizes between two selections
+    #[error("incompatible sizes: {0} and {1}")]
+    Sizes(usize, usize),
+
+    /// Total mass of the selection is zero
+    #[error("zero mass")]
+    ZeroMass,
+
+    /// Singular Value Decomposition failed
+    #[error("SVD failed")]
+    Svd,
+
+    /// Operation requires periodic boundary conditions but none is defined
+    #[error(transparent)]
+    Pbc(#[from] PeriodicBoxError),
+
+    /// Cannot unwrap coordinates due to disjoint pieces
+    #[error("can't unwrap disjoint pieces")]
+    Disjoint,
+
+    #[error("lipid order error")]
+    LipidOrder(#[from] LipidOrderError),
+
+    #[error("selection error")]
+    Sel,
 }

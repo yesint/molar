@@ -132,5 +132,5 @@ impl RandomPosMutProvider for State {
     }
 }
 
-impl MeasurePos for State {}
-impl MeasureRandomAccess for State {}
+//impl MeasurePos for State {}
+//impl MeasureRandomAccess for State {}

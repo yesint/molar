@@ -338,10 +338,10 @@ mod tests {
     #[test]
     fn test_principal_transform() -> anyhow::Result<()> {
         let sel1 = make_sel_prot()?;
-        let tr = sel1.bind()?.principal_transform()?;
+        let tr = sel1.principal_transform()?;
         println!("Transform: {tr}");
 
-        let (_, axes) = sel1.bind()?.inertia()?;
+        let (_, axes) = sel1.inertia()?;
         println!("Axes before: {axes}");
 
         sel1.bind_mut()?.apply_transform(&tr);

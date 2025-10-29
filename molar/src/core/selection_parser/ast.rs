@@ -297,9 +297,9 @@ impl BoxProvider for ActiveSubset<'_> {
     }
 }
 
-impl MeasurePos for ActiveSubset<'_> {}
-impl MeasureMasses for ActiveSubset<'_> {}
-impl MeasurePeriodic for ActiveSubset<'_> {}
+//impl MeasurePos for ActiveSubset<'_> {}
+//impl MeasureMasses for ActiveSubset<'_> {}
+//impl MeasurePeriodic for ActiveSubset<'_> {}
 
 //###################################
 //#  AST nodes logic implementation

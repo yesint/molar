@@ -62,7 +62,7 @@ pub(super) fn command_rearrange(
         .ok();
 
     // Create output builder
-    let out = System::new_empty();
+    let mut out = System::new_empty();
     // Add beginning selections
     for sel in begin_sels {
         out.append(&sel);
@@ -81,7 +81,7 @@ pub(super) fn command_rearrange(
 
     info!("Writing rearranged to '{outfile}'...");
     // Write rearranged
-    out.save(outfile)?;
+    out.bind()?.save(outfile)?;
 
     Ok(())
 }

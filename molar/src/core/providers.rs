@@ -5,10 +5,6 @@ use sorted_vec::SortedSet;
 // Basic providers
 //--------------------------------------------------------------
 
-//--------------------------------------------------------------
-// Index
-//--------------------------------------------------------------
-
 /// Trait for providing iteration over selected indices
 pub trait IndexProvider {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone;
@@ -90,15 +86,15 @@ pub trait ParticleIterProvider: IndexProvider {
 pub trait RandomParticleProvider: RandomPosProvider + RandomAtomProvider {
     unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_>;
 
-    fn first_particle(&self) -> Particle {
+    fn first_particle(&self) -> Particle<'_> {
         unsafe { self.get_particle_unchecked(0) }
     }
 
-    fn last_particle(&self) -> Particle {
+    fn last_particle(&self) -> Particle<'_> {
         unsafe { self.get_particle_unchecked(self.len() - 1) }
     }
 
-    fn get_particle(&self, i: usize) -> Option<Particle> {
+    fn get_particle(&self, i: usize) -> Option<Particle<'_>> {
         if i < self.len() {
             Some(unsafe { self.get_particle_unchecked(i) })
         } else {
@@ -260,17 +256,17 @@ pub trait TimeMutProvider {
 
 /// Trait for providing mutable random access to particles
 pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvider {
-    unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut;
+    unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut<'_>;
 
-    fn first_particle_mut(&mut self) -> ParticleMut {
+    fn first_particle_mut(&mut self) -> ParticleMut<'_> {
         unsafe { self.get_particle_mut_unchecked(0) }
     }
 
-    fn last_particle_mut(&mut self) -> ParticleMut {
+    fn last_particle_mut(&mut self) -> ParticleMut<'_> {
         unsafe { self.get_particle_mut_unchecked(self.len() - 1) }
     }
 
-    fn get_particle_mut(&mut self, i: usize) -> Option<ParticleMut> {
+    fn get_particle_mut(&mut self, i: usize) -> Option<ParticleMut<'_>> {
         if i < self.len() {
             Some(unsafe { self.get_particle_mut_unchecked(i) })
         } else {
