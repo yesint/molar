@@ -92,20 +92,49 @@ impl System {
     }
 
     /// Create new selection based on provided definition.
-    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+    pub fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
     }
 
-    fn set_state(&mut self, st: State) -> State {
+    pub fn set_state(&mut self, st: State) -> State {
         std::mem::replace(&mut self.st, st)
     }
 
-    fn set_topology(&mut self, top: Topology) -> Topology {
+    pub fn set_topology(&mut self, top: Topology) -> Topology {
         std::mem::replace(&mut self.top, top)
     }
 
     fn release(self) -> (Topology, State) {
         (self.top, self.st)
+    }
+
+    /// Binds Sel to System for read-only access
+    pub fn with<'a>(&'a self, sel: &'a Sel) -> Result<SubSystem<'a>, SelectionError> {
+        let last_ind = sel.0.len() - 1;
+        if unsafe { *sel.0.get_unchecked(last_ind) } < self.top.len() {
+            Ok(SubSystem {
+                top: &self.top,
+                st: &self.st,
+                index: &sel.0,
+            })
+        } else {
+            Err(SelectionError::OutOfBounds(0, 0))
+        }
+    }
+
+    /// Binds Sel to System for read-write access
+    pub fn with_mut<'a>(&'a mut self, sel: &'a Sel) -> Result<SubSystemMut<'a>, SelectionError> {
+        // The cost calling is just one comparison
+        let last_ind = sel.0.len() - 1;
+        if unsafe { *sel.0.get_unchecked(last_ind) } < self.top.len() {
+            Ok(SubSystemMut {
+                top: &mut self.top,
+                st: &mut self.st,
+                index: &sel.0,
+            })
+        } else {
+            Err(SelectionError::OutOfBounds(0, 0))
+        }
     }
 }
 

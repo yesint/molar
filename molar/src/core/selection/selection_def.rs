@@ -192,7 +192,7 @@ impl SelectionDef for &SVec {
     }
 }
 
-impl SelectionDef for &Sel {
+impl SelectionDef for &SubSystem<'_> {
     fn into_sel_index(
         self,
         top: &Topology,
