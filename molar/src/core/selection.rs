@@ -14,6 +14,8 @@ pub(crate) use utils::*;
 mod sel;
 pub use sel::*;
 
+mod sel_expl;
+
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;
 use thiserror::Error;
