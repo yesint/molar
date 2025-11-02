@@ -1,3 +1,5 @@
+use crate::core::LenProvider;
+
 use super::{Atom, Pos};
 
 /// Holds immutable reference to [Atom] and [Pos] and particle id.
@@ -30,6 +32,12 @@ impl<'a> From<ParticleMut<'a>> for Particle<'a> {
 
 //------------------------------------------------------
 
+impl LenProvider for Particle<'_> {
+    fn len(&self) -> usize {
+        1
+    }
+}
+
 impl super::PosIterProvider for Particle<'_> {
     fn iter_pos(&self) -> impl super::PosIterator<'_> {
         std::iter::once(self.pos)
@@ -44,8 +52,8 @@ impl super::AtomIterProvider for Particle<'_> {
 
 impl super::IndexProvider for Particle<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        if i != 0 {
-            panic!("Particle only has id=0, not {i}")
+        if i > 0 {
+            panic!("single particle can only be accessed with id=0, not {i}")
         } else {
             self.id
         }
@@ -62,7 +70,7 @@ impl super::ParticleIterProvider for Particle<'_> {
             id: self.id,
             pos: self.pos,
             atom: self.atom,
-        } )
+        })
     }
 }
 

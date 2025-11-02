@@ -639,11 +639,14 @@ impl_io_traits_for_tuples!(Arc<Topology>,Arc<State>);
 /// An error that occurred during file IO operations
 #[derive(Error, Debug)]
 #[error("in file {0}:")]
-pub struct FileIoError(PathBuf, #[source] FileFormatError);
+pub struct FileIoError(pub(crate) PathBuf, #[source] pub(crate) FileFormatError);
 
 /// Errors that can occur when handling different file formats
 #[derive(Error, Debug)]
 pub(crate) enum FileFormatError {
+    #[error("when saving selection")]
+    Bind(#[from] BindError),
+
     #[error("end of file reached")]
     Eof,
 
@@ -764,9 +767,9 @@ mod tests {
         let st2 = st1.clone();
         println!("#1: {}", top1.len());
 
-        let b = System::new(top1, st2)?;
-        let sel = b.select_all()?;
-        sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
+        let mut sys = System::new(top1, st2)?;
+        let sel = sys.select_all();
+        sel.bind_mut(&mut sys)?.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
@@ -785,14 +788,14 @@ mod tests {
 
     #[test]
     fn test_io_gro_traj() -> Result<()> {
-        let src = System::from_file("tests/protein.pdb")?;
+        let mut sys = System::from_file("tests/protein.pdb")?;
         println!(env!("OUT_DIR"));
         let groname = concat!(env!("OUT_DIR"), "/multi.gro");
         let mut w = FileHandler::create(groname)?;
-        src.set_time(1.0);
-        w.write(&src)?;
-        src.set_time(2.0);
-        w.write(&src)?;
+        sys.set_time(1.0);
+        w.write(&sys)?;
+        sys.set_time(2.0);
+        w.write(&sys)?;
         drop(w); // To flush buffer
 
         // Read it back

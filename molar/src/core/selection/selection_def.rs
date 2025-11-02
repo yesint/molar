@@ -204,11 +204,13 @@ impl SelectionDef for &SubSystem<'_> {
         }
 
         let n = top.len();
-        if self.get_first_index() >= n || self.get_last_index() >= n {
-            return Err(SelectionError::IndexValidation(self.get_first_index(), self.get_last_index(), n-1));
+        let first_index = unsafe{self.get_index_unchecked(0)};
+        let last_index = unsafe{self.get_index_unchecked(self.len()-1)};
+        if first_index >= n || last_index >= n {
+            return Err(SelectionError::IndexValidation(first_index, last_index, n-1));
         }
 
-        Ok( unsafe {SVec::from_sorted( Vec::from(self.get_index()) )} )
+        Ok( unsafe {SVec::from_sorted( self.iter_index().collect() )} )
     }
 }
 

@@ -9,23 +9,28 @@ use sorted_vec::SortedSet;
 // Index
 //--------------------------------------------------------------
 
-/// Trait for providing iteration over selected indices
-pub trait IndexProvider {
+/// Trait for selected indices
+pub trait IndexProvider: LenProvider {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone;
+    
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
-}
-
-impl IndexProvider for SortedSet<usize> {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
-        self.iter().cloned()
+    
+    fn first_index(&self) -> usize {
+        unsafe { self.get_index_unchecked(0) }
     }
 
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        i
+    fn last_index(&self) -> usize {
+        unsafe { self.get_index_unchecked(self.len()-1) }
     }
 }
 
-impl IndexProvider for Vec<usize> {
+impl LenProvider for SVec {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+
+impl IndexProvider for SVec {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.iter().cloned()
     }

@@ -41,7 +41,7 @@ pub trait ModifyPos: PosIterMutProvider {
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: PosIterMutProvider + BoxMutProvider + LenProvider {
+pub trait ModifyPeriodic: PosIterMutProvider + BoxProvider + LenProvider {
     fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<(), MeasureError> {
         let n = self.len();
         let b = self.require_box()?.to_owned();
@@ -61,7 +61,7 @@ pub trait ModifyPeriodic: PosIterMutProvider + BoxMutProvider + LenProvider {
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: PosIterMutProvider + BoxMutProvider + RandomPosMutProvider + Sized {
+pub trait ModifyRandomAccess: PosIterMutProvider + BoxProvider + PosIterProvider + RandomPosMutProvider + Sized {
     fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<(), MeasureError> {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }

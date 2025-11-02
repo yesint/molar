@@ -48,17 +48,17 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [features]
 gen_bindings = ["molar_gromacs/gen_bindings"]
 
-[[bench]]
-name = "fit_benchmark"
-harness = false
+# [[bench]]
+# name = "fit_benchmark"
+# harness = false
 
-[[bench]]
-name = "comparison_small"
-harness = false
+# [[bench]]
+# name = "comparison_small"
+# harness = false
 
-[[bench]]
-name = "comparison_large"
-harness = false
+# [[bench]]
+# name = "comparison_large"
+# harness = false
 
 [package.metadata.docs.rs]
 # Prevents CI builds from building C/C++ dependences

@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
-pub(crate) struct State {
+pub struct State {
     pub coords: Vec<Pos>,
     pub time: f32,
     pub pbox: Option<PeriodicBox>,

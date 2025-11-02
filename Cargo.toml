@@ -5,9 +5,9 @@ members = [
 "molar_xdrfile",
 "molar_gromacs",
 "molar_powersasa",
-"molar_bin", 
-"molar_python", 
-"molar_membrane"
+#"molar_bin", 
+#"molar_python", 
+#"molar_membrane"
 ]
 resolver = "2"
 

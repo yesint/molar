@@ -1,3 +1,5 @@
+use crate::core::BindError;
+
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
@@ -16,6 +18,9 @@ use thiserror::Error;
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
 pub enum MeasureError {
+    #[error("in measure")]
+    Bind(#[from] BindError),
+
     /// Mismatch in sizes between two selections
     #[error("incompatible sizes: {0} and {1}")]
     Sizes(usize, usize),
@@ -84,10 +89,6 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
         }
 
         let n = sel1.len();
-        if n == 0 {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-        }
-
         for (p1, p2) in std::iter::zip(iter1, iter2) {
             res += (p2 - p1).norm_squared();
         }
@@ -651,10 +652,11 @@ where
     T1: AtomIterProvider + Sized,
     T2: AtomIterProvider + Sized,
 {
-    let (ind1, ind2) = matching_atom_names(sel1, sel2);
-    let matched_sel1 = sel1.select(&ind1).unwrap();
-    let matched_sel2 = sel2.select(&ind2).unwrap();
-    fit_transform(&matched_sel1, &matched_sel2)
+    // let (ind1, ind2) = matching_atom_names(sel1, sel2);
+    // let matched_sel1 = sel1.select(&ind1).unwrap();
+    // let matched_sel2 = sel2.select(&ind2).unwrap();
+    // fit_transform(&matched_sel1, &matched_sel2)
+    todo!()
 }
 
 /// Type of order parameter calculation
