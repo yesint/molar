@@ -242,25 +242,26 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     // Load the source file from the first command line argument
-    let src = System::from_file(&args[0])?;
+    let sys = System::from_file(&args[0])?;
 
     // Make empty output system
-    let out = System::new_empty();
+    let mut out = System::default();
 
-    let water = src.select("resname TIP3")?;
-    let non_water = src.select("not resname TIP3")?;
+    let water = sys.select("resname TIP3")?;
+    let non_water = sys.select("not resname TIP3")?;
 
     // Add non-water atoms to the output
-    out.append(&non_water);
+    out.append(&non_water.bind(&sys));
 
     // Go over water molecules one by one                   
-    for mol in water.split_resindex_iter() {
+    for mol in water.bind(&sys).split_resindex_iter() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
-        let o_pos = mol.get_pos(0).unwrap();
-        let h1_pos = mol.get_pos(1).unwrap();
-        let h2_pos = mol.get_pos(2).unwrap();
+        let mol_bound = mol.bind(&sys);
+        let o_pos = mol_bound.get_pos(0).unwrap();
+        let h1_pos = mol_bound.get_pos(1).unwrap();
+        let h2_pos = mol_bound.get_pos(2).unwrap();
 	    // Get center of masses of H
 	    let hc = 0.5*(h1_pos.coords + h2_pos.coords);
 	    // Unit vector from o to hc
@@ -271,20 +272,19 @@ fn main() -> Result<()> {
         let m_at = Atom {   
             resname: "TIP4".into(),
             name: "M".into(),
-            ..mol.first_particle().atom.clone()
+            ..mol_bound.first_particle().atom.clone()
         };
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
         out.append_atoms_pos(
-            mol.iter_atoms().cloned().chain(std::iter::once(m_at)),
-            mol.iter_pos().cloned().chain(std::iter::once(m_pos)),
+            mol_bound.iter_atoms().chain(std::iter::once(&m_at)),
+            mol_bound.iter_pos().chain(std::iter::once(&m_pos)),
         );
-
     }
 
     // Transfer the box
-    out.set_box_from(&src);
+    out.set_box_from(&sys);
 
     // Write out new system
     out.save(&args[1])?;

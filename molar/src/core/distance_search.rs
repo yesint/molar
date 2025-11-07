@@ -979,7 +979,7 @@ mod tests {
     fn within_pbc() -> anyhow::Result<()> {
         let src = System::from_file("tests/albumin.pdb")?;
         let sel = src.select("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
-        sel.bind(&src)?.save("../target/pbc_sel.pdb")?;
+        sel.try_bind(&src)?.save("../target/pbc_sel.pdb")?;
         Ok(())
     }
 }

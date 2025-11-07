@@ -22,16 +22,21 @@ pub enum BindError {
 pub struct Sel(SVec);
 
 impl Sel {
-    pub fn from_vec(index: Vec<usize>) -> Result<Self, SelectionError> {
-        if index.is_empty() {
-            Err(SelectionError::EmptySlice)
-        } else {
-            Ok(Self(SVec::from_unsorted(index)))
-        }
+    // pub fn from_vec(index: Vec<usize>) -> Result<Self, SelectionError> {
+    //     if index.is_empty() {
+    //         Err(SelectionError::EmptySlice)
+    //     } else {
+    //         Ok(Self(SVec::from_unsorted(index)))
+    //     }
+    // }
+
+    fn from_iter(iter: impl Iterator<Item=usize>) -> Self {
+        let v = iter.collect();
+        Self(unsafe{SVec::from_sorted(v)})
     }
 
     /// Binds Sel to System for read-only access
-    pub fn bind<'a>(&'a self, sys: &'a System) -> Result<SubSystem<'a>, BindError> {
+    pub fn try_bind<'a>(&'a self, sys: &'a System) -> Result<SubSystem<'a>, BindError> {
         let ind = self.0.len() - 1;
         let last_ind = unsafe { *self.0.get_unchecked(ind) };
         if last_ind < sys.top.len() {
@@ -44,8 +49,12 @@ impl Sel {
         }
     }
 
+    pub fn bind<'a>(&'a self, sys: &'a System) -> SubSystem<'a> {
+        self.try_bind(sys).expect("binding selection immutably should not fail")
+    }
+
     /// Binds Sel to System for read-write access
-    pub fn bind_mut<'a>(&'a self, sys: &'a mut System) -> Result<SubSystemMut<'a>, BindError> {
+    pub fn try_bind_mut<'a>(&'a self, sys: &'a mut System) -> Result<SubSystemMut<'a>, BindError> {
         // The cost calling is just one comparison
         let ind = self.0.len() - 1;
         let last_ind = unsafe { *self.0.get_unchecked(ind) };
@@ -57,6 +66,10 @@ impl Sel {
         } else {
             Err(BindError::Mut(last_ind, sys.top.len()))
         }
+    }
+
+    pub fn bind_mut<'a>(&'a self, sys: &'a mut System) -> SubSystemMut<'a> {
+        self.try_bind_mut(sys).expect("binding selection mutably should not fail")
     }
 
     /// Creates a string in Gromacs index format representing self.
@@ -76,6 +89,16 @@ impl Sel {
 impl LenProvider for Sel {
     fn len(&self) -> usize {
         self.0.len()
+    }
+}
+
+impl IndexProvider for Sel {
+    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+        self.0.iter().cloned()
+    }
+
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        *self.0.get_unchecked(i)
     }
 }
 
@@ -129,108 +152,101 @@ impl System {
         (self.top, self.st)
     }
 
-    // /// Binds Sel to System for read-only access
-    // pub fn with<'a>(&'a self, sel: &'a Sel) -> Result<SubSystem<'a>, SelectionError> {
-    //     let last_ind = sel.0.len() - 1;
-    //     if unsafe { *sel.0.get_unchecked(last_ind) } < self.top.len() {
-    //         Ok(SubSystem {
-    //             sys: self,
-    //             index: &sel.0,
-    //         })
-    //     } else {
-    //         Err(SelectionError::OutOfBounds(0, 0))
-    //     }
-    // }
+    /// Binds Sel to System for read-only access
+    pub fn with<'a,T>(&'a self, sel: &'a Sel, op: T) -> Result<(), SelectionError> 
+    where 
+        T: Fn(SubSystem<'a>),
+    {
+        op(sel.try_bind(self)?);
+        Ok(())
+    }
 
-    // /// Binds Sel to System for read-write access
-    // pub fn with_mut<'a>(&'a mut self, sel: &'a Sel) -> Result<SubSystemMut<'a>, SelectionError> {
-    //     // The cost calling is just one comparison
-    //     let last_ind = sel.0.len() - 1;
-    //     if unsafe { *sel.0.get_unchecked(last_ind) } < self.top.len() {
-    //         Ok(SubSystemMut {
-    //             sys: self,
-    //             index: &sel.0,
-    //         })
-    //     } else {
-    //         Err(SelectionError::OutOfBounds(0, 0))
-    //     }
-    // }
+    /// Binds Sel to System for read-write access
+    pub fn with_mut<'a,T>(&'a mut self, sel: &'a Sel, mut op: T) -> Result<(), SelectionError>
+    where 
+        T: FnMut(SubSystemMut<'a>),
+    {
+        op(sel.try_bind_mut(self)?);
+        Ok(())
+    }
 
+    //===============
     // Measuring
+    //===============
 
     pub fn min_max(&self, sel: &Sel) -> Result<(Pos, Pos), MeasureError> {
-        Ok(sel.bind(self)?.min_max())
+        Ok(sel.try_bind(self)?.min_max())
     }
 
     pub fn center_of_geometry(&self, sel: &Sel) -> Result<Pos,MeasureError> {
-        Ok(sel.bind(self)?.center_of_geometry())
+        Ok(sel.try_bind(self)?.center_of_geometry())
     }
 
     pub fn center_of_geometry_pbc(&self, sel: &Sel) -> Result<Pos,MeasureError> {
-        Ok(sel.bind(self)?.center_of_geometry_pbc()?)
+        Ok(sel.try_bind(self)?.center_of_geometry_pbc()?)
     }
 
     pub fn center_of_geometry_pbc_dims(&self, sel: &Sel, dims: PbcDims) -> Result<Pos,MeasureError> {
-        Ok(sel.bind(self)?.center_of_geometry_pbc_dims(dims)?)
+        Ok(sel.try_bind(self)?.center_of_geometry_pbc_dims(dims)?)
     }
 
     pub fn rmsd(&self, sel1: &Sel, sel2: &Sel) -> Result<f32, MeasureError> {
-        let b1 = sel1.bind(self)?;
-        let b2 = sel2.bind(self)?;
+        let b1 = sel1.try_bind(self)?;
+        let b2 = sel2.try_bind(self)?;
         Ok(MeasurePos::rmsd(&b1, &b2)?)
     }
 
     pub fn rmsd_mw(&self, sel1: &Sel, sel2: &Sel) -> Result<f32, MeasureError> {
-        let b1 = sel1.bind(self)?;
-        let b2 = sel2.bind(self)?;
+        let b1 = sel1.try_bind(self)?;
+        let b2 = sel2.try_bind(self)?;
         Ok(rmsd_mw(&b1, &b2)?)
     }
 
     pub fn center_of_mass(&self, sel: &Sel) -> Result<Pos,MeasureError> {
-        Ok(sel.bind(self)?.center_of_mass()?)
+        Ok(sel.try_bind(self)?.center_of_mass()?)
     }
 
     pub fn center_of_mass_pbc(&self, sel: &Sel) -> Result<Pos,MeasureError> {
-        Ok(sel.bind(self)?.center_of_mass_pbc()?)
+        Ok(sel.try_bind(self)?.center_of_mass_pbc()?)
     }
 
     pub fn center_of_mass_pbc_dims(&self, sel: &Sel, dims: PbcDims) -> Result<Pos,MeasureError> {
-        Ok(sel.bind(self)?.center_of_mass_pbc_dims(dims)?)
+        Ok(sel.try_bind(self)?.center_of_mass_pbc_dims(dims)?)
     }
 
     pub fn gyration(&self, sel: &Sel) -> Result<f32,MeasureError> {
-        Ok(sel.bind(self)?.gyration()?)
+        Ok(sel.try_bind(self)?.gyration()?)
     }
 
     pub fn gyration_pbc(&self, sel: &Sel) -> Result<f32,MeasureError> {
-        Ok(sel.bind(self)?.gyration_pbc()?)
+        Ok(sel.try_bind(self)?.gyration_pbc()?)
     }
 
     pub fn inertia(&self, sel: &Sel) -> Result<(Vector3f, Matrix3f), MeasureError> {
-        Ok(sel.bind(self)?.inertia()?)
+        Ok(sel.try_bind(self)?.inertia()?)
     }
 
     pub fn inertia_pbc(&self, sel: &Sel) -> Result<(Vector3f, Matrix3f), MeasureError> {
-        Ok(sel.bind(self)?.inertia_pbc()?)
+        Ok(sel.try_bind(self)?.inertia_pbc()?)
     }
 
     pub fn principal_transform(&self, sel: &Sel) -> Result<IsometryMatrix3<f32>, MeasureError> {
-        Ok(sel.bind(self)?.principal_transform()?)
+        Ok(sel.try_bind(self)?.principal_transform()?)
     }
 
     pub fn principal_transform_pbc(&self, sel: &Sel) -> Result<IsometryMatrix3<f32>, MeasureError> {
-        Ok(sel.bind(self)?.principal_transform_pbc()?)
+        Ok(sel.try_bind(self)?.principal_transform_pbc()?)
     }
 
     pub fn fit_transform(&self, sel1: &Sel, sel2: &Sel) -> Result<IsometryMatrix3<f32>, MeasureError> {
-        let b1 = sel1.bind(self)?;
-        let b2 = sel2.bind(self)?;
+        let b1 = sel1.try_bind(self)?;
+        let b2 = sel2.try_bind(self)?;
         Ok(fit_transform(&b1, &b2)?)
     }
 
     pub fn fit_transform_at_origin(&self, sel1: &Sel, sel2: &Sel) -> Result<IsometryMatrix3<f32>, MeasureError> {
-        let b1 = sel1.bind(self)?;
-        let b2 = sel2.bind(self)?;
+        let b1 = sel1.try_bind(self)?;
+        let b2 = sel2.try_bind(self)?;
         Ok(fit_transform_at_origin(&b1, &b2)?)
     }
 
@@ -241,50 +257,53 @@ impl System {
         normals: &Vec<Vector3f>,
         bond_orders: &Vec<u8>,
     ) -> Result<nalgebra::DVector<f32>, MeasureError> {
-        Ok(sel.bind(self)?.lipid_tail_order(order_type,normals,bond_orders)?)
+        Ok(sel.try_bind(self)?.lipid_tail_order(order_type,normals,bond_orders)?)
     }
 
+    //===============
     // Modifying
+    //===============
+
     pub fn translate<S>(&mut self, sel: &Sel, shift: &nalgebra::Matrix<f32, Const<3>, Const<1>, S>) -> Result<(),MeasureError>
     where
         S: nalgebra::storage::Storage<f32, Const<3>, Const<1>>,
     {
-        Ok(sel.bind_mut(self)?.translate(shift))
+        Ok(sel.try_bind_mut(self)?.translate(shift))
     }
 
     pub fn rotate(&mut self, sel: &Sel, ax: &Unit<Vector3f>, ang: f32) -> Result<(),MeasureError> {
-        Ok(sel.bind_mut(self)?.rotate(ax,ang))
+        Ok(sel.try_bind_mut(self)?.rotate(ax,ang))
     }
 
     pub fn apply_transform(&mut self, sel: &Sel, tr: &nalgebra::IsometryMatrix3<f32>) -> Result<(),MeasureError> {
-        Ok(sel.bind_mut(self)?.apply_transform(tr))
+        Ok(sel.try_bind_mut(self)?.apply_transform(tr))
     }
 
     pub fn unwrap_simple_dim(&mut self, sel: &Sel, dims: PbcDims) -> Result<(), MeasureError> {
-        Ok(sel.bind_mut(self)?.unwrap_simple_dim(dims)?)
+        Ok(sel.try_bind_mut(self)?.unwrap_simple_dim(dims)?)
     }
 
     pub fn unwrap_simple(&mut self, sel: &Sel) -> Result<(), MeasureError> {
-        Ok(sel.bind_mut(self)?.unwrap_simple()?)
+        Ok(sel.try_bind_mut(self)?.unwrap_simple()?)
     }
 
     pub fn unwrap_connectivity(&mut self, sel: &Sel, cutoff: f32) -> Result<(), MeasureError> {
-        Ok(sel.bind_mut(self)?.unwrap_connectivity(cutoff)?)
+        Ok(sel.try_bind_mut(self)?.unwrap_connectivity(cutoff)?)
     }
 
     pub fn unwrap_connectivity_dim(&mut self, sel: &Sel, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
-        Ok(sel.bind_mut(self)?.unwrap_connectivity_dim(cutoff,dims)?)
+        Ok(sel.try_bind_mut(self)?.unwrap_connectivity_dim(cutoff,dims)?)
     }
 
     // Saving
     pub fn save_sel(&self, sel: &Sel, fname: impl AsRef<Path>) -> Result<(),FileIoError> {
-        Ok(sel.bind(self).map_err(|e| FileIoError(fname.as_ref().to_path_buf(),FileFormatError::Bind(e)))?
+        Ok(sel.try_bind(self).map_err(|e| FileIoError(fname.as_ref().to_path_buf(),FileFormatError::Bind(e)))?
         .save(fname.as_ref().to_str().unwrap())?)
     }
 
     /// Computes the Solvet Accessible Surface Area (SASA).
     pub fn sasa(&self, sel: &Sel) -> Result<SasaResults, MeasureError> {
-        let b = sel.bind(self)?;
+        let b = sel.try_bind(self)?;
         Ok(molar_powersasa::compute_sasa(
             b.len(),
             0.14,
@@ -297,7 +316,8 @@ impl System {
     }
 
     /// Append selection derived from self
-    pub fn append_sel(&mut self, sel: &Sel) -> Result<(),SelectionError> {
+    pub fn append_self_sel(&mut self, sel: &Sel) -> Result<Sel,SelectionError> {
+        let old_last = self.len()-1;
         let ind = sel.0.len() - 1;
         let last_ind = unsafe { *sel.0.get_unchecked(ind) };
         if last_ind >= self.top.len() {
@@ -307,23 +327,36 @@ impl System {
         let atoms: Vec<_> = sel.0.iter().map(|i| &self.top.atoms[*i]).cloned().collect();
         self.st.add_coords(pos.into_iter());
         self.top.add_atoms(atoms.into_iter());
-        Ok(())
+        Ok(Sel::from_iter(old_last+1..self.len()))
     }
 
-    pub fn append<'a>(&mut self, coords: impl PosIterator<'a>, atoms: impl AtomIterator<'a>) -> Result<(),SelectionError> {
+    pub fn append_atoms_pos<'a>(&mut self, atoms: impl AtomIterator<'a>, coords: impl PosIterator<'a>) -> Result<Sel,SelectionError> {
+        let old_last = self.len()-1;
         self.st.add_coords(coords.cloned());
         self.top.add_atoms(atoms.cloned());
         check_topology_state_sizes(&self.top, &self.st)?;
-        Ok(())
+        Ok(Sel::from_iter(old_last+1..self.len()))
     }
 
-    pub fn remove_coords(
+    pub fn append(&mut self, data: &(impl AtomIterProvider + PosIterProvider)) -> Result<Sel,SelectionError> {
+        let old_last = self.len()-1;
+        self.st.add_coords(data.iter_pos().cloned());
+        self.top.add_atoms(data.iter_atoms().cloned());
+        check_topology_state_sizes(&self.top, &self.st)?;
+        Ok(Sel::from_iter(old_last+1..self.len()))
+    }
+
+    pub fn remove(
         &mut self,
         removed: impl Iterator<Item = usize> + Clone,
     ) -> Result<(), BuilderError> {
         self.st.remove_coords(removed.clone())?;
         self.top.remove_atoms(removed)?;
         Ok(())
+    }
+
+    pub fn set_box_from(&mut self, src: &impl BoxProvider) {
+        self.st.pbox = src.get_box().cloned();
     }
 }
 
@@ -631,7 +664,7 @@ impl<'a> ParSplitBound<'a> {
 //================================================
 /// Umbrella trait for implementing read-only analysis traits involving atoms and positions
 //================================================
-pub(crate) trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
+pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
     // Raw pointer to the beginning of array of atoms
     fn atom_ptr(&self) -> *const Atom;
     // Raw pointer to the beginning of array of coords
@@ -775,7 +808,7 @@ pub(crate) trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
 //================================================
 /// Umbrella trait for implementing read-only analysis traits NOT involving atoms and positions
 //================================================
-trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
+pub trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
     fn top_ref(&self) -> &Topology;
     fn st_ref(&self) -> &State;
 
@@ -830,7 +863,7 @@ trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
 //================================================
 /// Umbrella trait for implementing read-write analysis traits involving atoms and positions
 //================================================
-trait AtomPosAnalysisMut: LenProvider + IndexProvider + Sized {
+pub trait AtomPosAnalysisMut: LenProvider + IndexProvider + Sized {
     // Raw pointer to the beginning of array of atoms
     fn atom_mut_ptr(&mut self) -> *mut Atom;
     // Raw pointer to the beginning of array of coords
@@ -840,7 +873,7 @@ trait AtomPosAnalysisMut: LenProvider + IndexProvider + Sized {
 //================================================
 /// Umbrella trait for implementing read-write analysis traits NOT involving atoms and positions
 //================================================
-trait NonAtomPosAnalysisMut: Sized {
+pub trait NonAtomPosAnalysisMut: Sized {
     fn top_ref_mut(&mut self) -> &mut Topology;
     fn st_ref_mut(&mut self) -> &mut State;
 }
@@ -1034,18 +1067,18 @@ mod tests {
         let mut h = FileHandler::open("tests/protein.pdb").unwrap();
         let (top, st) = h.read().unwrap();
         let mut sys = System::new(top, st)?;
-        let sel1 = Sel::from_vec(vec![1, 2, 6, 7])?;
+        let sel1 = sys.select(vec![1, 2, 6, 7])?;
 
-        for at in sel1.bind(&sys)?.iter_atoms() {
+        for at in sel1.try_bind(&sys)?.iter_atoms() {
             println!("{} {}", at.name, at.resname);
         }
 
-        let mut lock = sel1.bind_mut(&mut sys)?;
+        let mut lock = sel1.try_bind_mut(&mut sys)?;
         for at in lock.iter_atoms_mut() {
             at.bfactor += 1.0;
         }
 
-        let lock2 = sel1.bind(&sys)?;
+        let lock2 = sel1.try_bind(&sys)?;
         for at in lock2.iter_atoms() {
             println!("{} ", at.bfactor);
         }
@@ -1078,9 +1111,9 @@ mod tests {
 
         // Add serial selection
         let ca = sys.select("name CA")?;
-        let ca_b = ca.bind(&sys)?;
+        let ca_b = ca.try_bind(&sys)?;
         let cb = sys.select("name CB")?;
-        let cb_b = cb.bind(&sys)?;
+        let cb_b = cb.try_bind(&sys)?;
         println!("#ca: {} {}", ca_b.len(), ca_b.center_of_mass()?);
 
         for a in cb_b.iter_atoms() {

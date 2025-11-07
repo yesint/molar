@@ -215,14 +215,14 @@ mod tests {
     #[test]
     fn test_measure() -> anyhow::Result<()> {
         let (sys,sel) = make_sel_all()?;
-        println!("before {}", sel.bind(&sys)?.iter_pos().next().unwrap());
+        println!("before {}", sel.try_bind(&sys)?.iter_pos().next().unwrap());
 
-        let (minv, maxv) = sel.bind(&sys)?.min_max();
+        let (minv, maxv) = sel.try_bind(&sys)?.min_max();
         println!("{minv}:{maxv}");
 
         //sel.translate(&Vector3f::new(10.0,10.0,10.0));
-        println!("after {}", sel.bind(&sys)?.iter_pos().next().unwrap());
-        println!("{:?}", sel.bind(&sys)?.min_max());
+        println!("after {}", sel.try_bind(&sys)?.iter_pos().next().unwrap());
+        println!("{:?}", sel.try_bind(&sys)?.min_max());
         Ok(())
     }
 
@@ -230,7 +230,7 @@ mod tests {
     fn test_measure_pbc() -> anyhow::Result<()> {
         let (sys,sel) = make_sel_all()?;
 
-        let cm = sel.bind(&sys)?.center_of_mass()?;
+        let cm = sel.try_bind(&sys)?.center_of_mass()?;
         println!("{cm}");
         Ok(())
     }
@@ -239,9 +239,9 @@ mod tests {
     fn test_translate() -> anyhow::Result<()> {
         let (mut sys,sel) = make_sel_all()?;
 
-        println!("before {}", sel.bind(&sys)?.iter_pos().next().unwrap());
-        sel.bind_mut(&mut sys)?.translate(&Vector3f::new(10.0, 10.0, 10.0));
-        println!("after {}", sel.bind(&sys)?.iter_pos().next().unwrap());
+        println!("before {}", sel.try_bind(&sys)?.iter_pos().next().unwrap());
+        sel.try_bind_mut(&mut sys)?.translate(&Vector3f::new(10.0, 10.0, 10.0));
+        println!("after {}", sel.try_bind(&sys)?.iter_pos().next().unwrap());
         Ok(())
     }
 
@@ -249,7 +249,7 @@ mod tests {
     fn test_write_to_file() -> anyhow::Result<()> {
         let sys = System::from_file("tests/protein.pdb")?;
         let sel = sys.select("name CA")?;
-        sel.bind(&sys)?.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
+        sel.try_bind(&sys)?.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
 
         // let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         // h.write(&sel)?;
@@ -268,8 +268,8 @@ mod tests {
         sys.unwrap_connectivity_dim(&sel,0.2, PBC_FULL)?;
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
-        h.write_topology(&sel.bind(&sys)?)?;
-        h.write_state(&sel.bind(&sys)?)?;
+        h.write_topology(&sel.try_bind(&sys)?)?;
+        h.write_state(&sel.try_bind(&sys)?)?;
         Ok(())
     }
 
@@ -278,7 +278,7 @@ mod tests {
         let (mut sys,sel1) = make_sel_prot()?;
         let (_,sel2) = make_sel_prot()?;
 
-        sel2.bind_mut(&mut sys)?.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
+        sel2.try_bind_mut(&mut sys)?.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
 
         sys.save_sel(&sel1,concat!(env!("OUT_DIR"), "/sel2.pdb"))?;
         sys.save_sel(&sel2,concat!(env!("OUT_DIR"), "/sel1_before.pdb"))?;
@@ -357,7 +357,7 @@ mod tests {
 
         let sel = builder.select("resid 550:560")?;
         let added = sel.len();
-        builder.append_sel(&sel);
+        builder.append_self_sel(&sel);
         let all = builder.select_all();
         assert_eq!(all.len(), n + added);
         Ok(())
