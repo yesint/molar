@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, rc::Rc};
 
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
@@ -6,7 +6,7 @@ use numpy::{
     nalgebra::{self, Const, Dyn, VectorView},
     PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
-use pyo3::{prelude::*, types::PyTuple, IntoPyObjectExt};
+use pyo3::{IntoPyObjectExt, exceptions::PyTypeError, prelude::*, types::PyTuple};
 
 mod utils;
 use triomphe::Arc;
@@ -27,10 +27,10 @@ use membrane::*;
 //-------------------------------------------
 
 #[pyclass(unsendable)]
-struct Topology(triomphe::Arc<molar::core::Topology>);
+struct Topology(molar::core::Topology);
 
 #[pyclass(unsendable)]
-struct State(triomphe::Arc<molar::core::State>);
+struct State(molar::core::State);
 
 #[pymethods]
 impl State {
@@ -44,7 +44,7 @@ impl State {
     }
 
     #[setter]
-    fn set_time(&self, t: f32) {
+    fn set_time(&mut self, t: f32) {
         self.0.set_time(t);
     }
 
@@ -300,41 +300,58 @@ impl FileStats {
 }
 
 #[pyclass(unsendable, sequence)]
-struct System(molar::core::System);
+struct System {
+    top: Py<Topology>,
+    st: Py<State>,
+}
 
 #[pymethods]
 impl System {
     #[new]
     #[pyo3(signature = (*py_args))]
-    fn new<'py>(py_args: &Bound<'py, PyTuple>) -> PyResult<Self> {
+    fn new(py_args: &Bound<'_, PyTuple>) -> PyResult<Self> {
+        let py = py_args.py();
         if py_args.len() == 1 {
             // From file
-            Ok(System(
-                molar::core::System::from_file(&py_args.get_item(0)?.extract::<String>()?)
-                    .map_err(|e| anyhow!(e))?,
-            ))
+            let mut fh = molar::io::FileHandler::open(&py_args.get_item(0)?.extract::<String>()?)
+                .map_err(|e| anyhow!(e))?;
+            let (top, st) = fh.read().map_err(|e| anyhow!(e))?;
+            Ok(System{
+                top: Py::new(py, Topology(top))?,
+                st: Py::new(py, State(st))?,
+            })
         } else if py_args.len() == 2 {
-            let top = py_args
-                .get_item(0)?
-                .downcast::<Topology>()?
-                .try_borrow_mut()?;
-            let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
-            Ok(System(
-                molar::core::System::new(Arc::clone(&top.0), Arc::clone(&st.0))
-                    .map_err(|e| anyhow!(e))?,
-            ))
+            // From existing Topology and State python objects
+            let top = py_args.get_item(0)?;
+            let st = py_args.get_item(1)?;
+            let n1 = top.downcast::<Topology>()?.borrow().0.len();
+            let n2 = top.downcast::<State>()?.borrow().0.len();
+            if n1 != n2 {
+                Err(PyTypeError::new_err("topology and state are of different size"))
+            } else {
+                Ok(System {
+                    top: Py::clone_ref(&top.downcast::<Topology>()?.as_unbound(), py),
+                    st: Py::clone_ref(&st.downcast::<State>()?.as_unbound(), py),
+                })
+            }
         } else {
-            // Empty builder
-            Ok(System(molar::core::System::new_empty()))
+            // Empty System
+            Ok(System{
+                top: Py::new(py_args.py(), Topology(Default::default()))?,
+                st: Py::new(py_args.py(), State(Default::default()))?,
+            })
         }
     }
 
-    fn __len__(&self) -> usize {
-        self.0.len()
+    fn __len__(&self, py: Python<'_>) -> usize {
+        self.top.borrow(py).0.len()
     }
 
-    fn select_all(&mut self) -> anyhow::Result<Sel> {
-        Ok(Sel::new_owned(self.0.select_all()?))
+    fn select_all(slf: &Bound<Self>) -> anyhow::Result<Sel> {
+        Ok(Sel{
+            sys: Py::clone_ref(&slf.as_unbound(), slf.py()),
+            sel: slf.borrow_mut().top.b?,
+        })
     }
 
     fn select(&mut self, sel_str: &str) -> anyhow::Result<Sel> {
@@ -432,22 +449,25 @@ impl System {
 //====================================
 
 #[pyclass(sequence, unsendable)]
-struct Sel(molar::core::Sel);
-
-impl Sel {
-    fn new_owned(sel: molar::core::Sel) -> Self {
-        Self(sel)
-    }
-
-    fn new_ref(sel: &molar::core::Sel) -> Self {
-        Self(sel.new_view())
-    }
+struct Sel {
+    sys: Py<System>,
+    sel: molar::core::Sel,
 }
+
+// impl Sel {
+//     fn new_owned(sel: molar::core::Sel) -> Self {
+//         Self(sel)
+//     }
+
+//     fn new_ref(sel: &molar::core::Sel) -> Self {
+//         Self(sel.new_view())
+//     }
+// }
 
 #[pymethods]
 impl Sel {
     fn __len__(&self) -> usize {
-        self.0.len()
+        self.sel.len()
     }
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<Sel> {

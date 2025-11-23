@@ -12,7 +12,6 @@ impl Atom {
         }
     }
 
-    // name
     #[getter(name)]
     fn get_name(&self, _py: Python) -> &str {
         self.0.name.as_str()

@@ -116,6 +116,12 @@ impl BoxProvider for State {
     }
 }
 
+impl BoxMutProvider for State {
+    fn get_box_mut(&mut self) -> Option<&mut PeriodicBox> {
+        self.pbox.as_mut()
+    }
+}
+
 impl PosIterMutProvider for State {
     fn iter_pos_mut(&mut self) -> impl super::PosMutIterator<'_> {
         self.coords.iter_mut()
