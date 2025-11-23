@@ -225,7 +225,68 @@ pub trait RandomPosMutProvider: LenProvider {
 /// Trait for providing mutable iteration over atoms
 pub trait AtomIterMutProvider {
     fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_>;
+
+    /// Sets same name to all selected atoms
+    fn set_same_name(&mut self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.name = val.into();
+        }
+    }
+
+    /// Sets same resname to all selected atoms
+    fn set_same_resname(&mut self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resname = val.into();
+        }
+    }
+
+    /// Sets same resid to all selected atoms
+    fn set_same_resid(&mut self, val: i32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resid = val;
+        }
+    }
+
+    /// Sets same chain to all selected atoms
+    fn set_same_chain(&mut self, val: char)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.chain = val;
+        }
+    }
+
+    /// Sets same mass to all selected atoms
+    fn set_same_mass(&mut self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.mass = val;
+        }
+    }
+
+    /// Sets same B-factor to all selected atoms
+    fn set_same_bfactor(&mut self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.bfactor = val;
+        }
+    }
 }
+
 
 /// Trait for providing mutable iteration over particles
 pub trait ParticleIterMutProvider: IndexProvider {
