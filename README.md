@@ -269,18 +269,20 @@ fn main() -> Result<()> {
 	    // Position of the M dummy particle in TIP4
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
-        let m_at = Atom {   
-            resname: "TIP4".into(),
+        let m_at = Atom {
             name: "M".into(),
             ..mol_bound.first_particle().atom.clone()
         };
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms_pos(
+        let added = out.append_atoms_pos(
             mol_bound.iter_atoms().chain(std::iter::once(&m_at)),
             mol_bound.iter_pos().chain(std::iter::once(&m_pos)),
         );
+
+        // Change resname for added atoms
+        added.bind_mut(&mut out)?.set_same_resname("TIP4");
     }
 
     // Transfer the box
