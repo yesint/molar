@@ -358,6 +358,33 @@ impl System {
     pub fn set_box_from(&mut self, src: &impl BoxProvider) {
         self.st.pbox = src.get_box().cloned();
     }
+
+    pub fn multiply_periodically(&mut self, nbox: [usize; 3]) -> Result<(), SelectionError> {
+        if self.get_box().is_none() {
+            return Err(PeriodicBoxError::NoPbc)?;
+        }
+        let m = self.require_box()?.get_matrix();
+        let all = self.select_all();
+        for x in 0..=nbox[0] {
+            for y in 0..=nbox[1] {
+                for z in 0..=nbox[2] {
+                    if x == 0 && y == 0 && z == 0 {
+                        continue;
+                    }
+                    let added = self.append_self_sel(&all)?;
+                    let shift =
+                        m.column(0) * x as f32 + m.column(1) * y as f32 + m.column(2) * z as f32;
+                    added.bind_mut(self).translate(&shift);
+                }
+            }
+        }
+        // Scale the box
+        self.get_box_mut().unwrap().scale_vectors([nbox[0] as f32, nbox[1] as f32, nbox[2] as f32])?;
+
+        // Re-assign resindex
+        self.top.assign_resindex();
+        Ok(())
+    }
 }
 
 impl TopologyWrite for System {}

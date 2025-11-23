@@ -11,7 +11,7 @@ pub(crate) fn command_solvate(
     exclude: &Option<String>,
 ) -> Result<()> {
     info!("Loading solute from file '{file}'...");
-    let solute = System::from_file(file)?;
+    let mut solute = System::from_file(file)?;
 
     // Check periodic box
     if solute.get_box().is_none() {
@@ -29,7 +29,7 @@ pub(crate) fn command_solvate(
         }
     };
     info!("Loading solvent from file '{solvent_file}'...");
-    let solvent = System::from_file(&solvent_file)?;
+    let mut solvent = System::from_file(&solvent_file)?;
     if solvent.get_box().is_none() {
         bail!("solvent lacks a periodic box");
     }
@@ -70,9 +70,9 @@ pub(crate) fn command_solvate(
     // Removing solvent molecules not in the box
     let mut inside_ind = vec![];
     let b = solute.get_box().unwrap();
-    let all = solvent.select_all()?;
-    'outer: for res in all.split_resindex_iter() {
-        for p in res.iter_pos() {
+    let all = solvent.select_all();
+    'outer: for res in all.bind(&solvent).split_resindex_iter() {
+        for p in res.bind(&solvent).iter_pos() {
             if !b.is_inside(p) {
                 // Break without adding this residue to good list
                 continue 'outer;
@@ -88,10 +88,14 @@ pub(crate) fn command_solvate(
 
     info!("Searching for overlapping solvent molecules...");
     // Do the distance search
-    let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
+    let vdw1 = inside_sel
+        .bind(&solvent)
+        .iter_atoms()
+        .map(|a| a.vdw())
+        .collect();
     let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
     let local_overlap_ind: Vec<usize> = distance_search_double_vdw_pbc(
-        inside_sel.iter_pos(),
+        inside_sel.bind(&solvent).iter_pos(),
         solute.iter_pos(),
         &vdw1,
         &vdw2,
@@ -103,19 +107,22 @@ pub(crate) fn command_solvate(
 
     // Find all resindexes for atoms to be removed
     let mut resind_to_remove = HashSet::new();
-    for i in local_overlap_ind {
-        unsafe {
-            resind_to_remove.insert(inside_sel.get_atom_unchecked(i).resindex);
+    solvent.with_mut(&inside_sel, |sel| {
+        for i in &local_overlap_ind {
+            unsafe {
+                resind_to_remove.insert(sel.get_atom_unchecked(*i).resindex);
+            }
         }
-    }
+    });
+
     info!(
         "{} overlapping water molecules to remove",
         resind_to_remove.len()
     );
 
     let mut good_ind = vec![];
-    for res in inside_sel.split_resindex_iter() {
-        if !resind_to_remove.contains(&res.first_atom().resindex) {
+    for res in inside_sel.bind(&solvent).split_resindex_iter() {
+        if !resind_to_remove.contains(&res.bind(&solvent).first_atom().resindex) {
             good_ind.extend(res.iter_index());
         }
     }
@@ -124,14 +131,14 @@ pub(crate) fn command_solvate(
     let good_sel = solvent.select(good_ind)?;
 
     // Add solvent
-    solute.append(&good_sel);
+    solute.append(&good_sel.bind(&solvent));
 
     // If exclude selection is provided remove it
     if exclude.is_some() {
         let sel_str = exclude.as_ref().unwrap();
         let not_excl_sel = solute.select(format!("not ({})", sel_str))?;
         info!("Excluding atoms by selection '{}'", sel_str);
-        not_excl_sel.save(outfile)?;
+        solute.save_sel(&not_excl_sel,outfile)?;
     } else {
         solute.save(outfile)?;
     }
