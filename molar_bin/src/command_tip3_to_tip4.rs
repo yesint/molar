@@ -6,7 +6,7 @@ use molar::prelude::*;
 
 pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
     info!("Loading file '{file}'...");
-    let mut inp = System::from_file(file)?;
+    let inp = System::from_file(file)?;
 
     // Make output system
     let mut out = System::default();
@@ -26,9 +26,8 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
     out.append(&sel_before.bind(&inp))?;
 
     // Now go over water molecules one by one
-    let waters: Vec<Sel> = water.bind(&inp).split_resindex_iter().collect();
-    for mol in waters {
-        let mut mol = mol.bind_mut(&mut inp);
+    for mol in water.bind(&inp).split_resindex_iter() {
+        let mol = mol.bind(&inp);
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
         // Get cooridnates
@@ -43,21 +42,20 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
         let m_pos = o_pos + v * 0.01546;
         // Dummy atom M
         let m_at = Atom {
-            resname: "TIP4".into(),
             name: "M".into(),
             ..mol.first_particle().atom.clone()
         };
         println!("{:?}", m_at);
 
-        // Change resname for existing atoms
-        mol.set_same_resname("TIP4");
-
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms_pos(
+        let added = out.append_atoms_pos(
             mol.iter_atoms().chain(iter::once(&m_at)),
             mol.iter_pos().chain(iter::once(&m_pos)),
         )?;
+        
+        // Change resname for added atoms
+        added.bind_mut(&mut out).set_same_resname("TIP4");
     }
 
     // Add after selection
