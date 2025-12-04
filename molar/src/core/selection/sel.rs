@@ -1082,6 +1082,14 @@ impl<T: AtomPosAnalysisMut> ModifyPos for T {}
 impl<T: AtomPosAnalysisMut + NonAtomPosAnalysisMut + NonAtomPosAnalysis> ModifyPeriodic for T {}
 impl<T: AtomPosAnalysisMut + AtomPosAnalysis + NonAtomPosAnalysisMut + NonAtomPosAnalysis> ModifyRandomAccess for T {}
 
+#[macro_export]
+macro_rules! with_sels {
+    ($inp:expr, $($sel:ident),+ , $body:block) => {{
+        $(let $sel = $sel.bind(&$inp);)+
+        $body
+    }};
+}
+
 //====================================================================================
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ use std::iter;
 
 use anyhow::Result;
 use log::info;
-use molar::prelude::*;
+use molar::{prelude::*, with_sels};
 
 pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
     info!("Loading file '{file}'...");
@@ -16,8 +16,9 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
 
     // For correct re-assembly of the system
     // select what is before and what is after water
-    let w_first = water.bind(&inp).first_index();
-    let w_last = water.bind(&inp).last_index();
+    let (w_first, w_last) = with_sels!(inp,water,{
+        (water.first_index(), water.last_index())
+    });
 
     let sel_before = inp.select(0..w_first)?;
     let sel_after = inp.select(w_last + 1..inp.len())?;
