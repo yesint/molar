@@ -10,7 +10,7 @@ impl SearchConnectivity {
         self.0.len()
     }
 
-    pub fn iter(&self) -> SearchConnectivityIter {
+    pub fn iter(&self) -> SearchConnectivityIter<'_> {
         SearchConnectivityIter(self.0.iter())
     }
 

@@ -167,7 +167,7 @@ mod tests {
     use super::*;
     use crate::prelude::*;
     use rayon::iter::IndexedParallelIterator;
-    pub use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+    pub use rayon::iter::ParallelIterator;
     use std::sync::LazyLock;
 
     static TOPST: LazyLock<(Topology, State)> = LazyLock::new(|| {
@@ -357,7 +357,7 @@ mod tests {
 
         let sel = builder.select("resid 550:560")?;
         let added = sel.len();
-        builder.append_self_sel(&sel);
+        builder.append_self_sel(&sel)?;
         let all = builder.select_all();
         assert_eq!(all.len(), n + added);
         Ok(())

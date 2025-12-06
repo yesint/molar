@@ -210,7 +210,7 @@ impl VoronoiCell {
         (1.0-frac)*self.pos(cut.out_ind)+frac*self.pos(cut.in_ind)
     }
 
-    pub fn iter_vertex(&self) -> VoronoiCellVertexIter {
+    pub fn iter_vertex(&self) -> VoronoiCellVertexIter<'_> {
         VoronoiCellVertexIter{
             cell: self,
             cur: self.init_vert,

@@ -619,7 +619,7 @@ macro_rules! impl_io_traits_for_tuples {
         }
 
         impl PosIterProvider for ($t, $s) {
-            fn iter_pos(&self) -> impl PosIterator {
+            fn iter_pos(&self) -> impl PosIterator<'_> {
                 self.1.iter_pos()
             }
         }
