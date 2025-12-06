@@ -27,8 +27,8 @@ pub(crate) fn map_pyarray_to_pos<'py>(
         );
 
         // The following mangling with the ref counting is deduced by
-        // tries and errors and seems to work correctly and keeps the parnet object alive
-        // until any of the referencing PyArray objects is alive.
+        // tries and errors and seems to work correctly and keeps the parent object alive
+        // until any of the referencing PyArray objects are alive.
 
         // We set the parent as a base object of the PyArray to link them together.
         PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), parent.as_ptr());

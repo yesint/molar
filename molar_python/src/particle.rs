@@ -1,13 +1,13 @@
-use numpy::{npyffi, PyArrayMethods, PyReadonlyArray1};
+use molar::core::{RandomAtomMutProvider, RandomAtomProvider, RandomPosMutProvider, RandomPosProvider};
+use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1};
 use pyo3::prelude::*;
 
-use crate::atom::Atom;
+use super::{atom::Atom, topology_state::{State, Topology}};
 
 #[pyclass(unsendable)]
 pub(crate) struct Particle {
-    pub(crate) atom: &'static mut molar::core::Atom,
-    // PyArray mapped to pos
-    pub(crate) pos: *mut npyffi::PyArrayObject,
+    pub(crate) top: Py<Topology>,
+    pub(crate) st: Py<State>,
     // id is readonly
     #[pyo3(get)]
     pub(crate) id: usize,
@@ -17,16 +17,17 @@ pub(crate) struct Particle {
 impl Particle {
     //pos
     #[getter]
-    fn get_pos<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
-        // Return an owned ptr to avoid incorrect reference count.
-        // I still don't quite understand why this is necessary.
-        unsafe { Bound::from_owned_ptr(py, self.pos.cast()) }
+    fn get_pos<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
+        let mut st = self.st.borrow_mut(py);
+        let v = st.0.get_pos_mut(self.id).unwrap();
+        super::utils::clone_vec_to_pyarray1(&v.coords, py)
     }
 
     #[setter]
-    fn set_pos<'py>(&mut self, value: PyReadonlyArray1<'py, f32>) {
+    fn set_pos<'py>(&mut self, py: Python<'py>, value: PyReadonlyArray1<'py, f32>) {
+        let mut p = self.st.borrow_mut(py).0.get_pos_mut(self.id).unwrap().coords;
         unsafe {
-            std::ptr::copy_nonoverlapping(value.data(), (*self.pos).data.cast(), 3);
+            std::ptr::copy_nonoverlapping(value.data(), p.as_mut_ptr(), 3);
         }
     }
 
@@ -35,175 +36,207 @@ impl Particle {
     }
 
     #[getter(x)]
-    fn get_x(&self) -> f32 {
-        unsafe { *(*self.pos).data.cast() }
+    fn get_x(&self, py: Python<'_>) -> f32 {
+        let st = self.st.borrow(py);
+        st.0.get_pos(self.id).unwrap().x
     }
 
     #[setter(x)]
-    fn set_x(&mut self, value: f32) {
-        unsafe { *(*self.pos).data.cast() = value };
+    fn set_x(&mut self, py: Python<'_>, value: f32) {
+        let mut st = self.st.borrow_mut(py);
+        st.0.get_pos_mut(self.id).unwrap().x = value;
     }
 
     #[getter(y)]
-    fn get_y(&self) -> f32 {
-        unsafe { *(*self.pos).data.cast::<f32>().offset(1) }
+    fn get_y(&self, py: Python<'_>) -> f32 {
+        let st = self.st.borrow(py);
+        st.0.get_pos(self.id).unwrap().y
     }
 
     #[setter(y)]
-    fn set_y(&mut self, value: f32) {
-        unsafe { *(*self.pos).data.cast::<f32>().offset(1) = value };
+    fn set_y(&mut self, py: Python<'_>, value: f32) {
+        let mut st = self.st.borrow_mut(py);
+        st.0.get_pos_mut(self.id).unwrap().y = value;
     }
 
     #[getter(z)]
-    fn get_z(&self) -> f32 {
-        unsafe { *(*self.pos).data.cast::<f32>().offset(2) }
+    fn get_z(&self, py: Python<'_>) -> f32 {
+        let st = self.st.borrow(py);
+        st.0.get_pos(self.id).unwrap().z
     }
 
     #[setter(z)]
-    fn set_z(&mut self, value: f32) {
-        unsafe { *(*self.pos).data.cast::<f32>().offset(2) = value };
+    fn set_z(&mut self, py: Python<'_>, value: f32) {
+        let mut st = self.st.borrow_mut(py);
+        st.0.get_pos_mut(self.id).unwrap().z = value;
     }
 
     // atom
     #[getter(atom)]
-    fn get_atom(&self, _py: Python) -> Atom {
-        Atom(self.atom.clone())
+    fn get_atom(&self, py: Python<'_>) -> Atom {
+        let top = self.top.borrow(py);
+        Atom(top.0.get_atom(self.id).unwrap().clone())
     }
 
     #[setter(atom)]
-    fn set_atom(&mut self, value: &Atom) {
-        *self.atom = value.0.clone();
+    fn set_atom(&mut self, py: Python<'_>, value: &Atom) {
+        let mut top = self.top.borrow_mut(py);
+        *top.0.get_atom_mut(self.id).unwrap() = value.0.clone();
     }
 
     // name
     #[getter(name)]
-    fn get_name(&self, _py: Python) -> &str {
-        self.atom.name.as_str()
+    fn get_name(&self, py: Python<'_>) -> String {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().name.clone()
     }
 
     #[setter(name)]
-    fn set_name(&mut self, value: &str) {
-        self.atom.name = value.into();
+    fn set_name(&mut self, py: Python<'_>, value: &str) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().name = value.into();
     }
 
     // resname
     #[getter(resname)]
-    fn get_resname(&self, _py: Python) -> &str {
-        self.atom.resname.as_str()
+    fn get_resname(&self, py: Python<'_>) -> String {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().resname.clone()
     }
 
-    #[setter(resname)]
-    fn set_resname(&mut self, value: &str) {
-        self.atom.resname = value.into();
+    #[setter(name)]
+    fn set_resname(&mut self, py: Python<'_>, value: &str) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().resname = value.into();
     }
 
     // resid
     #[getter(resid)]
-    fn get_resid(&self, _py: Python) -> i32 {
-        self.atom.resid
+    fn get_resid(&self, py: Python<'_>) -> i32 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().resid
     }
 
     #[setter(resid)]
-    fn set_resid(&mut self, value: i32) {
-        self.atom.resid = value;
+    fn set_resid(&mut self, py: Python<'_>, value: i32) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().resid = value;
     }
 
     // resindex
     #[getter(resindex)]
-    fn get_resindex(&self, _py: Python) -> usize {
-        self.atom.resindex
+    fn get_resindex(&self, py: Python<'_>) -> usize {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().resindex
     }
 
     #[setter(resindex)]
-    fn set_resindex(&mut self, value: usize) {
-        self.atom.resindex = value;
+    fn set_resindex(&mut self, py: Python<'_>, value: usize) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().resindex = value;
     }
 
     // atomic_number
     #[getter(atomic_number)]
-    fn get_atomic_number(&self, _py: Python) -> u8 {
-        self.atom.atomic_number
+    fn get_atomic_number(&self, py: Python<'_>) -> u8 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().atomic_number
     }
 
     #[setter(atomic_number)]
-    fn set_atomic_number(&mut self, value: u8) {
-        self.atom.atomic_number = value;
+    fn set_atomic_number(&mut self, py: Python<'_>, value: u8) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().atomic_number = value;
     }
 
     // mass
     #[getter(mass)]
-    fn get_mass(&self, _py: Python) -> f32 {
-        self.atom.mass
+    fn get_mass(&self, py: Python<'_>) -> f32 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().mass
     }
 
     #[setter(mass)]
-    fn set_mass(&mut self, value: f32) {
-        self.atom.mass = value;
+    fn set_mass(&mut self, py: Python<'_>, value: f32) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().mass = value;
     }
 
     // charge
     #[getter(charge)]
-    fn get_charge(&self, _py: Python) -> f32 {
-        self.atom.charge
+    fn get_charge(&self, py: Python<'_>) -> f32 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().charge
     }
 
     #[setter(charge)]
-    fn set_charge(&mut self, value: f32) {
-        self.atom.charge = value;
+    fn set_charge(&mut self, py: Python<'_>, value: f32) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().charge = value;
     }
 
     // type_name
     #[getter(type_name)]
-    fn get_type_name(&self, _py: Python) -> &str {
-        self.atom.type_name.as_str()
+    fn get_type_name(&self, py: Python<'_>) -> String {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().type_name.clone()
     }
 
     #[setter(type_name)]
-    fn set_type_name(&mut self, value: &str) {
-        self.atom.type_name = value.into();
+    fn set_type_name(&mut self, py: Python<'_>, value: &str) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().type_name = value.into();
     }
 
     // type_id
     #[getter(type_id)]
-    fn get_type_id(&self, _py: Python) -> u32 {
-        self.atom.type_id
+    fn get_type_id(&self, py: Python<'_>) -> u32 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().type_id
     }
 
     #[setter(type_id)]
-    fn set_type_id(&mut self, value: u32) {
-        self.atom.type_id = value;
+    fn set_type_id(&mut self, py: Python<'_>, value: u32) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().type_id = value;
     }
 
     // chain
     #[getter(chain)]
-    fn get_chain(&self, _py: Python) -> char {
-        self.atom.chain
+    fn get_chain(&self, py: Python<'_>) -> char {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().chain
     }
 
     #[setter(chain)]
-    fn set_chain(&mut self, value: char) {
-        self.atom.chain = value;
+    fn set_chain(&mut self, py: Python<'_>, value: char) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().chain = value;
     }
 
     // bfactor
     #[getter(bfactor)]
-    fn get_bfactor(&self, _py: Python) -> f32 {
-        self.atom.bfactor
+    fn get_bfactor(&self, py: Python<'_>) -> f32 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().bfactor
     }
 
     #[setter(bfactor)]
-    fn set_bfactor(&mut self, value: f32) {
-        self.atom.bfactor = value;
+    fn set_bfactor(&mut self, py: Python<'_>, value: f32) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().bfactor = value;
     }
 
     // occupancy
     #[getter(occupancy)]
-    fn get_occupancy(&self, _py: Python) -> f32 {
-        self.atom.occupancy
+    fn get_occupancy(&self, py: Python<'_>) -> f32 {
+        let top = self.top.borrow(py);
+        top.0.get_atom(self.id).unwrap().occupancy
     }
 
     #[setter(occupancy)]
-    fn set_occupancy(&mut self, value: f32) {
-        self.atom.occupancy = value;
+    fn set_occupancy(&mut self, py: Python<'_>, value: f32) {
+        let mut top = self.top.borrow_mut(py);
+        top.0.get_atom_mut(self.id).unwrap().occupancy = value;
     }
 }

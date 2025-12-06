@@ -17,7 +17,7 @@ pub enum BuilderError {
 }
 
 impl Topology {
-    pub(crate) fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
+    pub fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
         self.atoms.extend(atoms);
     }
 
@@ -30,7 +30,7 @@ impl Topology {
     //     self.molecules.extend(added);
     // }
 
-    pub(crate) fn remove_atoms(
+    pub fn remove_atoms(
         &mut self,
         removed: impl Iterator<Item = usize>,
     ) -> Result<(), BuilderError> {

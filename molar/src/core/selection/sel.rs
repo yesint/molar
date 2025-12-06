@@ -22,13 +22,21 @@ pub enum BindError {
 pub struct Sel(SVec);
 
 impl Sel {
-    // pub fn from_vec(index: Vec<usize>) -> Result<Self, SelectionError> {
-    //     if index.is_empty() {
-    //         Err(SelectionError::EmptySlice)
-    //     } else {
-    //         Ok(Self(SVec::from_unsorted(index)))
-    //     }
-    // }
+    pub fn from_vec(index: Vec<usize>) -> Result<Self, SelectionError> {
+        if index.is_empty() {
+            Err(SelectionError::EmptySlice)
+        } else {
+            Ok(Self(SVec::from_unsorted(index)))
+        }
+    }
+
+    pub fn from_svec(index: SVec) -> Result<Self, SelectionError> {
+        if index.is_empty() {
+            Err(SelectionError::EmptySlice)
+        } else {
+            Ok(Self(index))
+        }
+    }
 
     fn from_iter(iter: impl Iterator<Item=usize>) -> Self {
         let v = iter.collect();
