@@ -1,10 +1,11 @@
+use molar::core::Atom;
 use pyo3::prelude::*;
 
-#[pyclass]
-pub(crate) struct Atom(pub(crate) molar::core::Atom);
+#[pyclass(name="Atom")]
+pub(crate) struct AtomPy(pub(crate) Atom);
 
 #[pymethods]
-impl Atom {
+impl AtomPy {
     #[new]
     fn new() -> Self {
         Self {

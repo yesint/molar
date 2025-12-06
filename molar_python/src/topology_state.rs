@@ -1,13 +1,13 @@
 use pyo3::prelude::*;
 use molar::prelude::*;
-use super::periodic_box::PeriodicBox;
+use super::periodic_box::PeriodicBoxPy;
 use anyhow::anyhow;
 
-#[pyclass(unsendable)]
-pub(crate) struct State(pub(crate) molar::core::State);
+#[pyclass(unsendable, name="State")]
+pub(crate) struct StatePy(pub(crate) State);
 
 #[pymethods]
-impl State {
+impl StatePy {
     fn __len__(&self) -> usize {
         self.0.len()
     }
@@ -23,8 +23,8 @@ impl State {
     }
 
     #[getter]
-    fn get_box(&self) -> anyhow::Result<PeriodicBox> {
-        Ok(PeriodicBox(
+    fn get_box(&self) -> anyhow::Result<PeriodicBoxPy> {
+        Ok(PeriodicBoxPy(
             self.0
                 .get_box()
                 .ok_or_else(|| anyhow!("No periodic box"))?
@@ -33,7 +33,7 @@ impl State {
     }
 
     #[setter]
-    fn set_box(&mut self, val: Bound<'_, PeriodicBox>) -> anyhow::Result<()> {
+    fn set_box(&mut self, val: Bound<'_, PeriodicBoxPy>) -> anyhow::Result<()> {
         let b = self
             .0
             .get_box_mut()
@@ -43,6 +43,6 @@ impl State {
     }
 }
 
-#[pyclass(unsendable)]
-pub(crate) struct Topology(pub(crate) molar::core::Topology);
+#[pyclass(unsendable, name="Topology")]
+pub(crate) struct TopologyPy(pub(crate) Topology);
 

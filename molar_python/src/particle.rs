@@ -1,20 +1,19 @@
-use molar::core::{RandomAtomMutProvider, RandomAtomProvider, RandomPosMutProvider, RandomPosProvider};
+use molar::prelude::*;
 use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1};
 use pyo3::prelude::*;
+use super::{atom::AtomPy, topology_state::{StatePy, TopologyPy}};
 
-use super::{atom::Atom, topology_state::{State, Topology}};
-
-#[pyclass(unsendable)]
-pub(crate) struct Particle {
-    pub(crate) top: Py<Topology>,
-    pub(crate) st: Py<State>,
+#[pyclass(unsendable, name="Particle")]
+pub(crate) struct ParticlePy {
+    pub(crate) top: Py<TopologyPy>,
+    pub(crate) st: Py<StatePy>,
     // id is readonly
     #[pyo3(get)]
     pub(crate) id: usize,
 }
 
 #[pymethods]
-impl Particle {
+impl ParticlePy {
     //pos
     #[getter]
     fn get_pos<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
@@ -73,13 +72,13 @@ impl Particle {
 
     // atom
     #[getter(atom)]
-    fn get_atom(&self, py: Python<'_>) -> Atom {
+    fn get_atom(&self, py: Python<'_>) -> AtomPy {
         let top = self.top.borrow(py);
-        Atom(top.0.get_atom(self.id).unwrap().clone())
+        AtomPy(top.0.get_atom(self.id).unwrap().clone())
     }
 
     #[setter(atom)]
-    fn set_atom(&mut self, py: Python<'_>, value: &Atom) {
+    fn set_atom(&mut self, py: Python<'_>, value: &AtomPy) {
         let mut top = self.top.borrow_mut(py);
         *top.0.get_atom_mut(self.id).unwrap() = value.0.clone();
     }
