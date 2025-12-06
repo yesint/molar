@@ -95,19 +95,19 @@ impl FileHandlerPy {
             let st = &s.st.borrow(data.py()).0;
             h.write_topology(top)?;
             h.write_state(st)?;
-        } else if let Ok(s) = data.downcast::<PyTuple>() {
+        } else if let Ok(s) = data.cast::<PyTuple>() {
             if s.len() != 2 {
                 return Err(anyhow!("tuple must have two elements, not {}",s.len()));
             }
             let top = &s
                 .get_item(0)?
-                .downcast::<TopologyPy>()
+                .cast::<TopologyPy>()
                 .map_err(|_| anyhow!("first tuple element should be a Topology"))?
                 .borrow()
                 .0;
             let st = &s
                 .get_item(1)?
-                .downcast::<StatePy>()
+                .cast::<StatePy>()
                 .map_err(|_| anyhow!("second tuple element should be a State"))?
                 .borrow()
                 .0;
@@ -172,10 +172,10 @@ impl FileHandlerPy {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
         let st = slf.1.as_mut().unwrap().next().map(|st| StatePy(st.into()));
         if st.is_some() {
-            Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
+            Python::attach(|py| Some(st.unwrap().into_py_any(py)))
                 .unwrap()
                 .ok()
         } else {
@@ -281,7 +281,7 @@ struct SystemPy {
 
 impl LenProvider for SystemPy {
     fn len(&self) -> usize {
-        Python::with_gil(|py| self.top.borrow(py).0.len())
+        Python::attach(|py| self.top.borrow(py).0.len())
     }
 }
 
@@ -297,43 +297,43 @@ impl IndexProvider for SystemPy {
 
 impl AtomPosAnalysis for SystemPy {
     fn atom_ptr(&self) -> *const Atom {
-        Python::with_gil(|py| self.top.borrow(py).0.atoms.as_ptr())
+        Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
     }
 
     fn pos_ptr(&self) -> *const Pos {
-        Python::with_gil(|py| self.st.borrow(py).0.coords.as_ptr())
+        Python::attach(|py| self.st.borrow(py).0.coords.as_ptr())
     }
 }
 
 impl AtomPosAnalysisMut for SystemPy {
     fn atom_mut_ptr(&mut self) -> *mut Atom {
-        Python::with_gil(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
+        Python::attach(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
     }
 
     fn pos_mut_ptr(&mut self) -> *mut Pos {
-        Python::with_gil(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
+        Python::attach(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
     }
 }
 
 impl NonAtomPosAnalysis for SystemPy {
     fn top_ref(&self) -> &Topology {
-        Python::with_gil(|py| unsafe { &*(&self.top.borrow(py).0 as *const Topology) })
+        Python::attach(|py| unsafe { &*(&self.top.borrow(py).0 as *const Topology) })
     }
 
     fn st_ref(&self) -> &State {
-        Python::with_gil(|py| unsafe { &*(&self.st.borrow(py).0 as *const State) })
+        Python::attach(|py| unsafe { &*(&self.st.borrow(py).0 as *const State) })
     }
 }
 
 impl NonAtomPosAnalysisMut for SystemPy {
     fn st_ref_mut(&mut self) -> &mut State {
-        Python::with_gil(|py| unsafe {
+        Python::attach(|py| unsafe {
             &mut *(&mut self.st.borrow_mut(py).0 as *mut State)
         })
     }
 
     fn top_ref_mut(&mut self) -> &mut Topology {
-        Python::with_gil(|py| unsafe {
+        Python::attach(|py| unsafe {
             &mut *(&mut self.top.borrow_mut(py).0 as *mut Topology)
         })
     }
@@ -362,16 +362,16 @@ impl SystemPy {
             // From existing Topology and State python objects
             let top = py_args.get_item(0)?;
             let st = py_args.get_item(1)?;
-            let n1 = top.downcast::<TopologyPy>()?.borrow().0.len();
-            let n2 = st.downcast::<StatePy>()?.borrow().0.len();
+            let n1 = top.cast::<TopologyPy>()?.borrow().0.len();
+            let n2 = st.cast::<StatePy>()?.borrow().0.len();
             if n1 != n2 {
                 Err(PyTypeError::new_err(
                     "topology and state are of different size",
                 ))
             } else {
                 Ok(SystemPy {
-                    top: Py::clone_ref(&top.downcast::<TopologyPy>()?.as_unbound(), py),
-                    st: Py::clone_ref(&st.downcast::<StatePy>()?.as_unbound(), py),
+                    top: Py::clone_ref(&top.cast::<TopologyPy>()?.as_unbound(), py),
+                    st: Py::clone_ref(&st.cast::<StatePy>()?.as_unbound(), py),
                 })
             }
         } else {
@@ -479,7 +479,7 @@ impl SystemPy {
 
     fn remove(slf: &Bound<'_, Self>, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
-        if let Ok(sel) = arg.downcast::<SelPy>() {
+        if let Ok(sel) = arg.cast::<SelPy>() {
             let sb = sel.borrow();
             slf.borrow_mut()
                 .top
@@ -510,7 +510,7 @@ impl SystemPy {
 
     fn append(slf: &Bound<'_, Self>, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
-        if let Ok(sel) = arg.downcast::<SelPy>() {
+        if let Ok(sel) = arg.cast::<SelPy>() {
             let sb = sel.borrow();
             slf.borrow_mut()
                 .top
@@ -588,43 +588,43 @@ impl IndexProvider for SelPy {
 
 impl AtomPosAnalysis for SelPy {
     fn atom_ptr(&self) -> *const Atom {
-        Python::with_gil(|py| self.top.borrow(py).0.atoms.as_ptr())
+        Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
     }
 
     fn pos_ptr(&self) -> *const Pos {
-        Python::with_gil(|py| self.st.borrow(py).0.coords.as_ptr())
+        Python::attach(|py| self.st.borrow(py).0.coords.as_ptr())
     }
 }
 
 impl AtomPosAnalysisMut for SelPy {
     fn atom_mut_ptr(&mut self) -> *mut Atom {
-        Python::with_gil(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
+        Python::attach(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
     }
 
     fn pos_mut_ptr(&mut self) -> *mut Pos {
-        Python::with_gil(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
+        Python::attach(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
     }
 }
 
 impl NonAtomPosAnalysis for SelPy {
     fn top_ref(&self) -> &Topology {
-        Python::with_gil(|py| unsafe { &*(&self.top.borrow(py).0 as *const Topology) })
+        Python::attach(|py| unsafe { &*(&self.top.borrow(py).0 as *const Topology) })
     }
 
     fn st_ref(&self) -> &State {
-        Python::with_gil(|py| unsafe { &*(&self.st.borrow(py).0 as *const State) })
+        Python::attach(|py| unsafe { &*(&self.st.borrow(py).0 as *const State) })
     }
 }
 
 impl NonAtomPosAnalysisMut for SelPy {
     fn st_ref_mut(&mut self) -> &mut State {
-        Python::with_gil(|py| unsafe {
+        Python::attach(|py| unsafe {
             &mut *(&mut self.st.borrow_mut(py).0 as *mut State)
         })
     }
 
     fn top_ref_mut(&mut self) -> &mut Topology {
-        Python::with_gil(|py| unsafe {
+        Python::attach(|py| unsafe {
             &mut *(&mut self.top.borrow_mut(py).0 as *mut Topology)
         })
     }
@@ -779,11 +779,11 @@ impl SelPy {
     }
 
     fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<Py<StatePy>> {
-        if let Ok(val) = arg.downcast::<SystemPy>() {
+        if let Ok(val) = arg.cast::<SystemPy>() {
             let b = val.borrow();
             let s = b.st.bind(arg.py());
             self.set_state(s)
-        } else if let Ok(val) = arg.downcast::<SelPy>() {
+        } else if let Ok(val) = arg.cast::<SelPy>() {
             let b = val.borrow();
             let s = b.st.bind(arg.py());
             self.set_state(s)
@@ -1039,8 +1039,8 @@ impl ParticleIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        let ret = Python::with_gil(|py| {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
+        let ret = Python::attach(|py| {
             let s = slf.sel.bind(py);
             SelPy::__getitem__(s.clone(), slf.cur)
         })
