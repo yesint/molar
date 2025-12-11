@@ -36,7 +36,7 @@ def test2():
     st = fh.read_state()
     src = System(top,st)
     sel = src("resid 5:600")
-    del top,st,src,fh
+    del top,st,fh
     pos0 = sel[0].pos
     pos1 = sel[1].pos
     pos2 = sel[2].pos
@@ -45,8 +45,10 @@ def test2():
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
     del pos1
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del sel
+    #del sel
     print(f"ref: {getrefcount(pos0)-1} pos0: {pos0}")
+    pos0[1]+=1
+    print(f"ref: {getrefcount(pos0)-1} pos0: {sel[0].pos}")
 
 
 def test3():
@@ -120,6 +122,6 @@ def test_distance_search():
     print(pairs,dist)
 
 #test7()
-test8()
+test2()
 #test_distance_search()
 #test_set_state()

@@ -4,7 +4,6 @@ use std::ffi::c_void;
 
 // Constructs PyArray backed by existing Pos data.
 pub(crate) fn map_pyarray_to_pos<'py>(
-    py: Python<'py>,
     data: &mut molar::core::Pos,
     parent: &Bound<'py, PyAny>,
 ) -> *mut npyffi::PyArrayObject {
@@ -15,9 +14,9 @@ pub(crate) fn map_pyarray_to_pos<'py>(
 
     unsafe {
         let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
-            py,
-            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-            f32::get_dtype(py).into_dtype_ptr(),
+            parent.py(),
+            PY_ARRAY_API.get_type_object(parent.py(), npyffi::NpyTypes::PyArray_Type),
+            f32::get_dtype(parent.py()).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(),                    // no strides
@@ -31,7 +30,7 @@ pub(crate) fn map_pyarray_to_pos<'py>(
         // until any of the referencing PyArray objects are alive.
 
         // We set the parent as a base object of the PyArray to link them together.
-        PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), parent.as_ptr());
+        PY_ARRAY_API.PyArray_SetBaseObject(parent.py(), ptr.cast(), parent.as_ptr());
         // Increase reference count of parent object since
         // our PyArray is now referencing it!
         pyo3::ffi::Py_IncRef(parent.as_ptr());

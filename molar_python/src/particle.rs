@@ -1,5 +1,5 @@
 use molar::prelude::*;
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1};
+use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1, ndarray::ArrayView1};
 use pyo3::prelude::*;
 use super::{atom::AtomPy, topology_state::{StatePy, TopologyPy}};
 
@@ -16,10 +16,12 @@ pub(crate) struct ParticlePy {
 impl ParticlePy {
     //pos
     #[getter]
-    fn get_pos<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
-        let mut st = self.st.borrow_mut(py);
-        let v = st.0.get_pos_mut(self.id).unwrap();
-        super::utils::clone_vec_to_pyarray1(&v.coords, py)
+    fn get_pos<'py>(slf: &Bound<'py, Self>) -> Bound<'py, PyAny> {
+        let s = slf.borrow();
+        let mut st = s.st.borrow_mut(slf.py());
+        let v = st.0.get_pos_mut(s.id).unwrap();
+        let p = super::utils::map_pyarray_to_pos(v, slf);
+        unsafe{Bound::from_borrowed_ptr(slf.py(), p as *mut pyo3::ffi::PyObject)}
     }
 
     #[setter]

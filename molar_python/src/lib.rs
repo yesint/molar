@@ -28,11 +28,8 @@ mod topology_state;
 use topology_state::*;
 //-------------------------------------------
 
-#[pyclass(unsendable,name="FileHandler")]
-struct FileHandlerPy(
-    Option<FileHandler>,
-    Option<IoStateIterator>,
-);
+#[pyclass(unsendable, name = "FileHandler")]
+struct FileHandlerPy(Option<FileHandler>, Option<IoStateIterator>);
 
 const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state iterator";
 
@@ -41,14 +38,8 @@ impl FileHandlerPy {
     #[new]
     fn new(fname: &str, mode: &str) -> anyhow::Result<Self> {
         match mode {
-            "r" => Ok(FileHandlerPy(
-                Some(FileHandler::open(fname)?),
-                None,
-            )),
-            "w" => Ok(FileHandlerPy(
-                Some(FileHandler::create(fname)?),
-                None,
-            )),
+            "r" => Ok(FileHandlerPy(Some(FileHandler::open(fname)?), None)),
+            "w" => Ok(FileHandlerPy(Some(FileHandler::create(fname)?), None)),
             _ => Err(anyhow!("Wrong file open mode")),
         }
     }
@@ -97,7 +88,7 @@ impl FileHandlerPy {
             h.write_state(st)?;
         } else if let Ok(s) = data.cast::<PyTuple>() {
             if s.len() != 2 {
-                return Err(anyhow!("tuple must have two elements, not {}",s.len()));
+                return Err(anyhow!("tuple must have two elements, not {}", s.len()));
             }
             let top = &s
                 .get_item(0)?
@@ -244,7 +235,7 @@ impl FileHandlerPy {
     }
 }
 
-#[pyclass(name="FileStats")]
+#[pyclass(name = "FileStats")]
 struct FileStatsPy(FileStats);
 
 #[pymethods]
@@ -273,7 +264,7 @@ impl FileStatsPy {
     }
 }
 
-#[pyclass(unsendable, sequence, name="System")]
+#[pyclass(unsendable, sequence, name = "System")]
 struct SystemPy {
     top: Py<TopologyPy>,
     st: Py<StatePy>,
@@ -296,46 +287,44 @@ impl IndexProvider for SystemPy {
 }
 
 impl AtomPosAnalysis for SystemPy {
-    fn atom_ptr(&self) -> *const Atom {
+    fn atoms_ptr(&self) -> *const Atom {
         Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
     }
 
-    fn pos_ptr(&self) -> *const Pos {
+    fn coords_ptr(&self) -> *const Pos {
         Python::attach(|py| self.st.borrow(py).0.coords.as_ptr())
     }
 }
 
 impl AtomPosAnalysisMut for SystemPy {
-    fn atom_mut_ptr(&mut self) -> *mut Atom {
+    fn atoms_ptr_mut(&mut self) -> *mut Atom {
         Python::attach(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
     }
 
-    fn pos_mut_ptr(&mut self) -> *mut Pos {
+    fn coords_ptr_mut(&mut self) -> *mut Pos {
         Python::attach(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
     }
 }
 
 impl NonAtomPosAnalysis for SystemPy {
-    fn top_ref(&self) -> &Topology {
-        Python::attach(|py| unsafe { &*(&self.top.borrow(py).0 as *const Topology) })
+    fn top_ptr(&self) -> *const Topology {
+        Python::attach(|py| &self.top.borrow(py).0 as *const Topology)
     }
 
-    fn st_ref(&self) -> &State {
-        Python::attach(|py| unsafe { &*(&self.st.borrow(py).0 as *const State) })
+    fn st_ptr(&self) -> *const State {
+        Python::attach(|py| &self.st.borrow(py).0 as *const State)
     }
 }
 
 impl NonAtomPosAnalysisMut for SystemPy {
-    fn st_ref_mut(&mut self) -> &mut State {
-        Python::attach(|py| unsafe {
-            &mut *(&mut self.st.borrow_mut(py).0 as *mut State)
-        })
+    fn st_ptr_mut(&mut self) -> *mut State {
+        Python::attach(|py: Python<'_>|
+            &mut self.st.borrow_mut(py).0 as *mut State
+        )
     }
 
-    fn top_ref_mut(&mut self) -> &mut Topology {
-        Python::attach(|py| unsafe {
-            &mut *(&mut self.top.borrow_mut(py).0 as *mut Topology)
-        })
+    fn top_ptr_mut(&mut self) -> *mut Topology {
+        Python::attach(|py| &mut self.top.borrow_mut(py).0 as *mut Topology)
     }
 }
 
@@ -563,7 +552,7 @@ impl SystemPy {
 
 //====================================
 
-#[pyclass(sequence, name="Sel")]
+#[pyclass(sequence, name = "Sel")]
 struct SelPy {
     top: Py<TopologyPy>,
     st: Py<StatePy>,
@@ -587,46 +576,42 @@ impl IndexProvider for SelPy {
 }
 
 impl AtomPosAnalysis for SelPy {
-    fn atom_ptr(&self) -> *const Atom {
+    fn atoms_ptr(&self) -> *const Atom {
         Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
     }
 
-    fn pos_ptr(&self) -> *const Pos {
+    fn coords_ptr(&self) -> *const Pos {
         Python::attach(|py| self.st.borrow(py).0.coords.as_ptr())
     }
 }
 
 impl AtomPosAnalysisMut for SelPy {
-    fn atom_mut_ptr(&mut self) -> *mut Atom {
+    fn atoms_ptr_mut(&mut self) -> *mut Atom {
         Python::attach(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
     }
 
-    fn pos_mut_ptr(&mut self) -> *mut Pos {
+    fn coords_ptr_mut(&mut self) -> *mut Pos {
         Python::attach(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
     }
 }
 
 impl NonAtomPosAnalysis for SelPy {
-    fn top_ref(&self) -> &Topology {
-        Python::attach(|py| unsafe { &*(&self.top.borrow(py).0 as *const Topology) })
+    fn top_ptr(&self) -> *const Topology {
+        Python::attach(|py| &self.top.borrow(py).0 as *const Topology)
     }
 
-    fn st_ref(&self) -> &State {
-        Python::attach(|py| unsafe { &*(&self.st.borrow(py).0 as *const State) })
+    fn st_ptr(&self) -> *const State {
+        Python::attach(|py| &self.st.borrow(py).0 as *const State)
     }
 }
 
 impl NonAtomPosAnalysisMut for SelPy {
-    fn st_ref_mut(&mut self) -> &mut State {
-        Python::attach(|py| unsafe {
-            &mut *(&mut self.st.borrow_mut(py).0 as *mut State)
-        })
+    fn st_ptr_mut(&mut self) -> *mut State {
+        Python::attach(|py| &mut self.st.borrow_mut(py).0 as *mut State)
     }
 
-    fn top_ref_mut(&mut self) -> &mut Topology {
-        Python::attach(|py| unsafe {
-            &mut *(&mut self.top.borrow_mut(py).0 as *mut Topology)
-        })
+    fn top_ptr_mut(&mut self) -> *mut Topology {
+        Python::attach(|py| &mut self.top.borrow_mut(py).0 as *mut Topology)
     }
 }
 
@@ -974,7 +959,7 @@ impl SelPy {
     // }
 }
 
-#[pyclass(unsendable,name="SasaResults")]
+#[pyclass(unsendable, name = "SasaResults")]
 struct SasaResultsPy(SasaResults);
 
 #[pymethods]
@@ -1120,12 +1105,7 @@ fn distance_search<'py>(
             }
 
             if pbc_dims.any() {
-                res = distance_search_double_vdw(
-                    sel1.iter_pos(),
-                    sel2.iter_pos(),
-                    &vdw1,
-                    &vdw2,
-                );
+                res = distance_search_double_vdw(sel1.iter_pos(), sel2.iter_pos(), &vdw1, &vdw2);
             } else {
                 res = distance_search_double_vdw_pbc(
                     sel1.iter_pos(),
@@ -1170,7 +1150,7 @@ fn distance_search<'py>(
     }
 }
 
-#[pyclass(name="NdxFile")]
+#[pyclass(name = "NdxFile")]
 struct NdxFilePy(NdxFile);
 
 #[pymethods]
