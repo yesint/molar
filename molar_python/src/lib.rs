@@ -5,7 +5,7 @@ use molar::prelude::*;
 //use molar::prelude::*;
 use numpy::{
     nalgebra::{self, Const, Dyn, VectorView},
-    PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
+    PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
 use pyo3::{exceptions::PyTypeError, prelude::*, types::PyTuple, IntoPyObjectExt};
 
@@ -318,9 +318,7 @@ impl NonAtomPosAnalysis for SystemPy {
 
 impl NonAtomPosAnalysisMut for SystemPy {
     fn st_ptr_mut(&mut self) -> *mut State {
-        Python::attach(|py: Python<'_>|
-            &mut self.st.borrow_mut(py).0 as *mut State
-        )
+        Python::attach(|py: Python<'_>| &mut self.st.borrow_mut(py).0 as *mut State)
     }
 
     fn top_ptr_mut(&mut self) -> *mut Topology {
@@ -497,40 +495,76 @@ impl SystemPy {
         }
     }
 
-    fn append(slf: &Bound<'_, Self>, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
-        // In the future other types can be used as well
-        if let Ok(sel) = arg.cast::<SelPy>() {
+    #[pyo3(signature = (*args))]
+    fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> anyhow::Result<()> {
+        let py = slf.py();
+        let slfb = &slf.borrow_mut();
+
+        let topb = &mut slfb.top.borrow_mut(py).0;
+        let stb = &mut slfb.st.borrow_mut(py).0;
+
+        if args.len() == 1 {
+            let arg = args.get_item(0)?;
+            // In the future other types can be used as well
+            let sel = if let Ok(sel) = arg.cast::<SelPy>() {
+                sel
+            } else {
+                &Bound::new(py, Self::__call__(slf, Some(&arg))?)?
+            };
+
             let sb = sel.borrow();
-            slf.borrow_mut()
-                .top
-                .borrow_mut(arg.py())
-                .0
-                .add_atoms(sb.iter_atoms().cloned());
-            slf.borrow_mut()
-                .st
-                .borrow_mut(arg.py())
-                .0
-                .add_coords(sb.iter_pos().cloned());
+            topb.add_atoms(sb.iter_atoms().cloned());
+            stb.add_coords(sb.iter_pos().cloned());
+
+            Ok(())
+        } else if args.len() == 2 {
+            let arg1 = args.get_item(0)?;
+            let ab = arg1
+                .cast::<AtomPy>()
+                .map_err(|_| anyhow!("expected atom"))?
+                .borrow();
+            let pos = args
+                .get_item(1)?
+                .extract::<PyArrayLike1<f32>>()
+                .map_err(|_| anyhow!("expected pos"))?;
+            let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
+            topb.add_atoms(std::iter::once(&ab.0).cloned());
+            stb.add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
             Ok(())
         } else {
-            let sel = Self::__call__(slf, Some(arg))?;
-            slf.borrow_mut()
-                .top
-                .borrow_mut(arg.py())
-                .0
-                .add_atoms(sel.iter_atoms().cloned());
-            slf.borrow_mut()
-                .st
-                .borrow_mut(arg.py())
-                .0
-                .add_coords(sel.iter_pos().cloned());
-            Ok(())
+            bail!("1 or 2 arguments expected");
         }
     }
+
+    // fn append_atom_pos(slf: &Bound<'_, Self>, at: &AtomPy, pos: PyArrayLike1<'_, f32>) {
+    //     let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
+    //     slf.borrow_mut()
+    //         .top
+    //         .borrow_mut(slf.py())
+    //         .0
+    //         .add_atoms(std::iter::once(&at.0).cloned());
+    //     slf.borrow_mut()
+    //         .st
+    //         .borrow_mut(slf.py())
+    //         .0
+    //         .add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
+    // }
 
     #[getter]
     fn get_time(&self) -> f32 {
         TimeProvider::get_time(self)
+    }
+
+    #[getter]
+    fn get_box(&self, py: Python<'_>) -> PeriodicBoxPy {
+        BoxProvider::get_box(&self.st.borrow(py).0)
+            .map(|b| PeriodicBoxPy(b.clone()))
+            .unwrap()
+    }
+
+    #[setter]
+    fn set_box(&mut self, py: Python<'_>, b: &PeriodicBoxPy) {
+        *self.st.borrow_mut(py).0.get_box_mut().unwrap() = b.0.clone();
     }
 
     #[setter]
@@ -810,6 +844,34 @@ impl SelPy {
         TimeProvider::get_time(self)
     }
 
+    #[getter]
+    fn get_box(&self, py: Python<'_>) -> PeriodicBoxPy {
+        BoxProvider::get_box(&self.st.borrow(py).0)
+            .map(|b| PeriodicBoxPy(b.clone()))
+            .unwrap()
+    }
+
+    #[setter]
+    fn set_box(&mut self, py: Python<'_>, b: &PeriodicBoxPy) {
+        *self.st.borrow_mut(py).0.get_box_mut().unwrap() = b.0.clone();
+    }
+
+    #[setter]
+    fn set_time(&mut self, t: f32) {
+        TimeMutProvider::set_time(self, t);
+    }
+
+    fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
+        *self.st.borrow_mut(sys.py()).0.get_box_mut().unwrap() = sys
+            .borrow()
+            .st
+            .borrow(sys.py())
+            .0
+            .get_box()
+            .unwrap()
+            .clone();
+    }
+
     #[pyo3(signature = (dims=[false,false,false]))]
     fn com<'py>(
         &self,
@@ -860,6 +922,16 @@ impl SelPy {
 
     fn gyration_pbc(&self) -> anyhow::Result<f32> {
         Ok(MeasurePeriodic::gyration_pbc(self)?)
+    }
+
+    fn min_max<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> (Bound<'py, PyArray1<f32>>, Bound<'py, PyArray1<f32>>) {
+        let (min, max) = MeasurePos::min_max(self);
+        let minpy = clone_vec_to_pyarray1(&min.coords, py);
+        let maxpy = clone_vec_to_pyarray1(&max.coords, py);
+        (minpy, maxpy)
     }
 
     fn inertia<'py>(
@@ -1059,7 +1131,7 @@ fn distance_search<'py>(
                     sel2.iter_pos(),
                     sel1.iter_index(),
                     sel2.iter_index(),
-                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    &sel1.get_box(py).0,
                     pbc_dims,
                 );
             } else {
@@ -1077,7 +1149,7 @@ fn distance_search<'py>(
                     d,
                     sel1.iter_pos(),
                     sel1.iter_index(),
-                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    &sel1.get_box(py).0,
                     pbc_dims,
                 );
             } else {
@@ -1112,7 +1184,7 @@ fn distance_search<'py>(
                     sel2.iter_pos(),
                     &vdw1,
                     &vdw2,
-                    sel1.get_box().ok_or_else(|| anyhow!("no periodic box"))?,
+                    &sel1.get_box(py).0,
                     pbc_dims,
                 );
             }
