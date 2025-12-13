@@ -29,6 +29,11 @@ impl Sel {
             Ok(Self(SVec::from_unsorted(index)))
         }
     }
+    
+    pub fn into_svec(self) -> SVec {
+        self.0
+    }
+
 
     pub fn from_svec(index: SVec) -> Result<Self, SelectionError> {
         if index.is_empty() {
@@ -78,19 +83,6 @@ impl Sel {
 
     pub fn bind_mut<'a>(&'a self, sys: &'a mut System) -> SubSystemMut<'a> {
         self.try_bind_mut(sys).expect("binding selection mutably should not fail")
-    }
-
-    /// Creates a string in Gromacs index format representing self.
-    pub fn as_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
-        use itertools::Itertools;
-        let name = name.as_ref();
-        let mut s = format!("[ {} ]\n", name);
-        for chunk in &self.0.iter().chunks(15) {
-            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
-            s.push_str(&line);
-            s.push('\n');
-        }
-        s
     }
 }
 

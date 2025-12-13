@@ -21,6 +21,19 @@ pub trait IndexProvider: LenProvider {
     fn last_index(&self) -> usize {
         unsafe { self.get_index_unchecked(self.len()-1) }
     }
+
+    /// Creates a string in Gromacs index format representing self.
+    fn as_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+        use itertools::Itertools;
+        let name = name.as_ref();
+        let mut s = format!("[ {} ]\n", name);
+        for chunk in &self.iter_index().chunks(15) {
+            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s
+    }
 }
 
 impl LenProvider for SVec {

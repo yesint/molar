@@ -1,5 +1,5 @@
 use molar::prelude::*;
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1, ndarray::ArrayView1};
+use numpy::{PyArrayMethods, PyReadonlyArray1};
 use pyo3::prelude::*;
 use super::{atom::AtomPy, topology_state::{StatePy, TopologyPy}};
 

@@ -400,15 +400,19 @@ impl SystemPy {
 
     #[pyo3(signature = (arg=None))]
     fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> anyhow::Result<SelPy> {
+        let py = slf.py();
         let bs = slf.borrow();
-        let top = bs.top.borrow(slf.py());
-        let st = bs.st.borrow(slf.py());
+        let top = bs.top.borrow(py);
+        let st = bs.st.borrow(py);
 
-        let v = if let Some(arg) = arg {
+        let index = if let Some(arg) = arg {
+            // Argument present
             if let Ok(val) = arg.extract::<String>() {
                 if val.is_empty() {
+                    // Select all on empty string
                     (0..top.0.len()).into_sel_index(&top.0, &st.0, None)?
                 } else {
+                    // Otherwise do normal textual selection
                     val.into_sel_index(&top.0, &st.0, None)?
                 }
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
@@ -422,13 +426,14 @@ impl SystemPy {
                 )
             }
         } else {
+            // No argument, select all
             (0..top.0.len()).into_sel_index(&top.0, &st.0, None)?
         };
 
         Ok(SelPy {
-            top: Py::clone_ref(&bs.top, slf.py()),
-            st: Py::clone_ref(&bs.st, slf.py()),
-            sel: Sel::from_svec(v).unwrap(),
+            top: Py::clone_ref(&bs.top, py),
+            st: Py::clone_ref(&bs.st, py),
+            index,
         })
     }
 
@@ -464,31 +469,33 @@ impl SystemPy {
         Ok(TopologyStateWrite::save(self, fname)?)
     }
 
-    fn remove(slf: &Bound<'_, Self>, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
-        // In the future other types can be used as well
+    fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> anyhow::Result<()> {
+        let py = slf.py();
+        let slf_b = slf.borrow();
         if let Ok(sel) = arg.cast::<SelPy>() {
-            let sb = sel.borrow();
-            slf.borrow_mut()
+            // Selection provided
+            let sb = sel.borrow();    
+            slf_b
                 .top
-                .borrow_mut(arg.py())
+                .borrow_mut(py)
                 .0
                 .remove_atoms(sb.iter_index())?;
-            slf.borrow_mut()
+            slf_b
                 .st
-                .borrow_mut(arg.py())
+                .borrow_mut(py)
                 .0
                 .remove_coords(sb.iter_index())?;
             Ok(())
         } else {
             let sel = Self::__call__(slf, Some(arg))?;
-            slf.borrow_mut()
+            slf_b
                 .top
-                .borrow_mut(arg.py())
+                .borrow_mut(py)
                 .0
                 .remove_atoms(sel.iter_index())?;
-            slf.borrow_mut()
+            slf_b
                 .st
-                .borrow_mut(arg.py())
+                .borrow_mut(py)
                 .0
                 .remove_coords(sel.iter_index())?;
             Ok(())
@@ -498,10 +505,9 @@ impl SystemPy {
     #[pyo3(signature = (*args))]
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> anyhow::Result<()> {
         let py = slf.py();
-        let slfb = &slf.borrow_mut();
-
-        let topb = &mut slfb.top.borrow_mut(py).0;
-        let stb = &mut slfb.st.borrow_mut(py).0;
+        let slf_b = slf.borrow();
+        let topb = &mut slf_b.top.borrow_mut(py).0;
+        let stb = &mut slf_b.st.borrow_mut(py).0;
 
         if args.len() == 1 {
             let arg = args.get_item(0)?;
@@ -590,22 +596,22 @@ impl SystemPy {
 struct SelPy {
     top: Py<TopologyPy>,
     st: Py<StatePy>,
-    sel: Sel,
+    index: SVec,
 }
 
 impl LenProvider for SelPy {
     fn len(&self) -> usize {
-        self.sel.len()
+        self.index.len()
     }
 }
 
 impl IndexProvider for SelPy {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        self.sel.get_index_unchecked(i)
+        self.index.get_index_unchecked(i)
     }
 
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
-        self.sel.iter_index()
+        self.index.iter_index()
     }
 }
 
@@ -654,11 +660,11 @@ impl StateWrite for SelPy {}
 impl TopologyStateWrite for SelPy {}
 
 impl SelPy {
-    fn from_svec(&self, py: Python<'_>, v: SVec) -> Self {
+    fn from_svec(&self, py: Python<'_>, index: SVec) -> Self {
         Self {
             top: Py::clone_ref(&self.top, py),
             st: Py::clone_ref(&self.st, py),
-            sel: Sel::from_svec(v).unwrap(),
+            index,
         }
     }
 }
@@ -666,7 +672,7 @@ impl SelPy {
 #[pymethods]
 impl SelPy {
     fn __len__(&self) -> usize {
-        self.sel.len()
+        self.index.len()
     }
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<SelPy> {
@@ -699,27 +705,30 @@ impl SelPy {
     // Indexing
     fn __getitem__(slf: Bound<Self>, i: isize) -> PyResult<Py<PyAny>> {
         let s = slf.borrow();
+        let n = s.__len__();
         let ind = if i < 0 {
-            if i.abs() > s.__len__() as isize {
+            if i.abs() > n as isize {
                 return Err(anyhow!(
                     "Negative index {i} is out of bounds {}:-1",
-                    -(s.__len__() as isize)
+                    -(n as isize)
                 )
                 .into());
             }
-            s.__len__() - i.unsigned_abs()
-        } else if i >= s.__len__() as isize {
-            return Err(anyhow!("Index {} is out of bounds 0:{}", i, s.__len__()).into());
+            n - i.unsigned_abs()
+        } else if i >= n as isize {
+            return Err(anyhow!("Index {} is out of bounds 0:{}", i, n).into());
         } else {
             i as usize
         };
 
+        let py = slf.py();
+
         Ok(ParticlePy {
-            top: Py::clone_ref(&s.top, slf.py()),
-            st: Py::clone_ref(&s.st, slf.py()),
+            top: Py::clone_ref(&s.top, py),
+            st: Py::clone_ref(&s.st, py),
             id: ind,
         }
-        .into_py_any(slf.py())?)
+        .into_py_any(py)?)
     }
 
     // Iteration protocol
@@ -736,7 +745,7 @@ impl SelPy {
     }
 
     fn get_index<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<usize>> {
-        numpy::PyArray1::from_iter(py, self.sel.iter_index())
+        numpy::PyArray1::from_iter(py, self.index.iter_index())
     }
 
     fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
@@ -746,7 +755,7 @@ impl SelPy {
         unsafe {
             let arr = numpy::PyArray2::<f32>::new(py, [3, self.len()], true);
             let arr_ptr = arr.data();
-            for i in self.sel.iter_index() {
+            for i in self.index.iter_index() {
                 let pos_ptr = coord_ptr.add(i * 3);
                 // This is faster than copying by element with uget_raw()
                 std::ptr::copy_nonoverlapping(pos_ptr, arr_ptr.add(i * 3), 3);
@@ -768,7 +777,7 @@ impl SelPy {
         let coord_ptr = self.st.borrow(py).0.coords.as_ptr() as *mut f32;
 
         unsafe {
-            for i in self.sel.iter_index() {
+            for i in self.index.iter_index() {
                 let pos_ptr = coord_ptr.add(i * 3);
                 std::ptr::copy_nonoverlapping(arr_ptr.add(i * 3), pos_ptr, 3);
             }
@@ -977,7 +986,7 @@ impl SelPy {
             .map(|s| SelPy {
                 top: Py::clone_ref(&self.top, py),
                 st: Py::clone_ref(&self.st, py),
-                sel: s,
+                index: s.into_svec(),
             })
             .collect()
     }
@@ -987,7 +996,7 @@ impl SelPy {
             .map(|s| SelPy {
                 top: Py::clone_ref(&self.top, py),
                 st: Py::clone_ref(&self.st, py),
-                sel: s,
+                index: s.into_svec(),
             })
             .collect()
     }
@@ -997,13 +1006,13 @@ impl SelPy {
             .map(|s| SelPy {
                 top: Py::clone_ref(&self.top, py),
                 st: Py::clone_ref(&self.st, py),
-                sel: s,
+                index: s.into_svec(),
             })
             .collect()
     }
 
     fn to_gromacs_ndx(&self, name: &str) -> String {
-        self.sel.as_gromacs_ndx_str(name)
+        self.index.as_gromacs_ndx_str(name)
     }
 
     // /// operator |
