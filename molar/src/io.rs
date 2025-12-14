@@ -4,12 +4,12 @@ use crate::prelude::*;
 use gro_handler::GroHandlerError;
 use itp_handler::ItpHandlerError;
 use log::{debug, error, warn};
-use triomphe::Arc;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
 };
 use thiserror::Error;
+use triomphe::Arc;
 
 mod gro_handler;
 mod itp_handler;
@@ -24,7 +24,7 @@ use xtc_handler::XtcHandlerError;
 use gro_handler::GroFileHandler;
 use itp_handler::ItpFileHandler;
 use tpr_handler::TprFileHandler;
-use vmd_molfile_handler::{VmdMolFileHandler};
+use vmd_molfile_handler::VmdMolFileHandler;
 use xtc_handler::XtcFileHandler;
 
 //===============================
@@ -33,8 +33,9 @@ use xtc_handler::XtcFileHandler;
 pub trait TopologyWrite: RandomAtomProvider + RandomBondProvider {}
 pub trait StateWrite: RandomPosProvider + BoxProvider + TimeProvider {}
 pub trait TopologyStateWrite: TopologyWrite + StateWrite {
-    fn save(&self, fname: &str) -> Result<(), FileIoError> 
-    where Self: Sized,
+    fn save(&self, fname: &str) -> Result<(), FileIoError>
+    where
+        Self: Sized,
     {
         let mut h = FileHandler::create(fname)?;
         h.write(self)?;
@@ -47,31 +48,37 @@ pub trait TopologyStateWrite: TopologyWrite + StateWrite {
 // If no more data available Eof error is returned
 #[allow(unused_variables)]
 pub(crate) trait FileFormatHandler: Send {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
         Err(FileFormatError::NotReadable)
     }
-    
-    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
+
+    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
         Err(FileFormatError::NotWritable)
     }
-    
+
     fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
         Err(FileFormatError::NotTopologyStateReadFormat)
     }
-    
-    fn read_topology(&mut self) -> Result<Topology, FileFormatError>{
+
+    fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
         Err(FileFormatError::NotTopologyReadFormat)
     }
-    
-    fn read_state(&mut self) -> Result<State, FileFormatError>{
+
+    fn read_state(&mut self) -> Result<State, FileFormatError> {
         Err(FileFormatError::NotStateReadFormat)
     }
-    
+
     fn write(&mut self, data: &dyn TopologyStateWrite) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotTopologyStateWriteFormat)
     }
-    
-    fn write_topology(&mut self, data: &dyn TopologyWrite) -> Result<(), FileFormatError>{
+
+    fn write_topology(&mut self, data: &dyn TopologyWrite) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotTopologyWriteFormat)
     }
 
@@ -114,14 +121,14 @@ impl IoStateIterator {
         use std::sync::mpsc::sync_channel;
         let (sender, receiver) = sync_channel(10);
 
-       //Spawn reading thread
+        //Spawn reading thread
         std::thread::spawn(move || {
             let mut terminate = false;
             while !terminate {
                 let res = fh.read_state();
                 terminate = match res.as_ref() {
-                    Err(_) => true,   // terminate if reading failed or Eof returned
-                    _ => false,       // otherwise continut reading
+                    Err(_) => true, // terminate if reading failed or Eof returned
+                    _ => false,     // otherwise continut reading
                 };
 
                 // Send to channel.
@@ -144,10 +151,14 @@ impl Iterator for IoStateIterator {
         // If it does then something is horrible anyway, so unwrap is fine here.
         match self.receiver.recv().expect("reader thread shouldn't crash") {
             Ok(opt_st) => Some(opt_st),
-            Err(FileIoError(f,e)) => {
+            Err(FileIoError(f, e)) => {
                 match e {
-                    FileFormatError::Eof => {} 
-                    _ => warn!("file '{}' is likely corrupted, reading stopped: {}",f.display(),e),
+                    FileFormatError::Eof => {}
+                    _ => warn!(
+                        "file '{}' is likely corrupted, reading stopped: {}",
+                        f.display(),
+                        e
+                    ),
                 }
                 None
             }
@@ -221,12 +232,23 @@ impl FileHandler {
         let fname = fname.as_ref();
         let ext = get_ext(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?;
         let format_handler: Box<dyn FileFormatHandler> = match ext {
-            "pdb"|"dcd"|"xyz" => Box::new(VmdMolFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "xtc" => Box::new(XtcFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "gro" => Box::new(GroFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "itp" => Box::new(ItpFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "tpr" => Box::new(TprFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            _ => Err(FileFormatError::NotRecognized).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            "pdb" | "dcd" | "xyz" => Box::new(
+                VmdMolFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "xtc" => Box::new(
+                XtcFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "gro" => Box::new(
+                GroFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "itp" => Box::new(
+                ItpFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "tpr" => Box::new(
+                TprFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            _ => Err(FileFormatError::NotRecognized)
+                .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
         };
         Ok(Self {
             file_path: fname.to_path_buf(),
@@ -252,11 +274,21 @@ impl FileHandler {
         let fname = fname.as_ref();
         let ext = get_ext(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?;
         let format_handler: Box<dyn FileFormatHandler> = match ext {
-            "pdb"|"dcd"|"xyz" => Box::new(VmdMolFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "xtc" => Box::new(XtcFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "gro" => Box::new(GroFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            "itp" => Box::new(ItpFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?),
-            _ => Err(FileFormatError::NotRecognized).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            "pdb" | "dcd" | "xyz" => Box::new(
+                VmdMolFileHandler::create(fname)
+                    .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "xtc" => Box::new(
+                XtcFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "gro" => Box::new(
+                GroFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "itp" => Box::new(
+                ItpFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            _ => Err(FileFormatError::NotRecognized)
+                .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
         };
         Ok(Self {
             file_path: fname.to_path_buf(),
@@ -347,7 +379,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support topology writing
-    pub fn write_topology(&mut self, data: &dyn TopologyWrite) -> Result<(), FileIoError>{
+    pub fn write_topology(&mut self, data: &dyn TopologyWrite) -> Result<(), FileIoError> {
         let t = std::time::Instant::now();
 
         self.format_handler
@@ -432,7 +464,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if:
-    /// - Format doesn't support random access  
+    /// - Format doesn't support random access
     /// - Time value is invalid
     pub fn seek_time(&mut self, t: f32) -> Result<(), FileIoError> {
         Ok(self
@@ -483,10 +515,7 @@ impl FileHandler {
 
     /// Consumes frames until reaching serial frame number `fr` (which is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
-    pub fn skip_to_frame(
-        &mut self,
-        fr: usize,
-    ) -> Result<(), FileIoError> {
+    pub fn skip_to_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         // Try random-access first
         self.seek_frame(fr).or_else(|_| {
             // Not a random access trajectory
@@ -495,7 +524,10 @@ impl FileHandler {
                 Ok(())
             } else if self.stats.frames_processed > fr {
                 // We are past the needed frame, return error
-                Err(FileIoError(self.file_path.to_path_buf(),FileFormatError::SeekFrame(fr)))
+                Err(FileIoError(
+                    self.file_path.to_path_buf(),
+                    FileFormatError::SeekFrame(fr),
+                ))
             } else {
                 // Do serial read until reaching needed frame or EOF
                 while self.stats.frames_processed < fr {
@@ -508,16 +540,16 @@ impl FileHandler {
 
     /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
-    pub fn skip_to_time(
-        &mut self,
-        t: f32,
-    ) -> Result<(), FileIoError> {
+    pub fn skip_to_time(&mut self, t: f32) -> Result<(), FileIoError> {
         // Try random-access first
         self.seek_time(t).or_else(|_| {
             // Not a random access trajectory
             if self.stats.cur_t > t {
                 // We are past the needed time, return error
-                Err(FileIoError(self.file_path.to_path_buf(),FileFormatError::SeekTime(t)))
+                Err(FileIoError(
+                    self.file_path.to_path_buf(),
+                    FileFormatError::SeekTime(t),
+                ))
             } else {
                 // Do serial read until reaching needed time or EOF
                 while self.stats.cur_t < t {
@@ -552,7 +584,7 @@ impl IntoIterator for FileHandler {
 // Implementation of IO traits for tuples
 macro_rules! impl_io_traits_for_tuples {
     ( $t:ty, $s:ty ) => {
-        impl LenProvider for ($t,$s) {
+        impl LenProvider for ($t, $s) {
             fn len(&self) -> usize {
                 self.0.len()
             }
@@ -578,7 +610,7 @@ macro_rules! impl_io_traits_for_tuples {
             fn num_molecules(&self) -> usize {
                 self.0.num_molecules()
             }
-            
+
             unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
                 self.0.get_molecule_unchecked(i)
             }
@@ -633,7 +665,7 @@ macro_rules! impl_io_traits_for_tuples {
 }
 
 impl_io_traits_for_tuples!(Topology, State);
-impl_io_traits_for_tuples!(Arc<Topology>,Arc<State>);
+impl_io_traits_for_tuples!(Arc<Topology>, Arc<State>);
 
 //--------------------------------------------------------
 /// An error that occurred during file IO operations
@@ -644,9 +676,6 @@ pub struct FileIoError(pub(crate) PathBuf, #[source] pub(crate) FileFormatError)
 /// Errors that can occur when handling different file formats
 #[derive(Error, Debug)]
 pub(crate) enum FileFormatError {
-    #[error("when saving selection")]
-    Bind(#[from] BindError),
-
     #[error("end of file reached")]
     Eof,
 
@@ -711,7 +740,7 @@ pub(crate) enum FileFormatError {
 
     #[error("unexpected io error")]
     Io(#[from] std::io::Error),
-    
+
     #[error("file extension is not recognized")]
     NotRecognized,
 }

@@ -1,5 +1,3 @@
-use crate::core::BindError;
-
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
@@ -18,9 +16,6 @@ use thiserror::Error;
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
 pub enum MeasureError {
-    #[error("in measure")]
-    Bind(#[from] BindError),
-
     /// Mismatch in sizes between two selections
     #[error("incompatible sizes: {0} and {1}")]
     Sizes(usize, usize),

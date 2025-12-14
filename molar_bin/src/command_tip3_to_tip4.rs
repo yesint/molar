@@ -49,11 +49,11 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        let added = out.append_atoms_pos(
+        let added = out.append_atoms_coords(
             mol.iter_atoms().chain(iter::once(&m_at)),
             mol.iter_pos().chain(iter::once(&m_pos)),
         )?;
-        
+
         // Change resname for added atoms
         out.select_mut(added)?.set_same_resname("TIP4");
     }

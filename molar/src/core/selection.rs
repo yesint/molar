@@ -37,9 +37,6 @@ pub struct TopologyStateSizesError(usize, usize);
 /// Error related to creation of selections
 #[derive(Error, Debug)]
 pub enum SelectionError {
-    #[error(transparent)]
-    Bind(#[from] BindError),
-
     #[error("selection parser failed")]
     Parser(#[from] SelectionParserError),
 
@@ -200,25 +197,25 @@ mod tests {
         let _sel2 = b.select_as_index(11..15).unwrap();
     }
 
-    fn make_sel_all() -> anyhow::Result<(System,SelIndex)> {
+    fn make_sel_all() -> anyhow::Result<(System, SelIndex)> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let b = System::new(top, st)?;
         let sel = b.select_all_as_index();
-        Ok((b,sel))
+        Ok((b, sel))
     }
 
-    fn make_sel_prot() -> anyhow::Result<(System,SelIndex)> {
+    fn make_sel_prot() -> anyhow::Result<(System, SelIndex)> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let b = System::new(top, st)?;
         let sel = b.select_as_index("not resname TIP3 POT CLA")?;
-        Ok((b,sel))
+        Ok((b, sel))
     }
 
     #[test]
     fn test_measure() -> anyhow::Result<()> {
-        let (sys,sel) = make_sel_all()?;
+        let (sys, sel) = make_sel_all()?;
         let sel = sys.select(sel)?;
         println!("before {}", sel.iter_pos().next().unwrap());
 
@@ -233,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_measure_pbc() -> anyhow::Result<()> {
-        let (sys,sel) = make_sel_all()?;
+        let (sys, sel) = make_sel_all()?;
         let sel = sys.select(sel)?;
         let cm = sel.center_of_mass()?;
         println!("{cm}");
@@ -242,9 +239,10 @@ mod tests {
 
     #[test]
     fn test_translate() -> anyhow::Result<()> {
-        let (mut sys,ind) = make_sel_all()?;
+        let (mut sys, ind) = make_sel_all()?;
         println!("before {}", sys.bind(&ind)?.iter_pos().next().unwrap());
-        sys.bind_mut(&ind)?.translate(&Vector3f::new(10.0, 10.0, 10.0));
+        sys.bind_mut(&ind)?
+            .translate(&Vector3f::new(10.0, 10.0, 10.0));
         println!("after {}", sys.bind(&ind)?.iter_pos().next().unwrap());
         Ok(())
     }
@@ -257,10 +255,9 @@ mod tests {
 
         // let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         // h.write(&sel)?;
-         
-         
-        println!("test {:p}",&sel);
-        println!("out {}",env!("OUT_DIR"));
+
+        println!("test {:p}", &sel);
+        println!("out {}", env!("OUT_DIR"));
 
         //h.write(&sel)?;
         Ok(())
@@ -268,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
-        let (mut sys,ind) = make_sel_prot()?;
+        let (mut sys, ind) = make_sel_prot()?;
         sys.bind_mut(&ind)?.unwrap_connectivity_dim(0.2, PBC_FULL)?;
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
@@ -280,10 +277,11 @@ mod tests {
 
     #[test]
     fn eigen_test() -> anyhow::Result<()> {
-        let (mut sys,ind1) = make_sel_prot()?;
-        let (_,ind2) = make_sel_prot()?;
+        let (mut sys, ind1) = make_sel_prot()?;
+        let (_, ind2) = make_sel_prot()?;
 
-        sys.bind_mut(&ind2)?.rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
+        sys.bind_mut(&ind2)?
+            .rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
 
         let sel1 = sys.bind(&ind1)?;
         let sel2 = sys.bind(&ind2)?;
@@ -305,7 +303,7 @@ mod tests {
 
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
-        let (sys,ind) = make_sel_all()?;
+        let (sys, ind) = make_sel_all()?;
         let res = sys.select(ind)?.sasa();
         println!(
             "Sasa: {a}, Volume: {v}",
@@ -317,7 +315,7 @@ mod tests {
 
     #[test]
     fn tets_gyration() -> anyhow::Result<()> {
-        let (sys,ind) = make_sel_prot()?;
+        let (sys, ind) = make_sel_prot()?;
         let g = sys.bind(&ind)?.gyration_pbc()?;
         println!("Gyration radius: {g}");
         Ok(())
@@ -325,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_inertia() -> anyhow::Result<()> {
-        let (sys,ind) = make_sel_all()?;
+        let (sys, ind) = make_sel_all()?;
         //sel1.rotate(
         //    &UnitVector3::new_normalize(Vector3f::new(1.0,2.0,3.0)),
         //    0.45
@@ -341,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_principal_transform() -> anyhow::Result<()> {
-        let (mut sys,ind) = make_sel_prot()?;
+        let (mut sys, ind) = make_sel_prot()?;
         let sel1 = sys.bind(&ind)?;
         let tr = sel1.principal_transform()?;
         println!("Transform: {tr}");
@@ -368,7 +366,7 @@ mod tests {
 
         let sel = builder.select_as_index("resid 550:560")?;
         let added = sel.len();
-        builder.append_self_sel(&sel)?;
+        builder.append_self_index(&sel)?;
         let all = builder.select_all_as_index();
         assert_eq!(all.len(), n + added);
         Ok(())
@@ -441,18 +439,19 @@ mod tests {
     fn as_parrallel_test() -> anyhow::Result<()> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
-        let mut ser = System::new(top, st)?;
+        let mut sys = System::new(top, st)?;
 
-        let parts = ser.split_par(|p| Some(p.atom.resindex))?;
-        let coms = parts.bind_mut(&mut ser)?
-            .iter_par()
+        let parts = sys.split_par(|p| Some(p.atom.resindex))?;
+        let coms = sys
+            .bind_par(&parts)?
+            .par_iter()
             .map(|sel| sel.center_of_mass())
             .collect::<Result<Vec<_>, _>>()?;
 
-        parts.bind_mut(&mut ser)?
-            .iter_par_mut()
+        sys.bind_par(&parts)?
+            .par_iter()
             .enumerate()
-            .for_each(|(i, sel)| sel.translate(&(-coms[i].coords)));
+            .for_each(|(i, mut sel)| sel.translate(&(-coms[i].coords)));
 
         println!("{:?}", coms);
 

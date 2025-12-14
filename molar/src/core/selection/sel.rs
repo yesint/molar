@@ -1,23 +1,11 @@
+use crate::prelude::*;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator};
 use std::path::Path;
-
-use nalgebra::{Const, IsometryMatrix3, Unit};
-use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
 use thiserror::Error;
 
-use crate::prelude::*;
-
-#[derive(Error, Debug)]
-pub enum BindError {
-    #[error("can't bind selection immutably: last index {0} is out of bounds (0:{1})")]
-    Immut(usize, usize),
-    #[error("can't bind selection mutably: last index {0} is out of bounds (0:{1})")]
-    Mut(usize, usize),
-}
 //===========================================================================
-/// Selection is just an index detached from the Topology and State.
-/// Has to be bound to System before doing something with the subset of atoms.
-/// It is guaranteed to be non-empty so no run-time checks for this
-/// are needed when binding to system
+/// Selection index detached from any [System].
+/// It is guaranteed to be non-empty.
 //===========================================================================
 pub struct SelIndex(pub(crate) SVec);
 
@@ -42,9 +30,9 @@ impl SelIndex {
         }
     }
 
-    fn from_iter(iter: impl Iterator<Item = usize>) -> Self {
-        let v = iter.collect();
-        Self(unsafe { SVec::from_sorted(v) })
+    fn from_iter(iter: impl Iterator<Item = usize>) -> Result<Self, SelectionError> {
+        let index: Vec<_> = iter.collect();
+        Ok(Self::from_vec(index)?)
     }
 }
 
@@ -123,12 +111,12 @@ impl System {
     /// Binds detached selection index to make borrowed selection.
     /// `ind`  is not consumed.
     pub fn bind<'a>(&'a self, ind: &'a SelIndex) -> Result<SelBorrowing<'a>, SelectionError> {
-        if ind.0.is_empty() {
-            Err(SelectionError::EmptySlice)
-        } else if *ind.0.last().unwrap() >= self.top.len() {
+        // No need to check for empty index since it's guaranteed to be non-empty
+        let last = unsafe { *ind.0.get_unchecked(ind.0.len()) };
+        if last >= self.top.len() {
             Err(SelectionError::IndexValidation(
                 *ind.0.first().unwrap(),
-                *ind.0.last().unwrap(),
+                last,
                 self.top.len() - 1,
             ))
         } else {
@@ -145,12 +133,12 @@ impl System {
         &'a mut self,
         ind: &'a SelIndex,
     ) -> Result<SelBorrowingMut<'a>, SelectionError> {
-        if ind.0.is_empty() {
-            Err(SelectionError::EmptySlice)
-        } else if *ind.0.last().unwrap() >= self.top.len() {
+        // No need to check for empty index since it's guaranteed to be non-empty
+        let last = unsafe { *ind.0.get_unchecked(ind.0.len()) };
+        if last >= self.top.len() {
             Err(SelectionError::IndexValidation(
                 *ind.0.first().unwrap(),
-                *ind.0.last().unwrap(),
+                last,
                 self.top.len() - 1,
             ))
         } else {
@@ -158,6 +146,22 @@ impl System {
                 sys: self,
                 index: ind.0.as_slice(),
             })
+        }
+    }
+
+    // TODO: This function allocated a vector each time when called!
+    // This is inefficient. Think how to pre-allocate.
+    pub fn bind_par<'a>(
+        &'a mut self,
+        par: &'a ParSplit,
+    ) -> Result<ParSplitBound<'a>, SelectionError> {
+        if par.max_index < self.top.len() {
+            Ok(ParSplitBound {
+                sys: self,
+                indexes: &par.selections,
+            })
+        } else {
+            Err(SelectionError::OutOfBounds(par.max_index, self.top.len()))
         }
     }
 
@@ -201,21 +205,24 @@ impl System {
     //===============
 
     /// Append selection derived from self
-    pub fn append_self_sel(&mut self, sel: &SelIndex) -> Result<SelIndex, SelectionError> {
+    pub fn append_self_index(&mut self, sel: &SelIndex) -> Result<SelIndex, SelectionError> {
         let old_last = self.len() - 1;
-        let ind = sel.0.len() - 1;
-        let last_ind = unsafe { *sel.0.get_unchecked(ind) };
+        let last_ind = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
         if last_ind >= self.top.len() {
-            return Err(BindError::Mut(last_ind, self.top.len()))?;
+            return Err(SelectionError::IndexValidation(
+                sel.0[0],
+                last_ind,
+                self.top.len(),
+            ))?;
         }
         let pos: Vec<_> = sel.0.iter().map(|i| &self.st.coords[*i]).cloned().collect();
         let atoms: Vec<_> = sel.0.iter().map(|i| &self.top.atoms[*i]).cloned().collect();
         self.st.add_coords(pos.into_iter());
         self.top.add_atoms(atoms.into_iter());
-        Ok(SelIndex::from_iter(old_last + 1..self.len()))
+        Ok(SelIndex::from_iter(old_last + 1..self.len())?)
     }
 
-    pub fn append_atoms_pos<'a>(
+    pub fn append_atoms_coords<'a>(
         &mut self,
         atoms: impl AtomIterator<'a>,
         coords: impl PosIterator<'a>,
@@ -224,7 +231,7 @@ impl System {
         self.st.add_coords(coords.cloned());
         self.top.add_atoms(atoms.cloned());
         check_topology_state_sizes(&self.top, &self.st)?;
-        Ok(SelIndex::from_iter(old_last + 1..self.len()))
+        Ok(SelIndex::from_iter(old_last + 1..self.len())?)
     }
 
     pub fn append(
@@ -235,7 +242,7 @@ impl System {
         self.st.add_coords(data.iter_pos().cloned());
         self.top.add_atoms(data.iter_atoms().cloned());
         check_topology_state_sizes(&self.top, &self.st)?;
-        Ok(SelIndex::from_iter(old_last + 1..self.len()))
+        Ok(SelIndex::from_iter(old_last + 1..self.len())?)
     }
 
     pub fn remove(
@@ -263,7 +270,7 @@ impl System {
                     if x == 0 && y == 0 && z == 0 {
                         continue;
                     }
-                    let added = self.append_self_sel(&all)?;
+                    let added = self.append_self_index(&all)?;
                     let shift =
                         m.column(0) * x as f32 + m.column(1) * y as f32 + m.column(2) * z as f32;
                     self.select_mut(added)?.translate(&shift);
@@ -352,7 +359,7 @@ impl NonAtomPosAnalysisMut for System {
 /// Implements only read-only analysis traits
 //================================================
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct Sel<'a> {
     sys: &'a System,
     index: SVec,
@@ -525,7 +532,7 @@ impl NonAtomPosAnalysisMut for SelMut<'_> {
 /// Implements only read-only analysis traits
 //================================================
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct SelBorrowing<'a> {
     sys: &'a System,
     index: &'a [usize],
@@ -542,7 +549,7 @@ impl SelBorrowing<'_> {
     }
 
     pub fn clone_index(&self) -> SelIndex {
-        SelIndex( SVec::from_iter(self.index.iter().cloned()) )
+        SelIndex(SVec::from_iter(self.index.iter().cloned()))
     }
 }
 
@@ -605,7 +612,7 @@ impl SelBorrowingMut<'_> {
     }
 
     pub fn clone_index(&self) -> SelIndex {
-        SelIndex( SVec::from_iter(self.index.iter().cloned()) )
+        SelIndex(SVec::from_iter(self.index.iter().cloned()))
     }
 }
 
@@ -669,22 +676,22 @@ impl NonAtomPosAnalysisMut for SelBorrowingMut<'_> {
 /// Read-write subsystem for non-blocking parallel access to atoms and posisitons
 /// Doesn't have access to shared fields such as box and bonds.
 //================================================
-pub struct SubSystemParMut<'a> {
+pub struct SelPar<'a> {
     coords_ptr: *mut Pos,
     atoms_ptr: *mut Atom,
     index: &'a [usize],
 }
 
-unsafe impl Sync for SubSystemParMut<'_> {}
-unsafe impl Send for SubSystemParMut<'_> {}
+unsafe impl Sync for SelPar<'_> {}
+unsafe impl Send for SelPar<'_> {}
 
-impl LenProvider for SubSystemParMut<'_> {
+impl LenProvider for SelPar<'_> {
     fn len(&self) -> usize {
         self.index.len()
     }
 }
 
-impl IndexProvider for SubSystemParMut<'_> {
+impl IndexProvider for SelPar<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         *self.index.get_unchecked(i)
     }
@@ -694,7 +701,7 @@ impl IndexProvider for SubSystemParMut<'_> {
     }
 }
 
-impl AtomPosAnalysis for SubSystemParMut<'_> {
+impl AtomPosAnalysis for SelPar<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.atoms_ptr
     }
@@ -704,7 +711,7 @@ impl AtomPosAnalysis for SubSystemParMut<'_> {
     }
 }
 
-impl AtomPosAnalysisMut for SubSystemParMut<'_> {
+impl AtomPosAnalysisMut for SelPar<'_> {
     fn atoms_ptr_mut(&mut self) -> *mut Atom {
         self.atoms_ptr
     }
@@ -724,52 +731,28 @@ pub struct ParSplit {
 }
 
 /// Bound parallel split
-pub struct ParSplitBound<'a>(Vec<SubSystemParMut<'a>>);
-
-impl ParSplit {
-    /// Binds split to System for read-write access
-    pub fn bind_mut<'a>(
-        &'a self,
-        sys: &'a mut System,
-    ) -> Result<ParSplitBound<'a>, SelectionError> {
-        // The cost calling is just one comparison
-        if self.max_index < sys.top.len() {
-            // Bind each selection in mutable parallel way
-            let bound_sels: Vec<_> = self
-                .selections
-                .iter()
-                .map(|sel| SubSystemParMut {
-                    index: &sel.0,
-                    coords_ptr: sys.st.coords.as_mut_ptr(),
-                    atoms_ptr: sys.top.atoms.as_mut_ptr(),
-                })
-                .collect();
-            Ok(ParSplitBound(bound_sels))
-        } else {
-            Err(SelectionError::OutOfBounds(0, 0))
-        }
-    }
+pub struct ParSplitBound<'a> {
+    sys: &'a mut System,
+    indexes: &'a Vec<SelIndex>,
 }
 
 impl<'a> ParSplitBound<'a> {
-    /// Returns parallel iterator over stored parallel selections.
-    pub fn iter_par(&'a self) -> rayon::slice::Iter<'a, SubSystemParMut<'a>> {
-        self.0.par_iter()
+    /// Returns parallel iterator over parallel selections.
+    pub fn par_iter(&'a mut self) -> impl IndexedParallelIterator<Item = SelPar<'a>> {
+        self.indexes.par_iter().map(|ind| SelPar {
+            index: &ind.0,
+            atoms_ptr: self.sys.atoms_ptr() as *mut Atom,
+            coords_ptr: self.sys.coords_ptr() as *mut Pos,
+        })
     }
 
-    /// Returns parallel mutable iterator over stored parallel selections.
-    pub fn iter_par_mut(&'a mut self) -> rayon::slice::IterMut<'a, SubSystemParMut<'a>> {
-        self.0.par_iter_mut()
-    }
-
-    /// Returns serial iterator over stored parallel selections.
-    pub fn iter(&'a self) -> impl Iterator<Item = &'a SubSystemParMut<'a>> {
-        self.0.iter()
-    }
-
-    /// Returns serial mutable iterator over stored parallel selections.
-    pub fn iter_mut(&'a mut self) -> impl Iterator<Item = &'a mut SubSystemParMut<'a>> {
-        self.0.iter_mut()
+    /// Returns serial iterator over parallel selections.
+    pub fn iter(&'a self) -> impl Iterator<Item = SelPar<'a>> {
+        self.indexes.iter().map(|ind| SelPar {
+            index: &ind.0,
+            atoms_ptr: self.sys.atoms_ptr() as *mut Atom,
+            coords_ptr: self.sys.coords_ptr() as *mut Pos,
+        })
     }
 }
 
@@ -799,9 +782,8 @@ mod tests {
             println!("{} {}", at.name, at.resname);
         }
 
-        let sel1 = sel1.into_index();
-        let mut lock = sys.select_mut(sel1)?;
-        for at in lock.iter_atoms_mut() {
+        let ind = sel1.into_index();
+        for at in sys.bind_mut(&ind)?.iter_atoms_mut() {
             at.bfactor += 1.0;
         }
 
@@ -827,11 +809,13 @@ mod tests {
             }
         })?;
 
-        par.bind_mut(&mut sys)?.iter_par_mut().try_for_each(|sel| {
-            println!("{} {}", sel.len(), sel.first_atom().resname);
+        sys.bind_par(&par)?.par_iter().try_for_each(|mut sel| {
+            //println!("{} {}", sel.len(), sel.first_atom().resname);
             if sel.first_atom().resname == "ALA" {
-                sel.first_pos_mut().coords.add_scalar_mut(1.0);
+                sel.first_pos_mut().coords[1] = 555.5;
                 println!("{}", sel.first_pos());
+            } else {
+                sel.first_pos_mut().coords[1] = 777.7;
             }
             Ok::<_, SelectionError>(())
         })?;
@@ -841,12 +825,12 @@ mod tests {
         let cb = sys.select("name CB")?;
         println!("#ca: {} {}", ca.len(), cb.center_of_mass()?);
 
-        for a in cb.iter_atoms() {
+        for a in cb.iter_atoms().take(10) {
             println!("{}", a.name);
         }
 
         //Iter serial views
-        let b = par.bind_mut(&mut sys)?;
+        let b = sys.bind_par(&par)?;
         let serials: Vec<_> = b.iter().collect();
         println!("serial #5: {}", serials[5].first_particle().pos);
 
