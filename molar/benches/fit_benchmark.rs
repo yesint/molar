@@ -9,11 +9,11 @@ fn read_test_pdb() -> (Topology, State) {
     (top, state)
 }
 
-fn make_sel_prot() -> anyhow::Result<Sel> {
+fn make_sel_prot() -> anyhow::Result<SelIndex> {
     let (top, st) = read_test_pdb();
     let b = System::new(top, st).unwrap();
     //let sel = b.select("not resname TIP3 POT CLA").unwrap();
-    let sel = b.select_all().unwrap();
+    let sel = b.select_all_as_index().unwrap();
     Ok(sel)
 }
 

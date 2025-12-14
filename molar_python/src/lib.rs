@@ -982,7 +982,7 @@ impl SelPy {
     }
 
     fn split_resindex(&self, py: Python<'_>) -> Vec<SelPy> {
-        self.split_resindex_iter()
+        self.split_resindex_as_index()
             .map(|s| SelPy {
                 top: Py::clone_ref(&self.top, py),
                 st: Py::clone_ref(&self.st, py),
@@ -992,7 +992,7 @@ impl SelPy {
     }
 
     fn split_chain(&self, py: Python<'_>) -> Vec<SelPy> {
-        self.split_iter(|p| Some(p.atom.chain))
+        self.split_as_index(|p| Some(p.atom.chain))
             .map(|s| SelPy {
                 top: Py::clone_ref(&self.top, py),
                 st: Py::clone_ref(&self.st, py),

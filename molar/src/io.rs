@@ -768,8 +768,8 @@ mod tests {
         println!("#1: {}", top1.len());
 
         let mut sys = System::new(top1, st2)?;
-        let sel = sys.select_all();
-        sel.try_bind_mut(&mut sys)?.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
+        let mut sel = sys.select_all_mut();
+        sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");

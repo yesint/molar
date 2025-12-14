@@ -7,8 +7,8 @@ fn molar_benchmark(c: &mut Criterion) {
     c.bench_function("align", |b| {
         b.iter(black_box(|| {
             let src = System::from_file("tests/protein.pdb").unwrap();
-            let ref_sel = src.select_all().unwrap();
-            let mut cur_sel = src.select_all().unwrap();
+            let ref_sel = src.select_all_as_index().unwrap();
+            let mut cur_sel = src.select_all_as_index().unwrap();
 
             let mut rmsd = vec![];
 
@@ -26,7 +26,7 @@ fn molar_benchmark(c: &mut Criterion) {
     c.bench_function("within", |b| {
         b.iter(black_box(|| {
             let src = System::from_file("tests/protein.pdb").unwrap();
-            let mut sel = src.select("within 1.0 of resid 560").unwrap();
+            let mut sel = src.select_as_index("within 1.0 of resid 560").unwrap();
             let mut cm = vec![];
             let trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
             for st in trj {
@@ -40,7 +40,7 @@ fn molar_benchmark(c: &mut Criterion) {
     c.bench_function("trjconv", |b| {
         b.iter(black_box(|| {
             let src = System::from_file("tests/protein.pdb").unwrap();
-            let mut sel = src.select("resid 560").unwrap();
+            let mut sel = src.select_as_index("resid 560").unwrap();
 
             let in_trj = FileHandler::open("tests/protein.xtc").unwrap().into_iter();
             let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();

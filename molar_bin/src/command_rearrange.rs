@@ -35,13 +35,13 @@ pub(super) fn command_rearrange(
     let begin_sels = begin
         .iter()
         .map(|s| in_sys.select(s))
-        .collect::<Result<Vec<Sel>,_>>()
+        .collect::<Result<Vec<_>,_>>()
         .with_context(|| "can't create begin selections for rearranging")?;
 
     let end_sels = end
         .iter()
         .map(|s| in_sys.select(s))
-        .collect::<Result<Vec<Sel>,_>>()
+        .collect::<Result<Vec<_>,_>>()
         .with_context(|| "can't create end selections for rearranging")?;
 
     // Check overlap of selections
@@ -63,20 +63,21 @@ pub(super) fn command_rearrange(
 
     // Create output builder
     let mut out = System::default();
+
     // Add beginning selections
     for sel in begin_sels {
-        out.append(&sel.bind(&in_sys));
+        out.append(&sel)?;
     }
 
     // Add the rest if any
     if let Some(rest) = rest_sel {
         info!("There are {} untouched atoms", rest.len());
-        out.append(&rest.bind(&in_sys));
+        out.append(&rest)?;
     }
 
     // Add ending selections
     for sel in end_sels {
-        out.append(&sel.bind(&in_sys));
+        out.append(&sel)?;
     }
 
     info!("Writing rearranged to '{outfile}'...");

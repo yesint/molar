@@ -24,7 +24,7 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
         R: Default + PartialOrd,
         Self: Sized,
     {
-        let selections: Vec<Sel> = self.split_iter(func).collect();
+        let selections: Vec<SelIndex> = self.split_as_index(func).collect();
 
         if selections.is_empty() {
             return Err(SelectionError::EmptySplit);
@@ -44,7 +44,7 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
     }
 
     // Internal splitting function
-    fn split_iter<RT, F>(&self, func: F) -> impl Iterator<Item = Sel>
+    fn split_as_index<RT, F>(&self, func: F) -> impl Iterator<Item = SelIndex>
     where
         RT: Default + std::cmp::PartialEq,
         F: Fn(Particle) -> Option<RT>,
@@ -72,7 +72,7 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
                     } else {
                         // The end of current selection
                         cur_val = val; // Update val for the next selection
-                        return Some(Sel(unsafe { SVec::from_sorted(index) }));
+                        return Some(SelIndex(unsafe { SVec::from_sorted(index) }));
                     }
                 }
                 // Next particle
@@ -81,7 +81,7 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
 
             // Return any remaining index as last selection
             if !index.is_empty() {
-                return Some(Sel(unsafe { SVec::from_sorted(index) }));
+                return Some(SelIndex(unsafe { SVec::from_sorted(index) }));
             }
 
             // If we are here stop iterating
@@ -91,8 +91,8 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
         std::iter::from_fn(next_fn)
     }
 
-    fn split_resindex_iter(&self) -> impl Iterator<Item = Sel> {
-        self.split_iter(|p| Some(p.atom.resindex))
+    fn split_resindex_as_index(&self) -> impl Iterator<Item = SelIndex> {
+        self.split_as_index(|p| Some(p.atom.resindex))
     }
 
     /// Creates an "expanded" selection that includes all atoms with the same attributes as encountered in current selection.
@@ -104,7 +104,7 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
     /// let sel = system.select("name CA and resid 1:10")?;
     /// let whole_res = sel.whole_attr(|atom| &atom.resid);
     /// ```
-    fn whole_attr<T>(&self, attr_fn: fn(&Atom) -> &T) -> Sel
+    fn whole_attr<T>(&self, attr_fn: fn(&Atom) -> &T) -> SelIndex
     where
         T: Eq + std::hash::Hash + Copy,
     {
@@ -123,16 +123,16 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
             }
         }
 
-        Sel(unsafe { SVec::from_sorted(ind) })
+        SelIndex(unsafe { SVec::from_sorted(ind) })
     }
 
     /// Selects whole residiues present in the current selection (in terms of resindex)
-    fn whole_residues(&self) -> Sel {
+    fn whole_residues(&self) -> SelIndex {
         self.whole_attr(|at| &at.resindex)
     }
 
     /// Selects whole chains present in the current selection
-    fn whole_chains(&self) -> Sel {
+    fn whole_chains(&self) -> SelIndex {
         self.whole_attr(|at| &at.chain)
     }
 
@@ -161,7 +161,7 @@ pub trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
     /// Splits by molecule and returns an iterator over them.
     /// If molecule is only partially contained in self then only this part is returned (molecules are clipped).
     /// If there are no molecules in [Topology] return an empty iterator.
-    fn split_mol_iter(&self) -> impl Iterator<Item = Sel>
+    fn split_mol_iter(&self) -> impl Iterator<Item = SelIndex>
     where
         Self: Sized,
     {
@@ -195,7 +195,7 @@ pub trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
                 }
                 None => None,
             }
-            .map(|r| Sel(unsafe { SVec::from_sorted(r.into_iter().collect()) }));
+            .map(|r| SelIndex(unsafe { SVec::from_sorted(r.into_iter().collect()) }));
 
             molid += 1;
             res
