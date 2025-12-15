@@ -15,7 +15,6 @@ mod selection_parser;
 mod distance_search;
 mod connectivity;
 mod ndx_file;
-//mod system;
 
 pub use {
     atom::*, 
@@ -31,7 +30,6 @@ pub use {
     distance_search::*,
     connectivity::*,
     ndx_file::*,
-    
 };
 
 // Aliases for vector and points

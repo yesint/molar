@@ -195,7 +195,7 @@ pub trait AnalysisTask<A: clap::Args> {
                 // If we are here than the frame is valid
                 if let Some(ref mut ctx) = context {
                     // Context is initialized already, update it with current state
-                    ctx.src.set_state(state)?;
+                    ctx.sys.set_state(state)?;
                     // Process frame
                     inst.as_mut()
                         .unwrap()
@@ -244,7 +244,7 @@ where
     let context = AnalysisContext {
         args,
         consumed_frames: 0,
-        src: System::new(top, state)?,
+        sys: System::new(top, state)?,
     };
 
     // Create analysis object instance
@@ -258,7 +258,7 @@ where
 
 /// Context passed to all frame processing methods
 pub struct AnalysisContext<A> {
-    pub src: System,
+    pub sys: System,
     pub consumed_frames: usize,
     pub args: A,
 }
