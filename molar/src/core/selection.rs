@@ -11,12 +11,19 @@ use std::num::ParseIntError;
 pub use molar_powersasa::SasaResults;
 pub use selection_def::*;
 pub(crate) use utils::*;
+
+mod system;
+pub use system::*;
+
 mod sel;
 pub use sel::*;
+
 mod traits;
 pub use traits::*;
 
-mod sel_shared;
+mod par_split;
+pub use par_split::*;
+//mod sel_shared;
 
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;
@@ -443,13 +450,13 @@ mod tests {
 
         let parts = sys.split_par(|p| Some(p.atom.resindex))?;
         let coms = sys
-            .bind_par(&parts)?
-            .par_iter()
+            .bind_par_mut(&parts)?
+            .par_iter_mut()
             .map(|sel| sel.center_of_mass())
             .collect::<Result<Vec<_>, _>>()?;
 
-        sys.bind_par(&parts)?
-            .par_iter()
+        sys.bind_par_mut(&parts)?
+            .par_iter_mut()
             .enumerate()
             .for_each(|(i, mut sel)| sel.translate(&(-coms[i].coords)));
 

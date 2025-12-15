@@ -474,30 +474,14 @@ impl SystemPy {
         let slf_b = slf.borrow();
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
-            let sb = sel.borrow();    
-            slf_b
-                .top
-                .borrow_mut(py)
-                .0
-                .remove_atoms(sb.iter_index())?;
-            slf_b
-                .st
-                .borrow_mut(py)
-                .0
-                .remove_coords(sb.iter_index())?;
+            let sb = sel.borrow();
+            slf_b.top.borrow_mut(py).0.remove_atoms(sb.iter_index())?;
+            slf_b.st.borrow_mut(py).0.remove_coords(sb.iter_index())?;
             Ok(())
         } else {
             let sel = Self::__call__(slf, Some(arg))?;
-            slf_b
-                .top
-                .borrow_mut(py)
-                .0
-                .remove_atoms(sel.iter_index())?;
-            slf_b
-                .st
-                .borrow_mut(py)
-                .0
-                .remove_coords(sel.iter_index())?;
+            slf_b.top.borrow_mut(py).0.remove_atoms(sel.iter_index())?;
+            slf_b.st.borrow_mut(py).0.remove_coords(sel.iter_index())?;
             Ok(())
         }
     }
@@ -708,11 +692,9 @@ impl SelPy {
         let n = s.__len__();
         let ind = if i < 0 {
             if i.abs() > n as isize {
-                return Err(anyhow!(
-                    "Negative index {i} is out of bounds {}:-1",
-                    -(n as isize)
-                )
-                .into());
+                return Err(
+                    anyhow!("Negative index {i} is out of bounds {}:-1", -(n as isize)).into(),
+                );
             }
             n - i.unsigned_abs()
         } else if i >= n as isize {
@@ -1084,8 +1066,8 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<Isome
 }
 
 #[pyfunction]
-fn rmsd(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<f32> {
-    Ok(MeasurePos::rmsd(sel1, sel2)?)
+fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<f32> {
+    Ok(rmsd(sel1, sel2)?)
 }
 
 #[pyfunction(name = "rmsd_mw")]
@@ -1274,7 +1256,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform_py, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform_matching_py, m)?)?;
-    m.add_function(wrap_pyfunction!(rmsd, m)?)?;
+    m.add_function(wrap_pyfunction!(rmsd_py, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd_mw_py, m)?)?;
     m.add_function(wrap_pyfunction!(distance_search, m)?)?;
     //m.add_class::<LipidMolecule>()?;

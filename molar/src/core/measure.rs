@@ -72,24 +72,28 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
         }
         Pos::from(cog / n as f32)
     }
+}
 
-    /// Calculates the Root Mean Square Deviation between two selections
-    fn rmsd(sel1: &Self, sel2: &Self) -> Result<f32, MeasureError> {
-        let mut res = 0.0;
-        let iter1 = sel1.iter_pos();
-        let iter2 = sel2.iter_pos();
+/// Calculates the Root Mean Square Deviation between two selections
+pub fn rmsd<S1, S2>(sel1: &S1, sel2: &S2) -> Result<f32, MeasureError>
+where
+    S1: MeasurePos,
+    S2: MeasurePos,
+{
+    let mut res = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
 
-        if sel1.len() != sel2.len() {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-        }
-
-        let n = sel1.len();
-        for (p1, p2) in std::iter::zip(iter1, iter2) {
-            res += (p2 - p1).norm_squared();
-        }
-
-        Ok((res / n as f32).sqrt())
+    if sel1.len() != sel2.len() {
+        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
     }
+
+    let n = sel1.len();
+    for (p1, p2) in std::iter::zip(iter1, iter2) {
+        res += (p2 - p1).norm_squared();
+    }
+
+    Ok((res / n as f32).sqrt())
 }
 
 /// Trait for analysis requiring positions and masses

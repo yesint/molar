@@ -197,7 +197,7 @@ impl<'a> EvaluationContext<'a> {
         })
     }
 
-    fn current_subset(&self) -> ActiveSubset {
+    fn current_subset(&self) -> ActiveSubset<'_> {
         ActiveSubset {
             topology: &self.topology,
             state: &self.state,
@@ -205,7 +205,7 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn global_subset(&self) -> ActiveSubset {
+    fn global_subset(&self) -> ActiveSubset<'_> {
         ActiveSubset {
             topology: &self.topology,
             state: &self.state,

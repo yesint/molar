@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use molar::core::{Selectable, System};
+    use molar::core::System;
     use std::io::prelude::*;
     use std::{fs::File, io::BufWriter};
 
@@ -14,17 +14,15 @@ mod tests {
     fn within_size_benchmark() -> anyhow::Result<()> {
         let src = System::from_file("tests/albumin.pdb")?;
 
-        for pbc in vec!["",] {
-        //for pbc in vec!["","pbc"] {
-            let pbc_str = if pbc != "" {
-                "pbc"
-            } else {
-                ""
-            };
+        for pbc in vec![""] {
+            //for pbc in vec!["","pbc"] {
+            let pbc_str = if pbc != "" { "pbc" } else { "" };
 
             for n_res in vec![1, 20, 40, 60] {
-                let mut out =
-                    BufWriter::new(File::create(format!("target/molar2_ref_{}{}.dat", pbc, n_res))?);
+                let mut out = BufWriter::new(File::create(format!(
+                    "target/molar2_ref_{}{}.dat",
+                    pbc, n_res
+                ))?);
                 for i in 0..40 {
                     let d = 0.3 + 0.1 * i as f32;
                     let t = run(|| {
