@@ -6,7 +6,7 @@ use numpy::{
     nalgebra::{self, Const, Dyn, VectorView},
     PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
-use pyo3::{prelude::*, types::PyTuple, IntoPyObjectExt};
+use pyo3::{IntoPyObjectExt, prelude::*, types::PyTuple};
 
 mod utils;
 use triomphe::Arc;
@@ -133,7 +133,7 @@ impl FileHandler {
             h.write(&s.0)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, Sel>>() {
             h.write(&s.0)?;
-        } else if let Ok(s) = data.downcast::<PyTuple>() {
+        } else if let Ok(s) = data.cast::<PyTuple>() {
             if s.len() != 2 {
                 return Err(anyhow!("Tuple must have two elements"));
             }
@@ -141,8 +141,8 @@ impl FileHandler {
                 .iter()
                 .next()
                 .unwrap()
-                .extract::<PyRefMut<'_, Topology>>()?;
-            let st = s.iter().next().unwrap().extract::<PyRefMut<'_, State>>()?;
+                .extract::<PyRefMut<'_, Topology>>().unwrap();
+            let st = s.iter().next().unwrap().extract::<PyRefMut<'_, State>>().unwrap();
             h.write(&(Arc::clone(&top.0), Arc::clone(&st.0)))?;
         } else {
             return Err(anyhow!(
@@ -201,10 +201,10 @@ impl FileHandler {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
         let st = slf.1.as_mut().unwrap().next().map(|st| State(st.into()));
         if st.is_some() {
-            Python::with_gil(|py| Some(st.unwrap().into_py_any(py)))
+            Python::attach(|py| Some(st.unwrap().into_py_any(py)))
                 .unwrap()
                 .ok()
         } else {
@@ -319,9 +319,9 @@ impl System {
         } else if py_args.len() == 2 {
             let top = py_args
                 .get_item(0)?
-                .downcast::<Topology>()?
+                .cast::<Topology>()?
                 .try_borrow_mut()?;
-            let st = py_args.get_item(1)?.downcast::<State>()?.try_borrow_mut()?;
+            let st = py_args.get_item(1)?.cast::<State>()?.try_borrow_mut()?;
             Ok(System(
                 molar::core::System::new(Arc::clone(&top.0), Arc::clone(&st.0))
                     .map_err(|e| anyhow!(e))?,
@@ -394,7 +394,7 @@ impl System {
 
     fn remove(&self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
-        if let Ok(sel) = arg.downcast::<Sel>() {
+        if let Ok(sel) = arg.cast::<Sel>() {
             Ok(self.0.remove(&sel.borrow().0)?)
         } else if let Ok(sel_str) = arg.extract::<String>() {
             let sel = self.0.select(sel_str)?;
@@ -408,9 +408,9 @@ impl System {
 
     fn append(&self, arg: &Bound<'_, PyAny>) -> anyhow::Result<()> {
         // In the future other types can be used as well
-        if let Ok(sel) = arg.downcast::<Sel>() {
+        if let Ok(sel) = arg.cast::<Sel>() {
             self.0.append(&sel.borrow().0);
-        } else if let Ok(sel) = arg.downcast::<System>() {
+        } else if let Ok(sel) = arg.cast::<System>() {
             self.0.append(&sel.borrow().0);
         } else {
             anyhow::bail!("Unsupported type to append a Source")
@@ -559,9 +559,9 @@ impl Sel {
     }
 
     fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<State> {
-        if let Ok(val) = arg.downcast::<System>() {
+        if let Ok(val) = arg.cast::<System>() {
             Ok(State(self.0.set_state_from(&val.borrow().0)?))
-        } else if let Ok(val) = arg.downcast::<Sel>() {
+        } else if let Ok(val) = arg.cast::<Sel>() {
             Ok(State(self.0.set_state_from(&val.borrow().0)?))
         } else {
             Err(anyhow!(
@@ -853,8 +853,8 @@ impl ParticleIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        let ret = Python::with_gil(|py| {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
+        let ret = Python::attach(|py| {
             let s = slf.sel.bind(py);
             Sel::__getitem__(s.clone(), slf.cur)
         })
