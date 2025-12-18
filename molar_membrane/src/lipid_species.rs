@@ -34,9 +34,9 @@ impl LipidSpecies {
     pub fn new(
         name: String,
         descr: LipidSpeciesDescr,
-        lipid: &Sel,
+        lipid: &SelBorrowing,
     ) -> anyhow::Result<Self> {
-        let first_index = lipid.get_first_index();
+        let first_index = lipid.first_index();
         let mut tails = vec![];
 
         for t in &descr.tails {
@@ -70,7 +70,7 @@ impl LipidSpecies {
                     if atom.len() > 1 {
                         bail!("more than one tail atom {name} in lipid");
                     }
-                    Ok(atom.get_first_index() - first_index)
+                    Ok(atom.first_index() - first_index)
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
 

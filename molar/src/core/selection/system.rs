@@ -27,6 +27,10 @@ impl System {
         Ok(SelIndex(def.into_sel_index(&self.top, &self.st, None)?))
     }
 
+    pub fn sub_select(&self, ind: &SelIndex, def: impl SelectionDef) -> Result<SelIndex, SelectionError> {
+        Ok(self.bind(ind)?.select_as_index(def)?)
+    }
+
     /// Create all detached
     pub fn select_all_as_index(&self) -> SelIndex {
         SelIndex(unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) })
@@ -138,6 +142,7 @@ impl System {
         self.split(|p| Some(p.atom.resindex))
     }
 
+    
     pub fn set_state(&mut self, st: State) -> Result<State, SelectionError> {
         if self.len() != st.len() {
             Err(SelectionError::IncompatibleState)
@@ -309,5 +314,29 @@ impl NonAtomPosAnalysisMut for System {
 
     fn st_ptr_mut(&mut self) -> *mut State {
         &mut self.st
+    }
+}
+
+impl<'a> std::ops::Shr<&'a System> for &'a SelIndex {
+    type Output = SelBorrowing<'a>;
+    fn shr(self, rhs: &'a System) -> Self::Output {
+        rhs.bind(self).unwrap()
+    }
+
+}
+
+impl Guarded for System {
+    type Guard<'a> = &'a System where Self: 'a;
+
+    fn guard(&self) -> Self::Guard<'_> {
+        self
+    }
+}
+
+impl GuardedMut for System {
+    type GuardMut<'a> = &'a mut System where Self: 'a;
+
+    fn guard_mut(&mut self) -> Self::GuardMut<'_> {
+        self
     }
 }

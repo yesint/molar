@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use molar::prelude::*;
+use molar::{prelude::*, bind};
 
 const PDB: &str = "inp.pdb";
 const XTC: &str = "traj_comp.xtc";
@@ -18,12 +18,15 @@ fn molar_benchmark_large(c: &mut Criterion) {
             let trj = FileHandler::open(XTC).unwrap().into_iter();
             for st in trj {
                 sys.set_state(st).unwrap();
-                let tr = fit_transform(&sys.bind(&cur_ind).unwrap(), &sys.bind(&ref_ind).unwrap())
-                    .unwrap();
+                let tr = bind!(sys, ref_ind, cur_ind, {
+                    fit_transform(&cur_ind, &ref_ind).unwrap()
+                });
+
                 sys.bind_mut(&cur_ind).unwrap().apply_transform(&tr);
-                rmsds.push(
-                    rmsd(&sys.bind(&cur_ind).unwrap(), &sys.bind(&ref_ind).unwrap()).unwrap(),
-                );
+
+                bind!(sys, ref_ind, cur_ind, {
+                    rmsds.push(rmsd(&cur_ind, &ref_ind).unwrap())
+                });
             }
             //println!("{:?}",&rmsd[..10]);
         }))

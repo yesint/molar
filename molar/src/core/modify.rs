@@ -8,6 +8,10 @@ use nalgebra::Const;
 use nalgebra::Rotation3;
 use nalgebra::Unit;
 
+pub trait GuardedMut {
+    type GuardMut<'a> where Self: 'a;
+    fn guard_mut(&mut self) -> Self::GuardMut<'_>;
+}
 //==============================================================
 // Traits for modification (mutable access)
 //==============================================================

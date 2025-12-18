@@ -12,6 +12,10 @@ use thiserror::Error;
 //==============================================================
 // Traits for measuring (immutable access)
 //==============================================================
+pub trait Guarded {
+    type Guard<'a> where Self: 'a;
+    fn guard(&self) -> Self::Guard<'_>;
+}
 
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
@@ -44,7 +48,8 @@ pub enum MeasureError {
 }
 
 /// Trait for analysis requiring only positions
-pub trait MeasurePos: PosIterProvider + LenProvider {
+pub trait MeasurePos: PosIterProvider + LenProvider 
+{
     /// Returns the minimum and maximum coordinates across all dimensions
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -71,6 +76,19 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
             cog += c.coords;
         }
         Pos::from(cog / n as f32)
+    }
+}
+
+pub trait MeasurePosGuarded: Guarded
+where
+    for<'a> Self::Guard<'a>: MeasurePos,
+{
+    fn min_max(&self) -> (Pos, Pos) {
+        self.guard().min_max()
+    }
+
+    fn center_of_geometry(&self) -> Pos {
+        self.guard().center_of_geometry()
     }
 }
 

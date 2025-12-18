@@ -6,12 +6,12 @@ use crate::lipid_species::LipidSpecies;
 
 pub struct LipidMolecule {
     // Lipid selections and markers
-    pub sel: Sel,
+    pub sel: SelIndex,
     pub species: Arc<LipidSpecies>,
-    pub head_sel: Sel,
-    pub mid_sel: Sel,
-    pub tail_end_sel: Sel,
-    pub tail_sels: Vec<Sel>,
+    pub head_sel: SelIndex,
+    pub mid_sel: SelIndex,
+    pub tail_end_sel: SelIndex,
+    pub tail_sels: Vec<SelIndex>,
     pub head_marker: Pos,
     pub mid_marker: Pos,
     pub tail_marker: Pos,
@@ -54,41 +54,41 @@ impl LipidMolecule {
         self.tail_sels.len()
     }
 
-    pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
-        self.sel.set_state_from(st)?;
-        self.head_sel.set_state_from(st)?;
-        self.mid_sel.set_state_from(st)?;
-        for t in &mut self.tail_sels {
-            t.set_state_from(st)?;
-        }
-        // Unwrap lipid
-        self.sel.unwrap_simple().unwrap();
+    // pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
+    //     self.sel.set_state_from(st)?;
+    //     self.head_sel.set_state_from(st)?;
+    //     self.mid_sel.set_state_from(st)?;
+    //     for t in &mut self.tail_sels {
+    //         t.set_state_from(st)?;
+    //     }
+    //     // Unwrap lipid
+    //     self.sel.unwrap_simple().unwrap();
 
-        // Update lipid markers
-        self.head_marker = self.head_sel.center_of_mass()?;
-        self.mid_marker = self.mid_sel.center_of_mass()?;
-        self.tail_marker = self.tail_end_sel.center_of_mass()?;
-        Ok(())
-    }
+    //     // Update lipid markers
+    //     self.head_marker = self.head_sel.center_of_mass()?;
+    //     self.mid_marker = self.mid_sel.center_of_mass()?;
+    //     self.tail_marker = self.tail_end_sel.center_of_mass()?;
+    //     Ok(())
+    // }
 
-    pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
-        let st: Arc<State> = st.into();
+    // pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
+    //     let st: Arc<State> = st.into();
 
-        self.sel.set_state(Arc::clone(&st))?;
-        self.head_sel.set_state(Arc::clone(&st))?;
-        self.mid_sel.set_state(Arc::clone(&st))?;
-        for t in &mut self.tail_sels {
-            t.set_state(Arc::clone(&st))?;
-        }
-        // Unwrap lipid
-        self.sel.unwrap_simple().unwrap();
+    //     self.sel.set_state(Arc::clone(&st))?;
+    //     self.head_sel.set_state(Arc::clone(&st))?;
+    //     self.mid_sel.set_state(Arc::clone(&st))?;
+    //     for t in &mut self.tail_sels {
+    //         t.set_state(Arc::clone(&st))?;
+    //     }
+    //     // Unwrap lipid
+    //     self.sel.unwrap_simple().unwrap();
 
-        // Update lipid markers
-        self.head_marker = self.head_sel.center_of_mass()?;
-        self.mid_marker = self.mid_sel.center_of_mass()?;
-        self.tail_marker = self.tail_end_sel.center_of_mass()?;
-        Ok(())
-    }
+    //     // Update lipid markers
+    //     self.head_marker = self.head_sel.center_of_mass()?;
+    //     self.mid_marker = self.mid_sel.center_of_mass()?;
+    //     self.tail_marker = self.tail_end_sel.center_of_mass()?;
+    //     Ok(())
+    // }
 
     #[allow(non_snake_case)]
     pub(super) fn compute_curvature_and_normal(

@@ -23,7 +23,8 @@ pub use traits::*;
 
 mod par_split;
 pub use par_split::*;
-//mod sel_shared;
+
+mod sel_shared;
 
 use super::{selection_parser::SelectionParserError, BuilderError, PeriodicBoxError};
 use crate::io::FileIoError;

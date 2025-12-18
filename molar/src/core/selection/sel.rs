@@ -243,6 +243,10 @@ impl SelBorrowing<'_> {
         })
     }
 
+    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<SelIndex, SelectionError> {
+        Ok(SelIndex(def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?))
+    }
+
     pub fn clone_index(&self) -> SelIndex {
         SelIndex(SVec::from_iter(self.index.iter().cloned()))
     }
@@ -368,11 +372,19 @@ impl NonAtomPosAnalysisMut for SelBorrowingMut<'_> {
 }
 
 #[macro_export]
-macro_rules! with_sels {
-    ($inp:expr, $($sel:ident),+ , $body:block) => {{
-        $(let $sel = $sel.bind(&$inp);)+
+macro_rules! bind {
+    ($sys:expr, $($sel:ident),+ , $body:block) => {{
+        $(let $sel = $sys.bind(&$sel).unwrap();)+
         $body
-    }};
+    }}
+}
+
+#[macro_export]
+macro_rules! bind_mut {
+    ($sys:expr, $($sel:ident),+ , $body:block) => {{
+        $(let $sel = $sys.bind_mut(&$sel).unwrap();)+
+        $body
+    }}
 }
 
 //====================================================================================

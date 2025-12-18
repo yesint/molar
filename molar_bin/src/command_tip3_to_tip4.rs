@@ -2,7 +2,7 @@ use std::iter;
 
 use anyhow::Result;
 use log::info;
-use molar::{prelude::*, with_sels};
+use molar::{prelude::*, bind};
 
 pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
     info!("Loading file '{file}'...");

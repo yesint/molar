@@ -35,6 +35,7 @@ mod lipid_group;
 use lipid_group::LipidGroup;
 
 pub struct Membrane {
+    sys: System,
     // Lipid molecules
     lipids: Vec<LipidMolecule>,
     // Mapping from system resindexes to lipid ids
@@ -85,13 +86,13 @@ impl Default for MembraneOptions {
 }
 
 impl Membrane {
-    pub fn new(source: &System, optstr: &str) -> anyhow::Result<Self> {
+    pub fn new(mut sys: System, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
 
         // Create working selection
-        let source_sel = source.select(&options.sel)?;
+        let source_sel = sys.select_as_index(&options.sel)?;
 
         let mut lipids = vec![];
         let mut species = vec![];
@@ -99,21 +100,23 @@ impl Membrane {
 
         // Load lipids from provided source
         for (name, descr) in options.lipids.iter() {
-            if let Ok(lips) = source_sel.select(&descr.whole) {
+            if let Ok(lips) = sys.sub_select(&source_sel,&descr.whole) {
                 // Split into individual lipids
-                let mut lips: Vec<_> = lips.split_resindex_iter().collect();
+                let lips: Vec<_> = sys.bind(&lips)?.split_resindex_as_index().collect();
+                
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
-                let sp = Arc::new(LipidSpecies::new(name.clone(), descr.clone(), &lips[0])?);
+                let sp = Arc::new(LipidSpecies::new(name.clone(), descr.clone(), &sys.bind(&lips[0]).unwrap())?);
                 species.push(Arc::clone(&sp));
 
-                // Unwrap lipids in parallel
-                lips.par_iter_mut()
-                    .try_for_each(|l| l.unwrap_simple())?;
-
+                // Unwrap lipids
+                for l in &lips {
+                    sys.bind_mut(&l)?.unwrap_simple();
+                }
+                
                 // Now create individual lipids
-                for lip in lips {
+                for lip in lips.into_iter().map(|l| sys.select(l).unwrap()) {
                     // set selections
                     let head_sel = lip.select(&sp.head_marker_offsets)?;
                     let mid_sel = lip.select(&sp.mid_marker_offsets)?;
@@ -121,7 +124,7 @@ impl Membrane {
                     let mut tail_sels = vec![];
                     let mut tail_ends = vec![];
                     for t in sp.tails.iter() {
-                        tail_sels.push(lip.select(&t.offsets)?);
+                        tail_sels.push(lip.select_as_index(&t.offsets)?);
                         tail_ends.push(*t.offsets.last().unwrap());
                     }
                     let tail_end_sel = lip.select(tail_ends)?;
@@ -145,11 +148,11 @@ impl Membrane {
                     resindex_to_id.insert(lip.first_atom().resindex, id);
 
                     lipids.push(LipidMolecule {
-                        sel: lip, // Selection is moved to the lipid
+                        sel: lip.into_index(), // Selection is moved to the lipid
                         species: Arc::clone(&sp),
-                        head_sel,
-                        mid_sel,
-                        tail_end_sel,
+                        head_sel: head_sel.into_index(),
+                        mid_sel: mid_sel.into_index(),
+                        tail_end_sel: tail_end_sel.into_index(),
                         tail_sels,
                         head_marker,
                         mid_marker,
@@ -183,12 +186,14 @@ impl Membrane {
             groups.insert(gr.to_string(), Default::default());
         }
 
+        let pbox = sys.require_box()?.clone();
         Ok(Self {
+            sys,
             lipids,
             groups,
             species,
             options,
-            pbox: source.require_box()?.clone(),
+            pbox, 
             monolayers: vec![],
             resindex_to_id,
         })
@@ -530,22 +535,22 @@ impl Membrane {
         Ok(())
     }
 
-    pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
-        // Go over all lipids and set their states
-        for lip in &mut self.lipids {
-            lip.set_state_from(st)?;
-        }
-        Ok(())
-    }
+    // pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
+    //     // Go over all lipids and set their states
+    //     for lip in &mut self.lipids {
+    //         lip.set_state_from(st)?;
+    //     }
+    //     Ok(())
+    // }
 
-    pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
-        let st: Arc<State> = st.into();
-        // Go over all lipids and set their states
-        for lip in &mut self.lipids {
-            lip.set_state(Arc::clone(&st))?;
-        }
-        Ok(())
-    }
+    // pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
+    //     let st: Arc<State> = st.into();
+    //     // Go over all lipids and set their states
+    //     for lip in &mut self.lipids {
+    //         lip.set_state(Arc::clone(&st))?;
+    //     }
+    //     Ok(())
+    // }
 
     fn compute_patches(&mut self, d: f32) -> anyhow::Result<()> {
         let ind: Vec<(usize, usize)> = distance_search_single_pbc(
