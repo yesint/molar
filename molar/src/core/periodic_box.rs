@@ -343,7 +343,14 @@ impl PeriodicBox {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::{Matrix3f, PbcDims, Pos, Vector3f, PBC_FULL, PBC_NONE};
     use super::PeriodicBox;
+
+    const EPSILON: f32 = 1e-6;
+
+    fn assert_vec_eq(v1: &Vector3f, v2: &Vector3f) {
+        assert!((v1 - v2).norm() < EPSILON, "Vectors not equal: {:?} != {:?}", v1, v2);
+    }
 
     #[test]
     #[should_panic]
@@ -351,5 +358,93 @@ mod tests {
         let _b = PeriodicBox::from_vectors_angles(
             10.0,0.2,15.0, 90.0, 9.0, 90.0
         ).unwrap();
+    }
+
+    #[test]
+    fn test_shortest_vector_dims_no_pbc() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let test_vec = Vector3f::new(8.0, 8.0, 8.0);
+        
+        let result = pbox.shortest_vector_dims(&test_vec, PBC_NONE);
+        assert_vec_eq(&result, &test_vec);
+    }
+
+    #[test]
+    fn test_shortest_vector_dims_full_pbc() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let test_vec = Vector3f::new(8.0, 8.0, 8.0);
+        
+        let result = pbox.shortest_vector_dims(&test_vec, PBC_FULL);
+        assert_vec_eq(&result, &Vector3f::new(-2.0, -2.0, -2.0));
+    }
+
+    #[test]
+    fn test_shortest_vector_dims_x_only() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let test_vec = Vector3f::new(8.0, 8.0, 8.0);
+        
+        let pbc_x = PbcDims::new(true, false, false);
+        let result = pbox.shortest_vector_dims(&test_vec, pbc_x);
+        assert_vec_eq(&result, &Vector3f::new(-2.0, 8.0, 8.0));
+    }
+
+    #[test]
+    fn test_shortest_vector_dims_xy_only() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let test_vec = Vector3f::new(8.0, 8.0, 8.0);
+        
+        let pbc_xy = PbcDims::new(true, true, false);
+        let result = pbox.shortest_vector_dims(&test_vec, pbc_xy);
+        assert_vec_eq(&result, &Vector3f::new(-2.0, -2.0, 8.0));
+    }
+
+    #[test]
+    fn test_closest_image_no_pbc() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let point = Pos::new(8.0, 8.0, 8.0);
+        let target = Pos::origin();
+        
+        let result = pbox.closest_image_dims(&point, &target, PBC_NONE);
+        assert_vec_eq(&result.coords, &point.coords);
+    }
+
+    #[test]
+    fn test_closest_image_full_pbc() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let point = Pos::new(8.0, 8.0, 8.0);
+        let target = Pos::origin();
+        
+        let result = pbox.closest_image_dims(&point, &target, PBC_FULL);
+        assert_vec_eq(&result.coords, &Pos::new(-2.0, -2.0, -2.0).coords);
+    }
+
+    #[test]
+    fn test_closest_image_x_only() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let point = Pos::new(8.0, 8.0, 8.0);
+        let target = Pos::origin();
+        
+        let pbc_x = PbcDims::new(true, false, false);
+        let result = pbox.closest_image_dims(&point, &target, pbc_x);
+        assert_vec_eq(&result.coords, &Pos::new(-2.0, 8.0, 8.0).coords);
+    }
+
+    #[test]
+    fn test_closest_image_xy_only() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 10.0, 10.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let point = Pos::new(8.0, 8.0, 8.0);
+        let target = Pos::origin();
+        
+        let pbc_xy = PbcDims::new(true, true, false);
+        let result = pbox.closest_image_dims(&point, &target, pbc_xy);
+        assert_vec_eq(&result.coords, &Pos::new(-2.0, -2.0, 8.0).coords);
     }
 }
