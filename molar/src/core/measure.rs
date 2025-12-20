@@ -13,7 +13,9 @@ use thiserror::Error;
 // Traits for measuring (immutable access)
 //==============================================================
 pub trait Guarded {
-    type Guard<'a> where Self: 'a;
+    type Guard<'a>
+    where
+        Self: 'a;
     fn guard(&self) -> Self::Guard<'_>;
 }
 
@@ -48,8 +50,7 @@ pub enum MeasureError {
 }
 
 /// Trait for analysis requiring only positions
-pub trait MeasurePos: PosIterProvider + LenProvider 
-{
+pub trait MeasurePos: PosIterProvider + LenProvider {
     /// Returns the minimum and maximum coordinates across all dimensions
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -76,6 +77,14 @@ pub trait MeasurePos: PosIterProvider + LenProvider
             cog += c.coords;
         }
         Pos::from(cog / n as f32)
+    }
+
+    fn rmsd<S>(&self, other: &S) -> Result<f32, MeasureError>
+    where
+        Self: Sized,
+        S: MeasurePos,
+    {
+        super::rmsd(self, other)
     }
 }
 
@@ -155,6 +164,38 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
         let c = self.center_of_mass()?;
         let (_, axes) = do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses());
         Ok(do_principal_transform(axes, c.coords))
+    }
+
+    fn fit_transform(
+        &self,
+        other: &impl MeasureMasses,
+    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> 
+    where
+        Self: Sized,
+    {
+        super::fit_transform(self, other)
+    }
+
+    /// Like fit_transform but assumes both selections are centered at origin
+    fn fit_transform_at_origin(
+        &self,
+        other: &impl MeasureMasses,
+    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
+    where
+        Self: Sized,
+    {
+        super::fit_transform_at_origin(self, other)
+    }
+
+    /// Calculates the mass-weighted Root Mean Square Deviation between two selections
+    fn rmsd_mw(
+        &self,
+        other: &impl MeasureMasses,
+    ) -> Result<f32, MeasureError>
+    where
+        Self: Sized,
+    {
+        super::rmsd_mw(self, other)
     }
 }
 

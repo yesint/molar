@@ -2,7 +2,7 @@ use std::iter;
 
 use anyhow::Result;
 use log::info;
-use molar::{prelude::*, bind};
+use molar::prelude::*;
 
 pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
     info!("Loading file '{file}'...");
@@ -13,21 +13,21 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
 
     // Select water
     // We don't modify input, so all selections could be bound
-    let water = inp.select("resname TIP3")?;
+    let water = inp.select_bound("resname TIP3")?;
 
     // For correct re-assembly of the system
     // select what is before and what is after water
     let w_first = water.first_index();
     let w_last = water.last_index();
 
-    let sel_before = inp.select(0..w_first)?;
-    let sel_after = inp.select(w_last + 1..inp.len())?;
+    let sel_before = inp.select_bound(0..w_first)?;
+    let sel_after = inp.select_bound(w_last + 1..inp.len())?;
 
     // Add before selection
     out.append(&sel_before)?;
 
     // Now go over water molecules one by one
-    for mol in water.split_resindex() {
+    for mol in water.split_resindex_bound() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
         // Get cooridnates
@@ -55,7 +55,7 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
         )?;
 
         // Change resname for added atoms
-        out.select_mut(added)?.set_same_resname("TIP4");
+        out.select_bound_mut(added)?.set_same_resname("TIP4");
     }
 
     // Add after selection

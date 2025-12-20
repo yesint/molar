@@ -40,7 +40,7 @@ anyhow.workspace = true
 #nalgebra-lapack = "0.24"
 clap.workspace = true
 serde.workspace = true
-bio = "2.3"
+bio = ">=3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

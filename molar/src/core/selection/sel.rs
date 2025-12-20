@@ -4,9 +4,9 @@ use crate::prelude::*;
 /// Selection index detached from any [System].
 /// It is guaranteed to be non-empty.
 //===========================================================================
-pub struct SelIndex(pub(crate) SVec);
+pub struct Sel(pub(crate) SVec);
 
-impl SelIndex {
+impl Sel {
     pub fn from_vec(index: Vec<usize>) -> Result<Self, SelectionError> {
         if index.is_empty() {
             Err(SelectionError::EmptySlice)
@@ -33,13 +33,13 @@ impl SelIndex {
     }
 }
 
-impl LenProvider for SelIndex {
+impl LenProvider for Sel {
     fn len(&self) -> usize {
         self.0.len()
     }
 }
 
-impl IndexProvider for SelIndex {
+impl IndexProvider for Sel {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.0.iter().cloned()
     }
@@ -55,15 +55,15 @@ impl IndexProvider for SelIndex {
 //================================================
 
 #[derive(Clone, Debug)]
-pub struct Sel<'a> {
+pub struct SelOwnBound<'a> {
     pub(super) sys: &'a System,
     pub(super) index: SVec,
 }
 
-impl Sel<'_> {
+impl SelOwnBound<'_> {
     /// Create new unbound sub-selection based on provided definition.
-    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<SelIndex, SelectionError> {
-        Ok(SelIndex(def.into_sel_index(
+    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(
             &self.sys.top,
             &self.sys.st,
             Some(self.index.as_slice()),
@@ -78,37 +78,40 @@ impl Sel<'_> {
         })
     }
 
-    pub fn into_index(self) -> SelIndex {
-        SelIndex(self.index)
+    pub fn into_index(self) -> Sel {
+        Sel(self.index)
     }
 
-    pub fn clone_index(&self) -> SelIndex {
-        SelIndex(self.index.clone())
+    pub fn clone_index(&self) -> Sel {
+        Sel(self.index.clone())
     }
 
-    pub fn split<'a, RT, F>(&'a self, func: F) -> impl Iterator<Item = Self> + 'a
+    pub fn split_bound<RT, F>(&self, func: F) -> impl Iterator<Item = SelOwnBound<'_>>
     where
-        RT: Default + std::cmp::PartialEq + 'a,
-        F: Fn(Particle) -> Option<RT> + 'a,
+        RT: Default + std::cmp::PartialEq,
+        F: Fn(Particle) -> Option<RT>,
     {
-        self.split_as_index(func).map(|sel| Self {
-            sys: &self.sys,
+        self.split(func).map(|sel| SelOwnBound {
             index: sel.0,
+            sys: &self.sys,
         })
     }
 
-    pub fn split_resindex(&self) -> impl Iterator<Item = Self> + '_ {
-        self.split(|p| Some(p.atom.resindex))
+    pub fn split_resindex_bound(&self) -> impl Iterator<Item = SelOwnBound<'_>> {
+        self.split_resindex().map(|sel| SelOwnBound {
+            index: sel.0,
+            sys: &self.sys,
+        })
     }
 }
 
-impl LenProvider for Sel<'_> {
+impl LenProvider for SelOwnBound<'_> {
     fn len(&self) -> usize {
         self.index.len()
     }
 }
 
-impl IndexProvider for Sel<'_> {
+impl IndexProvider for SelOwnBound<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         *self.index.get_unchecked(i)
     }
@@ -118,7 +121,7 @@ impl IndexProvider for Sel<'_> {
     }
 }
 
-impl AtomPosAnalysis for Sel<'_> {
+impl AtomPosAnalysis for SelOwnBound<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
     }
@@ -128,7 +131,7 @@ impl AtomPosAnalysis for Sel<'_> {
     }
 }
 
-impl NonAtomPosAnalysis for Sel<'_> {
+impl NonAtomPosAnalysis for SelOwnBound<'_> {
     fn top_ptr(&self) -> *const Topology {
         &self.sys.top
     }
@@ -138,41 +141,41 @@ impl NonAtomPosAnalysis for Sel<'_> {
     }
 }
 
-impl TopologyWrite for Sel<'_> {}
-impl StateWrite for Sel<'_> {}
-impl TopologyStateWrite for Sel<'_> {}
+impl TopologyWrite for SelOwnBound<'_> {}
+impl StateWrite for SelOwnBound<'_> {}
+impl TopologyStateWrite for SelOwnBound<'_> {}
 
 //================================================
 /// Read-write bound subsystem having access to
 /// all fields of Topology and State
 //================================================
-pub struct SelMut<'a> {
+pub struct SelOwnBoundMut<'a> {
     pub(super) sys: &'a mut System,
     pub(super) index: SVec,
 }
 
-impl SelMut<'_> {
+impl SelOwnBoundMut<'_> {
     /// Create new sub-selection based on provided definition.
-    pub fn unbind(self) -> SelIndex {
-        SelIndex(self.index)
+    pub fn unbind(self) -> Sel {
+        Sel(self.index)
     }
 
-    pub fn into_index(self) -> SelIndex {
-        SelIndex(self.index)
+    pub fn into_index(self) -> Sel {
+        Sel(self.index)
     }
 
-    pub fn clone_index(&self) -> SelIndex {
-        SelIndex(self.index.clone())
+    pub fn clone_index(&self) -> Sel {
+        Sel(self.index.clone())
     }
 }
 
-impl LenProvider for SelMut<'_> {
+impl LenProvider for SelOwnBoundMut<'_> {
     fn len(&self) -> usize {
         self.index.len()
     }
 }
 
-impl IndexProvider for SelMut<'_> {
+impl IndexProvider for SelOwnBoundMut<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         *self.index.get_unchecked(i)
     }
@@ -182,7 +185,7 @@ impl IndexProvider for SelMut<'_> {
     }
 }
 
-impl AtomPosAnalysis for SelMut<'_> {
+impl AtomPosAnalysis for SelOwnBoundMut<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
     }
@@ -192,7 +195,7 @@ impl AtomPosAnalysis for SelMut<'_> {
     }
 }
 
-impl AtomPosAnalysisMut for SelMut<'_> {
+impl AtomPosAnalysisMut for SelOwnBoundMut<'_> {
     fn atoms_ptr_mut(&mut self) -> *mut Atom {
         self.sys.top.atoms.as_mut_ptr()
     }
@@ -202,7 +205,7 @@ impl AtomPosAnalysisMut for SelMut<'_> {
     }
 }
 
-impl NonAtomPosAnalysis for SelMut<'_> {
+impl NonAtomPosAnalysis for SelOwnBoundMut<'_> {
     fn st_ptr(&self) -> *const State {
         &self.sys.st
     }
@@ -212,7 +215,7 @@ impl NonAtomPosAnalysis for SelMut<'_> {
     }
 }
 
-impl NonAtomPosAnalysisMut for SelMut<'_> {
+impl NonAtomPosAnalysisMut for SelOwnBoundMut<'_> {
     fn st_ptr_mut(&mut self) -> *mut State {
         &mut self.sys.st
     }
@@ -228,37 +231,37 @@ impl NonAtomPosAnalysisMut for SelMut<'_> {
 //================================================
 
 #[derive(Clone, Debug)]
-pub struct SelBorrowing<'a> {
+pub struct SelBound<'a> {
     pub(super) sys: &'a System,
     pub(super) index: &'a [usize],
 }
 
-impl SelBorrowing<'_> {
+impl SelBound<'_> {
     /// Create new owned sub-selection based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<Sel<'_>, SelectionError> {
+    pub fn select(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         let index = def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?;
-        Ok(Sel {
+        Ok(SelOwnBound {
             index,
             sys: &self.sys,
         })
     }
 
-    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<SelIndex, SelectionError> {
-        Ok(SelIndex(def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?))
+    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?))
     }
 
-    pub fn clone_index(&self) -> SelIndex {
-        SelIndex(SVec::from_iter(self.index.iter().cloned()))
+    pub fn clone_index(&self) -> Sel {
+        Sel(SVec::from_iter(self.index.iter().cloned()))
     }
 }
 
-impl LenProvider for SelBorrowing<'_> {
+impl LenProvider for SelBound<'_> {
     fn len(&self) -> usize {
         self.index.len()
     }
 }
 
-impl IndexProvider for SelBorrowing<'_> {
+impl IndexProvider for SelBound<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         *self.index.get_unchecked(i)
     }
@@ -268,7 +271,7 @@ impl IndexProvider for SelBorrowing<'_> {
     }
 }
 
-impl AtomPosAnalysis for SelBorrowing<'_> {
+impl AtomPosAnalysis for SelBound<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
     }
@@ -278,7 +281,7 @@ impl AtomPosAnalysis for SelBorrowing<'_> {
     }
 }
 
-impl NonAtomPosAnalysis for SelBorrowing<'_> {
+impl NonAtomPosAnalysis for SelBound<'_> {
     fn top_ptr(&self) -> *const Topology {
         &self.sys.top
     }
@@ -288,40 +291,40 @@ impl NonAtomPosAnalysis for SelBorrowing<'_> {
     }
 }
 
-impl TopologyWrite for SelBorrowing<'_> {}
-impl StateWrite for SelBorrowing<'_> {}
-impl TopologyStateWrite for SelBorrowing<'_> {}
+impl TopologyWrite for SelBound<'_> {}
+impl StateWrite for SelBound<'_> {}
+impl TopologyStateWrite for SelBound<'_> {}
 
 //================================================
 /// Read-write selection that borrows its index
 //================================================
-pub struct SelBorrowingMut<'a> {
+pub struct SelBoundMut<'a> {
     pub(super) sys: &'a mut System,
     pub(super) index: &'a [usize],
 }
 
-impl SelBorrowingMut<'_> {
+impl SelBoundMut<'_> {
     /// Create new sub-selection based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<Sel<'_>, SelectionError> {
+    pub fn select(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         let index = def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?;
-        Ok(Sel {
+        Ok(SelOwnBound {
             index,
             sys: &self.sys,
         })
     }
 
-    pub fn clone_index(&self) -> SelIndex {
-        SelIndex(SVec::from_iter(self.index.iter().cloned()))
+    pub fn clone_index(&self) -> Sel {
+        Sel(SVec::from_iter(self.index.iter().cloned()))
     }
 }
 
-impl LenProvider for SelBorrowingMut<'_> {
+impl LenProvider for SelBoundMut<'_> {
     fn len(&self) -> usize {
         self.index.len()
     }
 }
 
-impl IndexProvider for SelBorrowingMut<'_> {
+impl IndexProvider for SelBoundMut<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         *self.index.get_unchecked(i)
     }
@@ -331,7 +334,7 @@ impl IndexProvider for SelBorrowingMut<'_> {
     }
 }
 
-impl AtomPosAnalysis for SelBorrowingMut<'_> {
+impl AtomPosAnalysis for SelBoundMut<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
     }
@@ -341,7 +344,7 @@ impl AtomPosAnalysis for SelBorrowingMut<'_> {
     }
 }
 
-impl AtomPosAnalysisMut for SelBorrowingMut<'_> {
+impl AtomPosAnalysisMut for SelBoundMut<'_> {
     fn atoms_ptr_mut(&mut self) -> *mut Atom {
         self.sys.top.atoms.as_mut_ptr()
     }
@@ -351,7 +354,7 @@ impl AtomPosAnalysisMut for SelBorrowingMut<'_> {
     }
 }
 
-impl NonAtomPosAnalysis for SelBorrowingMut<'_> {
+impl NonAtomPosAnalysis for SelBoundMut<'_> {
     fn st_ptr(&self) -> *const State {
         &self.sys.st
     }
@@ -361,7 +364,7 @@ impl NonAtomPosAnalysis for SelBorrowingMut<'_> {
     }
 }
 
-impl NonAtomPosAnalysisMut for SelBorrowingMut<'_> {
+impl NonAtomPosAnalysisMut for SelBoundMut<'_> {
     fn st_ptr_mut(&mut self) -> *mut State {
         &mut self.sys.st
     }
@@ -374,7 +377,7 @@ impl NonAtomPosAnalysisMut for SelBorrowingMut<'_> {
 #[macro_export]
 macro_rules! bind {
     ($sys:expr, $($sel:ident),+ , $body:block) => {{
-        $(let $sel = $sys.bind(&$sel).unwrap();)+
+        $(let $sel = $sys.bind(&$sel);)+
         $body
     }}
 }
@@ -382,7 +385,7 @@ macro_rules! bind {
 #[macro_export]
 macro_rules! bind_mut {
     ($sys:expr, $($sel:ident),+ , $body:block) => {{
-        $(let $sel = $sys.bind_mut(&$sel).unwrap();)+
+        $(let $sel = $sys.bind_mut(&$sel);)+
         $body
     }}
 }
@@ -399,14 +402,14 @@ mod tests {
         let mut h = FileHandler::open("tests/protein.pdb").unwrap();
         let (top, st) = h.read().unwrap();
         let mut sys = System::new(top, st)?;
-        let sel1 = sys.select(vec![1, 2, 6, 7])?;
+        let sel1 = sys.select_bound(vec![1, 2, 6, 7])?;
 
         for at in sel1.iter_atoms() {
             println!("{} {}", at.name, at.resname);
         }
 
         let ind = sel1.into_index();
-        for at in sys.bind_mut(&ind)?.iter_atoms_mut() {
+        for at in sys.try_bind_mut(&ind)?.iter_atoms_mut() {
             at.bfactor += 1.0;
         }
 
@@ -446,8 +449,8 @@ mod tests {
             })?;
 
         // Add serial selection
-        let ca = sys.select("name CA")?;
-        let cb = sys.select("name CB")?;
+        let ca = sys.select_bound("name CA")?;
+        let cb = sys.select_bound("name CB")?;
         println!("#ca: {} {}", ca.len(), cb.center_of_mass()?);
 
         for a in cb.iter_atoms().take(10) {

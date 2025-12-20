@@ -190,8 +190,8 @@ mod tests {
         let st = TOPST.1.clone();
         let b = System::new(top, st)?;
         // Create two overlapping selections
-        let _sel1 = b.select_as_index(0..10)?;
-        let _sel2 = b.select_as_index(5..15)?;
+        let _sel1 = b.select(0..10)?;
+        let _sel2 = b.select(5..15)?;
         Ok(())
     }
 
@@ -201,30 +201,30 @@ mod tests {
         let st = TOPST.1.clone();
         let b = System::new(top, st).unwrap();
         // Create two non-overlapping selections.
-        let _sel1 = b.select_as_index(0..10).unwrap();
-        let _sel2 = b.select_as_index(11..15).unwrap();
+        let _sel1 = b.select(0..10).unwrap();
+        let _sel2 = b.select(11..15).unwrap();
     }
 
-    fn make_sel_all() -> anyhow::Result<(System, SelIndex)> {
+    fn make_sel_all() -> anyhow::Result<(System, Sel)> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let b = System::new(top, st)?;
-        let sel = b.select_all_as_index();
+        let sel = b.select_all();
         Ok((b, sel))
     }
 
-    fn make_sel_prot() -> anyhow::Result<(System, SelIndex)> {
+    fn make_sel_prot() -> anyhow::Result<(System, Sel)> {
         let top = TOPST.0.clone();
         let st = TOPST.1.clone();
         let b = System::new(top, st)?;
-        let sel = b.select_as_index("not resname TIP3 POT CLA")?;
+        let sel = b.select("not resname TIP3 POT CLA")?;
         Ok((b, sel))
     }
 
     #[test]
     fn test_measure() -> anyhow::Result<()> {
         let (sys, sel) = make_sel_all()?;
-        let sel = sys.select(sel)?;
+        let sel = sys.select_bound(sel)?;
         println!("before {}", sel.iter_pos().next().unwrap());
 
         let (minv, maxv) = sel.min_max();
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_measure_pbc() -> anyhow::Result<()> {
         let (sys, sel) = make_sel_all()?;
-        let sel = sys.select(sel)?;
+        let sel = sys.select_bound(sel)?;
         let cm = sel.center_of_mass()?;
         println!("{cm}");
         Ok(())
@@ -248,18 +248,18 @@ mod tests {
     #[test]
     fn test_translate() -> anyhow::Result<()> {
         let (mut sys, ind) = make_sel_all()?;
-        println!("before {}", sys.bind(&ind)?.iter_pos().next().unwrap());
-        sys.bind_mut(&ind)?
+        println!("before {}", sys.try_bind(&ind)?.iter_pos().next().unwrap());
+        sys.try_bind_mut(&ind)?
             .translate(&Vector3f::new(10.0, 10.0, 10.0));
-        println!("after {}", sys.bind(&ind)?.iter_pos().next().unwrap());
+        println!("after {}", sys.try_bind(&ind)?.iter_pos().next().unwrap());
         Ok(())
     }
 
     #[test]
     fn test_write_to_file() -> anyhow::Result<()> {
         let sys = System::from_file("tests/protein.pdb")?;
-        let sel = sys.select_as_index("name CA")?;
-        sys.bind(&sel)?.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
+        let sel = sys.select("name CA")?;
+        sys.try_bind(&sel)?.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
 
         // let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         // h.write(&sel)?;
@@ -274,10 +274,10 @@ mod tests {
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let (mut sys, ind) = make_sel_prot()?;
-        sys.bind_mut(&ind)?.unwrap_connectivity_dim(0.2, PBC_FULL)?;
+        sys.try_bind_mut(&ind)?.unwrap_connectivity_dim(0.2, PBC_FULL)?;
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
-        let sel = sys.select(ind)?;
+        let sel = sys.select_bound(ind)?;
         h.write_topology(&sel)?;
         h.write_state(&sel)?;
         Ok(())
@@ -288,11 +288,11 @@ mod tests {
         let (mut sys, ind1) = make_sel_prot()?;
         let (_, ind2) = make_sel_prot()?;
 
-        sys.bind_mut(&ind2)?
+        sys.try_bind_mut(&ind2)?
             .rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
 
-        let sel1 = sys.bind(&ind1)?;
-        let sel2 = sys.bind(&ind2)?;
+        let sel1 = sys.try_bind(&ind1)?;
+        let sel2 = sys.try_bind(&ind2)?;
         sel1.save(concat!(env!("OUT_DIR"), "/sel2.pdb"))?;
         sel2.save(concat!(env!("OUT_DIR"), "/sel1_before.pdb"))?;
         println!("Initial RMSD:{}", rmsd_mw(&sel1, &sel2)?);
@@ -300,10 +300,10 @@ mod tests {
         let m = fit_transform(&sel1, &sel2)?;
         println!("{m}");
 
-        sys.bind_mut(&ind1)?.apply_transform(&m);
+        sys.try_bind_mut(&ind1)?.apply_transform(&m);
 
-        let sel1 = sys.bind(&ind1)?;
-        let sel2 = sys.bind(&ind2)?;
+        let sel1 = sys.try_bind(&ind1)?;
+        let sel2 = sys.try_bind(&ind2)?;
         sel1.save(concat!(env!("OUT_DIR"), "/sel1_after.pdb"))?;
         println!("Final RMSD:{}", rmsd_mw(&sel1, &sel2)?);
         Ok(())
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let (sys, ind) = make_sel_all()?;
-        let res = sys.select(ind)?.sasa();
+        let res = sys.select_bound(ind)?.sasa();
         println!(
             "Sasa: {a}, Volume: {v}",
             a = res.total_area(),
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn tets_gyration() -> anyhow::Result<()> {
         let (sys, ind) = make_sel_prot()?;
-        let g = sys.bind(&ind)?.gyration_pbc()?;
+        let g = sys.try_bind(&ind)?.gyration_pbc()?;
         println!("Gyration radius: {g}");
         Ok(())
     }
@@ -336,7 +336,7 @@ mod tests {
         //    &UnitVector3::new_normalize(Vector3f::new(1.0,2.0,3.0)),
         //    0.45
         //);
-        let (moments, axes) = sys.bind(&ind)?.inertia_pbc()?;
+        let (moments, axes) = sys.try_bind(&ind)?.inertia_pbc()?;
         println!("Inertia moments: {moments}");
         println!("Inertia axes: {axes:?}");
         Ok(())
@@ -348,16 +348,16 @@ mod tests {
     #[test]
     fn test_principal_transform() -> anyhow::Result<()> {
         let (mut sys, ind) = make_sel_prot()?;
-        let sel1 = sys.bind(&ind)?;
+        let sel1 = sys.try_bind(&ind)?;
         let tr = sel1.principal_transform()?;
         println!("Transform: {tr}");
 
         let (_, axes) = sel1.inertia()?;
         println!("Axes before: {axes}");
 
-        sys.bind_mut(&ind)?.apply_transform(&tr);
+        sys.try_bind_mut(&ind)?.apply_transform(&tr);
 
-        let sel1 = sys.bind(&ind)?;
+        let sel1 = sys.try_bind(&ind)?;
         let (_, axes) = sel1.inertia()?;
         println!("Axes after: {axes}");
 
@@ -372,10 +372,10 @@ mod tests {
         let n = top.len();
         let mut builder = System::new(top, st)?;
 
-        let sel = builder.select_as_index("resid 550:560")?;
+        let sel = builder.select("resid 550:560")?;
         let added = sel.len();
-        builder.append_self_index(&sel)?;
-        let all = builder.select_all_as_index();
+        builder.append_from_self(&sel)?;
+        let all = builder.select_all();
         assert_eq!(all.len(), n + added);
         Ok(())
     }
@@ -385,7 +385,7 @@ mod tests {
         let (top, st) = FileHandler::open("tests/protein.pdb")?.read()?;
         let src = System::new(top, st)?;
         let last = src.len() - 1;
-        let _sel = src.select_as_index([1usize, 2, last].as_slice())?;
+        let _sel = src.select([1usize, 2, last].as_slice())?;
         Ok(())
     }
 

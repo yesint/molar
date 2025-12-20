@@ -27,7 +27,7 @@ mod tests {
                     let d = 0.3 + 0.1 * i as f32;
                     let t = run(|| {
                         for start_res in (0..100).step_by(10) {
-                            src.select_as_index(format!(
+                            src.select(format!(
                                 "within {} {} of resid {}:{}",
                                 d,
                                 pbc_str,

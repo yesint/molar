@@ -70,8 +70,8 @@ pub(crate) fn command_solvate(
     // Removing solvent molecules not in the box
     let mut inside_ind = vec![];
     let b = solute.get_box().unwrap();
-    let all = solvent.select_all();
-    'outer: for res in all.split_resindex() {
+    let all = solvent.select_all_bound();
+    'outer: for res in all.split_resindex_bound() {
         for p in res.iter_pos() {
             if !b.is_inside(p) {
                 // Break without adding this residue to good list
@@ -82,7 +82,7 @@ pub(crate) fn command_solvate(
         inside_ind.extend(res.iter_index());
     }
 
-    let inside_sel = solvent.select(inside_ind)?;
+    let inside_sel = solvent.select_bound(inside_ind)?;
 
     //inside_sel.save("target/inside.gro")?;
 
@@ -115,14 +115,14 @@ pub(crate) fn command_solvate(
     );
 
     let mut good_ind = vec![];
-    for res in inside_sel.split_resindex() {
+    for res in inside_sel.split_resindex_bound() {
         if !resind_to_remove.contains(&res.first_atom().resindex) {
             good_ind.extend(res.iter_index());
         }
     }
     info!("{} water atoms to keep", good_ind.len());
 
-    let good_sel = solvent.select(good_ind)?;
+    let good_sel = solvent.select_bound(good_ind)?;
 
     // Add solvent
     solute.append(&good_sel)?;
@@ -130,7 +130,7 @@ pub(crate) fn command_solvate(
     // If exclude selection is provided remove it
     if exclude.is_some() {
         let sel_str = exclude.as_ref().unwrap();
-        let not_excl_sel = solute.select(format!("not ({})", sel_str))?;
+        let not_excl_sel = solute.select_bound(format!("not ({})", sel_str))?;
         info!("Excluding atoms by selection '{}'", sel_str);
         not_excl_sel.save(outfile)?;
     } else {

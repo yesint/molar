@@ -192,7 +192,7 @@ impl SelectionDef for &SVec {
     }
 }
 
-impl SelectionDef for SelIndex {
+impl SelectionDef for Sel {
     fn into_sel_index(
         self,
         top: &Topology,

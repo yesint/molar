@@ -114,14 +114,14 @@ impl AtomPosAnalysisMut for SelParMut<'_> {
 /// Selections don't have access to shared fields such as box and bonds.
 //============================================================================
 pub struct ParSplit {
-    pub(crate) selections: Vec<SelIndex>,
+    pub(crate) selections: Vec<Sel>,
     pub(crate) max_index: usize,
 }
 
 /// Bound immutable parallel split
 pub struct ParSplitBound<'a> {
     pub(super) sys: &'a System,
-    pub(super) indexes: &'a Vec<SelIndex>,
+    pub(super) indexes: &'a Vec<Sel>,
 }
 
 impl<'a> ParSplitBound<'a> {
@@ -145,7 +145,7 @@ impl<'a> ParSplitBound<'a> {
 /// Bound mutable parallel split
 pub struct ParSplitBoundMut<'a> {
     pub(super) sys: &'a mut System,
-    pub(super) indexes: &'a Vec<SelIndex>,
+    pub(super) indexes: &'a Vec<Sel>,
 }
 
 impl<'a> ParSplitBoundMut<'a> {

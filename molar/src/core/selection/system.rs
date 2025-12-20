@@ -22,82 +22,116 @@ impl System {
         Ok(Self::new(top, st)?)
     }
 
-    /// Create new detached selection index based on provided definition.
-    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<SelIndex, SelectionError> {
-        Ok(SelIndex(def.into_sel_index(&self.top, &self.st, None)?))
+    /// Create new unbound selection index based on provided definition.
+    pub fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
     }
 
-    pub fn sub_select(&self, ind: &SelIndex, def: impl SelectionDef) -> Result<SelIndex, SelectionError> {
-        Ok(self.bind(ind)?.select_as_index(def)?)
+    /// Create unbound sub-selection
+    pub fn sub_select(&self, ind: &Sel, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(self.try_bind(ind)?.select_as_index(def)?)
     }
 
     /// Create all detached
-    pub fn select_all_as_index(&self) -> SelIndex {
-        SelIndex(unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) })
+    pub fn select_all(&self) -> Sel {
+        Sel(unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) })
     }
 
-    /// Create new selection based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<Sel<'_>, SelectionError> {
-        Ok(Sel {
+    /// Create new bound selection based on provided definition.
+    pub fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
+        Ok(SelOwnBound {
             sys: self,
             index: def.into_sel_index(&self.top, &self.st, None)?,
         })
     }
 
-    pub fn select_all(&self) -> Sel<'_> {
-        Sel {
+    pub fn select_all_bound(&self) -> SelOwnBound<'_> {
+        SelOwnBound {
             sys: self,
             index: unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) },
         }
     }
 
-    pub fn select_mut(&mut self, def: impl SelectionDef) -> Result<SelMut<'_>, SelectionError> {
+    pub fn select_bound_mut(&mut self, def: impl SelectionDef) -> Result<SelOwnBoundMut<'_>, SelectionError> {
         let index = def.into_sel_index(&self.top, &self.st, None)?;
-        Ok(SelMut { sys: self, index })
+        Ok(SelOwnBoundMut { sys: self, index })
     }
 
-    pub fn select_all_mut(&mut self) -> SelMut<'_> {
+    pub fn select_all_bound_mut(&mut self) -> SelOwnBoundMut<'_> {
         let index = unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) };
-        SelMut { sys: self, index }
+        SelOwnBoundMut { sys: self, index }
     }
 
     /// Binds detached selection index to make borrowed selection.
-    /// `ind`  is not consumed.
-    pub fn bind<'a>(&'a self, ind: &'a SelIndex) -> Result<SelBorrowing<'a>, SelectionError> {
+    /// `sel`  is not consumed.
+    pub fn bind<'a>(&'a self, sel: &'a Sel) -> SelBound<'a> {
         // No need to check for empty index since it's guaranteed to be non-empty
-        let last = unsafe { *ind.0.get_unchecked(ind.0.len() - 1) };
+        let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
+        if last >= self.top.len() {
+            panic!("selection is out of bounds");
+        } else {
+            SelBound {
+                sys: self,
+                index: sel.0.as_slice(),
+            }
+        }
+    }
+
+    /// Binds detached selection index to make borrowed selection.
+    /// `sel`  is not consumed.
+    pub fn try_bind<'a>(&'a self, sel: &'a Sel) -> Result<SelBound<'a>, SelectionError> {
+        // No need to check for empty index since it's guaranteed to be non-empty
+        let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
         if last >= self.top.len() {
             Err(SelectionError::IndexValidation(
-                *ind.0.first().unwrap(),
+                *sel.0.first().unwrap(),
                 last,
                 self.top.len() - 1,
             ))
         } else {
-            Ok(SelBorrowing {
+            Ok(SelBound {
                 sys: self,
-                index: ind.0.as_slice(),
+                index: sel.0.as_slice(),
             })
         }
     }
 
     /// Mutably binds detached selection index to make borrowed selection.
-    /// `ind`  is not consumed.
+    /// `sel`  is not consumed.
     pub fn bind_mut<'a>(
         &'a mut self,
-        ind: &'a SelIndex,
-    ) -> Result<SelBorrowingMut<'a>, SelectionError> {
+        sel: &'a Sel,
+    ) -> SelBoundMut<'a> {
         // No need to check for empty index since it's guaranteed to be non-empty
-        let last = unsafe { *ind.0.get_unchecked(ind.0.len() - 1) };
+        let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
+        if last >= self.top.len() {
+            panic!("selection is out of bounds");
+        } else {
+            SelBoundMut {
+                sys: self,
+                index: sel.0.as_slice(),
+            }
+        }
+    }
+
+    /// Mutably binds detached selection index to make borrowed selection.
+    /// `sel`  is not consumed.
+    pub fn try_bind_mut<'a>(
+        &'a mut self,
+        sel: &'a Sel,
+    ) -> Result<SelBoundMut<'a>, SelectionError> {
+        // No need to check for empty index since it's guaranteed to be non-empty
+        let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
         if last >= self.top.len() {
             Err(SelectionError::IndexValidation(
-                *ind.0.first().unwrap(),
+                *sel.0.first().unwrap(),
                 last,
                 self.top.len() - 1,
             ))
         } else {
-            Ok(SelBorrowingMut {
+            Ok(SelBoundMut {
                 sys: self,
-                index: ind.0.as_slice(),
+                index: sel.0.as_slice(),
             })
         }
     }
@@ -127,19 +161,19 @@ impl System {
         }
     }
 
-    pub fn split<'a, RT, F>(&'a self, func: F) -> impl Iterator<Item = Sel<'a>>
+    pub fn split_bound<'a, RT, F>(&'a self, func: F) -> impl Iterator<Item = SelOwnBound<'a>>
     where
         RT: Default + std::cmp::PartialEq + 'a,
         F: Fn(Particle) -> Option<RT> + 'a,
     {
-        self.split_as_index(func).map(|sel| Sel {
+        self.split(func).map(|sel| SelOwnBound {
             sys: self,
             index: sel.0,
         })
     }
 
-    pub fn split_resindex(&self) -> impl Iterator<Item = Sel<'_>> {
-        self.split(|p| Some(p.atom.resindex))
+    pub fn split_resindex_bound(&self) -> impl Iterator<Item = SelOwnBound<'_>> {
+        self.split_bound(|p| Some(p.atom.resindex))
     }
 
     
@@ -168,7 +202,7 @@ impl System {
     //===============
 
     /// Append selection derived from self
-    pub fn append_self_index(&mut self, sel: &SelIndex) -> Result<SelIndex, SelectionError> {
+    pub fn append_from_self(&mut self, sel: &Sel) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         let last_ind = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
         if last_ind >= self.top.len() {
@@ -182,30 +216,30 @@ impl System {
         let atoms: Vec<_> = sel.0.iter().map(|i| &self.top.atoms[*i]).cloned().collect();
         self.st.add_coords(pos.into_iter());
         self.top.add_atoms(atoms.into_iter());
-        Ok(SelIndex::from_iter(old_last + 1..self.len())?)
+        Ok(Sel::from_iter(old_last + 1..self.len())?)
     }
 
     pub fn append_atoms_coords<'a>(
         &mut self,
         atoms: impl AtomIterator<'a>,
         coords: impl PosIterator<'a>,
-    ) -> Result<SelIndex, SelectionError> {
+    ) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         self.st.add_coords(coords.cloned());
         self.top.add_atoms(atoms.cloned());
         check_topology_state_sizes(&self.top, &self.st)?;
-        Ok(SelIndex::from_iter(old_last + 1..self.len())?)
+        Ok(Sel::from_iter(old_last + 1..self.len())?)
     }
 
     pub fn append(
         &mut self,
         data: &(impl AtomIterProvider + PosIterProvider),
-    ) -> Result<SelIndex, SelectionError> {
+    ) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         self.st.add_coords(data.iter_pos().cloned());
         self.top.add_atoms(data.iter_atoms().cloned());
         check_topology_state_sizes(&self.top, &self.st)?;
-        Ok(SelIndex::from_iter(old_last + 1..self.len())?)
+        Ok(Sel::from_iter(old_last + 1..self.len())?)
     }
 
     pub fn remove(
@@ -226,17 +260,17 @@ impl System {
             return Err(PeriodicBoxError::NoPbc)?;
         }
         let m = self.require_box()?.get_matrix();
-        let all = self.select_all_as_index();
+        let all = self.select_all();
         for x in 0..=nbox[0] {
             for y in 0..=nbox[1] {
                 for z in 0..=nbox[2] {
                     if x == 0 && y == 0 && z == 0 {
                         continue;
                     }
-                    let added = self.append_self_index(&all)?;
+                    let added = self.append_from_self(&all)?;
                     let shift =
                         m.column(0) * x as f32 + m.column(1) * y as f32 + m.column(2) * z as f32;
-                    self.select_mut(added)?.translate(&shift);
+                    self.select_bound_mut(added)?.translate(&shift);
                 }
             }
         }
@@ -317,10 +351,20 @@ impl NonAtomPosAnalysisMut for System {
     }
 }
 
-impl<'a> std::ops::Shr<&'a System> for &'a SelIndex {
-    type Output = SelBorrowing<'a>;
+// Analog of `bind` with `&sel >> &system` syntax
+impl<'a> std::ops::Shr<&'a System> for &'a Sel {
+    type Output = SelBound<'a>;
     fn shr(self, rhs: &'a System) -> Self::Output {
-        rhs.bind(self).unwrap()
+        rhs.bind(self)
+    }
+
+}
+
+// Analog of `bind_mut` with `&sel >> &mut system` syntax
+impl<'a> std::ops::Shr<&'a mut System> for &'a Sel {
+    type Output = SelBoundMut<'a>;
+    fn shr(self, rhs: &'a mut System) -> Self::Output {
+        rhs.bind_mut(self)
     }
 
 }

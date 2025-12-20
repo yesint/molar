@@ -34,13 +34,13 @@ pub(super) fn command_rearrange(
     let in_sys = System::from_file(infile)?;
     let begin_sels = begin
         .iter()
-        .map(|s| in_sys.select(s))
+        .map(|s| in_sys.select_bound(s))
         .collect::<Result<Vec<_>,_>>()
         .with_context(|| "can't create begin selections for rearranging")?;
 
     let end_sels = end
         .iter()
-        .map(|s| in_sys.select(s))
+        .map(|s| in_sys.select_bound(s))
         .collect::<Result<Vec<_>,_>>()
         .with_context(|| "can't create end selections for rearranging")?;
 
@@ -58,7 +58,7 @@ pub(super) fn command_rearrange(
     let all_ind = (0..in_sys.len()).collect::<HashSet<usize>>();
 
     let rest_sel = in_sys
-        .select(all_ind.difference(&used).cloned().collect::<Vec<_>>())
+        .select_bound(all_ind.difference(&used).cloned().collect::<Vec<_>>())
         .ok();
 
     // Create output builder

@@ -797,7 +797,7 @@ mod tests {
         println!("#1: {}", top1.len());
 
         let mut sys = System::new(top1, st2)?;
-        let mut sel = sys.select_all_mut();
+        let mut sel = sys.select_all_bound_mut();
         sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
