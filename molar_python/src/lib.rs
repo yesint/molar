@@ -964,7 +964,7 @@ impl SelPy {
     }
 
     fn split_resindex(&self, py: Python<'_>) -> Vec<SelPy> {
-        self.split_resindex()
+        AtomPosAnalysis::split_resindex(self)
             .map(|s| SelPy {
                 top: Py::clone_ref(&self.top, py),
                 st: Py::clone_ref(&self.st, py),

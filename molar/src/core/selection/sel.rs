@@ -60,18 +60,20 @@ pub struct SelOwnBound<'a> {
     pub(super) index: SVec,
 }
 
-impl SelOwnBound<'_> {
-    /// Create new unbound sub-selection based on provided definition.
-    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+impl Selectable for SelOwnBound<'_> {
+/// Create new unbound sub-selection based on provided definition.
+    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
             &self.sys.top,
             &self.sys.st,
             Some(self.index.as_slice()),
         )?))
     }
+}
 
+impl SelOwnBound<'_> {
     /// Create new bound sub-selection based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<Self, SelectionError> {
+    pub fn select_bound(&self, def: impl SelectionDef) -> Result<Self, SelectionError> {
         Ok(Self {
             sys: self.sys,
             index: def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index.as_slice()))?,
@@ -152,6 +154,17 @@ impl TopologyStateWrite for SelOwnBound<'_> {}
 pub struct SelOwnBoundMut<'a> {
     pub(super) sys: &'a mut System,
     pub(super) index: SVec,
+}
+
+impl Selectable for SelOwnBoundMut<'_> {
+/// Create new unbound sub-selection based on provided definition.
+    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(
+            &self.sys.top,
+            &self.sys.st,
+            Some(self.index.as_slice()),
+        )?))
+    }
 }
 
 impl SelOwnBoundMut<'_> {
@@ -236,6 +249,17 @@ pub struct SelBound<'a> {
     pub(super) index: &'a [usize],
 }
 
+impl Selectable for SelBound<'_> {
+/// Create new unbound sub-selection based on provided definition.
+    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(
+            &self.sys.top,
+            &self.sys.st,
+            Some(self.index),
+        )?))
+    }
+}
+
 impl SelBound<'_> {
     /// Create new owned sub-selection based on provided definition.
     pub fn select(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
@@ -301,6 +325,17 @@ impl TopologyStateWrite for SelBound<'_> {}
 pub struct SelBoundMut<'a> {
     pub(super) sys: &'a mut System,
     pub(super) index: &'a [usize],
+}
+
+impl Selectable for SelBoundMut<'_> {
+/// Create new unbound sub-selection based on provided definition.
+    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(
+            &self.sys.top,
+            &self.sys.st,
+            Some(self.index),
+        )?))
+    }
 }
 
 impl SelBoundMut<'_> {

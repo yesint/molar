@@ -31,6 +31,10 @@ impl SearchConnectivity {
         }
         res
     }
+
+    pub fn get(&self, i: usize) -> Option<&Vec<usize>> {
+        self.0.get(&i)
+    }
 }
 
 impl FromIterator<(usize, usize)> for SearchConnectivity {

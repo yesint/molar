@@ -1,4 +1,10 @@
 use crate::prelude::*;
+
+/// Trait for objects that support selecting
+pub trait Selectable {
+    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError>;
+}
+
 //============================================================
 /// Umbrella trait for implementing read-only analysis traits
 /// involving only atoms and positions.

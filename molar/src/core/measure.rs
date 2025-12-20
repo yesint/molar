@@ -26,7 +26,7 @@ pub enum MeasureError {
     #[error("incompatible sizes: {0} and {1}")]
     Sizes(usize, usize),
 
-    /// Total mass of the selection is zero
+    /// Total mass is zero
     #[error("zero mass")]
     ZeroMass,
 
@@ -125,7 +125,7 @@ where
 
 /// Trait for analysis requiring positions and masses
 pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
-    /// Calculates the center of mass of the selection
+    /// Calculates the center of mass
     fn center_of_mass(&self) -> Result<Pos, MeasureError> {
         let mut cm = Vector3f::zeros();
         let mut mass = 0.0;
@@ -141,7 +141,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
         }
     }
 
-    /// Calculates the radius of gyration of the selection
+    /// Calculates the radius of gyration
     fn gyration(&self) -> Result<f32, MeasureError> {
         let c = self.center_of_mass()?;
         Ok(do_gyration(

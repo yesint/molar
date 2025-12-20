@@ -22,11 +22,6 @@ impl System {
         Ok(Self::new(top, st)?)
     }
 
-    /// Create new unbound selection index based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
-        Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
-    }
-
     /// Create unbound sub-selection
     pub fn sub_select(&self, ind: &Sel, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(self.try_bind(ind)?.select_as_index(def)?)
@@ -52,7 +47,10 @@ impl System {
         }
     }
 
-    pub fn select_bound_mut(&mut self, def: impl SelectionDef) -> Result<SelOwnBoundMut<'_>, SelectionError> {
+    pub fn select_bound_mut(
+        &mut self,
+        def: impl SelectionDef,
+    ) -> Result<SelOwnBoundMut<'_>, SelectionError> {
         let index = def.into_sel_index(&self.top, &self.st, None)?;
         Ok(SelOwnBoundMut { sys: self, index })
     }
@@ -98,10 +96,7 @@ impl System {
 
     /// Mutably binds detached selection index to make borrowed selection.
     /// `sel`  is not consumed.
-    pub fn bind_mut<'a>(
-        &'a mut self,
-        sel: &'a Sel,
-    ) -> SelBoundMut<'a> {
+    pub fn bind_mut<'a>(&'a mut self, sel: &'a Sel) -> SelBoundMut<'a> {
         // No need to check for empty index since it's guaranteed to be non-empty
         let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
         if last >= self.top.len() {
@@ -116,10 +111,7 @@ impl System {
 
     /// Mutably binds detached selection index to make borrowed selection.
     /// `sel`  is not consumed.
-    pub fn try_bind_mut<'a>(
-        &'a mut self,
-        sel: &'a Sel,
-    ) -> Result<SelBoundMut<'a>, SelectionError> {
+    pub fn try_bind_mut<'a>(&'a mut self, sel: &'a Sel) -> Result<SelBoundMut<'a>, SelectionError> {
         // No need to check for empty index since it's guaranteed to be non-empty
         let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
         if last >= self.top.len() {
@@ -176,7 +168,6 @@ impl System {
         self.split_bound(|p| Some(p.atom.resindex))
     }
 
-    
     pub fn set_state(&mut self, st: State) -> Result<State, SelectionError> {
         if self.len() != st.len() {
             Err(SelectionError::IncompatibleState)
@@ -291,6 +282,12 @@ impl System {
     }
 }
 
+impl Selectable for System {
+    fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
+    }
+}
+
 impl TopologyWrite for System {}
 impl StateWrite for System {}
 impl TopologyStateWrite for System {}
@@ -357,7 +354,6 @@ impl<'a> std::ops::Shr<&'a System> for &'a Sel {
     fn shr(self, rhs: &'a System) -> Self::Output {
         rhs.bind(self)
     }
-
 }
 
 // Analog of `bind_mut` with `&sel >> &mut system` syntax
@@ -366,11 +362,13 @@ impl<'a> std::ops::Shr<&'a mut System> for &'a Sel {
     fn shr(self, rhs: &'a mut System) -> Self::Output {
         rhs.bind_mut(self)
     }
-
 }
 
 impl Guarded for System {
-    type Guard<'a> = &'a System where Self: 'a;
+    type Guard<'a>
+        = &'a System
+    where
+        Self: 'a;
 
     fn guard(&self) -> Self::Guard<'_> {
         self
@@ -378,7 +376,10 @@ impl Guarded for System {
 }
 
 impl GuardedMut for System {
-    type GuardMut<'a> = &'a mut System where Self: 'a;
+    type GuardMut<'a>
+        = &'a mut System
+    where
+        Self: 'a;
 
     fn guard_mut(&mut self) -> Self::GuardMut<'_> {
         self
