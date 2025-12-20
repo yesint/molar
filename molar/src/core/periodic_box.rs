@@ -339,6 +339,21 @@ impl PeriodicBox {
         }
         return self.matrix * bv;
     }
+
+    #[inline(always)]
+    pub fn wrap_vec<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
+    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    {
+        // Get vector in box fractional coordinates
+        let mut bv = self.inv * vec;
+        for i in 0..3 {
+            bv[i] = bv[i].fract();
+            if bv[i] < 0.0 {
+                bv[i] = 1.0 - bv[i];
+            }
+        }
+        return self.matrix * bv;
+    }
 }
 
 #[cfg(test)]
