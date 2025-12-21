@@ -104,13 +104,13 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
 
 /// Analysis task trait. Should be implemented by user's types.
 pub trait AnalysisTask<A: clap::Args> {
-    fn new(context: &AnalysisContext<A>) -> anyhow::Result<Self>
+    fn new(context: &mut AnalysisContext<A>) -> anyhow::Result<Self>
     where
         Self: Sized;
 
-    fn process_frame(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
+    fn process_frame(&mut self, context: &mut AnalysisContext<A>) -> anyhow::Result<()>;
 
-    fn post_process(&mut self, context: &AnalysisContext<A>) -> anyhow::Result<()>;
+    fn post_process(&mut self, context: &mut AnalysisContext<A>) -> anyhow::Result<()>;
 
     fn task_name() -> String;
 
@@ -195,7 +195,7 @@ pub trait AnalysisTask<A: clap::Args> {
                 // If we are here than the frame is valid
                 if let Some(ref mut ctx) = context {
                     // Context is initialized already, update it with current state
-                    ctx.src.set_state(state)?;
+                    ctx.sys.set_state(state)?;
                     // Process frame
                     inst.as_mut()
                         .unwrap()
@@ -221,7 +221,7 @@ pub trait AnalysisTask<A: clap::Args> {
 
         if let Some(inst) = inst.as_mut() {
             info!("Post-processing...");
-            inst.post_process(&context.as_ref().unwrap())
+            inst.post_process(&mut context.as_mut().unwrap())
                 .map_err(AnalysisError::PostProcess)?;
         } else {
             return Err(AnalysisError::NoFramesConsumed);
@@ -241,16 +241,16 @@ where
 {
     info!("Initializing analysis task instance");
     // Create context
-    let context = AnalysisContext {
+    let mut context = AnalysisContext {
         args,
         consumed_frames: 0,
-        src: System::new(top, state)?,
+        sys: System::new(top, state)?,
     };
 
     // Create analysis object instance
-    let mut inst = T::new(&context).map_err(AnalysisError::PreProcess)?;
+    let mut inst = T::new(&mut context).map_err(AnalysisError::PreProcess)?;
     // Call process frame
-    inst.process_frame(&context)
+    inst.process_frame(&mut context)
         .map_err(AnalysisError::ProcessFrame)?;
 
     Ok((Some(inst), Some(context)))
@@ -258,7 +258,7 @@ where
 
 /// Context passed to all frame processing methods
 pub struct AnalysisContext<A> {
-    pub src: System,
+    pub sys: System,
     pub consumed_frames: usize,
     pub args: A,
 }

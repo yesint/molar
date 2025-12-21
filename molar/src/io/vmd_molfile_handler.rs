@@ -1,5 +1,5 @@
-use super::{StateIoProvider, TopologyIoProvider};
 use crate::core::*;
+use crate::io::{FileFormatError, FileFormatHandler, StateWrite, TopologyWrite};
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString, NulError};
@@ -13,12 +13,6 @@ enum OpenMode {
     Read,
     Write,
     None,
-}
-
-pub enum VmdMolFileType {
-    Pdb,
-    Xyz,
-    Dcd,
 }
 
 pub struct VmdMolFileHandler {
@@ -39,7 +33,7 @@ unsafe impl Send for VmdMolFileHandler {}
 
 #[derive(Error, Debug)]
 pub enum VmdHandlerError {
-    #[error("unexpected null characte")]
+    #[error("unexpected null character")]
     CStringNull(#[from] NulError),
 
     #[error("invalid utf8")]
@@ -48,31 +42,31 @@ pub enum VmdHandlerError {
     #[error("can't get plugin pointer")]
     NullPluginPtr,
 
-    #[error("plugin can't open file for reading")]
+    #[error("can't open file for reading")]
     OpenRead,
 
-    #[error("plugin can't open file for writing")]
+    #[error("can't open file for writing")]
     OpenWrite,
 
     // #[error("writing {0} atoms to file opened for {1}")]
     // NatomsMismatch(usize, usize),
 
-    #[error("plugin failed to read structure")]
+    #[error("failed to read structure")]
     ReadStructure,
 
-    #[error("plugin failed to write structure")]
+    #[error("failed to write structure")]
     WriteStructure,
 
-    #[error("plugin failed to read state")]
+    #[error("failed to read state")]
     ReadState,
 
-    #[error("plugin failed to write state")]
+    #[error("failed to write state")]
     WriteState,
 
     #[error("invalid periodic box")]
     Pbc(#[from] PeriodicBoxError),
 
-    #[error("fixed size field is {0} while needed {1}")]
+    #[error("fixed size field is of len {0} while needed {1}")]
     FixedSizeFieldOverflow(usize, usize),
 }
 
@@ -81,57 +75,28 @@ fn char_slice_to_str(buf: &[::std::os::raw::c_char]) -> Result<String, VmdHandle
     unsafe { Ok(CStr::from_ptr(buf.as_ptr()).to_str()?.to_owned()) }
 }
 
-/// Universal handler of different VMD molfile file formats
+fn get_plugin(ext: &str) -> Result<*mut molfile_plugin_t, FileFormatError> {
+    // Get plugin pointer
+    // C funtion registers plugin on first call
+    // and returns stored pointer on later invocations
+    let plugin = unsafe {
+        match ext {
+            "pdb" | "ent" => pdb_get_plugin_ptr(),
+            "xyz" => xyz_get_plugin_ptr(),
+            "dcd" => dcd_get_plugin_ptr(),
+            _ => return Err(FileFormatError::NotRecognized), // This should never happen
+        }
+    };
+
+    if plugin.is_null() {
+        Err(VmdHandlerError::NullPluginPtr)?
+    } else {
+        Ok(plugin)
+    }
+}
+
+
 impl VmdMolFileHandler {
-    fn new_for_type(ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
-        // Get plugin pointer
-        // C funtion registers plugin on first call
-        // and returns stored pointer on later invocations
-        let plugin = unsafe {
-            match ftype {
-                VmdMolFileType::Pdb => pdb_get_plugin_ptr(),
-                VmdMolFileType::Xyz => xyz_get_plugin_ptr(),
-                VmdMolFileType::Dcd => dcd_get_plugin_ptr(),
-            }
-        };
-
-        if plugin.is_null() {
-            Err(VmdHandlerError::NullPluginPtr)
-        } else {
-            Ok(VmdMolFileHandler {
-                plugin,
-                file_handle: ptr::null_mut(),
-                fname: CString::default(),
-                natoms: 0,
-                mode: OpenMode::None,
-            })
-        }
-    }
-
-    fn open_read(&mut self, fname: &str) -> Result<(), VmdHandlerError> {
-        // Prepare c-strings for file opening
-        let f_name = CString::new(fname)?;
-
-        // Open file and get file pointer
-        let mut n: i32 = 0;
-        self.file_handle = unsafe {
-            self.plugin.as_ref().unwrap().open_file_read.unwrap()(
-                f_name.as_ptr(),
-                c"".as_ptr(), // Pass empty file type
-                &mut n,
-            ) // Call function
-        };
-        self.natoms = n as usize;
-
-        if self.file_handle == ptr::null_mut() {
-            return Err(VmdHandlerError::OpenRead);
-        }
-
-        self.mode = OpenMode::Read;
-
-        Ok(())
-    }
-
     fn open_write_if_needed(&mut self, natoms: usize) -> Result<(), VmdHandlerError> {
         // If file hanlder is already set just return
         if self.mode == OpenMode::Write {
@@ -158,23 +123,56 @@ impl VmdMolFileHandler {
 
         Ok(())
     }
+}
 
-    pub fn open(fname: impl AsRef<Path>, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
-        let mut instance = Self::new_for_type(ftype)?;
-        instance.open_read(fname.as_ref().to_str().unwrap())?;
-        Ok(instance)
+impl FileFormatHandler for VmdMolFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, super::FileFormatError> where Self: Sized {
+        let fpath = fname.as_ref();
+        // Prepare c-strings for file opening
+        let f_name = CString::new(fpath.to_str().unwrap()).unwrap();
+        let plugin = get_plugin(fpath.extension().unwrap().to_str().unwrap())?;
+        // Open file and get file pointer
+        let mut n: i32 = 0;
+        let file_handle = unsafe {
+            plugin.as_ref().unwrap().open_file_read.unwrap()(
+                f_name.as_ptr(),
+                c"".as_ptr(), // Pass empty file type
+                &mut n,
+            ) // Call function
+        };
+        let natoms = n as usize;
+
+        if file_handle == ptr::null_mut() {
+            return Err(VmdHandlerError::OpenRead)?;
+        }
+
+        Ok(Self{
+            file_handle,
+            fname: f_name,
+            mode: OpenMode::Read,
+            natoms,
+            plugin
+        })
     }
 
-    pub fn create(fname: impl AsRef<Path>, ftype: VmdMolFileType) -> Result<Self, VmdHandlerError> {
-        let mut instance = Self::new_for_type(ftype)?;
-        instance.fname = CString::new(fname.as_ref().to_str().unwrap())?;
+    fn create(fname: impl AsRef<Path>) -> Result<Self, super::FileFormatError> where Self: Sized {
+        let fpath = fname.as_ref();
+        // Prepare c-strings for file opening
+        let f_name = CString::new(fpath.to_str().unwrap()).unwrap();
+        let plugin = get_plugin(fpath.extension().unwrap().to_str().unwrap())?;
         // We can't open for writing here because we don't know
         // the number of atoms to write yet. Defer it to
         // actual writing operation
-        Ok(instance)
+        Ok(Self{
+            file_handle: ptr::null_mut(),
+            fname: f_name,
+            mode: OpenMode::None, // Defers opening to write*() call
+            natoms: 0,
+            plugin,
+        })
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology, VmdHandlerError> {
+    fn read_topology(&mut self) -> Result<Topology, super::FileFormatError> {
         let mut optflags: i32 = 0;
         // Prepare array of atoms
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(self.natoms);
@@ -188,14 +186,14 @@ impl VmdMolFileHandler {
         };
 
         if ret != MOLFILE_SUCCESS {
-            return Err(VmdHandlerError::ReadStructure);
+            return Err(VmdHandlerError::ReadStructure)?;
         }
 
         // C function populated the atoms, set the vector size for Rust
         unsafe { vmd_atoms.set_len(self.natoms) }
 
         // Convert to Structure
-        let mut top: TopologyStorage = Default::default();
+        let mut top: Topology = Default::default();
         top.atoms.reserve(self.natoms);
 
         for ref vmd_at in vmd_atoms {
@@ -221,19 +219,19 @@ impl VmdMolFileHandler {
         }
 
         // Assign resindexes
-        let top: Topology = top.into();
         top.assign_resindex();
 
         Ok(top)
     }
 
-    pub fn write_topology(&mut self, data: &impl TopologyIoProvider) -> Result<(), VmdHandlerError> {
+    fn write_topology(&mut self, data: &dyn super::TopologyWrite) -> Result<(), super::FileFormatError> {
         let n = data.len();
         // Open file if not yet opened
         self.open_write_if_needed(n)?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
-        for at in data.iter_atoms() {
+        for i in 0..data.len() {
+            let at = unsafe{data.get_atom_unchecked(i)};
             let mut vmd_at = molfile_atom_t::default();
             copy_str_to_c_buffer(&at.name, &mut vmd_at.name)?;
             copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname)?;
@@ -263,12 +261,12 @@ impl VmdMolFileHandler {
 
         match ret {
             MOLFILE_SUCCESS => Ok(()),
-            _ => Err(VmdHandlerError::WriteStructure),
+            _ => Err(VmdHandlerError::WriteStructure)?,
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>, VmdHandlerError> {
-        let mut state: StateStorage = Default::default();
+    fn read_state(&mut self) -> Result<State, super::FileFormatError> {
+        let mut state: State = Default::default();
 
         // Allocate storage for coordinates, but don't initialize them
         // This doesn't waste time for initialization, which will be overwritten anyway
@@ -310,7 +308,7 @@ impl VmdMolFileHandler {
                     ts.alpha,
                     ts.beta,
                     ts.gamma,
-                )?);
+                ).map_err(VmdHandlerError::Pbc)?);
             }
             // time
             state.time = ts.physical_time as f32;
@@ -321,13 +319,14 @@ impl VmdMolFileHandler {
         }
 
         match ret {
-            MOLFILE_SUCCESS => Ok(Some(state.into())),
-            MOLFILE_EOF => Ok(None),
-            _ => Err(VmdHandlerError::ReadState),
+            MOLFILE_SUCCESS => Ok(state),
+            MOLFILE_EOF => Err(FileFormatError::Eof),
+            _ => Err(VmdHandlerError::ReadState)?,
         }
     }
 
-    pub fn write_state(&mut self, data: &impl StateIoProvider) -> Result<(), VmdHandlerError> {
+    fn write_state(&mut self, data: &dyn super::StateWrite) -> Result<(), super::FileFormatError> {
+        println!("(3): {:?}",data.get_box());
         let n = data.len();
 
         // Open file if not yet opened
@@ -335,8 +334,8 @@ impl VmdMolFileHandler {
 
         // Buffer for coordinates allocated on heap
         let mut buf = Vec::from_iter(
-            data.iter_pos()
-                .map(|p| p.coords.iter().cloned())
+            (0..data.len())
+                .map(|i| unsafe{data.get_pos_unchecked(i)}.coords.iter().cloned())
                 .flatten()
                 .map(|el| el * 10.0),
         );
@@ -356,7 +355,8 @@ impl VmdMolFileHandler {
             alpha: box_ang[0],
             beta: box_ang[1],
             gamma: box_ang[2],
-            physical_time: data.get_time() as f64,
+            physical_time: 
+            data.get_time() as f64,
         };
 
         let ret = unsafe {
@@ -366,8 +366,18 @@ impl VmdMolFileHandler {
 
         match ret {
             MOLFILE_SUCCESS => Ok(()),
-            _ => Err(VmdHandlerError::WriteState),
+            _ => Err(VmdHandlerError::WriteState)?,
         }
+    }
+
+    fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
+        Ok((self.read_topology()?,self.read_state()?))
+    }
+
+    fn write(&mut self, data: &dyn super::TopologyStateWrite) -> Result<(), FileFormatError> {
+        self.write_topology(data as &dyn TopologyWrite)?;
+        self.write_state(data as &dyn StateWrite)?;
+        Ok(())
     }
 }
 

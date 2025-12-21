@@ -26,15 +26,16 @@ categories = ["science", "simulation", "external-ffi-bindings"]
 description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
 
 [workspace.dependencies]
-nalgebra = "0.33.2"
+nalgebra = ">=0.33"
 peg = "0.8.5"
-regex = "1.11.1"
-thiserror = "2.0.12"
-log = "0.4.27"
-cc = { version = "1.2.17", features = ["parallel"] }
-comfy-table = "7.1"
-sorted-vec = "0.8.5"
-anyhow = "1.0.97"
+regex = "1.12.2"
+thiserror = "2.0.17"
+log = "0.4.29"
+cc = { version = "1.2.49", features = ["parallel"] }
+comfy-table = "7.2"
+sorted-vec = "0.8.10"
+anyhow = "1.0.100"
 serde = { version = "1.0", features = ["derive"] }
-clap = {version = "4.5", features=["derive"]}
-triomphe = "0.1.14"
+clap = {version = "4.5.53", features=["derive"]}
+triomphe = "0.1.15"
+rayon = "1.11.0"

@@ -19,9 +19,6 @@ pub struct GroFileHandler {
 
 #[derive(Debug, Error)]
 pub enum GroHandlerError {
-    #[error("unexpected io error")]
-    Io(#[from] std::io::Error),
-
     #[error("can't open gro file for reading")]
     OpenRead(#[source] std::io::Error),
 
@@ -37,18 +34,18 @@ pub enum GroHandlerError {
     #[error(transparent)]
     Pbc(#[from] PeriodicBoxError),
 
-    #[error("atom {0} has incomplete {1} entry")]
+    #[error("atom {0} has corrupted {1} entry")]
     AtomEntry(usize, String),
 
     #[error("gro file is empty")]
     EmptyFile,
 
-    #[error("end of file reached")]
+    #[error("unexpcted end of file reached")]
     Eof,
 }
 
-impl GroFileHandler {
-    pub fn open(fname: impl AsRef<Path>) -> Result<Self, GroHandlerError> {
+impl FileFormatHandler for GroFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
         Ok(Self {
             reader: BufReader::new(File::open(fname)
                 .map_err(|e| GroHandlerError::OpenRead(e))?).into(),
@@ -59,7 +56,7 @@ impl GroFileHandler {
         })
     }
 
-    pub fn create(fname: impl AsRef<Path>) -> Result<Self, GroHandlerError> {
+    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
         Ok(Self {
             writer: BufWriter::new(File::create(fname)
                 .map_err(|e| GroHandlerError::OpenWrite(e))?).into(),
@@ -70,10 +67,7 @@ impl GroFileHandler {
         })
     }
 
-    pub fn write(
-        &mut self,
-        data: &(impl TopologyIoProvider + StateIoProvider),
-    ) -> Result<(), GroHandlerError> {
+    fn write(&mut self, data: &dyn TopologyStateWrite) -> Result<(), FileFormatError> {
         let natoms = data.len();
         let buf = self.writer.as_mut().unwrap();
 
@@ -82,7 +76,9 @@ impl GroFileHandler {
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
         // Write atom lines
-        for (i, (at, pos)) in std::iter::zip(data.iter_atoms(), data.iter_pos()).enumerate() {
+        for i in 0..data.len() {
+            let at = unsafe {data.get_atom_unchecked(i)};
+            let pos = unsafe {data.get_pos_unchecked(i)};
             let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
             let resid = at.resid % 99999; // Prevents overflow of resid field.
 
@@ -130,9 +126,9 @@ impl GroFileHandler {
         Ok(())
     }
 
-    pub fn read(&mut self) -> Result<Option<(Topology, State)>, GroHandlerError> {
-        let mut top = TopologyStorage::default();
-        let mut state = StateStorage::default();
+    fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
+        let mut top = Topology::default();
+        let mut state = State::default();
 
         let buf = self.reader.as_mut().unwrap();
         let mut line = String::new();
@@ -142,9 +138,9 @@ impl GroFileHandler {
             // EOF reached. If we alread read some frames than this is end of trajectory
             // Otherwise this is an empty file.
             if self.at_least_one_state_read {
-                return Ok(None);
+                return Err(GroHandlerError::Eof)?;
             } else {
-                return Err(GroHandlerError::EmptyFile);
+                return Err(GroHandlerError::EmptyFile)?;
             }
         }
 
@@ -161,7 +157,7 @@ impl GroFileHandler {
         // Read number of atoms
         line.clear();
         buf.read_line(&mut line).unwrap();
-        let natoms = line.trim().parse::<usize>()?;
+        let natoms = line.trim().parse::<usize>().map_err(GroHandlerError::ParseInt)?;
 
         // Go over atoms line by line
         for i in 0..natoms {
@@ -173,7 +169,7 @@ impl GroFileHandler {
                     .get(0..5)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
                     .trim()
-                    .parse::<i32>()?,
+                    .parse::<i32>().map_err(GroHandlerError::ParseInt)?,
                 resname: line
                     .get(5..10)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
@@ -200,15 +196,15 @@ impl GroFileHandler {
                 line.get(20..28)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
                     .trim()
-                    .parse::<f32>()?,
+                    .parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
                 line.get(28..36)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
                     .trim()
-                    .parse::<f32>()?,
+                    .parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
                 line.get(36..44)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
                     .trim()
-                    .parse::<f32>()?,
+                    .parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
             );
             state.coords.push(v);
         }
@@ -243,39 +239,33 @@ impl GroFileHandler {
             m[(0, 2)] = l[7];
             m[(1, 2)] = l[8];
         }
-        state.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| GroHandlerError::Pbc(e))?);
+        state.pbox = Some(PeriodicBox::from_matrix(m).map_err(GroHandlerError::Pbc)?);
 
-        let state: State = state.into();
-        let top: Topology = top.into();
         // Assign resindex
         top.assign_resindex();
 
         self.at_least_one_state_read = true;
 
-        Ok(Some((top, state)))
+        Ok((top, state))
     }
 
-    pub fn read_topology(&mut self) -> Result<Topology, GroHandlerError> {
+    fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
         if self.stored_topology.is_some() {
             Ok(self.stored_topology.take().unwrap())
         } else {
-            let (top,st) = self.read()?.ok_or(GroHandlerError::Eof)?;
+            let (top,st) = self.read()?;
             self.stored_state.get_or_insert(st);
             Ok(top)
         }
     }
 
-    pub fn read_state(&mut self) -> Result<Option<State>, GroHandlerError> {
+    fn read_state(&mut self) -> Result<State, FileFormatError> {
         if self.stored_state.is_some() {
-            Ok(Some(self.stored_state.take().unwrap()))
+            Ok(self.stored_state.take().unwrap())
         } else {
-            if let Some((top,st)) = self.read()? {
-                self.stored_topology.get_or_insert(top);
-                Ok(Some(st))
-            } else {
-                Ok(None)
-            }
-            
+            let (top,st) = self.read()?; 
+            self.stored_topology.get_or_insert(top);
+            Ok(st)
         }
     }
 }

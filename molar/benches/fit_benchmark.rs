@@ -5,23 +5,25 @@ use nalgebra::Unit;
 fn read_test_pdb() -> (Topology, State) {
     let mut h = FileHandler::open("tests/colored.pdb").unwrap();
     let top = h.read_topology().unwrap();
-    let state = h.read_state().unwrap().unwrap();
+    let state = h.read_state().unwrap();
     (top, state)
 }
 
-fn make_sel_prot() -> anyhow::Result<Sel> {
+fn make_sel_prot() -> anyhow::Result<(System, Sel)> {
     let (top, st) = read_test_pdb();
     let b = System::new(top, st).unwrap();
     //let sel = b.select("not resname TIP3 POT CLA").unwrap();
-    let sel = b.select_all().unwrap();
-    Ok(sel)
+    let sel = b.select_all();
+    Ok((b, sel))
 }
 
 #[allow(dead_code)]
 fn test_fit(c: &mut Criterion) {
-    let sel1 = make_sel_prot().unwrap();
-    let sel2 = make_sel_prot().unwrap();
-    sel2.rotate(&Unit::new_normalize(Vector3f::x()), 80.0_f32.to_radians());
+    let (mut sys, sel1) = make_sel_prot().unwrap();
+    let (_, sel2) = make_sel_prot().unwrap();
+    sys.try_bind_mut(&sel2)
+        .unwrap()
+        .rotate(&Unit::new_normalize(Vector3f::x()), 80.0_f32.to_radians());
 
     //c.bench_function("fit gmx", |b| b.iter(
     //    || fit_transform_matrix(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
@@ -31,6 +33,8 @@ fn test_fit(c: &mut Criterion) {
     //    || fit_transform_gmx(black_box(sel1.query().iter_particles()), sel2.query().iter_particles()).unwrap())
     //);
 
+    let sel1 = sys.try_bind(&sel1).unwrap();
+    let sel2 = sys.try_bind(&sel2).unwrap();
     c.bench_function("fit kabsch ref", |b| {
         b.iter(|| fit_transform(black_box(&sel1), &sel2).unwrap())
     });

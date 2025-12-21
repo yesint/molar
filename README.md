@@ -37,22 +37,14 @@ MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molec
 * Trajectory processing with powerful built-in features
 * Python bindings
 
-
 # Design and Performance
-Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 0.10 it was simplified dramatically. Now selections provide mutable access to the underlying system in parallel at the cost of losing the strong gurantee of the absence of race conditions. MolAR is still memory safe in the sense that you _always_ operate on valid data and _can't get_ any kind of out of bounds errors or dangling references. However, if you are not careful you _can_ get race condition when accessing the same atoms from different threads. Currently this is your responsibility to avoid this.
-
-Performance of MalAR is still the same or better as reported in the [paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
-
-I'm currently exploring other approahes to ensuring safety of parallel processing, but so far all of them are 
-complicating the API to the point that it doesn't worth it in practice.
-
+Please refer to the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
 
 # Current status
 Molar is close to be feature complete and usable in useful projects. Documentation is still rudimentary.
 
-
 # Installation
-Molar requires Rust 1.83 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
+Molar requires Rust 1.80 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
 
 To add MolAR to your Rust project just use `cargo add molar`.
 
@@ -108,23 +100,25 @@ fn main() -> Result<()> {
 Now we can start writing our program.
 
 ## Reading an input file
-The simples way of loading the molecular system in MolAR is to use a `System` - an object that holds a `Topology` and `State` of the system and is used to create atom selections for manipulating this data:
+The simples way of loading the molecular system in MolAR is to use a `Source` - an object that holds a `Topology` and `State` of the system and is used to create atom selections for manipulating this data:
 
 ```rust,ignore
 // Load the source file from the first command line argument
-let sys = System::from_file(&args[0])?;
+let src = System::from_file(&args[0])?;
 ```
-The file type (PDB, GRO, etc) is automatically recognized by its extention.
 
+The file type (PDB, GRO, etc) is automatically recognized by its extention.
 If reading the file fails for whatever reason the `?` operator will return an error, which will be nicely printed by `anyhow` crate.
 
 ## Making selections
 Now we need to select all waters that are going to be converted to TIP4. We also need to select all non-water part of the system to keep it as is.
 
+In MolAR selection (`Sel`) is just a list of atom indexes, which has to be "bound" to the `System` to do useful work using `system.bind(&sel)` for read-only acces or 
+`system.bind_mut(&sel)` for read-write access. There are also convenience methods that produce bound selection right away. This is useful if you know that you won't re-bind the same `System` for different type of access often.
+
 ```rust,ignore
-let water = sys.select("resname TIP3")?;
-// Invert selection to select not water
-let non_water = !&water;
+let water = sys.select_bound("resname TIP3")?;
+let non_water = sys.select_bound("not resname TIP3")?;
 ```
 
 Selections are created with the syntax that is very similar to one used in VMD Pteros and Gromacs. Here we select water and non-water by residue name.
@@ -136,19 +130,19 @@ We selected all water molecules as a single selection but we need to loop over i
 
 ```rust,ignore
 // Go over water molecules one by one                   
-for mol in water.split_resindex_iter() {
+for mol in water.split_resindex_bound() {
     // Do something with mol
 }
 ```
 
-The method `split_resindex_iter()` returns a Rust iterator, which produces contigous selections containig distinct residue each. There are other ways of splitting selections into parts using arbitrary logic in MolAR, but this is simplest one for what we need now.
+The method `split_resindex_bound()` returns a Rust iterator, which produces contigous bound selections containig distinct residue index each. There are many other ways of splitting selections into parts using arbitrary logic in MolAR, but this simplest one is what we need now. 
 
 ## Working with coordinates
 Now we need to get the coordinates of atoms for current water molecules and compute a position of the dummy atom.
 
 ```rust,ignore
 // Go over water molecules one by one                   
-for mol in water.split_resindex_into_iter() {
+for mol in water.split_resindex_bound() {
     // TIP3 is arranged as O->H->H
     // so atom 0 is O, atoms 1 and 2 are H
     // Get cooridnates
@@ -162,12 +156,12 @@ for mol in water.split_resindex_into_iter() {
     // Position of the M dummy particle in TIP4
     let m_pos = o_pos + v*0.01546;
     // Dummy atom M
-    let m_at = Atom {   
+    let m_at = Atom {
         resname: "TIP4".into(),
         name: "M".into(),
-        // Other fields are copyied from oxygen atom
         ..mol.first_particle().atom.clone()
-    };    
+    };
+    println!("{:?} {:?}",m_at,m_pos);
 }
 ```
 
@@ -184,10 +178,10 @@ All this is fine, but we still have no system to write our converted water molec
 
 ```rust,ignore
 // Load the source file from the first command line argument
-let src = System::serial_from_file(&args[0])?;
+let src = Source::serial_from_file(&args[0])?;
 
 // Make empty output system
-let out = System::empty_builder();
+let out = Source::empty_builder();
 ```
 
 Here we are creating new empty `Source` of kind `builder`. This means that we will be able to add and delete the atoms to this source. Conventional `serial` source can access and alter existing atoms, but can't add or delete them. Such a distinction is dictated by performance and memory safety reasons - `builder` sources and selections require additional range checks, which make them a tiny bit slower, so it only makes sense to use them when you actually need to add or delete the atoms.
@@ -202,10 +196,10 @@ Now, at the end of our loop over water molecules, we can add new dummy atoms pro
 ```rust,ignore
 // Add new converted water molecule
 // We assume that the dummy is the last atom.
-out.append_atoms(
+let added = out.append_coords(
     mol.iter_atoms().cloned().chain(std::iter::once(m_at)),
     mol.iter_pos().cloned().chain(std::iter::once(m_pos)),
-);
+)?;
 ```
 
 This code snippet may look a bit puzzling for non-rustaceans, so let's go through it.
@@ -214,12 +208,20 @@ This code snippet may look a bit puzzling for non-rustaceans, so let's go throug
 - `cloned()` adaptor is used to get copies of existing atoms and coordinates instead of references to them. 
 - We add our new dummy atom at the end of water molecule by "chaining" another iterator at the end of the current one. `std::iter::once(value)` returns an iterator yielding a single value and allows us to add newly constructed `m_at` and `m_pos` to the corrsponding iterators.
 
+We also need to chnage the resname of the old atoms of water molecule from TIP3 to TIP4. As you noticed, `append_atoms_coords()` returns a selection with added atoms, so we can bind it mutably to the output system and set new residue name:
+
+```rust,ignore
+// Change resname for added atoms
+// Note the use of bind_mut()!
+out.bind_mut(&added).set_same_resname("TIP4");
+```
+
 ## Writing the output file
 Out output system is now fully constructed but it still lacks an important element - the periodic box description. Most molecular systems originating from MD are periodic and the information about the periodic box has to be copied to our newly constructed system:
 
 ```rust,ignore
 // Transfer the box from original file
-out.set_box_from(&sys);
+out.set_box_from(&src);
 ```
 
 Here we provide a reference to the input system, so the box is cloned from it to the output system.
@@ -251,17 +253,24 @@ fn main() -> Result<()> {
     let sys = System::from_file(&args[0])?;
 
     // Make empty output system
-    let out = System::new_empty();
+    let mut out = System::default();
 
-    let water = sys.select("resname TIP3")?;
-    // Invert selection to select not water
-    let non_water = !&water;
+    // Select water and non-water. 
+    // Normally selections are just indexes of atoms, which have to be
+    // "bound" to system to do useful work using 
+    // `sys.bind(&sel)` for read-only acces or 
+    // `sys.bind_mut(&sel)` for read-write access. 
+    // In this particular case we use `select_bound()` to get 
+    // bound selections. This works here because we know in advance
+    // that `sys` is used read-only and we'll never re-bind it for mut access.
+    let water = sys.select_bound("resname TIP3")?;
+    let non_water = sys.select_bound("not resname TIP3")?;
 
     // Add non-water atoms to the output
     out.append(&non_water);
 
     // Go over water molecules one by one                   
-    for mol in water.split_resindex_iter() {
+    for mol in water.split_resindex_bound() {
         // TIP3 is arranged as O->H->H
         // so atom 0 is O, atoms 1 and 2 are H
 	    // Get cooridnates
@@ -275,19 +284,22 @@ fn main() -> Result<()> {
 	    // Position of the M dummy particle in TIP4
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
-        let m_at = Atom {   
+        let m_at = Atom {
             resname: "TIP4".into(),
             name: "M".into(),
-            // Other fields are copyied from oxygen atom
             ..mol.first_particle().atom.clone()
         };
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        out.append_atoms(
-            mol.iter_atoms().cloned().chain(std::iter::once(m_at)),
-            mol.iter_pos().cloned().chain(std::iter::once(m_pos)),
-        );
+        let added = out.append_atoms_coords(
+            mol.iter_atoms().chain(std::iter::once(&m_at)),
+            mol.iter_pos().chain(std::iter::once(&m_pos)),
+        )?;
+
+        // Change resname for added atoms
+        // Note the use of bind_mut()!
+        out.bind_mut(&added).set_same_resname("TIP4");
     }
 
     // Transfer the box
@@ -358,10 +370,10 @@ impl AnalysisTask<UserArgs> for ComTask {
     // It is called on the first valid trajectory frame.
     // Context contains all needed data such as topology, 
     // state and parsed command line arguments
-    fn new(context: &AnalysisContext<UserArgs>) -> anyhow::Result<Self> {
+    fn new(context: &mut AnalysisContext<UserArgs>) -> anyhow::Result<Self> {
         // Create our selection from the user-supplied string.
         // Arguments are stored in context.args.
-        let sel = context.src.select(&context.args.sel)?;
+        let sel = context.sys.select(&context.args.sel)?;
         // Create our analysis type instance
         Ok(Self {
             sel,
@@ -370,20 +382,18 @@ impl AnalysisTask<UserArgs> for ComTask {
     }
 
     // Function to be called at each frame.
-    fn process_frame(&mut self, context: &AnalysisContext<UserArgs>) -> anyhow::Result<()> {
-        // We need to update the state in our selection
-        self.sel.set_state_from(&context.src)?;
+    fn process_frame(&mut self, context: &mut AnalysisContext<UserArgs>) -> anyhow::Result<()> {
         // Compute the center of mass
-        let com = self.sel.center_of_mass()?;
+        let com = context.sys.bind(&self.sel).center_of_mass()?;
         // Print current center of mass. We get current time stamp from the context
-        println!("time={}, com={}", context.src.get_state().get_time(), com);
+        println!("time={}, com={}", context.sys.get_time(), com);
         // Add to average
         self.com_aver += com.coords;
         Ok(())
     }
 
     // Post-processing
-    fn post_process(&mut self, context: &AnalysisContext<UserArgs>) -> anyhow::Result<()> {
+    fn post_process(&mut self, context: &mut AnalysisContext<UserArgs>) -> anyhow::Result<()> {
         // Compute average
         self.com_aver /= context.consumed_frames as f32;
         println!("average com={}", self.com_aver);

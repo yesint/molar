@@ -31,17 +31,17 @@ pub(super) fn command_rearrange(
 
     // Make selections
     info!("Rearranging file '{infile}'...");
-    let in_source = System::from_file(infile)?;
+    let in_sys = System::from_file(infile)?;
     let begin_sels = begin
         .iter()
-        .map(|s| in_source.select(s))
-        .collect::<Result<Vec<Sel>,_>>()
+        .map(|s| in_sys.select_bound(s))
+        .collect::<Result<Vec<_>,_>>()
         .with_context(|| "can't create begin selections for rearranging")?;
 
     let end_sels = end
         .iter()
-        .map(|s| in_source.select(s))
-        .collect::<Result<Vec<Sel>,_>>()
+        .map(|s| in_sys.select_bound(s))
+        .collect::<Result<Vec<_>,_>>()
         .with_context(|| "can't create end selections for rearranging")?;
 
     // Check overlap of selections
@@ -55,28 +55,29 @@ pub(super) fn command_rearrange(
     }
 
     // Get the rest of indexes, which are not used
-    let all_ind = (0..in_source.len()).collect::<HashSet<usize>>();
+    let all_ind = (0..in_sys.len()).collect::<HashSet<usize>>();
 
-    let rest_sel = in_source
-        .select(all_ind.difference(&used).cloned().collect::<Vec<_>>())
+    let rest_sel = in_sys
+        .select_bound(all_ind.difference(&used).cloned().collect::<Vec<_>>())
         .ok();
 
     // Create output builder
-    let out = System::new_empty();
+    let mut out = System::default();
+
     // Add beginning selections
     for sel in begin_sels {
-        out.append(&sel);
+        out.append(&sel)?;
     }
 
     // Add the rest if any
     if let Some(rest) = rest_sel {
         info!("There are {} untouched atoms", rest.len());
-        out.append(&rest);
+        out.append(&rest)?;
     }
 
     // Add ending selections
     for sel in end_sels {
-        out.append(&sel);
+        out.append(&sel)?;
     }
 
     info!("Writing rearranged to '{outfile}'...");

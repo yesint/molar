@@ -964,7 +964,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::core::{Selectable, System};
-    use super::WritableToFile;
+    use super::TopologyStateWrite;
 
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {
@@ -978,7 +978,7 @@ mod tests {
     #[test]
     fn within_pbc() -> anyhow::Result<()> {
         let src = System::from_file("tests/albumin.pdb")?;
-        let sel = src.select("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
+        let sel = src.select_bound("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
         sel.save("../target/pbc_sel.pdb")?;
         Ok(())
     }

@@ -666,7 +666,7 @@ fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) 
     let mut lower = Vector3f::max_value();
     let mut upper = Vector3f::min_value();
     for i in iter {
-        let crd = unsafe { state.get_pos_mut_unchecked(i) };
+        let crd = unsafe { state.get_pos_unchecked(i) };
         for d in 0..3 {
             if crd[d] < lower[d] {
                 lower[d] = crd[d]
@@ -767,9 +767,9 @@ impl MathNode {
         let atom = unsafe { data.topology.get_atom_unchecked(at) };
         match self {
             Self::Float(v) => Ok(*v),
-            Self::X => Ok(unsafe { data.state.get_pos_mut_unchecked(at) }[0]),
-            Self::Y => Ok(unsafe { data.state.get_pos_mut_unchecked(at) }[1]),
-            Self::Z => Ok(unsafe { data.state.get_pos_mut_unchecked(at) }[2]),
+            Self::X => Ok(unsafe { data.state.get_pos_unchecked(at) }[0]),
+            Self::Y => Ok(unsafe { data.state.get_pos_unchecked(at) }[1]),
+            Self::Z => Ok(unsafe { data.state.get_pos_unchecked(at) }[2]),
             Self::Bfactor => Ok(atom.bfactor),
             Self::Occupancy => Ok(atom.occupancy),
             Self::Vdw => Ok(atom.vdw()),
@@ -803,21 +803,21 @@ impl MathNode {
                 }
             }
             Self::Dist(d) => {
-                let pos = unsafe { data.state.get_pos_mut_unchecked(at) };
+                let mut pos = unsafe { data.state.get_pos_unchecked(at) }.clone();
                 // Point should be unwrapped first!
-                d.closest_image(pos, data);
+                d.closest_image(&mut pos, data);
 
                 match d {
-                    DistanceNode::Point(p, _) => Ok((*pos - p.get_vec(data)?).norm()),
+                    DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
                     DistanceNode::Line(p1, p2, _) => {
                         let p1 = p1.get_vec(data)?;
                         let p2 = p2.get_vec(data)?;
                         let v = p2 - p1;
-                        let w = *pos - p1;
+                        let w = pos - p1;
                         Ok((w - v * (w.dot(&v) / v.norm_squared())).norm())
                     }
                     DistanceNode::LineDir(p, dir, _) => {
-                        let w = *pos - p.get_vec(data)?;
+                        let w = pos - p.get_vec(data)?;
                         let dir = dir.get_unit_vec(data)?.coords;
                         Ok((w - dir * w.dot(&dir)).norm())
                     }
@@ -827,11 +827,11 @@ impl MathNode {
                         let p3 = p3.get_vec(data)?;
                         // Plane normal
                         let n = (p2 - p1).cross(&(p3 - p1));
-                        let w = *pos - p1;
+                        let w = pos - p1;
                         Ok((n * (w.dot(&n) / n.norm_squared())).norm())
                     }
                     DistanceNode::PlaneNormal(p, n, _) => {
-                        let w = *pos - p.get_vec(data)?;
+                        let w = pos - p.get_vec(data)?;
                         let n = n.get_unit_vec(data)?.coords;
                         Ok((n * w.dot(&n)).norm())
                     }

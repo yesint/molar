@@ -169,10 +169,10 @@ impl SelectionDef for SVec {
             match subset {
                 None => {                    
                     let n = top.len();
-                    if self[0] >= n || self[self.len()-1] >= n {
+                    if self[self.len()-1] >= n {
                         Err(SelectionError::IndexValidation(self[0], self[self.len()-1], n-1))
                     } else {
-                        Ok(self)
+                        Ok(self) // No copying!
                     }
                 },
                 Some(sub) => local_to_global(self.iter().cloned(), sub),
@@ -192,23 +192,14 @@ impl SelectionDef for &SVec {
     }
 }
 
-impl SelectionDef for &Sel {
+impl SelectionDef for Sel {
     fn into_sel_index(
         self,
         top: &Topology,
-        _st: &State,
+        st: &State,
         subset: Option<&[usize]>,
     ) -> Result<SortedSet<usize>, SelectionError> {
-        if let Some(_) = subset {
-            return Err(SelectionError::SelDefInSubsel)
-        }
-
-        let n = top.len();
-        if self.get_first_index() >= n || self.get_last_index() >= n {
-            return Err(SelectionError::IndexValidation(self.get_first_index(), self.get_last_index(), n-1));
-        }
-
-        Ok( unsafe {SVec::from_sorted( Vec::from(self.get_index()) )} )
+        self.0.into_sel_index(top, st, subset)
     }
 }
 

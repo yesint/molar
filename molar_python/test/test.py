@@ -4,7 +4,7 @@ import numpy as np
 
 #sel = System('../../molar/tests/protein.pdb').select("resid 5:600")
 
-def test_ste_state():
+def test_set_state():
     top,st1 = FileHandler('../../molar/tests/protein.pdb','r').read()
     st2 = FileHandler('../../molar/tests/protein.pdb','r').read_state()
     st2.time = 100
@@ -24,19 +24,19 @@ def test_ste_state():
     
 
 def test1():
-    sel = System('../../tests/protein.pdb')("resid 5:600")
-    trj = FileHandler('../../tests/protein.xtc')
+    sel = System('../../molar/tests/protein.pdb')("resid 5:600")
+    trj = FileHandler('../../molar/tests/protein.xtc','r')
     for st in trj:
         sel.set_state(st)
         print(st.time,sel.com())
 
 def test2():
-    fh = FileHandler('../../tests/protein.pdb')
+    fh = FileHandler('../../molar/tests/protein.pdb','r')
     top = fh.read_topology()
     st = fh.read_state()
     src = System(top,st)
     sel = src("resid 5:600")
-    del top,st,src,fh
+    del top,st,fh
     pos0 = sel[0].pos
     pos1 = sel[1].pos
     pos2 = sel[2].pos
@@ -45,8 +45,10 @@ def test2():
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
     del pos1
     print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del sel
+    #del sel
     print(f"ref: {getrefcount(pos0)-1} pos0: {pos0}")
+    pos0[1]+=1
+    print(f"ref: {getrefcount(pos0)-1} pos0: {sel[0].pos}")
 
 
 def test3():
@@ -93,7 +95,7 @@ def test7():
     print(sel[5].atom.resname)
 
 def test8():
-    src = System.from_file('../../tests/protein.pdb')
+    src = System('../../molar/tests/protein.pdb')
     sel = []
     sel.append( src("resid 500:600") )
     sel.append( src(None) )
@@ -119,7 +121,7 @@ def test_distance_search():
     print(len(pairs),len(dist))
     print(pairs,dist)
 
-#test3()
-#test2()
+#test7()
+test2()
 #test_distance_search()
-test_ste_state()
+#test_set_state()

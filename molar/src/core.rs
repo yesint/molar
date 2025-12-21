@@ -30,7 +30,6 @@ pub use {
     distance_search::*,
     connectivity::*,
     ndx_file::*,
-    
 };
 
 // Aliases for vector and points

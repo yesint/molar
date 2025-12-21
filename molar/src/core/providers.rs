@@ -1,54 +1,48 @@
 use crate::prelude::*;
-use sorted_vec::SortedSet;
 
 //--------------------------------------------------------------
 // Basic providers
 //--------------------------------------------------------------
 
-/// Trait for providing topology I/O operations
-pub trait TopologyIoProvider:
-    RandomAtomProvider + AtomIterProvider + RandomMoleculeProvider + RandomBondProvider
-{
-}
-
-/// Trait for providing state I/O operations
-pub trait StateIoProvider:
-    RandomPosProvider + PosIterProvider + BoxProvider + TimeProvider
-{
-}
-
-/// Trait for providing file writing for topology and state data
-pub trait WritableToFile: TopologyIoProvider + StateIoProvider
-where
-    Self: Sized,
-{
-    fn save(&self, fname: &str) -> Result<(), FileIoError> {
-        let mut h = FileHandler::create(fname)?;
-        h.write(self)
-    }
-}
-
 //--------------------------------------------------------------
 // Index
 //--------------------------------------------------------------
 
-/// Trait for providing iteration over selected indices
-pub trait IndexProvider {
+/// Trait for selected indices
+pub trait IndexProvider: LenProvider {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone;
+    
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
-}
-
-impl IndexProvider for SortedSet<usize> {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
-        self.iter().cloned()
+    
+    fn first_index(&self) -> usize {
+        unsafe { self.get_index_unchecked(0) }
     }
 
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        i
+    fn last_index(&self) -> usize {
+        unsafe { self.get_index_unchecked(self.len()-1) }
+    }
+
+    /// Creates a string in Gromacs index format representing self.
+    fn as_gromacs_ndx_str(&self, name: impl AsRef<str>) -> String {
+        use itertools::Itertools;
+        let name = name.as_ref();
+        let mut s = format!("[ {} ]\n", name);
+        for chunk in &self.iter_index().chunks(15) {
+            let line: String = chunk.map(|i| (i + 1).to_string()).join(" ");
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s
     }
 }
 
-impl IndexProvider for Vec<usize> {
+impl LenProvider for SVec {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+
+impl IndexProvider for SVec {
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.iter().cloned()
     }
@@ -142,14 +136,6 @@ pub trait RandomPosProvider: LenProvider {
         }
     }
 
-    fn get_multiple_pos(&self, ind: impl ExactSizeIterator<Item=usize>) -> Option<Vec<&Pos>> {
-        let mut buf = Vec::with_capacity(ind.len());
-        for i in ind {
-            buf.push(self.get_pos(i)?);
-        }
-        Some(buf)
-    }
-
     fn first_pos(&self) -> &Pos {
         unsafe { self.get_pos_unchecked(0) }
     }
@@ -169,14 +155,6 @@ pub trait RandomAtomProvider: LenProvider {
         } else {
             None
         }
-    }
-
-    fn get_multiple_atoms(&self, ind: impl ExactSizeIterator<Item=usize>) -> Option<Vec<&Atom>> {
-        let mut buf = Vec::with_capacity(ind.len());
-        for i in ind {
-            buf.push(self.get_atom(i)?);
-        }
-        Some(buf)
     }
 
     fn first_atom(&self) -> &Atom {
@@ -231,15 +209,15 @@ pub trait MoleculeIterProvider {
 //--------------------------------------------------------------
 
 /// Trait for providing mutable iteration over positions
-pub trait PosIterMutProvider: PosIterProvider {
-    fn iter_pos_mut(&self) -> impl PosMutIterator<'_>;
+pub trait PosIterMutProvider {
+    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_>;
 }
 
 /// Trait for providing mutable random access to positions
-pub trait RandomPosMutProvider: RandomPosProvider {
-    unsafe fn get_pos_mut_unchecked(&self, i: usize) -> &mut Pos;
+pub trait RandomPosMutProvider: LenProvider {
+    unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos;
 
-    fn get_pos_mut(&self, i: usize) -> Option<&mut Pos> {
+    fn get_pos_mut(&mut self, i: usize) -> Option<&mut Pos> {
         if i < self.len() {
             Some(unsafe { self.get_pos_mut_unchecked(i) })
         } else {
@@ -247,28 +225,89 @@ pub trait RandomPosMutProvider: RandomPosProvider {
         }
     }
 
-    fn first_pos_mut(&self) -> &mut Pos {
+    fn first_pos_mut(&mut self) -> &mut Pos {
         unsafe { self.get_pos_mut_unchecked(0) }
     }
 
-    fn last_pos_mut(&self) -> &mut Pos {
+    fn last_pos_mut(&mut self) -> &mut Pos {
         unsafe { self.get_pos_mut_unchecked(self.len() - 1) }
     }
 }
 
 /// Trait for providing mutable iteration over atoms
-pub trait AtomIterMutProvider: AtomIterProvider {
-    fn iter_atoms_mut(&self) -> impl AtomMutIterator<'_>;
+pub trait AtomIterMutProvider {
+    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_>;
+
+    /// Sets same name to all selected atoms
+    fn set_same_name(&mut self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.name = val.into();
+        }
+    }
+
+    /// Sets same resname to all selected atoms
+    fn set_same_resname(&mut self, val: &str)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resname = val.into();
+        }
+    }
+
+    /// Sets same resid to all selected atoms
+    fn set_same_resid(&mut self, val: i32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.resid = val;
+        }
+    }
+
+    /// Sets same chain to all selected atoms
+    fn set_same_chain(&mut self, val: char)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.chain = val;
+        }
+    }
+
+    /// Sets same mass to all selected atoms
+    fn set_same_mass(&mut self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.mass = val;
+        }
+    }
+
+    /// Sets same B-factor to all selected atoms
+    fn set_same_bfactor(&mut self, val: f32)
+    where
+        Self: Sized,
+    {
+        for a in self.iter_atoms_mut() {
+            a.bfactor = val;
+        }
+    }
 }
+
 
 /// Trait for providing mutable iteration over particles
 pub trait ParticleIterMutProvider: IndexProvider {
-    fn iter_particle_mut(&self) -> impl Iterator<Item = ParticleMut<'_>>;
+    fn iter_particle_mut(&mut self) -> impl Iterator<Item = ParticleMut<'_>>;
 }
 
 /// Trait for providing mutable random access to atoms
-pub trait RandomAtomMutProvider: RandomAtomProvider {
-    fn get_atom_mut(&self, i: usize) -> Option<&mut Atom> {
+pub trait RandomAtomMutProvider: LenProvider {
+    fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
         if i < self.len() {
             Some(unsafe { self.get_atom_mut_unchecked(i) })
         } else {
@@ -276,40 +315,40 @@ pub trait RandomAtomMutProvider: RandomAtomProvider {
         }
     }
 
-    unsafe fn get_atom_mut_unchecked(&self, i: usize) -> &mut Atom;
+    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom;
 
-    fn first_atom_mut(&self) -> &mut Atom {
+    fn first_atom_mut(&mut self) -> &mut Atom {
         unsafe { self.get_atom_mut_unchecked(0) }
     }
 
-    fn last_atom_mut(&self) -> &Atom {
+    fn last_atom_mut(&mut self) -> &Atom {
         unsafe { self.get_atom_mut_unchecked(self.len() - 1) }
     }
 }
 
 /// Trait for providing mutable access to periodic box
 pub trait BoxMutProvider {
-    fn get_box_mut(&self) -> Option<&mut PeriodicBox>;
+    fn get_box_mut(&mut self) -> Option<&mut PeriodicBox>;
 }
 
 /// Trait for setting simulation time
 pub trait TimeMutProvider {
-    fn set_time(&self, t: f32);
+    fn set_time(&mut self, t: f32);
 }
 
 /// Trait for providing mutable random access to particles
 pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvider {
-    unsafe fn get_particle_mut_unchecked(&self, i: usize) -> ParticleMut<'_>;
+    unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut<'_>;
 
-    fn first_particle_mut(&self) -> ParticleMut<'_> {
+    fn first_particle_mut(&mut self) -> ParticleMut<'_> {
         unsafe { self.get_particle_mut_unchecked(0) }
     }
 
-    fn last_particle_mut(&self) -> ParticleMut<'_> {
+    fn last_particle_mut(&mut self) -> ParticleMut<'_> {
         unsafe { self.get_particle_mut_unchecked(self.len() - 1) }
     }
 
-    fn get_particle_mut(&self, i: usize) -> Option<ParticleMut<'_>> {
+    fn get_particle_mut(&mut self, i: usize) -> Option<ParticleMut<'_>> {
         if i < self.len() {
             Some(unsafe { self.get_particle_mut_unchecked(i) })
         } else {

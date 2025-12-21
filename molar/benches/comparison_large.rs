@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use molar::prelude::*;
+use molar::{prelude::*, bind};
 
 const PDB: &str = "inp.pdb";
 const XTC: &str = "traj_comp.xtc";
@@ -9,18 +9,24 @@ const XTC: &str = "traj_comp.xtc";
 fn molar_benchmark_large(c: &mut Criterion) {
     c.bench_function("align_large", |b| {
         b.iter(black_box(|| {
-            let src = System::from_file(PDB).unwrap();
-            let ref_sel = src.select("protein").unwrap();
-            let mut cur_sel = src.select("protein").unwrap();
+            let mut sys = System::from_file(PDB).unwrap();
+            let ref_ind = sys.select("protein").unwrap();
+            let cur_ind = sys.select("protein").unwrap();
 
-            let mut rmsd = vec![];
+            let mut rmsds = vec![];
 
             let trj = FileHandler::open(XTC).unwrap().into_iter();
             for st in trj {
-                cur_sel.set_state(st).unwrap();
-                let tr = fit_transform(&cur_sel, &ref_sel).unwrap();
-                cur_sel.apply_transform(&tr);
-                rmsd.push(MeasurePos::rmsd(&cur_sel, &ref_sel).unwrap());
+                sys.set_state(st).unwrap();
+                let tr = bind!(sys, ref_ind, cur_ind, {
+                    cur_ind.fit_transform(&ref_ind).unwrap()
+                });
+
+                (&cur_ind >> &mut sys).apply_transform(&tr);
+
+                bind!(sys, ref_ind, cur_ind, {
+                    rmsds.push(rmsd(&cur_ind, &ref_ind).unwrap())
+                });
             }
             //println!("{:?}",&rmsd[..10]);
         }))
@@ -28,13 +34,13 @@ fn molar_benchmark_large(c: &mut Criterion) {
 
     c.bench_function("within_large", |b| {
         b.iter(black_box(|| {
-            let src = System::from_file(PDB).unwrap();
-            let mut sel = src.select("within 1.0 of protein").unwrap();
+            let mut sys = System::from_file(PDB).unwrap();
+            let ind = sys.select("within 1.0 of protein").unwrap();
             let mut cm = vec![];
             let trj = FileHandler::open(XTC).unwrap().into_iter();
             for st in trj {
-                sel.set_state(st).unwrap();
-                cm.push(sel.center_of_mass().unwrap());
+                sys.set_state(st).unwrap();
+                cm.push((&ind >> &sys).center_of_mass().unwrap());
             }
             //println!("{:?}",&cm[..10]);
         }))
@@ -42,14 +48,14 @@ fn molar_benchmark_large(c: &mut Criterion) {
 
     c.bench_function("trjconv_large", |b| {
         b.iter(black_box(|| {
-            let src = System::from_file(PDB).unwrap();
-            let mut sel = src.select("protein").unwrap();
+            let mut sys = System::from_file(PDB).unwrap();
+            let ind = sys.select("protein").unwrap();
 
             let in_trj = FileHandler::open(XTC).unwrap().into_iter();
             let mut out_trj = FileHandler::create("target/.extracted.dcd").unwrap();
             for st in in_trj {
-                sel.set_state(st).unwrap();
-                out_trj.write_state(&sel).unwrap();
+                sys.set_state(st).unwrap();
+                out_trj.write_state(&sys.bind(&ind)).unwrap();
             }
         }))
     });

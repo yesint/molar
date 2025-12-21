@@ -25,5 +25,5 @@ nalgebra = {workspace = true, features = ["serde-serialize"]}
 sorted-vec.workspace = true
 serde.workspace = true
 toml = "0.8"
-rayon = "1.10"
+rayon.workspace = true
 rand = "0.9"

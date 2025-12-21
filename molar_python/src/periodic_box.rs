@@ -7,11 +7,11 @@ use numpy::{
 };
 use pyo3::{prelude::*, types::PyTuple};
 
-#[pyclass]
-pub(super) struct PeriodicBox(pub(super) molar::core::PeriodicBox);
+#[pyclass(name="PeriodicBox")]
+pub(super) struct PeriodicBoxPy(pub(super) PeriodicBox);
 
 #[pymethods]
-impl PeriodicBox {
+impl PeriodicBoxPy {
     #[new]
     #[pyo3(signature = (*py_args))]
     fn new<'py>(py_args: &Bound<'py, PyTuple>) -> anyhow::Result<Self> {
@@ -21,7 +21,7 @@ impl PeriodicBox {
             let m: MatrixView<f32, Const<3>, Const<3>, Dyn, Dyn> = arr
                 .try_as_matrix()
                 .ok_or_else(|| anyhow!("conversion to 3x3 matrix has failed"))?;
-            Ok(PeriodicBox(molar::core::PeriodicBox::from_matrix(m)?))
+            Ok(PeriodicBoxPy(molar::core::PeriodicBox::from_matrix(m)?))
         } else if py_args.len() == 2 {
             // From vectors and angles
             let v_arr: PyArrayLike1<'py, f32, AllowTypeChange> = py_args.get_item(0)?.extract()?;
@@ -32,7 +32,7 @@ impl PeriodicBox {
             let a: VectorView<f32, Const<3>, Dyn> = a_arr
                 .try_as_matrix()
                 .ok_or_else(|| anyhow!("conversion of angles to Vector3 has failed"))?;
-            Ok(PeriodicBox(molar::core::PeriodicBox::from_vectors_angles(
+            Ok(PeriodicBoxPy(molar::core::PeriodicBox::from_vectors_angles(
                 v[0], v[1], v[2], a[0], a[1], a[2],
             )?))
         } else {
@@ -155,7 +155,6 @@ impl PeriodicBox {
         let v: VectorView<f32, Const<3>, Dyn> = p
             .try_as_matrix()
             .ok_or_else(|| anyhow!("conversion of point to Vector3 has failed"))?;
-        Ok(clone_vec_to_pyarray1(&self.0.wrap_vec(&v), py))
-        
+        Ok(clone_vec_to_pyarray1(&self.0.wrap_vec(&v), py))   
     }
 }

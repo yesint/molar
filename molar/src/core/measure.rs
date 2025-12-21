@@ -1,5 +1,3 @@
-use crate::core::Selectable;
-
 use super::{providers::*, PeriodicBoxError};
 use super::{Matrix3f, PbcDims, Pos, Vector3f};
 use itertools::izip;
@@ -14,6 +12,12 @@ use thiserror::Error;
 //==============================================================
 // Traits for measuring (immutable access)
 //==============================================================
+pub trait Guarded {
+    type Guard<'a>
+    where
+        Self: 'a;
+    fn guard(&self) -> Self::Guard<'_>;
+}
 
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
@@ -22,7 +26,7 @@ pub enum MeasureError {
     #[error("incompatible sizes: {0} and {1}")]
     Sizes(usize, usize),
 
-    /// Total mass of the selection is zero
+    /// Total mass is zero
     #[error("zero mass")]
     ZeroMass,
 
@@ -75,32 +79,53 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
         Pos::from(cog / n as f32)
     }
 
-    /// Calculates the Root Mean Square Deviation between two selections
-    fn rmsd(sel1: &Self, sel2: &Self) -> Result<f32, MeasureError> {
-        let mut res = 0.0;
-        let iter1 = sel1.iter_pos();
-        let iter2 = sel2.iter_pos();
-
-        if sel1.len() != sel2.len() {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-        }
-
-        let n = sel1.len();
-        if n == 0 {
-            return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-        }
-
-        for (p1, p2) in std::iter::zip(iter1, iter2) {
-            res += (p2 - p1).norm_squared();
-        }
-
-        Ok((res / n as f32).sqrt())
+    fn rmsd<S>(&self, other: &S) -> Result<f32, MeasureError>
+    where
+        Self: Sized,
+        S: MeasurePos,
+    {
+        super::rmsd(self, other)
     }
+}
+
+pub trait MeasurePosGuarded: Guarded
+where
+    for<'a> Self::Guard<'a>: MeasurePos,
+{
+    fn min_max(&self) -> (Pos, Pos) {
+        self.guard().min_max()
+    }
+
+    fn center_of_geometry(&self) -> Pos {
+        self.guard().center_of_geometry()
+    }
+}
+
+/// Calculates the Root Mean Square Deviation between two selections
+pub fn rmsd<S1, S2>(sel1: &S1, sel2: &S2) -> Result<f32, MeasureError>
+where
+    S1: MeasurePos,
+    S2: MeasurePos,
+{
+    let mut res = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
+
+    if sel1.len() != sel2.len() {
+        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
+    }
+
+    let n = sel1.len();
+    for (p1, p2) in std::iter::zip(iter1, iter2) {
+        res += (p2 - p1).norm_squared();
+    }
+
+    Ok((res / n as f32).sqrt())
 }
 
 /// Trait for analysis requiring positions and masses
 pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
-    /// Calculates the center of mass of the selection
+    /// Calculates the center of mass
     fn center_of_mass(&self) -> Result<Pos, MeasureError> {
         let mut cm = Vector3f::zeros();
         let mut mass = 0.0;
@@ -116,7 +141,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
         }
     }
 
-    /// Calculates the radius of gyration of the selection
+    /// Calculates the radius of gyration
     fn gyration(&self) -> Result<f32, MeasureError> {
         let c = self.center_of_mass()?;
         Ok(do_gyration(
@@ -139,6 +164,38 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
         let c = self.center_of_mass()?;
         let (_, axes) = do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses());
         Ok(do_principal_transform(axes, c.coords))
+    }
+
+    fn fit_transform(
+        &self,
+        other: &impl MeasureMasses,
+    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> 
+    where
+        Self: Sized,
+    {
+        super::fit_transform(self, other)
+    }
+
+    /// Like fit_transform but assumes both selections are centered at origin
+    fn fit_transform_at_origin(
+        &self,
+        other: &impl MeasureMasses,
+    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
+    where
+        Self: Sized,
+    {
+        super::fit_transform_at_origin(self, other)
+    }
+
+    /// Calculates the mass-weighted Root Mean Square Deviation between two selections
+    fn rmsd_mw(
+        &self,
+        other: &impl MeasureMasses,
+    ) -> Result<f32, MeasureError>
+    where
+        Self: Sized,
+    {
+        super::rmsd_mw(self, other)
     }
 }
 
@@ -650,13 +707,14 @@ pub fn fit_transform_matching<T1, T2>(
     sel2: &T2,
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
 where
-    T1: Selectable + Sized,
-    T2: Selectable + Sized,
+    T1: AtomIterProvider + Sized,
+    T2: AtomIterProvider + Sized,
 {
-    let (ind1, ind2) = matching_atom_names(sel1, sel2);
-    let matched_sel1 = sel1.select(&ind1).unwrap();
-    let matched_sel2 = sel2.select(&ind2).unwrap();
-    fit_transform(&matched_sel1, &matched_sel2)
+    // let (ind1, ind2) = matching_atom_names(sel1, sel2);
+    // let matched_sel1 = sel1.select(&ind1).unwrap();
+    // let matched_sel2 = sel2.select(&ind2).unwrap();
+    // fit_transform(&matched_sel1, &matched_sel2)
+    todo!()
 }
 
 /// Type of order parameter calculation
