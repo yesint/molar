@@ -38,7 +38,8 @@ MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molec
 * Python bindings
 
 # Design and Performance
-Please refer to the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
+Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 1.0 it was changed dramatically. Now selections are just indices of selected atoms, which have to "bound" to `System` (that is an actual container for atoms and coordinates) to do useful work.
+The API becomes more noisy but you get proper compile-time borrow checking, soundness and all Rust memory safety guarantees. The "binding" of selections is very cheap (one integer comparison), so it should not affect the performance reported in the [paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
 
 # Current status
 Molar is close to be feature complete and usable in useful projects. Documentation is still rudimentary.
