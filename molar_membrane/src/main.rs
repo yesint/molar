@@ -23,7 +23,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
         "Bilayer analysis".to_owned()
     }
 
-    fn new(context: &AnalysisContext<Flags>) -> anyhow::Result<Self> {
+    fn new(context: &mut AnalysisContext<Flags>) -> anyhow::Result<Self> {
         let mut toml = String::new();
         std::fs::File::open(&context.args.params_file)
             .context(format!(
@@ -32,7 +32,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
             ))?
             .read_to_string(&mut toml)?;
         
-        let membr = Membrane::new(&context.src, &toml)?;
+        let membr = Membrane::new(&mut context.sys, &toml)?;
         
         Ok(Self { 
             membr,
@@ -40,13 +40,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
         })
     }
 
-    fn process_frame(&mut self, context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
-        self.membr.set_state_from(&context.src)?;
-
-        // if context.consumed_frames == 500 {
-        //     context.src.save("0.gro")?;
-        // }
-        
+    fn process_frame(&mut self, context: &mut AnalysisContext<Flags>) -> anyhow::Result<()> {
         self.membr.reset_groups();
         self.membr.reset_valid_lipids();
 
@@ -60,7 +54,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
 
         self.membr.add_ids_to_group("all", &all)?;
 
-        self.membr.compute()?;
+        self.membr.compute(&context.sys)?;
 
         // if context.consumed_frames == 500 {
         //     println!("vis");
@@ -74,7 +68,7 @@ impl AnalysisTask<Flags> for MembraneBilayerTask {
         Ok(())
     }
 
-    fn post_process(&mut self, _context: &AnalysisContext<Flags>) -> anyhow::Result<()> {
+    fn post_process(&mut self, _context: &mut AnalysisContext<Flags>) -> anyhow::Result<()> {
         self.membr.finalize()?;
         self.all_hist.normalize_density();
         self.all_hist.save_to_file("results/hist.dat")?;

@@ -34,7 +34,7 @@ impl LipidSpecies {
     pub fn new(
         name: String,
         descr: LipidSpeciesDescr,
-        lipid: &SelBorrowing,
+        lipid: &(impl Selectable + IndexProvider),
     ) -> anyhow::Result<Self> {
         let first_index = lipid.first_index();
         let mut tails = vec![];

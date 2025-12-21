@@ -35,7 +35,6 @@ mod lipid_group;
 use lipid_group::LipidGroup;
 
 pub struct Membrane {
-    sys: System,
     // Lipid molecules
     lipids: Vec<LipidMolecule>,
     // Mapping from system resindexes to lipid ids
@@ -48,7 +47,7 @@ pub struct Membrane {
     options: MembraneOptions,
     pbox: PeriodicBox,
     // Monolayers. Patches are computer inside the monolayer only
-    monolayers: Vec<usize>,
+    _monolayers: Vec<usize>,
 }
 
 #[derive(Deserialize)]
@@ -86,13 +85,13 @@ impl Default for MembraneOptions {
 }
 
 impl Membrane {
-    pub fn new(mut sys: System, optstr: &str) -> anyhow::Result<Self> {
+    pub fn new(source: &mut System, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
 
         // Create working selection
-        let source_sel = sys.select_as_index(&options.sel)?;
+        let source_sel = source.select(&options.sel)?;
 
         let mut lipids = vec![];
         let mut species = vec![];
@@ -100,39 +99,42 @@ impl Membrane {
 
         // Load lipids from provided source
         for (name, descr) in options.lipids.iter() {
-            if let Ok(lips) = sys.sub_select(&source_sel,&descr.whole) {
+            if let Ok(lips) = source.bind(&source_sel).select(&descr.whole) {
                 // Split into individual lipids
-                let lips: Vec<_> = sys.bind(&lips)?.split_resindex_as_index().collect();
-                
+                let lips: Vec<_> = lips.split_resindex().collect();
 
                 // Use first lipid to create lipid species object
                 info!("Creating {} '{}' lipids", lips.len(), name);
-                let sp = Arc::new(LipidSpecies::new(name.clone(), descr.clone(), &sys.bind(&lips[0]).unwrap())?);
+                let sp = Arc::new(LipidSpecies::new(
+                    name.clone(),
+                    descr.clone(),
+                    &source.bind(&lips[0]),
+                )?);
                 species.push(Arc::clone(&sp));
 
                 // Unwrap lipids
-                for l in &lips {
-                    sys.bind_mut(&l)?.unwrap_simple();
+                for lip in &lips {
+                    source.bind_mut(lip).unwrap_simple();
                 }
-                
+
                 // Now create individual lipids
-                for lip in lips.into_iter().map(|l| sys.select(l).unwrap()) {
+                for lip in lips {
                     // set selections
-                    let head_sel = lip.select(&sp.head_marker_offsets)?;
-                    let mid_sel = lip.select(&sp.mid_marker_offsets)?;
+                    let head_sel = source.sub_select(&lip,&sp.head_marker_offsets)?;
+                    let mid_sel = source.sub_select(&lip,&sp.mid_marker_offsets)?;
 
                     let mut tail_sels = vec![];
                     let mut tail_ends = vec![];
                     for t in sp.tails.iter() {
-                        tail_sels.push(lip.select_as_index(&t.offsets)?);
+                        tail_sels.push(source.sub_select(&lip,&t.offsets)?);
                         tail_ends.push(*t.offsets.last().unwrap());
                     }
-                    let tail_end_sel = lip.select(tail_ends)?;
+                    let tail_end_sel = source.sub_select(&lip,tail_ends)?;
 
                     // Compute markers
-                    let head_marker = head_sel.center_of_mass()?;
-                    let mid_marker = mid_sel.center_of_mass()?;
-                    let tail_marker = tail_end_sel.center_of_mass()?;
+                    let head_marker = source.bind(&head_sel).center_of_mass()?;
+                    let mid_marker = source.bind(&mid_sel).center_of_mass()?;
+                    let tail_marker = source.bind(&tail_end_sel).center_of_mass()?;
 
                     let mut order = Vec::with_capacity(sp.tails.len());
                     for t in &sp.tails {
@@ -145,14 +147,14 @@ impl Membrane {
                     let id = lipids.len();
                     // Save mapping to real resindexes in order to be able to add lipids
                     // to groups by resindex
-                    resindex_to_id.insert(lip.first_atom().resindex, id);
+                    resindex_to_id.insert(source.bind(&lip).first_atom().resindex, id);
 
                     lipids.push(LipidMolecule {
-                        sel: lip.into_index(), // Selection is moved to the lipid
+                        sel: lip, // Selection is moved to the lipid
                         species: Arc::clone(&sp),
-                        head_sel: head_sel.into_index(),
-                        mid_sel: mid_sel.into_index(),
-                        tail_end_sel: tail_end_sel.into_index(),
+                        head_sel,
+                        mid_sel,
+                        tail_end_sel,
                         tail_sels,
                         head_marker,
                         mid_marker,
@@ -167,8 +169,8 @@ impl Membrane {
                         neib_ids: vec![],
                         voro_vertexes: vec![],
                         normal: Default::default(),
-                        mean_curv: 0.0,
-                        gaussian_curv: 0.0,
+                        mean_curv: -100.0,
+                        gaussian_curv: -100.0,
                         princ_dirs: Default::default(),
                         princ_curvs: Default::default(),
                         area: 0.0,
@@ -186,15 +188,13 @@ impl Membrane {
             groups.insert(gr.to_string(), Default::default());
         }
 
-        let pbox = sys.require_box()?.clone();
         Ok(Self {
-            sys,
             lipids,
             groups,
             species,
             options,
-            pbox, 
-            monolayers: vec![],
+            pbox: source.require_box()?.clone(),
+            _monolayers: vec![],
             resindex_to_id,
         })
     }
@@ -406,9 +406,9 @@ impl Membrane {
             .filter(|i| self.lipids[*i].valid))
     }
 
-    pub fn compute(&mut self) -> anyhow::Result<()> {
+    pub fn compute(&mut self, sys: &System) -> anyhow::Result<()> {
         // Compute patches
-        self.compute_patches(self.options.cutoff)?;
+        self.compute_patches(sys,self.options.cutoff)?;
 
         // Get initial normals
         self.compute_initial_normals();
@@ -435,7 +435,7 @@ impl Membrane {
             if !self.lipids[i].valid {
                 continue;
             }
-            self.lipids[i].compute_order(
+            self.lipids[i].compute_order(sys,
                 self.options.order_type.clone(),
                 self.options.global_normal.as_ref(),
             );
@@ -535,29 +535,12 @@ impl Membrane {
         Ok(())
     }
 
-    // pub fn set_state_from(&mut self, st: &impl Selectable) -> anyhow::Result<()> {
-    //     // Go over all lipids and set their states
-    //     for lip in &mut self.lipids {
-    //         lip.set_state_from(st)?;
-    //     }
-    //     Ok(())
-    // }
-
-    // pub fn set_state(&mut self, st: impl Into<Arc<State>>) -> anyhow::Result<()> {
-    //     let st: Arc<State> = st.into();
-    //     // Go over all lipids and set their states
-    //     for lip in &mut self.lipids {
-    //         lip.set_state(Arc::clone(&st))?;
-    //     }
-    //     Ok(())
-    // }
-
-    fn compute_patches(&mut self, d: f32) -> anyhow::Result<()> {
+    fn compute_patches(&mut self, sys: &System, d: f32) -> anyhow::Result<()> {
         let ind: Vec<(usize, usize)> = distance_search_single_pbc(
             d,
             self.iter_valid_lipids().map(|l| &l.head_marker),
             self.iter_valid_lipids().map(|l| l.id),
-            self.lipids[0].sel.require_box()?,
+            sys.require_box()?,
             PBC_FULL,
         );
 
@@ -618,10 +601,21 @@ impl Membrane {
                 }
             }
 
-            let m = neib_list.iter().map(|id| mean_curv[*id]).sum::<f32>();
-            self.lipids[i].mean_curv = (mean_curv[i] + m) / (neib_list.len() + 1) as f32;
-            let g = neib_list.iter().map(|id| gauss_curv[*id]).sum::<f32>();
-            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (neib_list.len() + 1) as f32;
+            let mut m = 0.0;
+            let mut g = 0.0;
+            let mut n_valid = 0;
+            // Compute sums and num of valid
+            for id in neib_list.iter() {
+                if !self.lipids[*id].valid {
+                    continue;
+                }
+                m += mean_curv[*id];
+                g += gauss_curv[*id];
+                n_valid += 1;
+            }
+
+            self.lipids[i].mean_curv = (mean_curv[i] + m) / (n_valid + 1) as f32;
+            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (n_valid + 1) as f32;
         }
     }
 
@@ -677,7 +671,12 @@ impl Membrane {
                 // Get local-to-lab transform
                 let to_lab = lip.get_to_lab_transform();
                 // Inverse transform
-                let to_local = to_lab.try_inverse().unwrap();
+                let to_local = to_lab.try_inverse();
+                if to_local.is_none() {
+                    lip.valid = false;
+                    return;
+                }
+                let to_local = to_local.unwrap();
                 // Local points
                 // Local patch could be wrapped over pbc, so we need to unwrap all neighbors.
                 // Central point is assumed to be at local zero.
@@ -691,6 +690,7 @@ impl Membrane {
                 // Compute fitted surface coefs
                 let c = get_quad_coefs(&local_points);
                 if c.is_none() {
+                    lip.valid = false;
                     return;
                 }
                 let quad_coefs = c.unwrap();
@@ -751,10 +751,10 @@ impl Membrane {
                 }
 
                 // Check if area is too large (if max_area is set for lipid type)
-                if lip.species.max_area > 0.0 && lip.area > lip.species.max_area {
-                    lip.valid = false;
-                    return;
-                }
+                // if lip.species.max_area > 0.0 && lip.area > lip.species.max_area {
+                //     lip.valid = false;
+                //     return;
+                // }
 
                 //Save fitted positions of patch markers
                 lip.fitted_patch_points = local_points
@@ -811,33 +811,54 @@ impl Membrane {
     }
 }
 
-pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<f32, 6>> {
-    //============================
-    // Fitting polynomial
-    //============================
+// pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<f32, 6>> {
+//     //============================
+//     // Fitting polynomial
+//     //============================
 
-    // We fit with polynomial fit = a*x^2 + b*y^2 + c*xy + d*x + e*y + f
-    // Thus we need a linear system of size 6
+//     // We fit with polynomial fit = a*x^2 + b*y^2 + c*xy + d*x + e*y + f
+//     // Thus we need a linear system of size 6
+//     let mut m = SMatrix::<f32, 6, 6>::zeros();
+//     let mut rhs = SVector::<f32, 6>::zeros(); // Right hand side and result
+
+//     let mut powers = SVector::<f32, 6>::zeros();
+//     powers[5] = 1.0; //free term, the same everywhere
+//     for loc in local_points {
+//         // Compute powers
+//         powers[0] = loc[0] * loc[0]; //xx
+//         powers[1] = loc[1] * loc[1]; //yy
+//         powers[2] = loc[0] * loc[1]; //xy
+//         powers[3] = loc[0]; //x
+//         powers[4] = loc[1]; //y
+//                             // Add to the matrix
+//         m += powers * powers.transpose();
+//         // rhs
+//         rhs += powers * loc[2];
+//     }
+
+//     // Now solve and returs coeffs
+//     m.solve_lower_triangular(&rhs)
+// }
+
+pub fn get_quad_coefs(local_points: &Vec<Vector3f>) -> Option<SVector<f32, 6>> {
     let mut m = SMatrix::<f32, 6, 6>::zeros();
-    let mut rhs = SVector::<f32, 6>::zeros(); // Right hand side and result
+    let mut rhs = SVector::<f32, 6>::zeros();
 
     let mut powers = SVector::<f32, 6>::zeros();
-    powers[5] = 1.0; //free term, the same everywhere
+    powers[5] = 1.0;
+
     for loc in local_points {
-        // Compute powers
-        powers[0] = loc[0] * loc[0]; //xx
-        powers[1] = loc[1] * loc[1]; //yy
-        powers[2] = loc[0] * loc[1]; //xy
-        powers[3] = loc[0]; //x
-        powers[4] = loc[1]; //y
-                            // Add to the matrix
+        powers[0] = loc[0] * loc[0];
+        powers[1] = loc[1] * loc[1];
+        powers[2] = loc[0] * loc[1];
+        powers[3] = loc[0];
+        powers[4] = loc[1];
+
         m += powers * powers.transpose();
-        // rhs
         rhs += powers * loc[2];
     }
 
-    // Now solve and returs coeffs
-    m.solve_lower_triangular(&rhs)
+    m.cholesky().map(|chol| chol.solve(&rhs))
 }
 
 fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
@@ -862,12 +883,15 @@ mod tests {
 
     use molar::prelude::*;
 
-    use crate::{LipidSpecies, LipidSpeciesDescr, Membrane};
+    use crate::{
+        get_quad_coefs, lipid_molecule::coeffs_to_curvature, LipidSpecies, LipidSpeciesDescr,
+        Membrane,
+    };
 
     #[test]
     fn test_descr() -> anyhow::Result<()> {
         let src = System::from_file("tests/membr.gro")?;
-        let pope = src.select("resid 60")?;
+        let pope = src.select_bound("resid 60")?;
         let descr = LipidSpeciesDescr {
             whole: "resname POPE".into(),
             head: "name P N".into(),
@@ -915,8 +939,7 @@ mod tests {
         "#,
         )?;
 
-        let lip_sp =
-            LipidSpecies::new("DOPE".to_owned(), descr, &src.select_all()?)?;
+        let lip_sp = LipidSpecies::new("DOPE".to_owned(), descr, &src.select_all_bound())?;
         println!("{lip_sp:?}");
         Ok(())
     }
@@ -959,7 +982,7 @@ mod tests {
     #[test]
     fn test_whole() -> anyhow::Result<()> {
         let path = PathBuf::from("tests");
-        let src = System::from_file(path.join("membr.gro"))?;
+        let mut src = System::from_file(path.join("membr.gro"))?;
 
         // let path = PathBuf::from("/home/semen/work/Projects/Misha/PG_flipping");
         // let src = Source::serial_from_file(path.join("inp_7.gro"))?;
@@ -967,7 +990,7 @@ mod tests {
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA /A+/ /B+/")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
-        let mut memb = Membrane::new(&src, &toml)?;
+        let mut memb = Membrane::new(&mut src, &toml)?;
         //.with_groups(&["upper", "lower"]);
         // .with_global_normal(Vector3f::z())
         // .with_order_type(OrderType::ScdCorr)
@@ -991,8 +1014,8 @@ mod tests {
         let traj = FileHandler::open(path.join("traj_comp.xtc"))?;
         for st in traj.into_iter().take(10) {
             println!(">> {}", st.get_time());
-            memb.set_state(st)?;
-            memb.compute()?;
+            src.set_state(st)?;
+            memb.compute(&src)?;
         }
 
         memb.finalize()?;
@@ -1003,12 +1026,12 @@ mod tests {
     #[test]
     fn test_vmd_vis() -> anyhow::Result<()> {
         let path = PathBuf::from("tests");
-        let src = System::from_file(path.join("membr.gro"))?;
+        let mut src = System::from_file(path.join("membr.gro"))?;
         let z0 = 5.6; //src.select("not resname TIP3 POT CLA")?.center_of_mass()?.z;
         let mut toml = String::new();
         std::fs::File::open("data/inp.toml")?.read_to_string(&mut toml)?;
 
-        let mut memb = Membrane::new(&src, &toml)?
+        let mut memb = Membrane::new(&mut src, &toml)?
             .with_max_iter(1)
             // .with_global_normal(Vector3f::z())
             // .with_order_type(OrderType::ScdCorr)
@@ -1022,7 +1045,7 @@ mod tests {
             } else if lip.head_marker.z < z0 - 1.0 {
                 lower.push(lip.id);
             }
-            if lip.sel.first_atom().resname == "POGL" {
+            if (&lip.sel >> &src).first_atom().resname == "POGL" {
                 println!("{}", lip.head_marker);
             }
         }
@@ -1030,7 +1053,7 @@ mod tests {
         memb.add_ids_to_group("upper", &upper)?;
         memb.add_ids_to_group("lower", &lower)?;
 
-        memb.compute()?;
+        memb.compute(&src)?;
         memb.finalize()?;
         memb.write_vmd_visualization("../target/vis.tcl")?;
 
@@ -1066,4 +1089,44 @@ mod tests {
 
     //     Ok(())
     // }
+
+    #[test]
+    fn test_curvature_sphere() -> anyhow::Result<()> {
+        use rand::Rng;
+        use std::f32::consts::PI;
+
+        let mut rng = rand::rng();
+        let radius = 500.0;
+
+        // Generate random points on sphere segment around positive z axis
+        let mut points = Vec::new();
+        for _ in 0..6 {
+            // Generate random angles with restrictions to stay near positive z
+            let theta = rng.random_range(0.0..PI / 3.0); // angle from z axis
+            let phi = rng.random_range(0.0..2.0 * PI); // angle in xy plane
+
+            // Convert to cartesian coordinates
+            let x = radius * theta.sin() * phi.cos();
+            let y = radius * theta.sin() * phi.sin();
+            let z = radius * theta.cos();
+
+            // Project to local coordinates (x,y plane)
+            let local_z = z - radius; // shift sphere down by radius to get local coords
+            points.push(Vector3f::new(x, y, local_z));
+        }
+        //points.push(Vector3f::new(0.0,0.0,0.0));
+
+        // Get surface coefficients
+        let coefs = get_quad_coefs(&points).unwrap();
+
+        // For a sphere, both principal curvatures should be 1/radius
+        let expected_curv = 1.0 / radius;
+        let c = coeffs_to_curvature(&coefs);
+
+        println!("mean curvature: {} {}", c.mean, expected_curv);
+        println!("Gaussian curvature: {}", c.gauss);
+        println!("principal curvatures: {:?}", c.princ_curvs);
+
+        Ok(())
+    }
 }

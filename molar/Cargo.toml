@@ -28,18 +28,16 @@ peg.workspace = true
 regex.workspace = true
 log.workspace = true
 comfy-table.workspace = true
-ndarray = "0.16.0"
 num-traits = "0.2.16"
-rayon = "1.8"
 itertools = "0.14.0"
 rustc-hash = "2.1.0"
 sync-unsafe-cell = "0.1.1"
 triomphe = { version = "0.1.14", default-features = false, features = ["std"] }
 sorted-vec.workspace = true
 anyhow.workspace = true
-#nalgebra-lapack = "0.24"
 clap.workspace = true
 serde.workspace = true
+rayon.workspace = true
 bio = ">=3"
 
 [dev-dependencies]
