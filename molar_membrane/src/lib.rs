@@ -1096,7 +1096,7 @@ mod tests {
         use std::f32::consts::PI;
 
         let mut rng = rand::rng();
-        let radius = 500.0;
+        let radius = 5.0;
 
         // Generate random points on sphere segment around positive z axis
         let mut points = Vec::new();
