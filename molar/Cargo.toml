@@ -18,7 +18,7 @@ readme = "../README.md"
 molar_molfile = { path = "../molar_molfile", version = "0.9.0" }
 molar_xdrfile = { path = "../molar_xdrfile", version = "0.9.0" }
 molar_powersasa = { path = "../molar_powersasa", version = "0.9.0" }
-molar_gromacs = { path = "../molar_gromacs", version = "0.9.0" }
+molar_gromacs = { path = "../molar_gromacs", version = "1.0.0" }
 
 # Normal dependencies
 thiserror.workspace = true

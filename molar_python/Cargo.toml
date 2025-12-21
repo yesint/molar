@@ -21,7 +21,7 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = {version = "0.27", features =["anyhow","extension-module"] }
 pyo3-log = "0.13"
-molar = {version = "0.10.0", path = "../molar"}
+molar = {version = "1.0.0", path = "../molar"}
 #molar_membrane = {version = "0.10.0", path = "../molar_membrane"}
 numpy = {version = "0.27", features = ["nalgebra"]}
 anyhow.workspace = true
