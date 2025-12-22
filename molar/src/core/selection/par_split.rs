@@ -6,18 +6,14 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 /// Doesn't have access to shared fields such as box and bonds.
 //================================================
 pub struct SelPar<'a> {
-    coords_ptr: *const Pos,
-    atoms_ptr: *const Atom,
     index: &'a [usize],
-    sys: &'a System,
+    sys: *const System,
 }
 
 impl<'a> SelPar<'a> {
     pub(crate) fn new(sys: &'a System, index: &'a [usize]) -> SelPar<'a> {
         Self {
             index,
-            atoms_ptr: sys.atoms_ptr(),
-            coords_ptr: sys.coords_ptr(),
             sys,
         }
     }
@@ -44,21 +40,21 @@ impl IndexProvider for SelPar<'_> {
 
 impl AtomPosAnalysis for SelPar<'_> {
     fn atoms_ptr(&self) -> *const Atom {
-        self.atoms_ptr
+        unsafe{ (*self.sys).top.atoms.as_ptr()}
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.coords_ptr
+        unsafe{ (*self.sys).st.coords.as_ptr()}
     }
 }
 
 impl NonAtomPosAnalysis for SelPar<'_> {
     fn top_ptr(&self) -> *const Topology {
-        &self.sys.top
+        unsafe{ &raw const (*self.sys).top }
     }
 
     fn st_ptr(&self) -> *const State {
-        &self.sys.st
+        unsafe{ &raw const (*self.sys).st }
     }
 }
 
@@ -67,19 +63,15 @@ impl NonAtomPosAnalysis for SelPar<'_> {
 /// Doesn't have access to shared fields such as box and bonds.
 //================================================
 pub struct SelParMut<'a> {
-    coords_ptr: *mut Pos,
-    atoms_ptr: *mut Atom,
     index: &'a [usize],
-    sys: &'a System,
+    sys: *mut System,
 }
 
 impl<'a> SelParMut<'a> {
     pub(crate) fn new(sys: &'a System, index: &'a [usize]) -> SelParMut<'a> {
         Self {
             index,
-            atoms_ptr: sys.atoms_ptr() as *mut Atom,
-            coords_ptr: sys.coords_ptr() as *mut Pos,
-            sys,
+            sys: sys as *const System as *mut System,
         }
     }
 }
@@ -105,31 +97,31 @@ impl IndexProvider for SelParMut<'_> {
 
 impl AtomPosAnalysis for SelParMut<'_> {
     fn atoms_ptr(&self) -> *const Atom {
-        self.atoms_ptr
+        unsafe{ (*self.sys).top.atoms.as_ptr()}
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.coords_ptr
+        unsafe{ (*self.sys).st.coords.as_ptr()}
     }
 }
 
 impl AtomPosAnalysisMut for SelParMut<'_> {
     fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        self.atoms_ptr
+        unsafe{ (*self.sys).top.atoms.as_mut_ptr() }
     }
 
     fn coords_ptr_mut(&mut self) -> *mut Pos {
-        self.coords_ptr
+        unsafe{ (*self.sys).st.coords.as_mut_ptr() }
     }
 }
 
 impl NonAtomPosAnalysis for SelParMut<'_> {
     fn top_ptr(&self) -> *const Topology {
-        &self.sys.top
+        unsafe{ &raw const (*self.sys).top }
     }
 
     fn st_ptr(&self) -> *const State {
-        &self.sys.st
+        unsafe{ &raw const (*self.sys).st }
     }
 }
 //============================================================================
