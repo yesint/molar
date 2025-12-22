@@ -193,7 +193,7 @@ impl<'a> ParSplitBoundMut<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+    use rayon::iter::ParallelIterator;
 
     use crate::core::modify::ModifyPeriodic;
     use crate::core::{AtomPosAnalysis, System};

@@ -12,6 +12,7 @@
 - [Design and performance](#design-and-performance)
 - [Installation](#installation)
 - [Tutorial](#tutorial)
+- [Doing things in parallel](#parallel-splits)
 - [Analysis tasks](#analysis-tasks)
 - [Python bindings](#python-bindings)
 
@@ -34,20 +35,22 @@ MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molec
 * RMSD fitting and alignment.
 * Basic algorithm (center of mass, center of geometry, etc.).
 * Seamless PBC treatment.
-* Trajectory processing with powerful built-in features
-* Python bindings
+* Trajectory processing with powerful built-in features.
+* Python bindings.
 
 # Design and Performance
-Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 1.0 it was changed dramatically. Now selections are just indices of selected atoms, which have to "bound" to `System` (that is an actual container for atoms and coordinates) to do useful work.
+Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 1.0 it was changed completely. Now selections are just indices of selected atoms, which have to "bound" to [System] (that is an actual container for atoms and coordinates) to do useful work.
 The API becomes more noisy but you get proper compile-time borrow checking, soundness and all Rust memory safety guarantees. The "binding" of selections is very cheap (one integer comparison), so it should not affect the performance reported in the [paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
 
 # Current status
-Molar is close to be feature complete and usable in useful projects. Documentation is still rudimentary.
+Molar is usable in real-life projects and is close to be feature complete. Documentation is still rudimentary.
 
 # Installation
-Molar requires Rust 1.80 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
+Molar requires Rust 1.83 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
 
 To add MolAR to your Rust project just use `cargo add molar`.
+
+For installation of the Python bindings [look here](#python-bindings).
 
 ## Linking to Gromacs
 In order to be able to read Gromacs TPR files MolAR should link to locally installed Gromacs. Unfortunately, modern versions of Gromacs do not expose all needed functionality in the public API, so MolAR has to hack into the internals and thus requires an access to the whole Gromacs source and build directories. This means that you have to _compile_ Gromacs on your local machine from source.
@@ -56,9 +59,9 @@ In order to link with Gromacs create a `.cargo/config.toml` file in the root dir
 ```toml
 [env]
 # Location of Gromacs source tree
-GROMACS_SOURCE_DIR = "<path-to-gromacs-source>/gromacs-2023"
+GROMACS_SOURCE_DIR = "<path-to-gromacs-source>/gromacs"
 # Location of Gromacs *build* directory (for generated headers)
-GROMACS_BUILD_DIR = "<path-to-gromacs-source>/gromacs-2023>/build"
+GROMACS_BUILD_DIR = "<path-to-gromacs-source>/gromacs/build"
 # Location of installed gromacs libraries (where libgromacs.so is located)
 GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
 ```
