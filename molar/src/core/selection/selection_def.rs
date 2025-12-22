@@ -202,18 +202,3 @@ impl SelectionDef for Sel {
         self.0.into_sel_index(top, st, subset)
     }
 }
-
-// impl SelectionDef for &SelSerial {
-//     fn into_sel_index(
-//         self,
-//         top: &Topology,
-//         _st: &State,
-//         subset: Option<&[usize]>,
-//     ) -> Result<SortedSet<usize>, SelectionError> {
-//         if let Some(_) = subset {
-//             return Err(SelectionError::SelDefInSubsel)
-//         }
-
-//         Ok(self.)
-//     }
-// }

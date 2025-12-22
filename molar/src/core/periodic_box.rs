@@ -1,5 +1,5 @@
 use crate::core::{Matrix3f, Pos, Vector3f};
-use nalgebra::Const;
+use nalgebra::{Const, Matrix, storage::Storage};
 use thiserror::Error;
 
 /// Periodic box allowing working with periodicity and computing periodic distances and images.
@@ -80,7 +80,7 @@ pub enum PeriodicBoxError {
     #[error("zero length box vector")]
     ZeroLengthVector,
     
-    #[error("inverse failed")]
+    #[error("box matrix inverse failed")]
     InverseFailed,
     
     #[error("box angle is <60 deg")]
@@ -95,8 +95,8 @@ impl PeriodicBox {
     /// 
     /// # Errors
     /// Returns error if any vector has zero length or matrix is not invertible
-    pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError> 
-    where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
+    pub fn from_matrix<S>(matrix: Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError> 
+    where S: Storage<f32, Const<3>, Const<3>>
     {
         // Sanity check
         for col in matrix.column_iter() {
@@ -214,7 +214,7 @@ impl PeriodicBox {
     /// Computes the shortest vector between two points considering periodicity.
     #[inline(always)]
     pub fn shortest_vector<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
-    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    where S: Storage<f32, Const<3>>,
     {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
@@ -227,7 +227,7 @@ impl PeriodicBox {
     /// Computes the shortest vector between two points considering periodicity only in specified dimensions.
     #[inline(always)]
     pub fn shortest_vector_dims<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>, pbc_dims: PbcDims) -> Vector3f 
-    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    where S: Storage<f32, Const<3>>,
     {
         // Get vector in box fractional coordinates
         let mut box_vec = self.inv * vec;
@@ -260,7 +260,7 @@ impl PeriodicBox {
     /// Converts coordinates from lab frame to box frame (fractional coordinates).
     #[inline(always)]
     pub fn to_box_coords<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f
-    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    where S: Storage<f32, Const<3>>,
     {
         self.inv * vec
     }
@@ -276,7 +276,7 @@ impl PeriodicBox {
     /// Converts coordinates from box frame to lab frame.
     #[inline(always)]
     pub fn to_lab_coords<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
-    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    where S: Storage<f32, Const<3>>,
     {
         self.matrix * vec
     }
@@ -342,7 +342,7 @@ impl PeriodicBox {
 
     #[inline(always)]
     pub fn wrap_vec<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
-    where S: nalgebra::storage::Storage<f32, Const<3>>,
+    where S: Storage<f32, Const<3>>,
     {
         // Get vector in box fractional coordinates
         let mut bv = self.inv * vec;

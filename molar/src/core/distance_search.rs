@@ -4,23 +4,23 @@ use num_traits::clamp_min;
 use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
 
 /// Trait for the results of distance seacrh
-pub trait SearchOutputType {
+pub trait DistanceSearchOutput {
     fn from_ijd(i: usize, j: usize, d: f32) -> Self;
 }
 
-impl SearchOutputType for usize {
+impl DistanceSearchOutput for usize {
     fn from_ijd(i: usize, _j: usize, _d: f32) -> Self {
         i
     }
 }
 
-impl SearchOutputType for (usize, usize) {
+impl DistanceSearchOutput for (usize, usize) {
     fn from_ijd(i: usize, j: usize, _d: f32) -> Self {
         (i, j)
     }
 }
 
-impl SearchOutputType for (usize, usize, f32) {
+impl DistanceSearchOutput for (usize, usize, f32) {
     fn from_ijd(i: usize, j: usize, d: f32) -> Self {
         (i, j, d)
     }
@@ -29,16 +29,12 @@ impl SearchOutputType for (usize, usize, f32) {
 //--------------------------------------------------------------------------------
 
 // For periodic selections Grid is self-referencial and thus
-// must never be moved! This is staticaly enforced by
-// manually pinning Grid in populate_pbc() functions that
-// create self-referencial state.
-// Strictly speaking this is not necessary because Gris is only used
-// inside search_* functions, but we explicitly enforce it to be safe.
+// must never be moved! Gris is only used
+// inside search_* functions, so this should never be a problem.
 struct Grid<'a> {
     cells: Vec<Vec<(usize, &'a Pos)>>,
     dims: [usize; 3],
     wrapped_pos: Vec<Pos>,
-    _pin: PhantomPinned,
 }
 
 static MASK: [([usize; 3], [usize; 3]); 14] = [
@@ -83,12 +79,11 @@ impl<'a> Grid<'a> {
             cells: vec![vec![]; dims[0] * dims[1] * dims[2]],
             dims,
             wrapped_pos: vec![],
-            _pin: Default::default(),
         }
     }
 
     #[inline(always)]
-    fn loc_to_ind(&self, loc: [usize; 3]) -> usize {
+    fn loc_to_ind(&self, loc: &[usize; 3]) -> usize {
         loc[0] + loc[1] * self.dims[0] + loc[2] * self.dims[0] * self.dims[1]
     }
 
@@ -97,7 +92,7 @@ impl<'a> Grid<'a> {
     //     &mut self.cells[i]
     // }
 
-    fn push_loc(&mut self, loc: [usize; 3], data: (usize, &'a Pos)) {
+    fn push_loc(&mut self, loc: &[usize; 3], data: (usize, &'a Pos)) {
         let i = self.loc_to_ind(loc);
         self.cells[i].push(data);
     }
@@ -143,7 +138,7 @@ impl<'a> Grid<'a> {
                     loc[d] = n as usize;
                 }
             }
-            self.push_loc(loc, (id, pos));
+            self.push_loc(&loc, (id, pos));
         }
     }
 
@@ -183,7 +178,7 @@ impl<'a> Grid<'a> {
                         .clamp(0, self.dims[d] - 1);
                     // Accounts for float point errors when loc[d] could be 1.00001
                 }
-                self.push_loc(loc, (id, pos));
+                self.push_loc(&loc, (id, pos));
             } else {
                 // Need to wrap the point
                 for d in 0..3 {
@@ -201,7 +196,7 @@ impl<'a> Grid<'a> {
 
                 let wp = Pos::from(box_.to_lab_coords(&rel));
                 self.wrapped_pos.push(wp);
-                wrapped_ind.push((self.loc_to_ind(loc), id));
+                wrapped_ind.push((self.loc_to_ind(&loc), id));
             }
         }
 
@@ -231,7 +226,7 @@ fn search_plan(
         for y in 0..grid1.dims[1] {
             for z in 0..grid1.dims[2] {
                 // go over possible pairs
-                'mask: for (v1, v2) in MASK {
+                'mask: for (v1, v2) in &MASK {
                     let mut c = [
                         [x + v1[0], y + v1[1], z + v1[2]],
                         [x + v2[0], y + v2[1], z + v2[2]],
@@ -252,8 +247,8 @@ fn search_plan(
                         }
                     }
                     // If we are here we need to add the cell pair to the plan
-                    let i1 = grid1.loc_to_ind(c[0]);
-                    let i2 = grid1.loc_to_ind(c[1]);
+                    let i1 = grid1.loc_to_ind(&c[0]);
+                    let i2 = grid1.loc_to_ind(&c[1]);
 
                     // Check if there are points in both cells
                     // This is different in single and double grid cases
@@ -327,7 +322,7 @@ fn search_cell_pair_within_pbc(
     }
 }
 
-fn search_cell_pair_double<T: SearchOutputType>(
+fn search_cell_pair_double<T: DistanceSearchOutput>(
     cutoff2: f32,
     grid1: &Grid,
     grid2: &Grid,
@@ -350,7 +345,7 @@ fn search_cell_pair_double<T: SearchOutputType>(
     }
 }
 
-fn search_cell_pair_double_pbc<T: SearchOutputType>(
+fn search_cell_pair_double_pbc<T: DistanceSearchOutput>(
     cutoff2: f32,
     grid1: &Grid,
     grid2: &Grid,
@@ -378,7 +373,7 @@ fn search_cell_pair_double_pbc<T: SearchOutputType>(
     }
 }
 
-fn search_cell_pair_double_vdw<T: SearchOutputType>(
+fn search_cell_pair_double_vdw<T: DistanceSearchOutput>(
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
@@ -403,7 +398,7 @@ fn search_cell_pair_double_vdw<T: SearchOutputType>(
     }
 }
 
-fn search_cell_pair_double_vdw_pbc<T: SearchOutputType>(
+fn search_cell_pair_double_vdw_pbc<T: DistanceSearchOutput>(
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
@@ -435,7 +430,7 @@ fn search_cell_pair_double_vdw_pbc<T: SearchOutputType>(
     }
 }
 
-fn search_cell_pair_single<T: SearchOutputType>(
+fn search_cell_pair_single<T: DistanceSearchOutput>(
     cutoff2: f32,
     grid: &Grid,
     pair: (usize, usize, PbcDims),
@@ -473,7 +468,7 @@ fn search_cell_pair_single<T: SearchOutputType>(
     found
 }
 
-fn search_cell_pair_single_pbc<T: SearchOutputType>(
+fn search_cell_pair_single_pbc<T: DistanceSearchOutput>(
     cutoff2: f32,
     grid: &Grid,
     pair: (usize, usize, PbcDims),
@@ -670,7 +665,7 @@ pub fn distance_search_double<'a, T, C>(
     ids2: impl Iterator<Item = usize>,
 ) -> C
 where
-    T: SearchOutputType + Send + Sync,
+    T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // Compute the extents
@@ -726,7 +721,7 @@ pub fn distance_search_double_pbc<'a, T, C>(
     pbc_dims: PbcDims,
 ) -> C
 where
-    T: SearchOutputType + Send + Sync,
+    T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
@@ -780,7 +775,7 @@ pub fn distance_search_double_vdw<'a, T, C>(
     vdw2: &Vec<f32>,
 ) -> C
 where
-    T: SearchOutputType + Send + Sync,
+    T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
@@ -841,7 +836,7 @@ pub fn distance_search_double_vdw_pbc<'a, T, C>(
     pbc_dims: PbcDims,
 ) -> C
 where
-    T: SearchOutputType + Send + Sync,
+    T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
@@ -900,7 +895,7 @@ pub fn distance_search_single<'a, T, C>(
     ids: impl Iterator<Item = usize>,
 ) -> C
 where
-    T: SearchOutputType + Send + Sync,
+    T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // Compute the extents
@@ -939,7 +934,7 @@ pub fn distance_search_single_pbc<'a, T, C>(
     pbc_dims: PbcDims,
 ) -> C
 where
-    T: SearchOutputType + Send + Sync,
+    T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     let mut grid = Grid::from_cutoff_and_box(cutoff, pbox);
