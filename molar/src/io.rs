@@ -845,4 +845,13 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn xyz_test() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/test.xyz")?;
+        for atom in sys.iter_atoms() {
+            println!("mass = {}", atom.mass);
+        }
+        Ok(())
+    }
 }

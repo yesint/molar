@@ -201,7 +201,7 @@ impl FileFormatHandler for VmdMolFileHandler {
                 name: char_slice_to_str(&vmd_at.name)?,
                 resid: vmd_at.resid,
                 resname: char_slice_to_str(&vmd_at.resname)?,
-                chain: char_slice_to_str(&vmd_at.chain)?.chars().next().unwrap(),
+                chain: char_slice_to_str(&vmd_at.chain)?.chars().next().unwrap_or(' '),
                 charge: vmd_at.charge,
                 occupancy: vmd_at.occupancy,
                 bfactor: vmd_at.bfactor,
