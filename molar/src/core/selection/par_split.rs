@@ -64,14 +64,14 @@ impl NonAtomPosAnalysis for SelPar<'_> {
 //================================================
 pub struct SelParMut<'a> {
     index: &'a [usize],
-    sys: *mut System,
+    sys: *const System,
 }
 
 impl<'a> SelParMut<'a> {
     pub(crate) fn new(sys: &'a System, index: &'a [usize]) -> SelParMut<'a> {
         Self {
             index,
-            sys: sys as *const System as *mut System,
+            sys,
         }
     }
 }
@@ -107,11 +107,15 @@ impl AtomPosAnalysis for SelParMut<'_> {
 
 impl AtomPosAnalysisMut for SelParMut<'_> {
     fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        unsafe{ (*self.sys).top.atoms.as_mut_ptr() }
+        // This creates temp &sys for each parallel selection
+        // since no &mut sys is ever created this is fine
+        unsafe{ (*self.sys).top.atoms.as_ptr() as *mut Atom }
     }
 
     fn coords_ptr_mut(&mut self) -> *mut Pos {
-        unsafe{ (*self.sys).st.coords.as_mut_ptr() }
+        // This creates temp &sys for each parallel selection
+        // since no &mut sys is ever created this is fine
+        unsafe{ (*self.sys).st.coords.as_ptr() as *mut Pos }
     }
 }
 
