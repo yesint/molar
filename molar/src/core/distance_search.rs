@@ -964,7 +964,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::core::{Selectable, System};
-    use super::TopologyStateWrite;
+    use super::SaveTopologyState;
 
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {

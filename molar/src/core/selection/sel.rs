@@ -143,9 +143,9 @@ impl NonAtomPosAnalysis for SelOwnBound<'_> {
     }
 }
 
-impl TopologyWrite for SelOwnBound<'_> {}
-impl StateWrite for SelOwnBound<'_> {}
-impl TopologyStateWrite for SelOwnBound<'_> {}
+impl SaveTopology for SelOwnBound<'_> {}
+impl SaveState for SelOwnBound<'_> {}
+impl SaveTopologyState for SelOwnBound<'_> {}
 
 //================================================
 /// Read-write bound subsystem having access to
@@ -315,9 +315,9 @@ impl NonAtomPosAnalysis for SelBound<'_> {
     }
 }
 
-impl TopologyWrite for SelBound<'_> {}
-impl StateWrite for SelBound<'_> {}
-impl TopologyStateWrite for SelBound<'_> {}
+impl SaveTopology for SelBound<'_> {}
+impl SaveState for SelBound<'_> {}
+impl SaveTopologyState for SelBound<'_> {}
 
 //================================================
 /// Read-write selection that borrows its index

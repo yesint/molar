@@ -67,7 +67,7 @@ impl FileFormatHandler for GroFileHandler {
         })
     }
 
-    fn write(&mut self, data: &dyn TopologyStateWrite) -> Result<(), FileFormatError> {
+    fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
         let natoms = data.len();
         let buf = self.writer.as_mut().unwrap();
 

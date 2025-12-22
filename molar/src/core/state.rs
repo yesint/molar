@@ -78,7 +78,7 @@ impl State {
     }
 }
 
-impl StateWrite for State {}
+impl SaveState for State {}
 
 impl TimeProvider for State {
     fn get_time(&self) -> f32 {

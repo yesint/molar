@@ -1,5 +1,5 @@
 use crate::core::*;
-use crate::io::{FileFormatError, FileFormatHandler, StateWrite, TopologyWrite};
+use crate::io::{FileFormatError, FileFormatHandler, SaveState, SaveTopology};
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString, NulError};
@@ -224,7 +224,7 @@ impl FileFormatHandler for VmdMolFileHandler {
         Ok(top)
     }
 
-    fn write_topology(&mut self, data: &dyn super::TopologyWrite) -> Result<(), super::FileFormatError> {
+    fn write_topology(&mut self, data: &dyn super::SaveTopology) -> Result<(), super::FileFormatError> {
         let n = data.len();
         // Open file if not yet opened
         self.open_write_if_needed(n)?;
@@ -251,6 +251,7 @@ impl FileFormatHandler for VmdMolFileHandler {
             | MOLFILE_ATOMICNUMBER
             | MOLFILE_CHARGE
             | MOLFILE_MASS;
+            
         let ret = unsafe {
             self.plugin.as_ref().unwrap().write_structure.unwrap()(
                 self.file_handle,
@@ -325,7 +326,7 @@ impl FileFormatHandler for VmdMolFileHandler {
         }
     }
 
-    fn write_state(&mut self, data: &dyn super::StateWrite) -> Result<(), super::FileFormatError> {
+    fn write_state(&mut self, data: &dyn super::SaveState) -> Result<(), super::FileFormatError> {
         println!("(3): {:?}",data.get_box());
         let n = data.len();
 
@@ -374,9 +375,9 @@ impl FileFormatHandler for VmdMolFileHandler {
         Ok((self.read_topology()?,self.read_state()?))
     }
 
-    fn write(&mut self, data: &dyn super::TopologyStateWrite) -> Result<(), FileFormatError> {
-        self.write_topology(data as &dyn TopologyWrite)?;
-        self.write_state(data as &dyn StateWrite)?;
+    fn write(&mut self, data: &dyn super::SaveTopologyState) -> Result<(), FileFormatError> {
+        self.write_topology(data as &dyn SaveTopology)?;
+        self.write_state(data as &dyn SaveState)?;
         Ok(())
     }
 }

@@ -288,9 +288,9 @@ impl Selectable for System {
     }
 }
 
-impl TopologyWrite for System {}
-impl StateWrite for System {}
-impl TopologyStateWrite for System {}
+impl SaveTopology for System {}
+impl SaveState for System {}
+impl SaveTopologyState for System {}
 
 impl LenProvider for System {
     fn len(&self) -> usize {

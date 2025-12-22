@@ -184,7 +184,7 @@ impl FileFormatHandler for XtcFileHandler {
         }
     }
 
-    fn write_state(&mut self, data: &dyn super::StateWrite) -> Result<(), super::FileFormatError> {
+    fn write_state(&mut self, data: &dyn super::SaveState) -> Result<(), super::FileFormatError> {
         let n = data.len();
 
         // Box have to be transposed because XTC contains row-major box

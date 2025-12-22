@@ -92,7 +92,7 @@ impl Topology {
 }
 
 //---------------------------
-impl TopologyWrite for Topology {}
+impl SaveTopology for Topology {}
 
 impl AtomIterProvider for Topology {
     fn iter_atoms(&self) -> impl super::AtomIterator<'_> {

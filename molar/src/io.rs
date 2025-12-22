@@ -9,7 +9,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use thiserror::Error;
-use triomphe::Arc;
 
 mod gro_handler;
 mod itp_handler;
@@ -27,27 +26,30 @@ use tpr_handler::TprFileHandler;
 use vmd_molfile_handler::VmdMolFileHandler;
 use xtc_handler::XtcFileHandler;
 
-//===============================
-// File handler trait
-//===============================
-pub trait TopologyWrite: RandomAtomProvider + RandomBondProvider {}
-pub trait StateWrite: RandomPosProvider + BoxProvider + TimeProvider {}
-pub trait TopologyStateWrite: TopologyWrite + StateWrite {
+/// Trait for saving [Topology] to file
+pub trait SaveTopology: RandomAtomProvider + RandomBondProvider {}
+
+/// Trait for saving [State] to file
+pub trait SaveState: RandomPosProvider + BoxProvider + TimeProvider {}
+
+/// Trait for saving both [Topology] and [State] to file
+pub trait SaveTopologyState: SaveTopology + SaveState {
     fn save(&self, fname: &str) -> Result<(), FileIoError>
     where
         Self: Sized,
     {
         let mut h = FileHandler::create(fname)?;
         h.write(self)?;
-        // h.write_topology(self)?;
-        // h.write_state(self)?;
         Ok(())
     }
 }
 
-// If no more data available Eof error is returned
+/// Trait for file format handlers.
+/// Concrete handlers implement only methods which are 
+/// relevant for a particular format.
 #[allow(unused_variables)]
 pub(crate) trait FileFormatHandler: Send {
+    /// Open file for reading
     fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
     where
         Self: Sized,
@@ -55,6 +57,7 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotReadable)
     }
 
+    /// Open file for writing (overwrites if it exists)
     fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
     where
         Self: Sized,
@@ -74,15 +77,15 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotStateReadFormat)
     }
 
-    fn write(&mut self, data: &dyn TopologyStateWrite) -> Result<(), FileFormatError> {
+    fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotTopologyStateWriteFormat)
     }
 
-    fn write_topology(&mut self, data: &dyn TopologyWrite) -> Result<(), FileFormatError> {
+    fn write_topology(&mut self, data: &dyn SaveTopology) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotTopologyWriteFormat)
     }
 
-    fn write_state(&mut self, data: &dyn StateWrite) -> Result<(), FileFormatError> {
+    fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotStateWriteFormat)
     }
 
@@ -107,16 +110,13 @@ pub(crate) trait FileFormatHandler: Send {
     }
 }
 
-//=======================================================================
-// Iterator over the frames for any type implementing IoTrajectoryReader
-//=======================================================================
 /// Iterator over states in a trajectory file
 pub struct IoStateIterator {
-    //reader: FileHandler,
     receiver: std::sync::mpsc::Receiver<Result<State, FileIoError>>,
 }
 
 impl IoStateIterator {
+    /// Create new state iterator by consuming the file handler 
     fn new(mut fh: FileHandler) -> Self {
         use std::sync::mpsc::sync_channel;
         let (sender, receiver) = sync_channel(10);
@@ -148,12 +148,14 @@ impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
         // Reader thread should never crash since it catches errors and ends on them.
-        // If it does then something is horrible anyway, so unwrap is fine here.
+        // If it does then something is horrible wrong anyway, so panicing is fine here.
         match self.receiver.recv().expect("reader thread shouldn't crash") {
             Ok(opt_st) => Some(opt_st),
             Err(FileIoError(f, e)) => {
                 match e {
+                    // Do nothing on EOF, just finish normally
                     FileFormatError::Eof => {}
+                    // On any other error complain
                     _ => warn!(
                         "file '{}' is likely corrupted, reading stopped: {}",
                         f.display(),
@@ -178,7 +180,7 @@ pub struct FileHandler {
     pub stats: FileStats,
 }
 
-/// Statistics about file operations including elapsed time and number of processed frames
+/// Statistics of file operations including elapsed time and number of processed frames
 #[derive(Default, Debug, Clone)]
 pub struct FileStats {
     /// Total time spent on IO operations
@@ -331,7 +333,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support writing both topology and state
-    pub fn write(&mut self, data: &dyn TopologyStateWrite) -> Result<(), FileIoError> {
+    pub fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileIoError> {
         let t = std::time::Instant::now();
 
         self.format_handler
@@ -379,7 +381,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support topology writing
-    pub fn write_topology(&mut self, data: &dyn TopologyWrite) -> Result<(), FileIoError> {
+    pub fn write_topology(&mut self, data: &dyn SaveTopology) -> Result<(), FileIoError> {
         let t = std::time::Instant::now();
 
         self.format_handler
@@ -430,7 +432,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support state writing
-    pub fn write_state(&mut self, data: &dyn StateWrite) -> Result<(), FileIoError> {
+    pub fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileIoError> {
         let t = std::time::Instant::now();
 
         self.format_handler
@@ -579,93 +581,6 @@ impl IntoIterator for FileHandler {
         IoStateIterator::new(self)
     }
 }
-
-//----------------------------------------
-// Implementation of IO traits for tuples
-macro_rules! impl_io_traits_for_tuples {
-    ( $t:ty, $s:ty ) => {
-        impl LenProvider for ($t, $s) {
-            fn len(&self) -> usize {
-                self.0.len()
-            }
-        }
-
-        impl TopologyWrite for ($t, $s) {}
-        impl StateWrite for ($t, $s) {}
-        impl TopologyStateWrite for ($t, $s) {}
-
-        impl RandomAtomProvider for ($t, $s) {
-            unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-                self.0.get_atom_unchecked(i)
-            }
-        }
-
-        impl AtomIterProvider for ($t, $s) {
-            fn iter_atoms(&self) -> impl AtomIterator<'_> {
-                self.0.iter_atoms()
-            }
-        }
-
-        impl RandomMoleculeProvider for ($t, $s) {
-            fn num_molecules(&self) -> usize {
-                self.0.num_molecules()
-            }
-
-            unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-                self.0.get_molecule_unchecked(i)
-            }
-        }
-
-        impl MoleculeIterProvider for ($t, $s) {
-            fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-                self.0.iter_molecules()
-            }
-        }
-
-        impl RandomBondProvider for ($t, $s) {
-            fn num_bonds(&self) -> usize {
-                self.0.num_bonds()
-            }
-
-            unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-                self.0.get_bond_unchecked(i)
-            }
-        }
-
-        impl BondIterProvider for ($t, $s) {
-            fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-                self.0.iter_bonds()
-            }
-        }
-
-        impl TimeProvider for ($t, $s) {
-            fn get_time(&self) -> f32 {
-                self.1.get_time()
-            }
-        }
-
-        impl BoxProvider for ($t, $s) {
-            fn get_box(&self) -> Option<&PeriodicBox> {
-                self.1.get_box()
-            }
-        }
-
-        impl PosIterProvider for ($t, $s) {
-            fn iter_pos(&self) -> impl PosIterator<'_> {
-                self.1.iter_pos()
-            }
-        }
-
-        impl RandomPosProvider for ($t, $s) {
-            unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-                self.1.get_pos_unchecked(i)
-            }
-        }
-    };
-}
-
-impl_io_traits_for_tuples!(Topology, State);
-impl_io_traits_for_tuples!(Arc<Topology>, Arc<State>);
 
 //--------------------------------------------------------
 /// An error that occurred during file IO operations

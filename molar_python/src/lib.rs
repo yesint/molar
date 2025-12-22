@@ -326,9 +326,9 @@ impl NonAtomPosAnalysisMut for SystemPy {
     }
 }
 
-impl TopologyWrite for SystemPy {}
-impl StateWrite for SystemPy {}
-impl TopologyStateWrite for SystemPy {}
+impl SaveTopology for SystemPy {}
+impl SaveState for SystemPy {}
+impl SaveTopologyState for SystemPy {}
 
 #[pymethods]
 impl SystemPy {
@@ -466,7 +466,7 @@ impl SystemPy {
     // }
 
     fn save(&self, fname: &str) -> anyhow::Result<()> {
-        Ok(TopologyStateWrite::save(self, fname)?)
+        Ok(SaveTopologyState::save(self, fname)?)
     }
 
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> anyhow::Result<()> {
@@ -639,9 +639,9 @@ impl NonAtomPosAnalysisMut for SelPy {
     }
 }
 
-impl TopologyWrite for SelPy {}
-impl StateWrite for SelPy {}
-impl TopologyStateWrite for SelPy {}
+impl SaveTopology for SelPy {}
+impl SaveState for SelPy {}
+impl SaveTopologyState for SelPy {}
 
 impl SelPy {
     fn from_svec(&self, py: Python<'_>, index: SVec) -> Self {
@@ -952,7 +952,7 @@ impl SelPy {
     }
 
     fn save(&self, fname: &str) -> anyhow::Result<()> {
-        Ok(TopologyStateWrite::save(self, fname)?)
+        Ok(SaveTopologyState::save(self, fname)?)
     }
 
     fn translate<'py>(&mut self, arg: PyArrayLike1<'py, f32>) -> anyhow::Result<()> {
