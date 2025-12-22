@@ -363,25 +363,3 @@ impl<'a> std::ops::Shr<&'a mut System> for &'a Sel {
         rhs.bind_mut(self)
     }
 }
-
-impl Guarded for System {
-    type Guard<'a>
-        = &'a System
-    where
-        Self: 'a;
-
-    fn guard(&self) -> Self::Guard<'_> {
-        self
-    }
-}
-
-impl GuardedMut for System {
-    type GuardMut<'a>
-        = &'a mut System
-    where
-        Self: 'a;
-
-    fn guard_mut(&mut self) -> Self::GuardMut<'_> {
-        self
-    }
-}

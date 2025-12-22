@@ -159,19 +159,3 @@ impl MoleculeIterProvider for Topology {
         self.molecules.iter()
     }
 }
-
-impl Guarded for Topology {
-    type Guard<'a> = &'a Self where Self: 'a;
-
-    fn guard(&self) -> Self::Guard<'_> {
-        self
-    }
-}
-
-impl GuardedMut for Topology {
-    type GuardMut<'a> = &'a mut Self where Self: 'a;
-
-    fn guard_mut(&mut self) -> Self::GuardMut<'_> {
-        self
-    }
-}

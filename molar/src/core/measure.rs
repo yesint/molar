@@ -12,12 +12,6 @@ use thiserror::Error;
 //==============================================================
 // Traits for measuring (immutable access)
 //==============================================================
-pub trait Guarded {
-    type Guard<'a>
-    where
-        Self: 'a;
-    fn guard(&self) -> Self::Guard<'_>;
-}
 
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
@@ -85,19 +79,6 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
         S: MeasurePos,
     {
         super::rmsd(self, other)
-    }
-}
-
-pub trait MeasurePosGuarded: Guarded
-where
-    for<'a> Self::Guard<'a>: MeasurePos,
-{
-    fn min_max(&self) -> (Pos, Pos) {
-        self.guard().min_max()
-    }
-
-    fn center_of_geometry(&self) -> Pos {
-        self.guard().center_of_geometry()
     }
 }
 
