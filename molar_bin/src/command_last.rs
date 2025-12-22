@@ -4,7 +4,7 @@ use molar::prelude::*;
 
 pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
     let mut trj; // Trajectory file
-                 // Reading topology
+    // Reading topology
     let top = if files.len() == 1 {
         trj = FileHandler::open(&files[0])?;
         let top = trj
@@ -61,7 +61,7 @@ pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
         st.get_time()
     );
     let mut out = FileHandler::create(&outfile)?;
-    out.write(&(top, st))?;
+    out.write(&System::new(top, st)?)?;
 
     Ok(())
 }

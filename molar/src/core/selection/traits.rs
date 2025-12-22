@@ -404,5 +404,5 @@ impl<T: AtomPosAnalysis> MeasureRandomAccess for T {}
 //██████  Modify traits
 
 impl<T: AtomPosAnalysisMut> ModifyPos for T {}
-impl<T: AtomPosAnalysisMut + NonAtomPosAnalysisMut + NonAtomPosAnalysis> ModifyPeriodic for T {}
-impl<T: AtomPosAnalysisMut + AtomPosAnalysis + NonAtomPosAnalysisMut + NonAtomPosAnalysis> ModifyRandomAccess for T {}
+impl<T: AtomPosAnalysisMut + NonAtomPosAnalysis> ModifyPeriodic for T {}
+impl<T: AtomPosAnalysisMut + AtomPosAnalysis + NonAtomPosAnalysis> ModifyRandomAccess for T {}

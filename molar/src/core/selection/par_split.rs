@@ -9,6 +9,7 @@ pub struct SelPar<'a> {
     coords_ptr: *const Pos,
     atoms_ptr: *const Atom,
     index: &'a [usize],
+    sys: &'a System,
 }
 
 impl<'a> SelPar<'a> {
@@ -17,6 +18,7 @@ impl<'a> SelPar<'a> {
             index,
             atoms_ptr: sys.atoms_ptr(),
             coords_ptr: sys.coords_ptr(),
+            sys,
         }
     }
 }
@@ -50,6 +52,16 @@ impl AtomPosAnalysis for SelPar<'_> {
     }
 }
 
+impl NonAtomPosAnalysis for SelPar<'_> {
+    fn top_ptr(&self) -> *const Topology {
+        &self.sys.top
+    }
+
+    fn st_ptr(&self) -> *const State {
+        &self.sys.st
+    }
+}
+
 //================================================
 /// Read-write subsystem for non-blocking parallel access to atoms and posisitons
 /// Doesn't have access to shared fields such as box and bonds.
@@ -58,6 +70,7 @@ pub struct SelParMut<'a> {
     coords_ptr: *mut Pos,
     atoms_ptr: *mut Atom,
     index: &'a [usize],
+    sys: &'a System,
 }
 
 impl<'a> SelParMut<'a> {
@@ -66,6 +79,7 @@ impl<'a> SelParMut<'a> {
             index,
             atoms_ptr: sys.atoms_ptr() as *mut Atom,
             coords_ptr: sys.coords_ptr() as *mut Pos,
+            sys,
         }
     }
 }
@@ -109,6 +123,15 @@ impl AtomPosAnalysisMut for SelParMut<'_> {
     }
 }
 
+impl NonAtomPosAnalysis for SelParMut<'_> {
+    fn top_ptr(&self) -> *const Topology {
+        &self.sys.top
+    }
+
+    fn st_ptr(&self) -> *const State {
+        &self.sys.st
+    }
+}
 //============================================================================
 /// Collection of non-overlapping selections that could be mutated in parallel
 /// Selections don't have access to shared fields such as box and bonds.
@@ -165,5 +188,40 @@ impl<'a> ParSplitBoundMut<'a> {
 
     pub fn get_mut(&mut self, i: usize) -> SelParMut<'_> {
         SelParMut::new(self.sys, &self.indexes[i].0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
+    use crate::core::modify::ModifyPeriodic;
+    use crate::core::{AtomPosAnalysis, System};
+
+    #[test]
+    fn par_unwrap() -> anyhow::Result<()> {
+        // Load file
+        let mut sys = System::from_file("tests/membr.gro")?;
+
+        // Make a parallel split for each POPG lipid molecule
+        let par = sys.split_par(|p| {
+            if p.atom.resname == "POPG" {
+                // Whenever new distinct result is returned form this closure
+                // new selection is created, so each distinct POPG residue
+                // becomes a separate selection.
+                Some(p.atom.resindex)
+            } else {
+                // All other atoms are ignored
+                None
+            }
+        })?;
+
+        // Bind split to a system
+        sys.bind_par_mut(&par)? 
+            // Get rayon parallel iterator over selections
+            .par_iter_mut() 
+            // Run unwrap on each selection in parallel
+            .try_for_each(|mut sel| sel.unwrap_simple())?; 
+        Ok(())
     }
 }

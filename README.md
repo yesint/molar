@@ -314,6 +314,45 @@ fn main() -> Result<()> {
 }
 ```
 
+# Parallel splits
+
+MolAR allows performing operations on non-overlapping selections in parallel, which typically gives a huge speed up in such tasks as removing periodicity for individual molecules, which are rather heavy computationally.
+
+Here is how you can do this:
+
+```rust,no_run
+// Import all baic things from molar
+use molar::prelude::*;
+// For error handling
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    // Load lipid membrane
+    let mut sys = System::from_file("tests/membr.gro")?;
+
+    // Make a parallel split: distinct selection for each POPG lipid.
+    let par = sys.split_par(|p| {
+        if p.atom.resname == "POPG" {
+            // Whenever distinct result is returned form this closure
+            // new selection is created, so each distinct POPG residue
+            // becomes a separate selection.
+            Some(p.atom.resindex)
+        } else {
+            // All other atoms are ignored
+            None
+        }
+    })?;
+
+    // Bind split to a system
+    sys.bind_par_mut(&par)? 
+        // Get rayon parallel iterator over selections
+        .par_iter_mut() 
+        // Run unwrap on each selection in parallel
+        .try_for_each(|mut sel| sel.unwrap_simple())?; 
+    Ok(())
+}
+```
+
 # Analysis tasks
 
 ## Motivation
