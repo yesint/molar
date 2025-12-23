@@ -36,7 +36,7 @@ impl SelectionExpr {
     ///
     /// # Examples
     /// ```
-    /// # use molar::core::SelectionExpr;
+    /// # use molar::prelude::SelectionExpr;
     /// let expr = SelectionExpr::new("resname ALA").unwrap();
     /// ```
     pub fn new(s: &str) -> Result<Self, SelectionParserError> {
