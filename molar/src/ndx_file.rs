@@ -1,6 +1,6 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, num::ParseIntError, path::Path};
 use itertools::Itertools;
-
+use thiserror::Error;
 use crate::prelude::*;
 
 /// Representation of Gromacs index files
@@ -71,4 +71,23 @@ impl NdxFile {
         let ind = self.groups.get(gr).ok_or_else(|| NdxError::NoGroup(gr.to_owned()))?;
         Ok(src.select(ind)?)
     }
+}
+
+/// Errors related to reading and manipulating Gromacs index files
+#[derive(Debug, Error)]
+pub enum NdxError {
+    #[error("group {0} not found")]
+    NoGroup(String),
+
+    #[error("group {0} is empty")]
+    EmptyGroup(String),
+
+    #[error("index parse error in group {0}")]
+    Parse(String, #[source] ParseIntError),
+
+    #[error("error reading ndx file {0}")]
+    NdxIo(std::path::PathBuf, #[source] std::io::Error),
+
+    #[error("malformed ndx file {0}")]
+    MalformedNdxFile(std::path::PathBuf),
 }

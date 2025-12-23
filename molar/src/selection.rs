@@ -5,8 +5,8 @@ mod grammar;
 mod selection_expr;
 pub use selection_expr::*;
 
-mod error;
-pub use error::*;
+mod selection_error;
+pub use selection_error::*;
 
 mod selection_def;
 pub use selection_def::*;

@@ -2,7 +2,7 @@ use std::num::ParseIntError;
 
 use thiserror::Error;
 
-use crate::{io::FileIoError, prelude::{BuilderError, PeriodicBoxError}, selection::ast::SelectionParserError};
+use crate::{io::FileIoError, prelude::{BuilderError, NdxError, PeriodicBoxError}, selection::ast::SelectionParserError};
 //############################################################
 //#  Error enums
 //############################################################
@@ -116,23 +116,4 @@ pub enum SelectionIndexError {
     IndexEmpty,
     #[error("selection indeces {0}:{1} are out of allowed range 0:{2}")]
     IndexOutOfBounds(usize, usize, usize),
-}
-
-/// Errors related to reading and manipulating Gromacs index files
-#[derive(Debug, Error)]
-pub enum NdxError {
-    #[error("group {0} not found")]
-    NoGroup(String),
-
-    #[error("group {0} is empty")]
-    EmptyGroup(String),
-
-    #[error("index parse error in group {0}")]
-    Parse(String, #[source] ParseIntError),
-
-    #[error("error reading ndx file {0}")]
-    NdxIo(std::path::PathBuf, #[source] std::io::Error),
-
-    #[error("malformed ndx file {0}")]
-    MalformedNdxFile(std::path::PathBuf),
 }
