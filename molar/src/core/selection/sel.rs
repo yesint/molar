@@ -470,8 +470,7 @@ mod tests {
             }
         })?;
 
-        sys.bind_par_mut(&par)?
-            .par_iter_mut()
+        sys.iter_par_split_mut(&par)
             .try_for_each(|mut sel| {
                 //println!("{} {}", sel.len(), sel.first_atom().resname);
                 if sel.first_atom().resname == "ALA" {
@@ -491,11 +490,6 @@ mod tests {
         for a in cb.iter_atoms().take(10) {
             println!("{}", a.name);
         }
-
-        //Iter serial views
-        let mut b = sys.bind_par_mut(&par)?;
-        let serials: Vec<_> = b.iter_mut().collect();
-        println!("serial #5: {}", serials[5].first_particle().pos);
 
         Ok(())
     }

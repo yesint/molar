@@ -1,3 +1,5 @@
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
+
 use crate::prelude::*;
 use std::path::Path;
 
@@ -128,29 +130,20 @@ impl System {
         }
     }
 
-    pub fn bind_par<'a>(&'a self, par: &'a ParSplit) -> Result<ParSplitBound<'a>, SelectionError> {
-        if par.max_index < self.top.len() {
-            Ok(ParSplitBound {
-                sys: self,
-                indexes: &par.selections,
-            })
-        } else {
-            Err(SelectionError::OutOfBounds(par.max_index, self.top.len()))
-        }
+    /// Returns mutable parallel iterator over parallel selections.
+    pub fn iter_par_split_mut<'a>(&'a mut self, par: &'a ParSplit) -> impl IndexedParallelIterator<Item = SelParMut<'a>> {
+        par.check_bounds(self);
+        par.selections
+            .par_iter()
+            .map(|sel| SelParMut::new(self, &sel.0))
     }
 
-    pub fn bind_par_mut<'a>(
-        &'a mut self,
-        par: &'a ParSplit,
-    ) -> Result<ParSplitBoundMut<'a>, SelectionError> {
-        if par.max_index < self.top.len() {
-            Ok(ParSplitBoundMut {
-                sys: self,
-                indexes: &par.selections,
-            })
-        } else {
-            Err(SelectionError::OutOfBounds(par.max_index, self.top.len()))
-        }
+    /// Returns parallel iterator over parallel selections.
+    pub fn iter_par_split<'a>(&'a mut self, par: &'a ParSplit) -> impl IndexedParallelIterator<Item = SelPar<'a>> {
+        par.check_bounds(self);
+        par.selections
+            .par_iter()
+            .map(|sel| SelPar::new(self, &sel.0))
     }
 
     pub fn split_bound<'a, RT, F>(&'a self, func: F) -> impl Iterator<Item = SelOwnBound<'a>>

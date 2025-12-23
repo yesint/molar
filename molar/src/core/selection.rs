@@ -449,13 +449,11 @@ mod tests {
 
         let parts = sys.split_par(|p| Some(p.atom.resindex))?;
         let coms = sys
-            .bind_par_mut(&parts)?
-            .par_iter_mut()
+            .iter_par_split_mut(&parts)
             .map(|sel| sel.center_of_mass())
             .collect::<Result<Vec<_>, _>>()?;
 
-        sys.bind_par_mut(&parts)?
-            .par_iter_mut()
+        sys.iter_par_split_mut(&parts)
             .enumerate()
             .for_each(|(i, mut sel)| sel.translate(&(-coms[i].coords)));
 

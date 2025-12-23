@@ -346,10 +346,8 @@ fn main() -> Result<()> {
         }
     })?;
 
-    // Bind split to a system
-    sys.bind_par_mut(&par)? 
-        // Get rayon parallel iterator over selections
-        .par_iter_mut() 
+    // Get rayon parallel iterator over selections in split
+    sys.iter_par_split_mut(&par)?         
         // Run unwrap on each selection in parallel
         .try_for_each(|mut sel| sel.unwrap_simple())?; 
     Ok(())

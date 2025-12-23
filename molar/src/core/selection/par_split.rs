@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 
 //================================================
 /// Read-only subsystem for non-blocking parallel access to atoms and posisitons
@@ -137,55 +136,24 @@ pub struct ParSplit {
     pub(crate) max_index: usize,
 }
 
-/// Bound immutable parallel split
-pub struct ParSplitBound<'a> {
-    pub(super) sys: &'a System,
-    pub(super) indexes: &'a Vec<Sel>,
-}
-
-impl<'a> ParSplitBound<'a> {
-    /// Returns parallel iterator over parallel selections.
-    pub fn par_iter(&'a self) -> impl IndexedParallelIterator<Item = SelPar<'a>> {
-        self.indexes
-            .par_iter()
-            .map(|ind| SelPar::new(self.sys, &ind.0))
+impl ParSplit {
+    pub(crate) fn check_bounds(&self, sys: &System) {
+        if self.max_index >= sys.len() {
+            panic!("max index of ParSplit is out of bounds");
+        }
     }
 
-    /// Returns serial iterator over parallel selections.
-    pub fn iter(&'a self) -> impl Iterator<Item = SelPar<'a>> {
-        self.indexes.iter().map(|ind| SelPar::new(self.sys, &ind.0))
+    pub fn get_bound_mut<'a>(&'a self, sys: &'a mut System, i: usize) -> SelParMut<'a> {
+        self.check_bounds(sys);
+        SelParMut::new(sys, &self.selections[i].0)
     }
 
-    pub fn get(&self, i: usize) -> SelPar<'_> {
-        SelPar::new(self.sys, &self.indexes[i].0)
+    pub fn get_bound<'a>(&'a self, sys: &'a System, i: usize) -> SelPar<'a> {
+        self.check_bounds(sys);
+        SelPar::new(sys, &self.selections[i].0)
     }
 }
 
-/// Bound mutable parallel split
-pub struct ParSplitBoundMut<'a> {
-    pub(super) sys: &'a mut System,
-    pub(super) indexes: &'a Vec<Sel>,
-}
-
-impl<'a> ParSplitBoundMut<'a> {
-    /// Returns parallel iterator over parallel selections.
-    pub fn par_iter_mut(&'a mut self) -> impl IndexedParallelIterator<Item = SelParMut<'a>> {
-        self.indexes
-            .par_iter()
-            .map(|ind| SelParMut::new(self.sys, &ind.0))
-    }
-
-    /// Returns serial iterator over parallel selections.
-    pub fn iter_mut(&'a mut self) -> impl Iterator<Item = SelParMut<'a>> {
-        self.indexes
-            .iter()
-            .map(|ind| SelParMut::new(self.sys, &ind.0))
-    }
-
-    pub fn get_mut(&mut self, i: usize) -> SelParMut<'_> {
-        SelParMut::new(self.sys, &self.indexes[i].0)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -213,9 +181,7 @@ mod tests {
         })?;
 
         // Bind split to a system
-        sys.bind_par_mut(&par)? 
-            // Get rayon parallel iterator over selections
-            .par_iter_mut() 
+        sys.iter_par_split_mut(&par) 
             // Run unwrap on each selection in parallel
             .try_for_each(|mut sel| sel.unwrap_simple())?; 
         Ok(())
