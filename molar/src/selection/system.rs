@@ -2,6 +2,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRef
 
 use crate::prelude::*;
 use std::path::Path;
+use super::utils::check_topology_state_sizes;
 
 //================================================
 /// System that stores Topology and State

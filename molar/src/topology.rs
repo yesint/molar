@@ -94,13 +94,13 @@ impl Topology {
 impl SaveTopology for Topology {}
 
 impl AtomIterProvider for Topology {
-    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self.atoms.iter()
     }
 }
 
 impl AtomIterMutProvider for Topology {
-    fn iter_atoms_mut(&mut self) -> impl super::AtomMutIterator<'_> {
+    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
         self.atoms.iter_mut()
     }
 }

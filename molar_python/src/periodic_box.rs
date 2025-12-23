@@ -21,7 +21,7 @@ impl PeriodicBoxPy {
             let m: MatrixView<f32, Const<3>, Const<3>, Dyn, Dyn> = arr
                 .try_as_matrix()
                 .ok_or_else(|| anyhow!("conversion to 3x3 matrix has failed"))?;
-            Ok(PeriodicBoxPy(molar::core::PeriodicBox::from_matrix(m)?))
+            Ok(PeriodicBoxPy(PeriodicBox::from_matrix(m)?))
         } else if py_args.len() == 2 {
             // From vectors and angles
             let v_arr: PyArrayLike1<'py, f32, AllowTypeChange> = py_args.get_item(0)?.extract()?;
@@ -32,7 +32,7 @@ impl PeriodicBoxPy {
             let a: VectorView<f32, Const<3>, Dyn> = a_arr
                 .try_as_matrix()
                 .ok_or_else(|| anyhow!("conversion of angles to Vector3 has failed"))?;
-            Ok(PeriodicBoxPy(molar::core::PeriodicBox::from_vectors_angles(
+            Ok(PeriodicBoxPy(PeriodicBox::from_vectors_angles(
                 v[0], v[1], v[2], a[0], a[1], a[2],
             )?))
         } else {

@@ -1,6 +1,4 @@
-use crate::core::LenProvider;
-
-use super::{Atom, Pos};
+use crate::prelude::*;
 
 /// Holds immutable reference to [Atom] and [Pos] and particle id.
 /// Usually created indirectly by types implementing [ParticleIterProvider](crate::core::ParticleIterProvider).
@@ -38,19 +36,19 @@ impl LenProvider for Particle<'_> {
     }
 }
 
-impl super::PosIterProvider for Particle<'_> {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> {
+impl PosIterProvider for Particle<'_> {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
         std::iter::once(self.pos)
     }
 }
 
-impl super::AtomIterProvider for Particle<'_> {
-    fn iter_atoms(&self) -> impl super::AtomIterator<'_> {
+impl AtomIterProvider for Particle<'_> {
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
         std::iter::once(self.atom)
     }
 }
 
-impl super::IndexProvider for Particle<'_> {
+impl IndexProvider for Particle<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         if i > 0 {
             panic!("single particle can only be accessed with id=0, not {i}")
@@ -64,7 +62,7 @@ impl super::IndexProvider for Particle<'_> {
     }
 }
 
-impl super::ParticleIterProvider for Particle<'_> {
+impl ParticleIterProvider for Particle<'_> {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
         std::iter::once(Particle {
             id: self.id,

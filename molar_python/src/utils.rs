@@ -1,10 +1,11 @@
 use numpy::{nalgebra::{self, Const}, npyffi, Element, PyArray1, PyArrayMethods, ToNpyDims, PY_ARRAY_API};
 use pyo3::prelude::*;
 use std::ffi::c_void;
+use molar::prelude::*;
 
 // Constructs PyArray backed by existing Pos data.
 pub(crate) fn map_pyarray_to_pos<'py>(
-    data: &mut molar::core::Pos,
+    data: &mut Pos,
     parent: &Bound<'py, PyAny>,
 ) -> *mut npyffi::PyArrayObject {
     use numpy::Element;
@@ -41,7 +42,7 @@ pub(crate) fn map_pyarray_to_pos<'py>(
 // Constructs read-only PyArray backed by existing Pos data.
 pub(crate) fn map_const_pyarray_to_vec3<'py>(
     py: Python<'py>,
-    data: &molar::core::Vector3f,
+    data: &Vector3f,
     parent: &Bound<'py, PyAny>,
 ) -> *mut npyffi::PyArrayObject {
     use numpy::Element;

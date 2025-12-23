@@ -1,4 +1,4 @@
-use molar::core::Atom;
+use molar::prelude::Atom;
 use pyo3::prelude::*;
 
 #[pyclass(name = "Atom")]

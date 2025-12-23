@@ -1,4 +1,4 @@
-use crate::core::{Matrix3f, Pos, Vector3f};
+use crate::prelude::*;
 use nalgebra::{Const, Matrix, storage::Storage};
 use thiserror::Error;
 
@@ -358,7 +358,7 @@ impl PeriodicBox {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{Matrix3f, PbcDims, Pos, Vector3f, PBC_FULL, PBC_NONE};
+    use crate::prelude::*;
     use super::PeriodicBox;
 
     const EPSILON: f32 = 1e-6;

@@ -3,7 +3,7 @@ use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 use thiserror::Error;
 
-use crate::core::PeriodicBox;
+use crate::periodic_box::PeriodicBox;
 use crate::io::FileFormatHandler;
 
 use log::{debug, warn};

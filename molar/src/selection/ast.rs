@@ -4,6 +4,8 @@ use regex::bytes::Regex;
 use std::collections::HashSet;
 use thiserror::Error;
 
+use super::utils::check_topology_state_sizes;
+
 //##############################
 //#  AST node types
 //##############################

@@ -1,5 +1,4 @@
-use super::{providers::*, PeriodicBoxError};
-use super::{Matrix3f, PbcDims, Pos, Vector3f};
+use crate::prelude::*;
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
@@ -78,7 +77,7 @@ pub trait MeasurePos: PosIterProvider + LenProvider {
         Self: Sized,
         S: MeasurePos,
     {
-        super::rmsd(self, other)
+        super::measure::rmsd(self, other)
     }
 }
 
@@ -154,7 +153,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
     where
         Self: Sized,
     {
-        super::fit_transform(self, other)
+        super::measure::fit_transform(self, other)
     }
 
     /// Like fit_transform but assumes both selections are centered at origin
@@ -165,7 +164,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
     where
         Self: Sized,
     {
-        super::fit_transform_at_origin(self, other)
+        super::measure::fit_transform_at_origin(self, other)
     }
 
     /// Calculates the mass-weighted Root Mean Square Deviation between two selections
@@ -176,7 +175,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
     where
         Self: Sized,
     {
-        super::rmsd_mw(self, other)
+        super::measure::rmsd_mw(self, other)
     }
 }
 

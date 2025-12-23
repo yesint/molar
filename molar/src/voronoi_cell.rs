@@ -3,7 +3,8 @@
 use std::fs::File;
 use std::io::Write;
 
-use crate::core::Vector3f;
+use crate::prelude::*;
+
 pub type Vector2f = nalgebra::Vector2<f32>;
 const TOL: f32 = 1e-10;
 

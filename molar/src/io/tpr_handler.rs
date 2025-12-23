@@ -5,10 +5,7 @@ pub use internal_tpr_enabled::*;
 
 #[cfg(gromacs)]
 mod internal_tpr_enabled {
-    use crate::{
-        core::*,
-        io::{FileFormatError, FileFormatHandler},
-    };
+    use crate::prelude::*;
     use molar_gromacs::gromacs_bindings::*;
     use nalgebra::Matrix3;
     use std::{

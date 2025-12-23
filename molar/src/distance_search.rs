@@ -957,7 +957,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{Selectable, System};
+    use crate::prelude::*;
     use super::SaveTopologyState;
 
     #[test]

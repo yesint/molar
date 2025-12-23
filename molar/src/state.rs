@@ -88,7 +88,7 @@ impl TimeMutProvider for State {
 }
 
 impl PosIterProvider for State {
-    fn iter_pos(&self) -> impl super::PosIterator<'_> + Clone {
+    fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
         self.coords.iter()
     }
 }
@@ -118,7 +118,7 @@ impl BoxMutProvider for State {
 }
 
 impl PosIterMutProvider for State {
-    fn iter_pos_mut(&mut self) -> impl super::PosMutIterator<'_> {
+    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
         self.coords.iter_mut()
     }
 }

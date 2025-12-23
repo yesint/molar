@@ -1,15 +1,7 @@
 use std::cell::RefCell;
-
-use crate::prelude::*;
-use sorted_vec::SortedSet;
-
-mod ast;
-mod grammar;
+use crate::{prelude::*, selection::ast::SelectionParserError};
 
 //mod grammar3;
-
-pub use ast::SelectionParserError;
-use ast::{EvaluationContext, LogicalNode};
 
 //##############################
 //#  Public interface
@@ -21,7 +13,7 @@ use ast::{EvaluationContext, LogicalNode};
 /// that can be evaluated against a molecular system to select atoms matching the criteria.
 #[derive(Debug)]
 pub struct SelectionExpr {
-    ast: RefCell<LogicalNode>,
+    ast: RefCell<super::ast::LogicalNode>,
     sel_str: String,
 }
 
@@ -50,7 +42,7 @@ impl SelectionExpr {
     pub fn new(s: &str) -> Result<Self, SelectionParserError> {
         Ok(Self {
             ast: RefCell::new(
-                grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {
+                super::grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {
                     let s = format!(
                         "\n{s}\n{}^\nExpected {}",
                         "-".repeat(e.location.column - 1),
@@ -68,9 +60,9 @@ impl SelectionExpr {
         &self,
         topology: &Topology,
         state: &State,
-    ) -> Result<SortedSet<usize>, SelectionParserError> {
+    ) -> Result<SVec, SelectionParserError> {
         let subset = (0..topology.len()).collect::<Vec<_>>();
-        let data = EvaluationContext::new(topology, state, &subset)?;
+        let data = super::ast::EvaluationContext::new(topology, state, &subset)?;
         let mut ast = self.ast.borrow_mut();
         Ok(ast.apply(&data)?.into())
     }
@@ -81,8 +73,8 @@ impl SelectionExpr {
         topology: &Topology,
         state: &State,
         subset: &[usize],
-    ) -> Result<SortedSet<usize>, SelectionParserError> {
-        let data = EvaluationContext::new(topology, state, subset)?;
+    ) -> Result<SVec, SelectionParserError> {
+        let data = super::ast::EvaluationContext::new(topology, state, subset)?;
         let mut ast = self.ast.borrow_mut();
         Ok(ast.apply(&data)?.into())
     }

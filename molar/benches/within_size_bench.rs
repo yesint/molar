@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use molar::core::{Selectable, System};
+    use molar::prelude::*;
     use std::io::prelude::*;
     use std::{fs::File, io::BufWriter};
 

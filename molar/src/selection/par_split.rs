@@ -163,8 +163,7 @@ impl ParSplit {
 mod tests {
     use rayon::iter::ParallelIterator;
 
-    use crate::core::modify::ModifyPeriodic;
-    use crate::core::{AtomPosAnalysis, System};
+    use crate::prelude::*;
 
     #[test]
     fn par_unwrap() -> anyhow::Result<()> {

@@ -1,4 +1,4 @@
-use crate::{core::Atom, io::FileFormatHandler};
+use crate::{atom::Atom, io::FileFormatHandler};
 use std::{
     fs::File,
     io::{BufRead, BufReader},

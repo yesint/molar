@@ -1,36 +1,7 @@
-//! Core data structures and traits: [Atom], [State], [Topology], [selections](Sel), distance search, etc.
+use crate::prelude::*;
 
-mod atom;
-mod topology;
-mod state;
-mod periodic_box;
-mod selection;
-mod providers;
-mod measure;
-mod modify;
-mod periodic_table;
-mod particle;
-#[allow(dead_code)]
-mod selection_parser;
-mod distance_search;
-mod connectivity;
-mod ndx_file;
-
-pub use {
-    atom::*, 
-    topology::*,
-    state::*,
-    periodic_box::*,
-    selection::*,
-    providers::*,
-    measure::*,
-    modify::*,
-    particle::*,
-    selection_parser::SelectionExpr,
-    distance_search::*,
-    connectivity::*,
-    ndx_file::*,
-};
+/// Alias to sorted vector
+pub type SVec = sorted_vec::SortedSet<usize>;
 
 // Aliases for vector and points
 /// Convenience alias for 3D vector
