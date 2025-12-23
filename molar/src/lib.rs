@@ -1,4 +1,6 @@
-//! Main MolAR crate.
+//! MolAR is a library for molecular modeling and analysis written in Rust with an emphasis on memory safety and performance. 
+//! Molar is designed to simplify the analysis of molecular dynamics trajectories and to implement new analysis algorithms. Molar is intended to provide facilities, which are routinely used in all molecular analysis programs, namely input/output of popular file formats, powerful and flexible atom selections, geometry transformations, RMSD fitting and alignment, etc.
+//! MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies.
 
 pub mod core;
 pub mod io;

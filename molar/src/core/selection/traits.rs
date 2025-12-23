@@ -2,7 +2,7 @@ use rayon::iter::IndexedParallelIterator;
 
 use crate::prelude::*;
 
-/// Trait for objects that support selecting
+/// Trait for objects that support selecting from
 pub trait Selectable {
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError>;
 }

@@ -1,7 +1,13 @@
 use crate::prelude::*;
 use thiserror::Error;
 
-#[doc(hidden)]
+/// Topology of the molecular system: atoms, bonds, molecules, etc.
+///
+/// [Topology] is typically read from structure of trajectory file and is not intended
+/// to be manipulated directly by the user. Insead [State](super::State) and [Topology]
+/// are used to create atom selections, which give an access to the properties of
+/// individual atoms and allow to query various properties.
+
 #[derive(Debug, Default, Clone)]
 pub struct Topology {
     pub atoms: Vec<Atom>,
@@ -63,13 +69,6 @@ impl Topology {
         Ok(())
     }
 }
-
-/// Topology of the molecular system: atoms, bonds, molecules, etc.
-///
-/// [Topology] is typically read from structure of trajectory file and is not intended
-/// to be manipulated directly by the user. Insead [State](super::State) and [Topology]
-/// are used to create atom selections, which give an access to the properties of
-/// individual atoms and allow to query various properties.
 
 impl Topology {
     pub fn assign_resindex(&mut self) {

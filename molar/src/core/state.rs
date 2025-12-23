@@ -1,6 +1,13 @@
 use crate::prelude::*;
 
-#[doc(hidden)]
+/// State of molecular system including its coordinates, time stamp
+/// and [periodic box](super::PeriodicBox).
+///
+/// [State] is typically read from structure of trajectory file and is not intended
+/// to be manipulated directly by the user. Insead [State] and [Topology](super::Topology)
+/// are used to create atom selections, which give an access to the properties of
+/// individual atoms and allow to query various properties.
+
 #[derive(Debug, Default, Clone)]
 pub struct State {
     pub coords: Vec<Pos>,
@@ -31,10 +38,6 @@ impl State {
             ));
         }
 
-        // for i in ind.iter().rev().cloned() {
-        //     self.coords.remove(i);
-        // }
-
         let mut it = ind.iter().cloned();
         let mut to_remove = it.next().unwrap_or(usize::MAX);
         let mut i = 0;
@@ -50,14 +53,6 @@ impl State {
         Ok(())
     }
 }
-
-/// State of molecular system including its coordinates, time stamp
-/// and [periodic box](super::PeriodicBox).
-///
-/// [State] is typically read from structure of trajectory file and is not intended
-/// to be manipulated directly by the user. Insead [State] and [Topology](super::Topology)
-/// are used to create atom selections, which give an access to the properties of
-/// individual atoms and allow to query various properties.
 
 impl State {
     pub fn interchangeable(&self, other: &State) -> bool {

@@ -3,11 +3,6 @@ mod utils;
 
 use std::num::ParseIntError;
 
-// pub use holder::*;
-// pub use kinds::*;
-// pub use sel::*;
-// pub use sel_split::*;
-// pub use source::*;
 pub use molar_powersasa::SasaResults;
 pub use selection_def::*;
 pub(crate) use utils::*;
