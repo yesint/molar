@@ -1,4 +1,4 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
 
 use crate::prelude::*;
 use std::path::Path;
@@ -298,6 +298,12 @@ impl IndexProvider for System {
 
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         (0..self.len()).into_iter()
+    }
+}
+
+impl IndexParProvider for System {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        (0..self.len()).into_par_iter()
     }
 }
 
