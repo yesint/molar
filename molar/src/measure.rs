@@ -12,36 +12,6 @@ use thiserror::Error;
 // Traits for measuring (immutable access)
 //==============================================================
 
-/// Errors that can occur during measurements
-#[derive(Error, Debug)]
-pub enum MeasureError {
-    /// Mismatch in sizes between two selections
-    #[error("incompatible sizes: {0} and {1}")]
-    Sizes(usize, usize),
-
-    /// Total mass is zero
-    #[error("zero mass")]
-    ZeroMass,
-
-    /// Singular Value Decomposition failed
-    #[error("SVD failed")]
-    Svd,
-
-    /// Operation requires periodic boundary conditions but none is defined
-    #[error(transparent)]
-    Pbc(#[from] PeriodicBoxError),
-
-    /// Cannot unwrap coordinates due to disjoint pieces
-    #[error("can't unwrap disjoint pieces")]
-    Disjoint,
-
-    #[error("lipid order error")]
-    LipidOrder(#[from] LipidOrderError),
-
-    #[error("selection error")]
-    Sel,
-}
-
 /// Trait for analysis requiring only positions
 pub trait MeasurePos: PosIterProvider + LenProvider {
     /// Returns the minimum and maximum coordinates across all dimensions
@@ -720,4 +690,34 @@ pub enum LipidOrderError {
 
     #[error("tail should have at least 3 carbons, not {0}")]
     TailTooShort(usize),
+}
+
+/// Errors that can occur during measurements
+#[derive(Error, Debug)]
+pub enum MeasureError {
+    /// Mismatch in sizes between two selections
+    #[error("incompatible sizes: {0} and {1}")]
+    Sizes(usize, usize),
+
+    /// Total mass is zero
+    #[error("zero mass")]
+    ZeroMass,
+
+    /// Singular Value Decomposition failed
+    #[error("SVD failed")]
+    Svd,
+
+    /// Operation requires periodic boundary conditions but none is defined
+    #[error(transparent)]
+    Pbc(#[from] PeriodicBoxError),
+
+    /// Cannot unwrap coordinates due to disjoint pieces
+    #[error("can't unwrap disjoint pieces")]
+    Disjoint,
+
+    #[error("lipid order error")]
+    LipidOrder(#[from] LipidOrderError),
+
+    #[error("selection error")]
+    Sel,
 }

@@ -441,6 +441,7 @@ impl NonAtomPosAnalysisMut for SelBoundMut<'_> {
     }
 }
 
+/// Convenience macro for binding several selections ar once
 #[macro_export]
 macro_rules! bind {
     ($sys:expr, $($sel:ident),+ , $body:block) => {{
@@ -449,6 +450,7 @@ macro_rules! bind {
     }}
 }
 
+/// Convenience macro for binding several selections ar once mutably
 #[macro_export]
 macro_rules! bind_mut {
     ($sys:expr, $($sel:ident),+ , $body:block) => {{

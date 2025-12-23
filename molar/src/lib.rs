@@ -24,13 +24,18 @@ pub mod voronoi_cell;
 /// Most useful public imports exposed to the users
 pub mod prelude {
     pub use crate::{
-        aliases::*, analysis_task::*, atom::*, connectivity::*,
-        distance_search::*, io::*, measure::*, modify::*, ndx_file::*, particle::*,
-        periodic_box::*, providers::*, selection::*, state::*, topology::*,
+        aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, io::*,
+        measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
+        selection::*, state::*, topology::*,
     };
-    pub use rayon::iter::IndexedParallelIterator;
-    pub use rayon::iter::ParallelIterator;
+    pub use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 }
+
+pub use crate::{
+    aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, io::*, measure::*,
+    modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, selection::*, state::*,
+    topology::*,
+};
 
 /// Prints a welcome message for MolAR with package information and the specified tool name
 /// # Example

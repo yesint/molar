@@ -1,8 +1,6 @@
 //! IO handlers for different file formats and associated traits
 
 use crate::prelude::*;
-use gro_handler::GroHandlerError;
-use itp_handler::ItpHandlerError;
 use log::{debug, error, warn};
 use std::{
     fmt::Display,
@@ -16,15 +14,11 @@ mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
 
-use tpr_handler::TprHandlerError;
-use vmd_molfile_handler::VmdHandlerError;
-use xtc_handler::XtcHandlerError;
-
-use gro_handler::GroFileHandler;
-use itp_handler::ItpFileHandler;
-use tpr_handler::TprFileHandler;
-use vmd_molfile_handler::VmdMolFileHandler;
-use xtc_handler::XtcFileHandler;
+use tpr_handler::{TprFileHandler,TprHandlerError};
+use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
+use xtc_handler::{XtcFileHandler,XtcHandlerError};
+use gro_handler::{GroFileHandler, GroHandlerError};
+use itp_handler::{ItpFileHandler, ItpHandlerError};
 
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: RandomAtomProvider + RandomBondProvider {}
