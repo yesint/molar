@@ -152,6 +152,10 @@ impl ParSplit {
         self.check_bounds(sys);
         SelPar::new(sys, &self.selections[i].0)
     }
+
+    pub fn into_selections(self) -> Vec<Sel> {
+        self.selections
+    }
 }
 
 

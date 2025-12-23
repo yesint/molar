@@ -1,3 +1,5 @@
+use rayon::iter::IndexedParallelIterator;
+
 use crate::prelude::*;
 
 /// Trait for objects that support selecting
@@ -9,7 +11,7 @@ pub trait Selectable {
 /// Umbrella trait for implementing read-only analysis traits
 /// involving only atoms and positions.
 ///
-/// It assumes that atoms and coordinates are stored in 
+/// It assumes that atoms and coordinates are stored in
 /// contigous arrays.
 //============================================================
 pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
@@ -173,12 +175,12 @@ pub trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
     {
         // Iterate over molecules and find those inside selection
         let first = self.first_index();
-        let last =  self.last_index();
+        let last = self.last_index();
 
         let mut molid = 0;
 
         let next_fn = move || {
-            if unsafe{&*self.top_ptr()}.num_molecules() == 0 {
+            if unsafe { &*self.top_ptr() }.num_molecules() == 0 {
                 return None;
             }
 
@@ -242,9 +244,29 @@ impl<T: AtomPosAnalysis> PosIterProvider for T {
     }
 }
 
+impl<T: AtomPosAnalysis + IndexParProvider> PosParIterProvider for T {
+    fn par_iter_pos(&self) -> impl IndexedParallelIterator<Item = &Pos> {
+        let p = self.coords_ptr() as usize; // trick to make pointer Sync
+        unsafe {
+            self.par_iter_index()
+                .map(move |i| &*(p as *const Pos).add(i))
+        }
+    }
+}
+
 impl<T: AtomPosAnalysis> AtomIterProvider for T {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         unsafe { self.iter_index().map(|i| &*self.atoms_ptr().add(i)) }
+    }
+}
+
+impl<T: AtomPosAnalysis + IndexParProvider> AtomParIterProvider for T {
+    fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = &Atom> {
+        let p = self.atoms_ptr() as usize; // trick to make pointer Sync
+        unsafe {
+            self.par_iter_index()
+                .map(move |i| &*(p as *const Atom).add(i))
+        }
     }
 }
 
@@ -259,6 +281,62 @@ impl<T: AtomPosAnalysis> RandomAtomProvider for T {
     unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
         let ind = self.get_index_unchecked(i);
         &*self.atoms_ptr().add(ind)
+    }
+}
+
+impl<T: AtomPosAnalysis> ParticleIterProvider for T {
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
+        unsafe {
+            self.iter_index().map(|i| Particle {
+                id: i,
+                atom: &*self.atoms_ptr().add(i),
+                pos: &*self.coords_ptr().add(i),
+            })
+        }
+    }
+}
+
+impl<T: AtomPosAnalysis + IndexParProvider> ParticleParIterProvider for T {
+    fn par_iter_particle(&self) -> impl IndexedParallelIterator<Item = Particle<'_>> {
+        // trick to make pointers Sync
+        let cp = self.coords_ptr() as usize;
+        let ap = self.atoms_ptr() as usize;
+        unsafe {
+            self.par_iter_index().map(move |i| Particle {
+                id: i,
+                atom: &*(ap as *const Atom).add(i),
+                pos: &*(cp as *const Pos).add(i),
+            })
+        }
+    }
+}
+
+impl<T: AtomPosAnalysisMut> ParticleIterMutProvider for T {
+    fn iter_particle_mut(&mut self) -> impl Iterator<Item = ParticleMut<'_>> {
+        let cp = self.coords_ptr_mut();
+        let ap = self.atoms_ptr_mut();
+        unsafe {
+            self.iter_index().map(move |i| ParticleMut {
+                id: i,
+                atom: &mut *ap.add(i),
+                pos: &mut *cp.add(i),
+            })
+        }
+    }
+}
+
+impl<T: AtomPosAnalysisMut + IndexParProvider> ParticleParIterMutProvider for T {
+    fn par_iter_particle_mut(&mut self) -> impl IndexedParallelIterator<Item = ParticleMut<'_>> {
+        // trick to make pointers Sync
+        let cp = self.coords_ptr_mut() as usize;
+        let ap = self.atoms_ptr_mut() as usize;
+        unsafe {
+            self.par_iter_index().map(move |i| ParticleMut {
+                id: i,
+                atom: &mut *(ap as *mut Atom).add(i),
+                pos: &mut *(cp as *mut Pos).add(i),
+            })
+        }
     }
 }
 
@@ -277,45 +355,45 @@ impl<T: AtomPosAnalysis> RandomParticleProvider for T {
 
 impl<T: NonAtomPosAnalysis> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        unsafe{&*self.st_ptr()}.get_box()
+        unsafe { &*self.st_ptr() }.get_box()
     }
 }
 
 impl<T: NonAtomPosAnalysis> TimeProvider for T {
     fn get_time(&self) -> f32 {
-        unsafe{&*self.st_ptr()}.time
+        unsafe { &*self.st_ptr() }.time
     }
 }
 
 impl<T: NonAtomPosAnalysis> RandomMoleculeProvider for T {
     fn num_molecules(&self) -> usize {
-        unsafe{&*self.top_ptr()}.num_molecules()
+        unsafe { &*self.top_ptr() }.num_molecules()
     }
 
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        unsafe{&*self.top_ptr()}.get_molecule_unchecked(i)
+        unsafe { &*self.top_ptr() }.get_molecule_unchecked(i)
     }
 }
 
 impl<T: NonAtomPosAnalysis> MoleculeIterProvider for T {
     fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
-        unsafe{&*self.top_ptr()}.iter_molecules()
+        unsafe { &*self.top_ptr() }.iter_molecules()
     }
 }
 
 impl<T: NonAtomPosAnalysis> RandomBondProvider for T {
     fn num_bonds(&self) -> usize {
-        unsafe{&*self.top_ptr()}.num_bonds()
+        unsafe { &*self.top_ptr() }.num_bonds()
     }
 
     unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        unsafe{&*self.top_ptr()}.get_bond_unchecked(i)
+        unsafe { &*self.top_ptr() }.get_bond_unchecked(i)
     }
 }
 
 impl<T: NonAtomPosAnalysis> BondIterProvider for T {
     fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
-        unsafe{&*self.top_ptr()}.iter_bonds()
+        unsafe { &*self.top_ptr() }.iter_bonds()
     }
 }
 
@@ -369,6 +447,26 @@ impl<T: AtomPosAnalysisMut> RandomPosMutProvider for T {
     }
 }
 
+impl<T: AtomPosAnalysisMut + IndexParProvider> PosParIterMutProvider for T {
+    fn par_iter_pos_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Pos> {
+        let p = self.coords_ptr_mut() as usize; // trick to make pointer Sync
+        unsafe {
+            self.par_iter_index()
+                .map(move |i| &mut *(p as *mut Pos).add(i))
+        }
+    }
+}
+
+impl<T: AtomPosAnalysisMut + IndexParProvider> AtomParIterMutProvider for T {
+    fn par_iter_atoms_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Atom> {
+        let p = self.atoms_ptr_mut() as usize; // trick to make pointer Sync
+        unsafe {
+            self.par_iter_index()
+                .map(move |i| &mut *(p as *mut Atom).add(i))
+        }
+    }
+}
+
 impl<T: AtomPosAnalysisMut> RandomParticleMutProvider for T {
     unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut<'_> {
         let ind = self.get_index_unchecked(i);
@@ -384,13 +482,13 @@ impl<T: AtomPosAnalysisMut> RandomParticleMutProvider for T {
 
 impl<T: NonAtomPosAnalysisMut> TimeMutProvider for T {
     fn set_time(&mut self, t: f32) {
-        unsafe{&mut *self.st_ptr_mut()}.time = t;
+        unsafe { &mut *self.st_ptr_mut() }.time = t;
     }
 }
 
 impl<T: NonAtomPosAnalysisMut> BoxMutProvider for T {
     fn get_box_mut(&mut self) -> Option<&mut PeriodicBox> {
-        unsafe{&mut *self.st_ptr_mut()}.pbox.as_mut()
+        unsafe { &mut *self.st_ptr_mut() }.pbox.as_mut()
     }
 }
 

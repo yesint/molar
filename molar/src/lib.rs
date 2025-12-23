@@ -11,6 +11,7 @@ pub mod prelude {
     pub use crate::io::*;
     pub use crate::analysis_task::*;
     pub use rayon::iter::ParallelIterator;
+    pub use rayon::iter::IndexedParallelIterator;
 }
 
 /// Prints a welcome message for MolAR with package information and the specified tool name

@@ -1,3 +1,5 @@
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
+
 use crate::prelude::*;
 
 //===========================================================================
@@ -46,6 +48,12 @@ impl IndexProvider for Sel {
 
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         *self.0.get_unchecked(i)
+    }
+}
+
+impl IndexParProvider for Sel {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        self.0.par_iter().cloned()
     }
 }
 
@@ -123,6 +131,12 @@ impl IndexProvider for SelOwnBound<'_> {
     }
 }
 
+impl IndexParProvider for SelOwnBound<'_> {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        self.index.par_iter().cloned()
+    }
+}
+
 impl AtomPosAnalysis for SelOwnBound<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
@@ -195,6 +209,12 @@ impl IndexProvider for SelOwnBoundMut<'_> {
 
     fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
         self.index.iter().cloned()
+    }
+}
+
+impl IndexParProvider for SelOwnBoundMut<'_> {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        self.index.par_iter().cloned()
     }
 }
 
@@ -295,6 +315,12 @@ impl IndexProvider for SelBound<'_> {
     }
 }
 
+impl IndexParProvider for SelBound<'_> {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        self.index.par_iter().cloned()
+    }
+}
+
 impl AtomPosAnalysis for SelBound<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
@@ -369,6 +395,12 @@ impl IndexProvider for SelBoundMut<'_> {
     }
 }
 
+impl IndexParProvider for SelBoundMut<'_> {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        self.index.par_iter().cloned()
+    }
+}
+
 impl AtomPosAnalysis for SelBoundMut<'_> {
     fn atoms_ptr(&self) -> *const Atom {
         self.sys.top.atoms.as_ptr()
@@ -430,7 +462,7 @@ macro_rules! bind_mut {
 #[cfg(test)]
 mod tests {
     use super::*;
-    //use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator};
+    use rayon::iter::ParallelIterator;
 
     #[test]
     fn test1() -> anyhow::Result<()> {
@@ -490,6 +522,97 @@ mod tests {
         for a in cb.iter_atoms().take(10) {
             println!("{}", a.name);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pos_par_iter() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let sel = sys.select_bound(vec![0, 1, 2, 3, 4])?;
+
+        // Collect from sequential iterator
+        let seq_coords: Vec<_> = sel.iter_pos().collect();
+
+        // Collect from parallel iterator
+        let par_coords: Vec<_> = sel.par_iter_pos().collect();
+
+        println!("{:?}", seq_coords);
+        println!("{:?}", par_coords);
+
+        // Verify they contain the same elements (order might differ due to parallelism)
+        assert_eq!(seq_coords.len(), par_coords.len());
+        assert_eq!(seq_coords.len(), 5);
+
+        // Since parallel iterator may reorder, we compare sorted by first coordinate
+        let mut seq_sorted = seq_coords.clone();
+        let mut par_sorted = par_coords.clone();
+        seq_sorted.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+        par_sorted.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+
+        for (s, p) in seq_sorted.iter().zip(par_sorted.iter()) {
+            assert_eq!(s[0], p[0]);
+            assert_eq!(s[1], p[1]);
+            assert_eq!(s[2], p[2]);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_atom_par_iter() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let sel = sys.select_bound(vec![0, 1, 2, 3, 4])?;
+
+        // Collect names from sequential iterator
+        let seq_names: Vec<String> = sel.iter_atoms().map(|a| a.name.to_string()).collect();
+
+        // Collect names from parallel iterator
+        let par_names: Vec<String> = sel.par_iter_atoms().map(|a| a.name.to_string()).collect();
+
+        // Verify they contain the same elements
+        assert_eq!(seq_names.len(), par_names.len());
+        assert_eq!(seq_names.len(), 5);
+
+        // Sort and compare
+        let mut seq_sorted = seq_names.clone();
+        let mut par_sorted = par_names.clone();
+        seq_sorted.sort();
+        par_sorted.sort();
+
+        assert_eq!(seq_sorted, par_sorted);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_particle_par_iter() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let sel = sys.select_bound(vec![0, 1, 2, 3, 4])?;
+
+        // Collect from sequential iterator
+        let seq_names: Vec<(usize, String)> = sel
+            .iter_particle()
+            .map(|p| (p.id, p.atom.name.to_string()))
+            .collect();
+
+        // Collect from parallel iterator
+        let par_names: Vec<(usize, String)> = sel
+            .par_iter_particle()
+            .map(|p| (p.id, p.atom.name.to_string()))
+            .collect();
+
+        // Verify they contain the same elements
+        assert_eq!(seq_names.len(), par_names.len());
+        assert_eq!(seq_names.len(), 5);
+
+        // Sort and compare
+        let mut seq_sorted = seq_names.clone();
+        let mut par_sorted = par_names.clone();
+        seq_sorted.sort_by_key(|x| x.0);
+        par_sorted.sort_by_key(|x| x.0);
+
+        assert_eq!(seq_sorted, par_sorted);
 
         Ok(())
     }

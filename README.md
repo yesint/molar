@@ -317,9 +317,66 @@ fn main() -> Result<()> {
 }
 ```
 
-# Parallel splits
+# Doing things in parallel
 
-MolAR allows performing operations on non-overlapping selections in parallel, which typically gives a huge speed up in such tasks as removing periodicity for individual molecules, which are rather heavy computationally.
+## Iterating in parallel within selection
+
+You can iterate over coordinates, atoms and particles within the selection
+in parallel using "par" versions of the corresponding iterators:
+
+```rust,no_run
+// Import all basic things from molar
+use molar::prelude::*;
+// For error handling
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    // Load molecular system
+    let mut sys = System::from_file("tests/protein.pdb")?;
+    
+    // Create immutable selection
+    let sel = sys.select_bound("name CA")?;
+
+    // Parallel iteration over positions
+    // Calculate sum of X coordinates of all CA atoms in parallel
+    let sum_x: f32 = sel.par_iter_pos()
+        .map(|pos| pos.x)
+        .sum();
+    println!("Sum of X coordinates: {}", sum_x);
+
+    // Parallel iteration over atoms  
+    // Count ALA residues in parallel
+    let ala_count = sel.par_iter_atoms()
+        .filter(|atom| atom.resname == "ALA")
+        .count();
+    println!("CA in ALA: {}", ala_count);
+
+    // Parallel iteration over particles
+    // Combine atom name and position information in parallel
+    let particle_data: Vec<String> = sel.par_iter_particle()
+        .map(|p| format!("{}-{}", p.atom.name, p.pos.x))
+        .collect();
+    println!("Collected {} particles", particle_data.len());
+
+    // Mutable parallel iteration
+    // Translate all positions in parallel (requires mutable selection)
+    let mut sel_mut = sys.select_bound_mut("name CA")?;
+
+    sel_mut.par_iter_pos_mut().for_each(|pos| {
+        pos.x += 1.0;
+        pos.y += 2.0;
+        pos.z += 3.0;
+    });
+
+    println!("Translated all CA atoms");
+
+    Ok(())
+}
+```
+
+## Parallel splits
+
+You may perform operations on __non-overlapping__ selections in parallel, which typically gives a huge speed up in such tasks as removing periodicity for individual molecules, which are rather heavy computationally.
 
 Here is how you can do this:
 
@@ -347,7 +404,7 @@ fn main() -> Result<()> {
     })?;
 
     // Get rayon parallel iterator over selections in split
-    sys.iter_par_split_mut(&par)?         
+    sys.iter_par_split_mut(&par)
         // Run unwrap on each selection in parallel
         .try_for_each(|mut sel| sel.unwrap_simple())?; 
     Ok(())

@@ -1,3 +1,5 @@
+use rayon::iter::IndexedParallelIterator;
+
 use crate::prelude::*;
 
 //--------------------------------------------------------------
@@ -36,6 +38,10 @@ pub trait IndexProvider: LenProvider {
     }
 }
 
+pub trait IndexParProvider: LenProvider {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize>;
+}
+
 impl LenProvider for SVec {
     fn len(&self) -> usize {
         Vec::len(self)
@@ -66,6 +72,16 @@ pub trait PosIterProvider {
     fn iter_pos(&self) -> impl PosIterator<'_>;
 }
 
+/// Trait for providing parallel iteration over positions
+pub trait PosParIterProvider {
+    fn par_iter_pos(&self) -> impl IndexedParallelIterator<Item = &Pos>;
+}
+
+/// Trait for providing parallel mutable iteration over positions
+pub trait PosParIterMutProvider {
+    fn par_iter_pos_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Pos>;
+}
+
 /// Trait for providing iteration over atomic masses
 pub trait MassIterProvider {
     fn iter_masses(&self) -> impl Iterator<Item = f32>;
@@ -74,6 +90,15 @@ pub trait MassIterProvider {
 /// Trait for providing iteration over atoms
 pub trait AtomIterProvider {
     fn iter_atoms(&self) -> impl AtomIterator<'_>;
+}
+
+pub trait AtomParIterProvider {
+    fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = &Atom>;
+}
+
+/// Trait for providing parallel mutable iteration over atoms
+pub trait AtomParIterMutProvider {
+    fn par_iter_atoms_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Atom>;
 }
 
 impl<T: AtomIterProvider> MassIterProvider for T {
@@ -99,8 +124,17 @@ pub trait TimeProvider {
 }
 
 /// Trait for providing iteration over particles
-pub trait ParticleIterProvider: IndexProvider {
+pub trait ParticleIterProvider {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>>;
+}
+
+pub trait ParticleParIterProvider {
+    fn par_iter_particle(&self) -> impl IndexedParallelIterator<Item = Particle<'_>>;
+}
+
+/// Trait for providing parallel mutable iteration over particles
+pub trait ParticleParIterMutProvider {
+    fn par_iter_particle_mut(&mut self) -> impl IndexedParallelIterator<Item = ParticleMut<'_>>;
 }
 
 /// Trait for providing random access to particles
