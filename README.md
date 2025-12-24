@@ -11,6 +11,7 @@
 - [Current status](#current-status)
 - [Design and performance](#design-and-performance)
 - [Installation](#installation)
+- [Selection syntax](#selection-syntax)
 - [Tutorial](#tutorial)
 - [Doing things in parallel](#parallel-splits)
 - [Analysis tasks](#analysis-tasks)
@@ -66,6 +67,207 @@ GROMACS_BUILD_DIR = "<path-to-gromacs-source>/gromacs/build"
 GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
 ```
 You may use a template: `mv config.toml.template config.toml`.
+
+# Selection syntax
+
+MolAR uses a powerful and flexible selection language similar to VMD and Pteros. Selections are composed of logical expressions that combine keywords, comparisons, and geometric criteria to identify specific atoms.
+
+## Keywords
+
+Keywords select atoms by their properties:
+
+| Keyword | Aliases | Description | Example |
+|---------|---------|-------------|---------|
+| `index` | — | Atom index (0-based) | `index 0 10 20:30` |
+| `resid` | — | Residue ID | `resid 1 5:10` |
+| `resindex` | — | Residue index (0-based) | `resindex 0:5` |
+| `resname` | — | Residue name | `resname ALA GLY` |
+| `name` | — | Atom name | `name CA CB` |
+| `chain` | — | Chain ID | `chain A B C` |
+| `occupancy` | `occ` | Occupancy value | `occupancy 1.0` |
+| `bfactor` | `beta` | B-factor value | `bfactor 20.0:50.0` |
+
+### Keyword syntax
+
+Integer keywords (`index`, `resid`, `resindex`) accept ranges and single values:
+```
+resid 5                    # Single residue
+resid 1:10                 # Range (inclusive)
+resid 1 5 10:20            # Multiple selections
+```
+
+String keywords (`name`, `resname`, `chain`) accept multiple values and regex patterns:
+```
+resname ALA GLY            # Multiple residues
+name CA CB CG              # Multiple atom names
+name /C[AB]/               # Regex pattern: CA or CB
+chain A /[AB]/             # Chain A or chains matching [AB]
+```
+
+## Chemical compounds
+
+Pre-defined selections for common molecular features:
+
+| Keyword | Description |
+|---------|-------------|
+| `protein` | All protein atoms |
+| `backbone` | Protein backbone atoms (N, CA, C, O) |
+| `sidechain` | Protein sidechain atoms |
+| `water` | Water molecules |
+| `hydrogen` | All hydrogen atoms |
+| `not_water` or `now` | All non-water atoms |
+| `not_hydrogen` or `noh` | All non-hydrogen atoms |
+
+Examples:
+```
+protein                    # All protein atoms
+backbone and chain A       # Backbone of chain A
+water or hydrogen          # Water or hydrogens
+not hydrogen               # Everything except hydrogens
+```
+
+## Comparisons
+
+Compare numeric properties using mathematical expressions:
+
+```
+x < 5.0                    # X coordinate less than 5
+y >= 10.0 and y <= 20.0    # Y between 10 and 20
+z 15.0:25.0                # Shorthand for chained comparison
+mass > 12.0                # Atomic mass greater than 12
+charge != 0.0              # Non-neutral atoms
+vdw < 2.0                  # Van der Waals radius less than 2
+```
+
+### Operators
+
+- `==` — Equal
+- `!=` — Not equal
+- `<` — Less than
+- `<=` — Less than or equal
+- `>` — Greater than
+- `>=` — Greater than or equal
+
+### Chained comparisons
+
+Compare between two values:
+```
+10 < resid < 20            # Residues between 10 and 20
+0 <= x <= 5.0              # X coordinate between 0 and 5
+15.0 < y < 25.0            # Y strictly between 15 and 25
+```
+
+### Mathematical expressions
+
+Use math operations and functions in comparisons:
+
+```
+sqrt(x^2 + y^2) < 10.0     # Distance from origin less than 10
+abs(z) > 5.0               # Absolute Z coordinate
+sin(x) * 2.0 == 1.0        # Trigonometric operations
+```
+
+Supported functions: `abs`, `sqrt`, `sin`, `cos`
+
+## Geometric expressions
+
+### Distance-based selections
+
+#### Distance to point
+```
+within 5.0 of [1.0, 2.0, 3.0]      # Within 5 Å of point
+within 3.0 pbc of [0.0, 0.0, 0.0]  # With periodic boundary conditions
+```
+
+#### Distance to line
+```
+within 2.0 of line [1,2,3] [4,5,6]           # Two-point definition
+within 2.0 of line [1,2,3] dir [1,0,0]       # Point and direction
+```
+
+#### Distance to plane
+```
+within 1.0 of plane [0,0,0] [1,0,0] [0,1,0]        # Three-point definition
+within 1.0 of plane [0,0,0] normal [0,0,1]        # Point and normal
+```
+
+### Center of mass/geometry
+
+Calculate geometric properties of selections:
+
+```
+within 5.0 of com of protein           # Within 5 Å of protein COM
+within 3.0 pbc of cog of chain A       # Within 3 Å of chain A COG
+within 2.0 of com pbc 1 1 0 of water   # PBC only in X and Y
+```
+
+### PBC options
+
+Periodic boundary condition modes for geometric expressions:
+
+- `pbc` — Apply PBC in all dimensions
+- `pbc 1 0 1` or `pbc y n y` — Apply PBC selectively (X, Y, Z)
+- `nopbc` — No periodic boundary conditions (default)
+
+## Logical operators
+
+Combine selections using logical operations:
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `and` | Both conditions true | `name CA and chain A` |
+| `or` | Either condition true | `resname ALA or resname GLY` |
+| `not` | Negate condition | `not water` |
+
+### Operator precedence (highest to lowest)
+
+1. `not` — Negation
+2. `same ... as` — Same residue/chain
+3. `within ... of` — Distance selections
+4. `and` — Logical AND
+5. `or` — Logical OR
+
+Parentheses can be used to override precedence:
+```
+(resname ALA or resname GLY) and backbone    # Parentheses for clarity
+name CA or (name CB and chain A)             # Different grouping
+```
+
+### Same residue/chain
+
+Select atoms in the same residue or chain as matched atoms:
+
+```
+same residue as name CB    # All atoms in residues containing CB atoms
+same chain as resid 5      # All atoms in chains containing residue 5
+```
+
+## Complete examples
+
+```rust
+// Simple selections
+"name CA"                              // Alpha carbons
+"resname ALA"                          // Alanine residues
+"chain A"                              // Chain A
+
+// Combined with logic
+"protein and backbone"                 // Protein backbone
+"not water and not hydrogen"           // Non-water, non-hydrogen
+"(resname ALA or resname GLY) and backbone"
+
+// Numeric comparisons
+"x < 0 and y < 0"                     // Negative X and Y
+"10 < resid < 20"                     // Residues 10-20
+
+// Geometric selections
+"within 5.0 of [0, 0, 0]"             // Within 5 Å of origin
+"within 3.0 of com of protein"        // Near protein center of mass
+"same residue as within 2.0 of com of water"  // Residues near water
+
+// Complex combined
+"backbone and chain A and resid 1:50"
+"(protein or water) and within 10.0 of com of protein"
+```
 
 # Tutorial
 We will write an example program that reads a file of some molecular system containing TIP3P water molecules, convert all water to TIP4P and saves this as a new file. TIP3P water has 3 particles (oxygen and two hydrogens), while TIP4P [has 4]((http://www.sklogwiki.org/SklogWiki/index.php/TIP4P/2005_model_of_water)) (oxygen, two hydrogens and a dummy particle). Our goal is to add these dummy particles to each water molecule.
@@ -171,7 +373,7 @@ for mol in water.split_resindex_bound() {
 
 First, we are getting the coordinates of oxigen and two hydrogens. `get_pos(n)` returns the position of n-th atom in selection. Since n may potentially be out of range, it returns an `Option<&Pos>`. We are sure that there are just 3 atoms in water molecule, so we just unwrapping an option.
 
-Then we are computing the position of the dummy atom, which is on the bissection of H-O-H angle at the distance of 0.01546 from the oxygen.
+Then we are computing the position of the dummy atom, which is on the bisection of H-O-H angle at the distance of 0.01546 from the oxygen.
 
 Finally, we are constructing a new `Atom` with name 'M', residue name 'TIP4' and all other fields (resid,resindex, etc) the same as in our water molecule.
 
@@ -212,7 +414,7 @@ This code snippet may look a bit puzzling for non-rustaceans, so let's go throug
 - `cloned()` adaptor is used to get copies of existing atoms and coordinates instead of references to them. 
 - We add our new dummy atom at the end of water molecule by "chaining" another iterator at the end of the current one. `std::iter::once(value)` returns an iterator yielding a single value and allows us to add newly constructed `m_at` and `m_pos` to the corrsponding iterators.
 
-We also need to chnage the resname of the old atoms of water molecule from TIP3 to TIP4. As you noticed, `append_atoms_coords()` returns a selection with added atoms, so we can bind it mutably to the output system and set new residue name:
+We also need to chnge the resname of the old atoms of water molecule from TIP3 to TIP4. As you noticed, `append_atoms_coords()` returns a selection with added atoms, so we can bind it mutably to the output system and set new residue name:
 
 ```rust,ignore
 // Change resname for added atoms
@@ -483,7 +685,7 @@ impl AnalysisTask<UserArgs> for ComTask {
     fn process_frame(&mut self, context: &mut AnalysisContext<UserArgs>) -> anyhow::Result<()> {
         // Compute the center of mass
         let com = context.sys.bind(&self.sel).center_of_mass()?;
-        // Print current center of mass. We get current time stamp from the context
+        // Report current center of mass. We get current time stamp from the context
         println!("time={}, com={}", context.sys.get_time(), com);
         // Add to average
         self.com_aver += com.coords;
