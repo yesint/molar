@@ -656,10 +656,10 @@ fn compute_bounding_box_single<'a>(
 ///
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
-pub fn distance_search_double<'a, T, C>(
+pub fn distance_search_double<T, C>(
     cutoff: f32,
-    data1: impl PosIterator<'a>,
-    data2: impl PosIterator<'a>,
+    data1: &impl PosIterProvider,
+    data2: &impl PosIterProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
 ) -> C
@@ -668,13 +668,13 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // Compute the extents
-    let (lower, upper) = compute_bounding_box_double(cutoff, data1.clone(), data2.clone());
+    let (lower, upper) = compute_bounding_box_double(cutoff, data1.iter_pos(), data2.iter_pos());
 
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1, ids1, &lower, &upper);
-    grid2.populate(data2, ids2, &lower, &upper);
+    grid1.populate(data1.iter_pos(), ids1, &lower, &upper);
+    grid2.populate(data2.iter_pos(), ids2, &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -768,8 +768,8 @@ where
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_vdw<'a, T, C>(
-    data1: impl PosIterator<'a>,
-    data2: impl PosIterator<'a>,
+    data1: &impl PosIterProvider,
+    data2: &impl PosIterProvider,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
 ) -> C
@@ -783,13 +783,13 @@ where
         + f32::EPSILON;
 
     // Compute the extents
-    let (lower, upper) = compute_bounding_box_double(cutoff, data1.clone(), data2.clone());
+    let (lower, upper) = compute_bounding_box_double(cutoff, data1.iter_pos(), data2.iter_pos());
 
     let mut grid1 = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
-    grid1.populate(data1, 0..vdw1.len(), &lower, &upper);
-    grid2.populate(data2, 0..vdw2.len(), &lower, &upper);
+    grid1.populate(data1.iter_pos(), 0..vdw1.len(), &lower, &upper);
+    grid2.populate(data2.iter_pos(), 0..vdw2.len(), &lower, &upper);
 
     let plan = search_plan(&grid1, Some(&grid2), PBC_NONE);
 
@@ -888,9 +888,9 @@ where
 ///
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
-pub fn distance_search_single<'a, T, C>(
+pub fn distance_search_single<T, C>(
     cutoff: f32,
-    data: impl PosIterator<'a>,
+    data: &impl PosIterProvider,
     ids: impl Iterator<Item = usize>,
 ) -> C
 where
@@ -898,10 +898,10 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // Compute the extents
-    let (lower, upper) = compute_bounding_box_single(cutoff, data.clone());
+    let (lower, upper) = compute_bounding_box_single(cutoff, data.iter_pos());
 
     let mut grid = Grid::from_cutoff_and_min_max(cutoff, &lower, &upper);
-    grid.populate(data, ids, &lower, &upper);
+    grid.populate(data.iter_pos(), ids, &lower, &upper);
 
     let plan = search_plan(&grid, None, PBC_NONE);
 

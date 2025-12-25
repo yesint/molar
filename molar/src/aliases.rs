@@ -25,8 +25,8 @@ pub trait AtomMutIterator<'a>: Iterator<Item = &'a mut Atom> {}
 impl<'a, T> AtomMutIterator<'a> for T where T: Iterator<Item = &'a mut Atom> {}
 
 /// Convenience alias for iterator over positions
-pub trait PosIterator<'a>: Iterator<Item = &'a Pos> + Clone {}
-impl<'a, T> PosIterator<'a> for T where T: Iterator<Item = &'a Pos> + Clone {}
+pub trait PosIterator<'a>: Iterator<Item = &'a Pos> {}
+impl<'a, T> PosIterator<'a> for T where T: Iterator<Item = &'a Pos> {}
 
 /// Convenience alias for mutable iterator over positions  
 pub trait PosMutIterator<'a>: Iterator<Item = &'a mut Pos> {}

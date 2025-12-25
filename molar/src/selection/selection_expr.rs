@@ -13,6 +13,8 @@ use crate::{prelude::*, selection::ast::SelectionParserError};
 /// that can be evaluated against a molecular system to select atoms matching the criteria.
 #[derive(Debug)]
 pub struct SelectionExpr {
+    // The internals of the parser AST are changed when parsed
+    // but we don't want to expose it, so internal mutability. 
     ast: RefCell<super::ast::LogicalNode>,
     sel_str: String,
 }
@@ -39,7 +41,8 @@ impl SelectionExpr {
     /// # use molar::prelude::SelectionExpr;
     /// let expr = SelectionExpr::new("resname ALA").unwrap();
     /// ```
-    pub fn new(s: &str) -> Result<Self, SelectionParserError> {
+    pub fn new(s: impl AsRef<str>) -> Result<Self, SelectionParserError> {
+        let s = s.as_ref();
         Ok(Self {
             ast: RefCell::new(
                 super::grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {

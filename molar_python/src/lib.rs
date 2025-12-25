@@ -594,7 +594,7 @@ impl IndexProvider for SelPy {
         self.index.get_index_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter_index()
     }
 }
@@ -1128,8 +1128,8 @@ fn distance_search<'py>(
             } else {
                 res = distance_search_double(
                     d,
-                    sel1.iter_pos(),
-                    sel2.iter_pos(),
+                    &sel1 as &SelPy,
+                    &sel2 as &SelPy,
                     sel1.iter_index(),
                     sel2.iter_index(),
                 );
@@ -1144,7 +1144,7 @@ fn distance_search<'py>(
                     pbc_dims,
                 );
             } else {
-                res = distance_search_single(d, sel1.iter_pos(), sel1.iter_index());
+                res = distance_search_single(d, &sel1 as &SelPy, sel1.iter_index());
             }
         }
     } else if let Ok(s) = cutoff.extract::<String>() {
@@ -1168,7 +1168,7 @@ fn distance_search<'py>(
             }
 
             if pbc_dims.any() {
-                res = distance_search_double_vdw(sel1.iter_pos(), sel2.iter_pos(), &vdw1, &vdw2);
+                res = distance_search_double_vdw(&sel1 as &SelPy, &sel2 as &SelPy, &vdw1, &vdw2);
             } else {
                 res = distance_search_double_vdw_pbc(
                     sel1.iter_pos(),

@@ -1,5 +1,3 @@
-use std::num::ParseIntError;
-
 use thiserror::Error;
 
 use crate::{io::FileIoError, prelude::{BuilderError, NdxError, PeriodicBoxError}, selection::ast::SelectionParserError};

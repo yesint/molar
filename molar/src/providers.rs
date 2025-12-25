@@ -12,7 +12,7 @@ use crate::prelude::*;
 
 /// Trait for selected indices
 pub trait IndexProvider: LenProvider {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone;
+    fn iter_index(&self) -> impl Iterator<Item = usize>;
     
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
     
