@@ -114,7 +114,7 @@ def test9():
 
 
 def test_distance_search():
-    s = System('molar/tests/topol.tpr')
+    s = System('../../molar/tests/topol.tpr')
     sel1 = s("resid 5:100")
     sel2 = s("resid 101:200")
     pairs,dist = distance_search('vdw',sel1,sel2)
@@ -122,6 +122,7 @@ def test_distance_search():
     print(pairs,dist)
 
 #test7()
-test2()
+#test2()
+test_distance_search()
 #test_distance_search()
 #test_set_state()
