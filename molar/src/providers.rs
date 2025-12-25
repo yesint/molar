@@ -49,7 +49,7 @@ impl LenProvider for SVec {
 }
 
 impl IndexProvider for SVec {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.iter().cloned()
     }
 
@@ -393,13 +393,13 @@ pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvide
 
 //----------------------------------------------------
 impl PosIterProvider for Vec<Pos> {
-    fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
         self.iter()
     }
 }
 
 impl PosIterProvider for Pos {
-    fn iter_pos(&self) -> impl PosIterator<'_> + Clone {
+    fn iter_pos(&self) -> impl PosIterator<'_> {
         std::iter::once(self)
     }
 }

@@ -42,7 +42,7 @@ impl LenProvider for Sel {
 }
 
 impl IndexProvider for Sel {
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.0.iter().cloned()
     }
 
@@ -126,7 +126,7 @@ impl IndexProvider for SelOwnBound<'_> {
         *self.index.get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
@@ -207,7 +207,7 @@ impl IndexProvider for SelOwnBoundMut<'_> {
         *self.index.get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
@@ -310,7 +310,7 @@ impl IndexProvider for SelBound<'_> {
         *self.index.get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
@@ -390,7 +390,7 @@ impl IndexProvider for SelBoundMut<'_> {
         *self.index.get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
