@@ -57,7 +57,7 @@ impl IndexProvider for Particle<'_> {
         }
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         std::iter::once(self.id)
     }
 }

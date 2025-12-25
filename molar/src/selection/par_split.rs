@@ -32,7 +32,7 @@ impl IndexProvider for SelPar<'_> {
         *self.index.get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }
@@ -89,7 +89,7 @@ impl IndexProvider for SelParMut<'_> {
         *self.index.get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.index.iter().cloned()
     }
 }

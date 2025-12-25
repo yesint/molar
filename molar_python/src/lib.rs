@@ -281,7 +281,7 @@ impl IndexProvider for SystemPy {
         i
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> + Clone {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         0..self.len()
     }
 }

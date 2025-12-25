@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use num_traits::clamp_min;
-use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
+use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
 
 /// Trait for the results of distance seacrh
 pub trait DistanceSearchOutput {
@@ -96,7 +96,7 @@ impl<'a> Grid<'a> {
         self.cells[i].push(data);
     }
 
-    unsafe fn push_ind(&mut self, ind: usize, data: (usize, *const Pos)) {
+    unsafe fn push_ptr(&mut self, ind: usize, data: (usize, *const Pos)) {
         self.cells[ind].push((data.0, &*data.1));
     }
 
@@ -204,7 +204,7 @@ impl<'a> Grid<'a> {
             // We need to unsafely get a self-reference to wrapped_pos
             unsafe {
                 let ptr = self.wrapped_pos.as_ptr().add(i);
-                self.push_ind(wrapped_ind[i].0, (wrapped_ind[i].1, ptr));
+                self.push_ptr(wrapped_ind[i].0, (wrapped_ind[i].1, ptr));
             }
         }
     }
@@ -728,12 +728,9 @@ where
 
     grid1.populate_pbc(data1, ids1, pbox, pbc_dims);
     grid2.populate_pbc(data2, ids2, pbox, pbc_dims);
-    // At this point grids are self-referencial. We pin it on the stack
-    // to ensure that we don't move or mutate it until it is dorpped.
-    // Normally this should never happen, but better to be safe
-    let grid1 = std::pin::pin!(grid1);
-    let grid2 = std::pin::pin!(grid2);
-
+    // At this point grids are self-referencial. We should not 
+    // move or mutate it until it is dorpped.
+    
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
@@ -778,8 +775,8 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
-    let cutoff = vdw1.iter().cloned().reduce(f32::max).unwrap()
-        + vdw2.iter().cloned().reduce(&f32::max).unwrap()
+    let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+        + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
         + f32::EPSILON;
 
     // Compute the extents
@@ -839,8 +836,8 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
-    let cutoff = vdw1.iter().cloned().reduce(f32::max).unwrap()
-        + vdw2.iter().cloned().reduce(&f32::max).unwrap()
+    let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+        + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
         + f32::EPSILON;
 
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
@@ -848,12 +845,10 @@ where
 
     grid1.populate_pbc(data1, 0..vdw1.len(), pbox, pbc_dims);
     grid2.populate_pbc(data2, 0..vdw2.len(), pbox, pbc_dims);
-    // At this point grids are self-referencial. We pin it on the stack
-    // to ensure that we don't move or mutate it until it is dorpped.
-    // Normally this should never happen, but better to be safe
-    let grid1 = std::pin::pin!(grid1);
-    let grid2 = std::pin::pin!(grid2);
-
+    
+    // At this point grids are self-referencial. 
+    // Now on we should not move or mutate it until it is dorpped!
+    
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
@@ -941,7 +936,6 @@ where
     // At this point grid is self-referencial. We pin it on the stack
     // to ensure that we don't move or mutate it until it is dorpped.
     // Normally this should never happen, but better to be safe
-    let grid = std::pin::pin!(grid);
 
     let plan = search_plan(&grid, None, pbc_dims);
 
