@@ -85,21 +85,21 @@ impl Default for MembraneOptions {
 }
 
 impl Membrane {
-    pub fn new(source: &mut System, optstr: &str) -> anyhow::Result<Self> {
+    pub fn new(sys: &mut System, optstr: &str) -> anyhow::Result<Self> {
         // Load options
         info!("Processing membrane options...");
         let options: MembraneOptions = toml::from_str(optstr)?;
 
         // Create working selection
-        let source_sel = source.select(&options.sel)?;
+        let source_sel = sys.select(&options.sel)?;
 
         let mut lipids = vec![];
         let mut species = vec![];
         let mut resindex_to_id = HashMap::<usize, usize>::new();
 
-        // Load lipids from provided source
+        // Load lipids from provided system
         for (name, descr) in options.lipids.iter() {
-            if let Ok(lips) = source.bind(&source_sel).select(&descr.whole) {
+            if let Ok(lips) = sys.bind(&source_sel).select(&descr.whole) {
                 // Split into individual lipids
                 let lips: Vec<_> = lips.split_resindex().collect();
 
@@ -108,33 +108,33 @@ impl Membrane {
                 let sp = Arc::new(LipidSpecies::new(
                     name.clone(),
                     descr.clone(),
-                    &source.bind(&lips[0]),
+                    &sys.bind(&lips[0]),
                 )?);
                 species.push(Arc::clone(&sp));
 
                 // Unwrap lipids
                 for lip in &lips {
-                    source.bind_mut(lip).unwrap_simple();
+                    sys.bind_mut(lip).unwrap_simple()?;
                 }
 
                 // Now create individual lipids
                 for lip in lips {
                     // set selections
-                    let head_sel = source.sub_select(&lip,&sp.head_marker_offsets)?;
-                    let mid_sel = source.sub_select(&lip,&sp.mid_marker_offsets)?;
+                    let head_sel = sys.sub_select(&lip,&sp.head_marker_offsets)?;
+                    let mid_sel = sys.sub_select(&lip,&sp.mid_marker_offsets)?;
 
                     let mut tail_sels = vec![];
                     let mut tail_ends = vec![];
                     for t in sp.tails.iter() {
-                        tail_sels.push(source.sub_select(&lip,&t.offsets)?);
+                        tail_sels.push(sys.sub_select(&lip,&t.offsets)?);
                         tail_ends.push(*t.offsets.last().unwrap());
                     }
-                    let tail_end_sel = source.sub_select(&lip,tail_ends)?;
+                    let tail_end_sel = sys.sub_select(&lip,tail_ends)?;
 
                     // Compute markers
-                    let head_marker = source.bind(&head_sel).center_of_mass()?;
-                    let mid_marker = source.bind(&mid_sel).center_of_mass()?;
-                    let tail_marker = source.bind(&tail_end_sel).center_of_mass()?;
+                    let head_marker = sys.bind(&head_sel).center_of_mass()?;
+                    let mid_marker = sys.bind(&mid_sel).center_of_mass()?;
+                    let tail_marker = sys.bind(&tail_end_sel).center_of_mass()?;
 
                     let mut order = Vec::with_capacity(sp.tails.len());
                     for t in &sp.tails {
@@ -147,10 +147,10 @@ impl Membrane {
                     let id = lipids.len();
                     // Save mapping to real resindexes in order to be able to add lipids
                     // to groups by resindex
-                    resindex_to_id.insert(source.bind(&lip).first_atom().resindex, id);
+                    resindex_to_id.insert(sys.bind(&lip).first_atom().resindex, id);
 
                     lipids.push(LipidMolecule {
-                        sel: lip, // Selection is moved to the lipid
+                        sel: lip,
                         species: Arc::clone(&sp),
                         head_sel,
                         mid_sel,
@@ -193,7 +193,7 @@ impl Membrane {
             groups,
             species,
             options,
-            pbox: source.require_box()?.clone(),
+            pbox: sys.require_box()?.clone(),
             _monolayers: vec![],
             resindex_to_id,
         })
@@ -303,6 +303,7 @@ impl Membrane {
                 }
                 // Check if this lipid is valid
                 if !self.lipids[*id].valid {
+                    warn!("lipid id {} is marked invalid, skipped.", id);
                     continue;
                 }
                 // Add this lipid id
@@ -421,7 +422,7 @@ impl Membrane {
                 // the very first iteration is used to only get the 1-st nearest neibours
                 self.smooth();
                 // Now compute n-th neighbors and set them as patch
-                self.patches_from_get_shell(self.options.n_shells_patch);
+                self.patches_from_nth_shell(self.options.n_shells_patch);
             }
             self.smooth();
             iter += 1;
@@ -536,7 +537,7 @@ impl Membrane {
     }
 
     fn compute_patches(&mut self, sys: &System, d: f32) -> anyhow::Result<()> {
-        let ind: Vec<(usize, usize)> = distance_search_single_pbc(
+        let pairs: Vec<(usize, usize)> = distance_search_single_pbc(
             d,
             self.iter_valid_lipids().map(|l| &l.head_marker),
             self.iter_valid_lipids().map(|l| l.id),
@@ -549,7 +550,7 @@ impl Membrane {
             lip.patch_ids.clear();
         }
         // Add ids to patches
-        for (i, j) in ind {
+        for (i, j) in pairs {
             self.lipids[i].patch_ids.push(j);
             self.lipids[j].patch_ids.push(i);
         }
@@ -557,8 +558,8 @@ impl Membrane {
     }
 
     // Given pre-computed neib_ids compute n-th neighbour shell
-    // and set it as patches
-    fn patches_from_get_shell(&mut self, n_neib: usize) {
+    // and set them as patches
+    fn patches_from_nth_shell(&mut self, n_neib: usize) {
         if n_neib < 1 {
             return;
         }

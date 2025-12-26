@@ -101,7 +101,8 @@ peg::parser! {
 
 
         // 3-vector value
-        rule vec3() -> VectorNode = vec3_spaces() / vec3_comas() / vec3_com() / vec3_cog()
+        rule vec3() -> VectorNode = vec3_spaces() / vec3_comas() 
+            / vec3_com() / vec3_cog() / nth_of()
 
         rule vec3_spaces() -> VectorNode
         = x:float_val() __ y:float_val() __ z:float_val() {
@@ -129,6 +130,11 @@ peg::parser! {
                 None => PBC_NONE,
             };
             VectorNode::Cog(v.into(),pbc)
+        }
+ 
+        rule nth_of() -> VectorNode
+        = "pos" __ n:uint() __ "of" ___ v:logical_expr() {
+            VectorNode::NthAtomOf(Box::new(v), n)
         }
 
         //rule get_of() -> Pos
@@ -331,8 +337,8 @@ peg::parser! {
             }
         }
 
-        pub rule compound() -> ChemicalNode 
-        = protein() / backbone() / sidechain() / 
+        pub rule compound() -> ChemicalNode
+        = protein() / backbone() / sidechain() /
           water() / not_water() / hydrogen() / not_hydrogen ();
 
         pub rule protein() -> ChemicalNode = "protein" _ { ChemicalNode::Protein };
