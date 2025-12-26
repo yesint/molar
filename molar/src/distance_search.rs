@@ -775,8 +775,11 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
-    let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
-        + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+    // let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+    //     + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+    //     + f32::EPSILON;
+    let cutoff = vdw1.iter().cloned().reduce(f32::max).unwrap()
+        + vdw2.iter().cloned().reduce(f32::max).unwrap()
         + f32::EPSILON;
 
     // Compute the extents
@@ -836,9 +839,13 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
-    let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
-        + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+    // let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+    //     + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
+    //     + f32::EPSILON;
+    let cutoff = vdw1.iter().cloned().reduce(f32::max).unwrap()
+        + vdw2.iter().cloned().reduce(f32::max).unwrap()
         + f32::EPSILON;
+
 
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
