@@ -170,6 +170,12 @@ mod tests {
         // pbc=yyy; resid(13 14 15).within(0.35).cog.dist < 3.0
     }
 
+    #[test]
+    fn test_nth_pos_of() {
+        let _ast = SelectionExpr::new("x < x of pos 3 of name CA")
+            .expect("Error generating AST");
+    }
+
 
     #[test]
     fn debug_print() {
