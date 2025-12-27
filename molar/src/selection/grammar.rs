@@ -102,7 +102,7 @@ peg::parser! {
 
         // 3-vector value
         rule vec3() -> VectorNode = vec3_spaces() / vec3_comas() 
-            / vec3_com() / vec3_cog() / nth_of()
+            / vec3_com() / vec3_cog() / nth_pos_of()
 
         rule vec3_spaces() -> VectorNode
         = x:float_val() __ y:float_val() __ z:float_val() {
@@ -132,13 +132,10 @@ peg::parser! {
             VectorNode::Cog(v.into(),pbc)
         }
  
-        rule nth_of() -> VectorNode
+        rule nth_pos_of() -> VectorNode
         = "pos" __ n:uint() __ "of" ___ v:logical_expr() {
             VectorNode::NthAtomOf(Box::new(v), n)
         }
-
-        //rule get_of() -> Pos
-        //= logical_expr()
 
         // Distance
         rule distance() -> DistanceNode
@@ -181,16 +178,21 @@ peg::parser! {
         // Math
         rule math_expr() -> MathNode
         = precedence!{
-            x:(@) _ "+" _ y:@ { MathNode::Add(x.into(), y.into()) }
-            x:(@) _ "-" _ y:@ { MathNode::Sub(x.into(), y.into()) }
-                    "-" _ v:@ { MathNode::Neg(v.into()) }
+            x:(@) _ "+" _ y:@ { MathNode::BinaryOp(x.into(), BinaryOperator::Add, y.into()) }
+            x:(@) _ "-" _ y:@ { MathNode::BinaryOp(x.into(), BinaryOperator::Sub, y.into()) }
             --
-            x:(@) _ "*" _ y:@ { MathNode::Mul(x.into(), y.into()) }
-            x:(@) _ "/" _ y:@ { MathNode::Div(x.into(), y.into()) }
+            x:(@) _ "*" _ y:@ { MathNode::BinaryOp(x.into(), BinaryOperator::Mul, y.into()) }
+            x:(@) _ "/" _ y:@ { MathNode::BinaryOp(x.into(), BinaryOperator::Div, y.into()) }
             --
-            x:@ _ "^" _ y:(@) { MathNode::Pow(x.into(), y.into()) }
+            x:@ _ "^" _ y:(@) { MathNode::BinaryOp(x.into(), BinaryOperator::Pow, y.into()) }
+            --
+            "-" _ v:@ { MathNode::UnaryMinus(v.into()) }
+            "+" _ v:@ { v } // unary plus does nothing
             --
             v:float() {v}
+            ['x'|'X'] __ "of" ___ v:vec3() { MathNode::Xof(v) }
+            ['y'|'Y'] __ "of" ___ v:vec3() { MathNode::Yof(v) }
+            ['z'|'Z'] __ "of" ___ v:vec3() { MathNode::Zof(v) }
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
@@ -221,14 +223,15 @@ peg::parser! {
                 comparison_op_leq()/comparison_op_lt()/
                 comparison_op_geq()/comparison_op_gt()) _
             b:math_expr() {
-                use ComparisonOp as C;
+                use ComparisonOp as CO;
+                use ComparisonNode as CN;
                 match op {
-                    C::Eq => { ComparisonNode::Eq(a,b) },
-                    C::Neq => { ComparisonNode::Neq(a,b) },
-                    C::Leq => { ComparisonNode::Leq(a,b) },
-                    C::Lt => { ComparisonNode::Lt(a,b) },
-                    C::Geq => { ComparisonNode::Geq(a,b) },
-                    C::Gt => { ComparisonNode::Gt(a,b) },
+                    CO::Eq => { CN::Eq(a,b) },
+                    CO::Neq => { CN::Neq(a,b) },
+                    CO::Leq => { CN::Leq(a,b) },
+                    CO::Lt => { CN::Lt(a,b) },
+                    CO::Geq => { CN::Geq(a,b) },
+                    CO::Gt => { CN::Gt(a,b) },
                     _ => unreachable!(),
                 }
             }
@@ -244,12 +247,13 @@ peg::parser! {
             op2:(comparison_op_leq()/comparison_op_lt()) _
             c:math_expr()
         {
-            use ComparisonOp as C;
+            use ComparisonOp as CO;
+            use ComparisonNode as CN;
             match (op1,op2) {
-                (C::Lt,C::Lt) => { ComparisonNode::LtLt(a,b,c) },
-                (C::Lt,C::Leq) => { ComparisonNode::LtLeq(a,b,c) },
-                (C::Leq,C::Lt) => { ComparisonNode::LeqLt(a,b,c) },
-                (C::Leq,C::Leq) => { ComparisonNode::LeqLeq(a,b,c) },
+                (CO::Lt,CO::Lt) => { CN::LtLt(a,b,c) },
+                (CO::Lt,CO::Leq) => { CN::LtLeq(a,b,c) },
+                (CO::Leq,CO::Lt) => { CN::LeqLt(a,b,c) },
+                (CO::Leq,CO::Leq) => { CN::LeqLeq(a,b,c) },
                 _ => unreachable!(),
             }
         }
@@ -261,12 +265,13 @@ peg::parser! {
             op2:(comparison_op_geq()/comparison_op_gt()) _
             c:math_expr()
         {
-            use ComparisonOp as C;
+            use ComparisonOp as CO;
+            use ComparisonNode as CN;
             match (op1,op2) {
-                (C::Gt,C::Gt) => { ComparisonNode::GtGt(a,b,c) },
-                (C::Gt,C::Geq) => { ComparisonNode::GtGeq(a,b,c) },
-                (C::Geq,C::Gt) => { ComparisonNode::GeqGt(a,b,c) },
-                (C::Geq,C::Geq) => { ComparisonNode::GeqGeq(a,b,c) },
+                (CO::Gt,CO::Gt) => { CN::GtGt(a,b,c) },
+                (CO::Gt,CO::Geq) => { CN::GtGeq(a,b,c) },
+                (CO::Geq,CO::Gt) => { CN::GeqGt(a,b,c) },
+                (CO::Geq,CO::Geq) => { CN::GeqGeq(a,b,c) },
                 _ => unreachable!(),
             }
         }
@@ -291,7 +296,7 @@ peg::parser! {
             }
         }
 
-        // PBC for within
+        // PBC
         rule pbc_expr() -> PbcDims
         = pbc_with_dims() / pbc_full_no_dims() / pbc_none_no_dims()
 
@@ -310,31 +315,13 @@ peg::parser! {
 
         // Within
         rule within_expr() -> WithinParams
-        = "within" __ d:float_val() __ p:pbc_expr()? s:$(("self" __)?) "of" {
+        = "within" __ cutoff:float_val() __ p:pbc_expr()? s:$(("self" __)?) "of" {
             let pbc = match p {
                 Some(dims) => dims,
                 None => PBC_NONE,
             };
             let include_inner = !s.is_empty();
-            WithinParams {cutoff: d, pbc, include_inner}
-        }
-
-        // COM
-        rule com_expr() -> PbcDims
-        = "com" __ p:pbc_expr()? "of" {
-            match p {
-                Some(dims) => dims,
-                None => PBC_NONE,
-            }
-        }
-
-        // COG
-        rule cog_expr() -> PbcDims
-        = ("cog" / "center") __ p:pbc_expr()? "of" {
-            match p {
-                Some(dims) => dims,
-                None => PBC_NONE,
-            }
+            WithinParams {cutoff, pbc, include_inner}
         }
 
         pub rule compound() -> ChemicalNode
@@ -355,6 +342,7 @@ peg::parser! {
             // Binary
             x:(@) _ "or" _ y:@ { LogicalNode::Or(x.into(), y.into()) }
             x:(@) _ "and" _ y:@ { LogicalNode::And(x.into(), y.into()) }
+            --
             // Unary prefixes
             "not" ___ v:@ { LogicalNode::Not(v.into()) }
             t:same_expr() ___ v:@ { LogicalNode::Same(t, v.into()) }

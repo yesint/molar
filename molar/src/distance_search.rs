@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use num_traits::clamp_min;
-use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
+use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
 
 /// Trait for the results of distance seacrh
 pub trait DistanceSearchOutput {
@@ -650,7 +650,7 @@ fn compute_bounding_box_single<'a>(
 /// # Arguments
 /// * `cutoff` - Maximum distance between points to be considered neighbors
 /// * `data1` - Iterator providing positions for first set of points
-/// * `data2` - Iterator providing positions for second set of points 
+/// * `data2` - Iterator providing positions for second set of points
 /// * `ids1` - Iterator providing indices for first set of points
 /// * `ids2` - Iterator providing indices for second set of points
 ///
@@ -703,7 +703,7 @@ where
 /// * `cutoff` - Maximum distance between points to be considered neighbors
 /// * `data1` - Iterator providing positions for first set of points
 /// * `data2` - Iterator providing positions for second set of points
-/// * `ids1` - Iterator providing indices for first set of points 
+/// * `ids1` - Iterator providing indices for first set of points
 /// * `ids2` - Iterator providing indices for second set of points
 /// * `pbox` - Periodic box definition
 /// * `pbc_dims` - Which dimensions should use periodic boundaries
@@ -728,9 +728,9 @@ where
 
     grid1.populate_pbc(data1, ids1, pbox, pbc_dims);
     grid2.populate_pbc(data2, ids2, pbox, pbc_dims);
-    // At this point grids are self-referencial. We should not 
+    // At this point grids are self-referencial. We should not
     // move or mutate it until it is dorpped.
-    
+
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
@@ -846,16 +846,15 @@ where
         + vdw2.iter().cloned().reduce(f32::max).unwrap()
         + f32::EPSILON;
 
-
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
 
     grid1.populate_pbc(data1, 0..vdw1.len(), pbox, pbc_dims);
     grid2.populate_pbc(data2, 0..vdw2.len(), pbox, pbc_dims);
-    
-    // At this point grids are self-referencial. 
+
+    // At this point grids are self-referencial.
     // Now on we should not move or mutate it until it is dorpped!
-    
+
     let plan = search_plan(&grid1, Some(&grid2), pbc_dims);
 
     // Cycle over search plan and perform search for each cell pair
@@ -958,8 +957,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::*;
     use super::SaveTopologyState;
+    use crate::prelude::*;
 
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {

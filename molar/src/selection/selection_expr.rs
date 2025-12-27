@@ -163,6 +163,15 @@ mod tests {
     }
 
     #[test]
+    fn test_x_of() {
+        let _ast = SelectionExpr::new("x < x of com of name CA")
+            .expect("Error generating AST");
+        // x < name(CA).com.x
+        // pbc=yyy; resid(13 14 15).within(0.35).cog.dist < 3.0
+    }
+
+
+    #[test]
     fn debug_print() {
         let ast = SelectionExpr::new("within 0.5 of com pbc 101 of protein")
             .expect("Error generating AST");

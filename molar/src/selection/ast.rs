@@ -23,23 +23,31 @@ pub(super) enum StrKeywordArg {
 }
 
 #[derive(Debug)]
+pub(super) enum BinaryOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Pow,
+}
+
+#[derive(Debug)]
 pub(super) enum MathNode {
     Float(f32),
     Function(MathFunctionName, Box<Self>),
     X,
     Y,
     Z,
+    Xof(VectorNode),
+    Yof(VectorNode),
+    Zof(VectorNode),
     Bfactor,
     Occupancy,
     Vdw,
     Mass,
     Charge,
-    Add(Box<Self>, Box<Self>),
-    Sub(Box<Self>, Box<Self>),
-    Mul(Box<Self>, Box<Self>),
-    Div(Box<Self>, Box<Self>),
-    Pow(Box<Self>, Box<Self>),
-    Neg(Box<Self>),
+    BinaryOp(Box<Self>, BinaryOperator, Box<Self>),
+    UnaryMinus(Box<Self>),
     Dist(DistanceNode),
 }
 
@@ -94,10 +102,11 @@ pub(super) enum ComparisonNode {
 
 #[derive(Debug)]
 pub(super) enum KeywordNode {
+    // String keywords
     Name(Vec<StrKeywordArg>),
     Resname(Vec<StrKeywordArg>),
     Chain(Vec<char>),
-
+    // Int keywords
     Resid(Vec<IntKeywordArg>),
     Resindex(Vec<IntKeywordArg>),
     Index(Vec<IntKeywordArg>),
@@ -306,6 +315,7 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //###################################
 //#  AST nodes logic implementation
 //###################################
+
 impl DistanceNode {
     fn closest_image(&mut self, point: &mut Pos, data: &EvaluationContext) {
         if let Some(pbox) = data.state.get_box() {
@@ -772,23 +782,28 @@ impl MathNode {
             Self::X => Ok(unsafe { data.state.get_pos_unchecked(at) }[0]),
             Self::Y => Ok(unsafe { data.state.get_pos_unchecked(at) }[1]),
             Self::Z => Ok(unsafe { data.state.get_pos_unchecked(at) }[2]),
+            Self::Xof(vec) => Ok(vec.get_vec(data)?.x),
+            Self::Yof(vec) => Ok(vec.get_vec(data)?.y),
+            Self::Zof(vec) => Ok(vec.get_vec(data)?.z),
             Self::Bfactor => Ok(atom.bfactor),
             Self::Occupancy => Ok(atom.occupancy),
             Self::Vdw => Ok(atom.vdw()),
             Self::Mass => Ok(atom.mass),
             Self::Charge => Ok(atom.charge),
-            Self::Add(a, b) => Ok(a.eval(at, data)? + b.eval(at, data)?),
-            Self::Sub(a, b) => Ok(a.eval(at, data)? - b.eval(at, data)?),
-            Self::Mul(a, b) => Ok(a.eval(at, data)? * b.eval(at, data)?),
-            Self::Div(a, b) => {
-                let b_val = b.eval(at, data)?;
-                if b_val == 0.0 {
-                    return Err(SelectionParserError::DivisionByZero);
+            Self::BinaryOp(a, op, b) => match op {
+                BinaryOperator::Add => Ok(a.eval(at, data)? + b.eval(at, data)?),
+                BinaryOperator::Sub => Ok(a.eval(at, data)? - b.eval(at, data)?),
+                BinaryOperator::Mul => Ok(a.eval(at, data)? * b.eval(at, data)?),
+                BinaryOperator::Pow => Ok(a.eval(at, data)?.powf(b.eval(at, data)?)),
+                BinaryOperator::Div => {
+                    let b_val = b.eval(at, data)?;
+                    if b_val == 0.0 {
+                        return Err(SelectionParserError::DivisionByZero);
+                    }
+                    Ok(a.eval(at, data)? / b_val)
                 }
-                Ok(a.eval(at, data)? / b_val)
-            }
-            Self::Pow(a, b) => Ok(a.eval(at, data)?.powf(b.eval(at, data)?)),
-            Self::Neg(v) => Ok(-v.eval(at, data)?),
+            }            
+            Self::UnaryMinus(v) => Ok(-v.eval(at, data)?),
             Self::Function(func, v) => {
                 use MathFunctionName as M;
                 let val = v.eval(at, data)?;
@@ -804,12 +819,12 @@ impl MathNode {
                     M::Cos => Ok(val.cos()),
                 }
             }
-            Self::Dist(d) => {
+            Self::Dist(node) => {
                 let mut pos = unsafe { data.state.get_pos_unchecked(at) }.clone();
                 // Point should be unwrapped first!
-                d.closest_image(&mut pos, data);
+                node.closest_image(&mut pos, data);
 
-                match d {
+                match node {
                     DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
                     DistanceNode::Line(p1, p2, _) => {
                         let p1 = p1.get_vec(data)?;

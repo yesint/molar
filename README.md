@@ -90,14 +90,14 @@ Keywords select atoms by their properties:
 ### Keyword syntax
 
 Integer keywords (`index`, `resid`, `resindex`) accept ranges and single values:
-```
+```ignore
 resid 5                    # Single residue
 resid 1:10                 # Range (inclusive)
 resid 1 5 10:20            # Multiple selections
 ```
 
 String keywords (`name`, `resname`, `chain`) accept multiple values and regex patterns:
-```
+```ignore
 resname ALA GLY            # Multiple residues
 name CA CB CG              # Multiple atom names
 name /C[AB]/               # Regex pattern: CA or CB
@@ -119,7 +119,7 @@ Pre-defined selections for common molecular features:
 | `not_hydrogen` or `noh` | All non-hydrogen atoms |
 
 Examples:
-```
+```ignore
 protein                    # All protein atoms
 backbone and chain A       # Backbone of chain A
 water or hydrogen          # Water or hydrogens
@@ -130,7 +130,7 @@ not hydrogen               # Everything except hydrogens
 
 Compare numeric properties using mathematical expressions:
 
-```
+```ignore
 x < 5.0                    # X coordinate less than 5
 y >= 10.0 and y <= 20.0    # Y between 10 and 20
 z 15.0:25.0                # Shorthand for chained comparison
@@ -151,7 +151,7 @@ vdw < 2.0                  # Van der Waals radius less than 2
 ### Chained comparisons
 
 Compare between two values:
-```
+```ignore
 10 < resid < 20            # Residues between 10 and 20
 0 <= x <= 5.0              # X coordinate between 0 and 5
 15.0 < y < 25.0            # Y strictly between 15 and 25
@@ -161,7 +161,7 @@ Compare between two values:
 
 Use math operations and functions in comparisons:
 
-```
+```ignore
 sqrt(x^2 + y^2) < 10.0     # Distance from origin less than 10
 abs(z) > 5.0               # Absolute Z coordinate
 sin(x) * 2.0 == 1.0        # Trigonometric operations
@@ -174,19 +174,19 @@ Supported functions: `abs`, `sqrt`, `sin`, `cos`
 ### Distance-based selections
 
 #### Distance to point
-```
+```ignore
 within 5.0 of [1.0, 2.0, 3.0]      # Within 5 Å of point
 within 3.0 pbc of [0.0, 0.0, 0.0]  # With periodic boundary conditions
 ```
 
 #### Distance to line
-```
+```ignore
 within 2.0 of line [1,2,3] [4,5,6]           # Two-point definition
 within 2.0 of line [1,2,3] dir [1,0,0]       # Point and direction
 ```
 
 #### Distance to plane
-```
+```ignore
 within 1.0 of plane [0,0,0] [1,0,0] [0,1,0]        # Three-point definition
 within 1.0 of plane [0,0,0] normal [0,0,1]        # Point and normal
 ```
@@ -195,7 +195,7 @@ within 1.0 of plane [0,0,0] normal [0,0,1]        # Point and normal
 
 Calculate geometric properties of selections:
 
-```
+```ignore
 within 5.0 of com of protein           # Within 5 Å of protein COM
 within 3.0 pbc of cog of chain A       # Within 3 Å of chain A COG
 within 2.0 of com pbc 1 1 0 of water   # PBC only in X and Y
@@ -228,7 +228,7 @@ Combine selections using logical operations:
 5. `or` — Logical OR
 
 Parentheses can be used to override precedence:
-```
+```ignore
 (resname ALA or resname GLY) and backbone    # Parentheses for clarity
 name CA or (name CB and chain A)             # Different grouping
 ```
@@ -237,14 +237,14 @@ name CA or (name CB and chain A)             # Different grouping
 
 Select atoms in the same residue or chain as matched atoms:
 
-```
+```ignore
 same residue as name CB    # All atoms in residues containing CB atoms
 same chain as resid 5      # All atoms in chains containing residue 5
 ```
 
 ## Complete examples
 
-```rust
+```ignore
 // Simple selections
 "name CA"                              // Alpha carbons
 "resname ALA"                          // Alanine residues
