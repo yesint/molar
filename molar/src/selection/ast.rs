@@ -1,4 +1,4 @@
-use crate::{prelude::*, state};
+use crate::prelude::*;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::{borrow::Cow, collections::HashSet};
@@ -501,12 +501,11 @@ impl Evaluate for LogicalNode {
             }
 
             Self::Comparison(node) => {
-                let state_dep = node.is_state_dependent();
-                let res = node.apply(data)?;
-                if state_dep {
-                    Ok(Cow::from(res.into_owned())) // Owned res
+                let res = node.apply(data)?.into_owned();
+                if node.is_state_dependent() {
+                    Ok(Cow::from(res)) // Owned res
                 } else {
-                    *self = Self::Precomputed(res.into_owned());
+                    *self = Self::Precomputed(res);
                     self.apply(data) // will give borrowed res
                 }
             }
@@ -886,35 +885,57 @@ impl MathNode {
             Self::Vdw => Ok(atom.vdw()),
             Self::Mass => Ok(atom.mass),
             Self::Charge => Ok(atom.charge),
-            Self::BinaryOp(a, op, b) => match op {
-                BinaryOperator::Add => Ok(a.eval(at, data)? + b.eval(at, data)?),
-                BinaryOperator::Sub => Ok(a.eval(at, data)? - b.eval(at, data)?),
-                BinaryOperator::Mul => Ok(a.eval(at, data)? * b.eval(at, data)?),
-                BinaryOperator::Pow => Ok(a.eval(at, data)?.powf(b.eval(at, data)?)),
-                BinaryOperator::Div => {
-                    let b_val = b.eval(at, data)?;
-                    if b_val == 0.0 {
-                        return Err(SelectionParserError::DivisionByZero);
+            Self::BinaryOp(a, op, b) => {
+                let ret = match op {
+                    BinaryOperator::Add => a.eval(at, data)? + b.eval(at, data)?,
+                    BinaryOperator::Sub => a.eval(at, data)? - b.eval(at, data)?,
+                    BinaryOperator::Mul => a.eval(at, data)? * b.eval(at, data)?,
+                    BinaryOperator::Pow => a.eval(at, data)?.powf(b.eval(at, data)?),
+                    BinaryOperator::Div => {
+                        let b_val = b.eval(at, data)?;
+                        if b_val == 0.0 {
+                            return Err(SelectionParserError::DivisionByZero);
+                        }
+                        a.eval(at, data)? / b_val
                     }
-                    Ok(a.eval(at, data)? / b_val)
+                };
+                // Precomute if possible
+                if !a.is_state_dependent() && !b.is_state_dependent() {
+                    *self = Self::Float(ret);
                 }
-            },
-            Self::UnaryMinus(v) => Ok(-v.eval(at, data)?),
+                Ok(ret)
+            }
+
+            Self::UnaryMinus(v) => {
+                let ret = -v.eval(at, data)?;
+                // Precomute if possible
+                if !v.is_state_dependent() {
+                    *self = Self::Float(ret);
+                }
+                Ok(ret)
+            }
+
             Self::Function(func, v) => {
                 use MathFunctionName as M;
                 let val = v.eval(at, data)?;
-                match func {
-                    M::Abs => Ok(val.abs()),
+                let ret = match func {
+                    M::Abs => val.abs(),
                     M::Sqrt => {
                         if val < 0.0 {
                             return Err(SelectionParserError::NegativeSqrt);
                         }
-                        Ok(val.sqrt())
+                        val.sqrt()
                     }
-                    M::Sin => Ok(val.sin()),
-                    M::Cos => Ok(val.cos()),
+                    M::Sin => val.sin(),
+                    M::Cos => val.cos(),
+                };
+                // Precomute if possible
+                if !v.is_state_dependent() {
+                    *self = Self::Float(ret);
                 }
+                Ok(ret)
             }
+
             Self::Dist(node) => {
                 let mut pos = unsafe { data.state.get_pos_unchecked(at) }.clone();
                 // Point should be unwrapped first!
