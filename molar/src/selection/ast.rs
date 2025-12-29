@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, state};
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::{borrow::Cow, collections::HashSet};
@@ -10,19 +10,19 @@ use super::utils::check_topology_state_sizes;
 //#  AST node types
 //##############################
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum IntKeywordArg {
     Int(isize),
     IntRange(isize, isize),
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum StrKeywordArg {
     Str(String),
     Regex(Regex),
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum BinaryOperator {
     Add,
     Sub,
@@ -31,7 +31,7 @@ pub(super) enum BinaryOperator {
     Pow,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum MathNode {
     Float(f32),
     Function(MathFunctionName, Box<Self>),
@@ -52,7 +52,7 @@ pub(super) enum MathNode {
 }
 
 // Computes a vector value in various ways
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum VectorNode {
     Const(Pos),
     UnitConst(Pos),
@@ -61,7 +61,7 @@ pub(super) enum VectorNode {
     NthAtomOf(Box<LogicalNode>, usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum DistanceNode {
     Point(VectorNode, PbcDims),
     Line(VectorNode, VectorNode, PbcDims),
@@ -70,6 +70,7 @@ pub(super) enum DistanceNode {
     PlaneNormal(VectorNode, VectorNode, PbcDims),
 }
 
+#[derive(Debug,Clone)]
 pub(super) enum ComparisonOp {
     Eq,
     Neq,
@@ -79,7 +80,7 @@ pub(super) enum ComparisonOp {
     Gt,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum ComparisonNode {
     // Simple
     Eq(MathNode, MathNode),
@@ -100,7 +101,7 @@ pub(super) enum ComparisonNode {
     GeqGeq(MathNode, MathNode, MathNode),
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum KeywordNode {
     // String keywords
     Name(Vec<StrKeywordArg>),
@@ -112,13 +113,13 @@ pub(super) enum KeywordNode {
     Index(Vec<IntKeywordArg>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(super) enum SameAttr {
     Residue,
     Chain,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(super) struct WithinParams {
     pub(super) cutoff: f32,
     pub(super) pbc: PbcDims,
@@ -126,7 +127,7 @@ pub(super) struct WithinParams {
 }
 
 // Top level
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub(super) enum LogicalNode {
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
@@ -141,6 +142,7 @@ pub(super) enum LogicalNode {
     Precomputed(Vec<usize>),
 }
 
+#[derive(Debug,Clone)]
 pub(super) enum AtomAttr {
     Name,
     Resname,
@@ -161,7 +163,7 @@ pub(super) enum MathFunctionName {
     Cos,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(super) enum ChemicalNode {
     Protein,
     Backbone,
@@ -493,9 +495,21 @@ impl Evaluate for LogicalNode {
                 }
             }
 
-            Self::Keyword(node) => node.apply(data),
+            Self::Keyword(node) => { 
+                *self = Self::Precomputed(node.apply(data)?.into_owned());
+                self.apply(data) // will give borrowed res
+            }
 
-            Self::Comparison(node) => node.apply(data),
+            Self::Comparison(node) => {
+                let state_dep = node.is_state_dependent();
+                let res = node.apply(data)?;
+                if state_dep {
+                    Ok(Cow::from(res.into_owned())) // Owned res
+                } else {
+                    *self = Self::Precomputed(res.into_owned());
+                    self.apply(data) // will give borrowed res
+                }
+            }
 
             Self::Same(attr, node) => {
                 let inner_res = node.apply(data)?;
@@ -594,7 +608,10 @@ impl Evaluate for LogicalNode {
             // All always works in global subset
             Self::All => Ok(Cow::from(data.global_subset)),
 
-            Self::Chemical(c) => c.apply(data),
+            Self::Chemical(c) => { 
+                *self = Self::Precomputed(c.apply(data)?.into_owned());
+                self.apply(data) // will give borrowed res
+            },
         }
     }
 
@@ -998,7 +1015,7 @@ impl Evaluate for ComparisonNode {
             Self::Gt(v1, v2) |
             Self::Geq(v1, v2) |
             Self::Lt(v1, v2)|
-            Self::Leq(v1, v2) => v1.is_state_dependent() && v2.is_state_dependent(),
+            Self::Leq(v1, v2) => v1.is_state_dependent() || v2.is_state_dependent(),
             // Chained left
             Self::LtLt(v1, v2, v3) |
             Self::LtLeq(v1, v2, v3) |
@@ -1008,7 +1025,7 @@ impl Evaluate for ComparisonNode {
             Self::GtGt(v1, v2, v3) |
             Self::GtGeq(v1, v2, v3) | 
             Self::GeqGt(v1, v2, v3) | 
-            Self::GeqGeq(v1, v2, v3) => v1.is_state_dependent() && v2.is_state_dependent() && v3.is_state_dependent(),
+            Self::GeqGeq(v1, v2, v3) => v1.is_state_dependent() || v2.is_state_dependent() || v3.is_state_dependent(),
         }
     }
 

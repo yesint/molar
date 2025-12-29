@@ -67,8 +67,11 @@ impl SelectionExpr {
         let subset = (0..topology.len()).collect::<Vec<_>>();
         let data = super::ast::EvaluationContext::new(topology, state, &subset)?;
         let mut ast = self.ast.borrow_mut();
+        //dbg!("BEFORE:\n{:#?}",ast.clone());
         let ind = ast.apply(&data)?;
+        //dbg!("AFTER:\n{:#?}",ast.clone());
         Ok(SVec::from_iter(ind.iter().cloned()))
+        //Ok(SVec::default())
     }
 
     /// Applies the selection expression to a subset of atoms
@@ -126,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
-        let ast = SelectionExpr::new("sqrt (x^2)<5^2").expect("Error generating AST");
+        let ast = SelectionExpr::new("name CA or beta<5^2").expect("Error generating AST");
         let vec1 = ast
             .apply_whole(&TOPST.0, &TOPST.1)
             .expect("Error applying AST");
