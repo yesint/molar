@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use crate::{prelude::*, selection::ast::SelectionParserError};
+use crate::{prelude::*, selection::ast::{Evaluate, SelectionParserError}};
 
 //mod grammar3;
 
@@ -42,16 +42,16 @@ impl SelectionExpr {
     /// let expr = SelectionExpr::new("resname ALA").unwrap();
     /// ```
     pub fn new(s: impl AsRef<str>) -> Result<Self, SelectionParserError> {
-        let s = s.as_ref();
+        let s = s.as_ref().trim();
         Ok(Self {
             ast: RefCell::new(
-                super::grammar::selection_parser::logical_expr(s.trim()).map_err(|e| {
-                    let s = format!(
+                super::grammar::selection_parser::logical_expr(s).map_err(|e| {
+                    let err_str = format!(
                         "\n{s}\n{}^\nExpected {}",
                         "-".repeat(e.location.column - 1),
                         e.expected
                     );
-                    SelectionParserError::SyntaxError(s)
+                    SelectionParserError::SyntaxError(err_str)
                 })?,
             ),
             sel_str: s.to_owned(),
@@ -67,7 +67,8 @@ impl SelectionExpr {
         let subset = (0..topology.len()).collect::<Vec<_>>();
         let data = super::ast::EvaluationContext::new(topology, state, &subset)?;
         let mut ast = self.ast.borrow_mut();
-        Ok(ast.apply(&data)?.into())
+        let ind = ast.apply(&data)?;
+        Ok(SVec::from_iter(ind.iter().cloned()))
     }
 
     /// Applies the selection expression to a subset of atoms
@@ -79,7 +80,7 @@ impl SelectionExpr {
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvaluationContext::new(topology, state, subset)?;
         let mut ast = self.ast.borrow_mut();
-        Ok(ast.apply(&data)?.into())
+        Ok(SVec::from_iter(ast.apply(&data)?.iter().cloned()))
     }
 }
 

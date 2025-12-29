@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use num_traits::Bounded;
 use regex::bytes::Regex;
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 use thiserror::Error;
 
 use super::utils::check_topology_state_sizes;
@@ -125,6 +125,7 @@ pub(super) struct WithinParams {
     pub(super) include_inner: bool,
 }
 
+// Top level
 #[derive(Debug)]
 pub(super) enum LogicalNode {
     Not(Box<Self>),
@@ -137,6 +138,7 @@ pub(super) enum LogicalNode {
     WithinPoint(WithinParams, VectorNode),
     All,
     Chemical(ChemicalNode),
+    Precomputed(Vec<usize>),
 }
 
 pub(super) enum AtomAttr {
@@ -224,7 +226,7 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn custom_subset(&self, custom: &'a Vec<usize>) -> ActiveSubset<'_> {
+    fn custom_subset(&self, custom: &'a [usize]) -> ActiveSubset<'_> {
         ActiveSubset {
             topology: &self.topology,
             state: &self.state,
@@ -316,6 +318,12 @@ impl MeasurePeriodic for ActiveSubset<'_> {}
 //#  AST nodes logic implementation
 //###################################
 
+pub(super) trait Evaluate {
+    fn is_state_dependent(&self) -> bool;
+    fn apply<'a>(&'a mut self, data: &'a EvaluationContext)
+        -> Result<Cow<'a, [usize]>, SelectionParserError>;
+}
+
 impl DistanceNode {
     fn closest_image(&mut self, point: &mut Pos, data: &EvaluationContext) {
         if let Some(pbox) = data.state.get_box() {
@@ -382,13 +390,19 @@ impl VectorNode {
             }
         }
     }
+
+    fn is_state_dependent(&self) -> bool {
+        match self {
+            Self::Cog(node, _) | Self::Com(node, _) | Self::NthAtomOf(node,_) => node.is_state_dependent(),
+            Self::Const(_) | Self::UnitConst(_) => false,
+        }
+    }
 }
 
 impl LogicalNode {
     fn map_same_attr<T>(
-        &self,
         data: &EvaluationContext,
-        inner: &Vec<usize>,
+        inner: &[usize],
         prop_fn: fn(&Atom) -> &T,
     ) -> Vec<usize>
     where
@@ -412,21 +426,53 @@ impl LogicalNode {
         }
         res
     }
+}
 
-    pub fn apply(&mut self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
+impl Evaluate for LogicalNode {
+    fn is_state_dependent(&self) -> bool {
+        match self {
+            Self::All | Self::Chemical(_) | Self::Keyword(_) | Self::Precomputed(_) => false,
+            Self::Within(_, _) => true,
+            Self::WithinPoint(_, _) => true,
+            Self::Not(v) | Self::Same(_, v) => v.is_state_dependent(),
+            Self::And(a, b) | Self::Or(a, b) => a.is_state_dependent() && b.is_state_dependent(),
+            Self::Comparison(v) => v.is_state_dependent(),
+        }
+    }
+
+    fn apply<'a>(
+        &'a mut self,
+        data: &'a EvaluationContext,
+    ) -> Result<Cow<'a, [usize]>, SelectionParserError> {
         use rustc_hash::FxHashSet;
         match self {
+            Self::Precomputed(v) => Ok(Cow::from(&*v)),
+
             Self::Not(node) => {
                 // Here we always use global subset!
                 let set1 = FxHashSet::from_iter(data.global_subset.into_iter().cloned());
-                let set2 = FxHashSet::from_iter(node.apply(data)?.into_iter());
-                Ok(set1.difference(&set2).cloned().collect())
+                let set2 = FxHashSet::from_iter(node.apply(data)?.into_iter().cloned());
+                let res = set1.difference(&set2).cloned().collect();
+                
+                if node.is_state_dependent() {
+                    Ok(Cow::from(res)) // Owned res
+                } else {
+                    *self = Self::Precomputed(res);
+                    self.apply(data) // will give borrowed res
+                }
             }
 
             Self::Or(a, b) => {
-                let set1 = FxHashSet::from_iter(a.apply(data)?.into_iter());
-                let set2 = FxHashSet::from_iter(b.apply(data)?.into_iter());
-                Ok(set1.union(&set2).cloned().collect())
+                let set1 = FxHashSet::from_iter(a.apply(data)?.into_iter().cloned());
+                let set2 = FxHashSet::from_iter(b.apply(data)?.into_iter().cloned());
+                let res = set1.union(&set2).cloned().collect();
+                
+                if a.is_state_dependent() || b.is_state_dependent() {
+                    Ok(Cow::from(res)) // Owned res
+                } else {
+                    *self = Self::Precomputed(res);
+                    self.apply(data) // will give borrowed res
+                }
             }
 
             Self::And(a, b) => {
@@ -436,8 +482,15 @@ impl LogicalNode {
                 let b_data = data.clone_with_local_subset(&a_res);
 
                 let set1 = FxHashSet::from_iter(a_res.iter().cloned());
-                let set2 = FxHashSet::from_iter(b.apply(&b_data)?.into_iter());
-                Ok(set1.intersection(&set2).cloned().collect())
+                let set2 = FxHashSet::from_iter(b.apply(&b_data)?.into_iter().cloned());
+                let res = set1.intersection(&set2).cloned().collect();
+                
+                if a.is_state_dependent() || b.is_state_dependent() {
+                    Ok(Cow::from(res)) // Owned res
+                } else {
+                    *self = Self::Precomputed(res);
+                    self.apply(data) // will give borrowed res
+                }
             }
 
             Self::Keyword(node) => node.apply(data),
@@ -445,27 +498,33 @@ impl LogicalNode {
             Self::Comparison(node) => node.apply(data),
 
             Self::Same(attr, node) => {
-                let inner = node.apply(data)?;
+                let inner_res = node.apply(data)?;
                 let res = match attr {
                     // Here we use the global subset!
-                    SameAttr::Residue => self.map_same_attr(data, &inner, |at| &at.resindex),
-                    SameAttr::Chain => self.map_same_attr(data, &inner, |at| &at.chain),
+                    SameAttr::Residue => Self::map_same_attr(data, &inner_res, |at| &at.resindex),
+                    SameAttr::Chain => Self::map_same_attr(data, &inner_res, |at| &at.chain),
                 };
-                Ok(res)
+                
+                if node.is_state_dependent() {
+                    Ok(Cow::from(res)) // Owned res
+                } else {
+                    *self = Self::Precomputed(res);
+                    self.apply(data) // will give borrowed res
+                }
             }
 
             Self::Within(params, node) => {
                 // Inner expr have to be evaluated in global context!
                 let glob_data = data.clone_with_local_subset(&data.global_subset);
-                let inner = node.apply(&glob_data)?;
+                let inner_res = node.apply(&glob_data)?;
 
                 let sub1 = data.current_subset();
-                let sub2 = data.custom_subset(&inner);
+                let sub2 = data.custom_subset(&inner_res);
                 // Perform distance search
                 let mut res: Vec<usize> = if params.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
-                    let (mut lower, mut upper) = get_min_max(data.state, inner.iter().cloned());
+                    let (mut lower, mut upper) = get_min_max(data.state, inner_res.iter().cloned());
                     lower.add_scalar_mut(-params.cutoff - f32::EPSILON);
                     upper.add_scalar_mut(params.cutoff + f32::EPSILON);
 
@@ -493,9 +552,9 @@ impl LogicalNode {
 
                 // Add inner if asked
                 if params.include_inner {
-                    res.extend(inner);
+                    res.extend(inner_res.iter());
                 }
-                Ok(res)
+                Ok(Cow::from(res))
             }
 
             Self::WithinPoint(prop, point) => {
@@ -529,13 +588,13 @@ impl LogicalNode {
                         prop.pbc,
                     )
                 };
-                Ok(res)
+                Ok(Cow::from(res))
             }
 
             // All always works in global subset
-            Self::All => Ok(data.global_subset.iter().cloned().collect()),
+            Self::All => Ok(Cow::from(data.global_subset)),
 
-            Self::Chemical(comp) => comp.apply(data),
+            Self::Chemical(c) => c.apply(data),
         }
     }
 
@@ -597,80 +656,76 @@ impl ChemicalNode {
             false
         }
     }
+}
 
-    pub fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
+impl Evaluate for ChemicalNode {
+    fn is_state_dependent(&self) -> bool {
+        false
+    }
+
+    fn apply(&mut self, data: &EvaluationContext)
+            -> Result<Cow<'_, [usize]>, SelectionParserError> {
         let sub = data.current_subset();
+        let mut res = vec![];
         match self {
             Self::Protein => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_protein(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
 
             Self::Backbone => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_backbone(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
 
             Self::Sidechain => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_sidechain(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
 
             Self::Water => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_water(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
 
             Self::NotWater => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_water(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
 
             Self::Hydrogen => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if Self::is_hydrogen(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
 
             Self::NotHydrogen => {
-                let mut res = vec![];
                 for (i, at) in sub.iter_ind_atom() {
                     if !Self::is_hydrogen(at) {
                         res.push(i)
                     }
                 }
-                Ok(res)
             }
         }
+
+        Ok(Cow::from(res))
     }
 }
 
@@ -695,7 +750,7 @@ impl KeywordNode {
     fn map_str_args(
         &self,
         data: &EvaluationContext,
-        args: &Vec<StrKeywordArg>,
+        args: &[StrKeywordArg],
         f: fn(&Atom) -> &String,
     ) -> Vec<usize> {
         let mut res = vec![];
@@ -750,31 +805,55 @@ impl KeywordNode {
         }
         res
     }
+}
 
-    fn apply(&self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
-        match self {
-            Self::Name(args) => Ok(self.map_str_args(data, args, |a| &a.name)),
-            Self::Resname(args) => Ok(self.map_str_args(data, args, |a| &a.resname)),
-            Self::Resid(args) => Ok(self.map_int_args(data, args, |a, _i| a.resid as isize)),
-            Self::Resindex(args) => Ok(self.map_int_args(data, args, |a, _i| a.resindex as isize)),
-            Self::Index(args) => Ok(self.map_int_args(data, args, |_a, i| i as isize)),
+impl Evaluate for KeywordNode {
+    fn is_state_dependent(&self) -> bool {
+        false
+    }
+
+    fn apply(&mut self, data: &EvaluationContext)
+            -> Result<Cow<'_, [usize]>, SelectionParserError> {
+        let res = match &*self {
+            Self::Name(args) => self.map_str_args(data, args, |a| &a.name),
+            Self::Resname(args) => self.map_str_args(data, args, |a| &a.resname),
+            Self::Resid(args) => self.map_int_args(data, args, |a, _i| a.resid as isize),
+            Self::Resindex(args) => self.map_int_args(data, args, |a, _i| a.resindex as isize),
+            Self::Index(args) => self.map_int_args(data, args, |_a, i| i as isize),
             Self::Chain(args) => {
                 let mut res = vec![];
                 let sub = data.current_subset();
                 for (i, a) in sub.iter_ind_atom() {
                     for c in args {
-                        if c == &a.chain {
+                        if *c == a.chain {
                             res.push(i);
                         }
                     }
                 }
-                Ok(res)
+                res
             }
-        }
+        };
+
+        Ok(Cow::from(res))
     }
 }
 
 impl MathNode {
+    fn is_state_dependent(&self) -> bool {
+        match self {
+            Self::Float(_) => false,
+            Self::X | Self::Y | Self::Z => true,
+            Self::Xof(vec) |
+            Self::Yof(vec) |
+            Self::Zof(vec) => vec.is_state_dependent(),
+            Self::Bfactor | Self::Occupancy | Self::Vdw | Self::Mass | Self::Charge => false,
+            Self::BinaryOp(a, _, b) => a.is_state_dependent() || b.is_state_dependent(),
+            Self::UnaryMinus(v) |
+            Self::Function(_, v) => v.is_state_dependent(),
+            Self::Dist(_) => true,
+        }
+    }
+
     fn eval(&mut self, at: usize, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
         let atom = unsafe { data.topology.get_atom_unchecked(at) };
         match self {
@@ -802,7 +881,7 @@ impl MathNode {
                     }
                     Ok(a.eval(at, data)? / b_val)
                 }
-            }            
+            },
             Self::UnaryMinus(v) => Ok(-v.eval(at, data)?),
             Self::Function(func, v) => {
                 use MathFunctionName as M;
@@ -908,9 +987,34 @@ impl ComparisonNode {
         }
         Ok(res)
     }
+}
 
-    fn apply(&mut self, data: &EvaluationContext) -> Result<Vec<usize>, SelectionParserError> {
+impl Evaluate for ComparisonNode {
+    fn is_state_dependent(&self) -> bool {
         match self {
+            // Simple
+            Self::Eq(v1, v2) |
+            Self::Neq(v1, v2) |
+            Self::Gt(v1, v2) |
+            Self::Geq(v1, v2) |
+            Self::Lt(v1, v2)|
+            Self::Leq(v1, v2) => v1.is_state_dependent() && v2.is_state_dependent(),
+            // Chained left
+            Self::LtLt(v1, v2, v3) |
+            Self::LtLeq(v1, v2, v3) |
+            Self::LeqLt(v1, v2, v3) | 
+            Self::LeqLeq(v1, v2, v3) | 
+            // Chained right
+            Self::GtGt(v1, v2, v3) |
+            Self::GtGeq(v1, v2, v3) | 
+            Self::GeqGt(v1, v2, v3) | 
+            Self::GeqGeq(v1, v2, v3) => v1.is_state_dependent() && v2.is_state_dependent() && v3.is_state_dependent(),
+        }
+    }
+
+    fn apply(&mut self, data: &EvaluationContext)
+            -> Result<Cow<'_, [usize]>, SelectionParserError> {
+        let res = match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),
             Self::Neq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a != b),
@@ -944,7 +1048,9 @@ impl ComparisonNode {
             Self::GeqGeq(v1, v2, v3) => {
                 Self::eval_op_chained(data, v1, v2, v3, |a, b| a >= b, |a, b| a >= b)
             }
-        }
+        }?;
+
+        Ok(Cow::from(res))
     }
 
     // fn is_coord_dependent(&self) -> bool {
