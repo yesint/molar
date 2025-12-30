@@ -1,4 +1,5 @@
-use crate::prelude::*;
+use crate::{prelude::*, selection::sel};
+use log::Log;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::{borrow::Cow, collections::HashSet};
@@ -127,7 +128,7 @@ pub(super) struct WithinParams {
 }
 
 // Top level
-#[derive(Debug,Clone)]
+#[derive(Clone)]
 pub(super) enum LogicalNode {
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
@@ -179,81 +180,114 @@ pub(super) enum ChemicalNode {
 //##############################
 
 #[derive(Clone)]
+enum EvalSubset<'a> {
+    Whole(std::ops::Range<usize>),
+    Part(&'a [usize]),
+}
+
+enum EvalSubsetIter<'a> {
+    Whole(std::ops::Range<usize>),
+    Part(std::iter::Copied<std::slice::Iter<'a, usize>>),
+}
+
+impl<'a> Iterator for EvalSubsetIter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            EvalSubsetIter::Whole(r) => r.next(),
+            EvalSubsetIter::Part(it) => it.next(),
+        }
+    }
+}
+
+impl EvalSubset<'_> {
+    fn iter(&self) -> EvalSubsetIter<'_> {
+        match self {
+            Self::Whole(r) => EvalSubsetIter::Whole(r.clone()),
+            Self::Part(ind) => EvalSubsetIter::Part(ind.iter().copied()),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            EvalSubset::Whole(r) => r.len(),
+            EvalSubset::Part(ind) => ind.len(),
+        }
+    }
+
+    unsafe fn get_unchecked(&self, i: usize) -> usize {
+        match self {
+            EvalSubset::Whole(_) => i,
+            EvalSubset::Part(ind) => *ind.get_unchecked(i),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub(super) struct EvaluationContext<'a> {
     topology: &'a Topology,
     state: &'a State,
-    // This is a subset passed from outside
-    // selection is completely within it
-    // Parser is not changing subset
-    global_subset: &'a [usize],
-    // This is a context-dependent subset created by AND operation
-    local_subset: Option<&'a [usize]>,
-    // Current atom index
-    //cur: usize,
-    // Pbc dimensions
-    //pbc_dims: PbcDims,
+    // This is a subset passed from outside.
+    // Selection is completely within it.
+    // Parser is never changing it.
+    global_subset: EvalSubset<'a>,
+    cur_subset: EvalSubset<'a>,
 }
 
 impl<'a> EvaluationContext<'a> {
-    pub(super) fn new(
+    pub(super) fn new_whole(
         topology: &'a Topology,
         state: &'a State,
-        global_subset: &'a [usize],
     ) -> Result<Self, SelectionParserError> {
         check_topology_state_sizes(topology, state)?;
 
         Ok(Self {
             topology,
             state,
-            global_subset,
-            local_subset: None,
-            //cur: 0,
-            //pbc_dims: PBC_NONE,
+            global_subset: EvalSubset::Whole(0..state.len()),
+            cur_subset: EvalSubset::Whole(0..state.len()),
         })
     }
 
-    fn current_subset(&self) -> ActiveSubset<'_> {
-        ActiveSubset {
-            topology: &self.topology,
-            state: &self.state,
-            subset: self.local_subset.unwrap_or(self.global_subset),
-        }
+    pub(super) fn new_part(
+        topology: &'a Topology,
+        state: &'a State,
+        part: &'a [usize],
+    ) -> Result<Self, SelectionParserError> {
+        check_topology_state_sizes(topology, state)?;
+
+        Ok(Self {
+            topology,
+            state,
+            global_subset: EvalSubset::Part(part),
+            cur_subset: EvalSubset::Part(part),
+        })
     }
 
-    fn global_subset(&self) -> ActiveSubset<'_> {
-        ActiveSubset {
-            topology: &self.topology,
-            state: &self.state,
-            subset: self.global_subset,
-        }
-    }
-
-    fn custom_subset(&self, custom: &'a [usize]) -> ActiveSubset<'_> {
-        ActiveSubset {
-            topology: &self.topology,
-            state: &self.state,
-            subset: custom,
-        }
-    }
-
-    fn clone_with_local_subset(&'a self, local_subset: &'a [usize]) -> Self {
+    fn with_custom_subset(&'a self, custom_subset: &'a [usize]) -> Self {
         Self {
-            local_subset: Some(local_subset),
-            ..*self
+            cur_subset: EvalSubset::Part(custom_subset),
+            ..self.clone()
         }
+    }
+
+    fn with_global_subset(&'a self) -> Self {
+        Self {
+            cur_subset: self.global_subset.clone(),
+            ..self.clone()
+        }
+    }
+
+    fn iter(&self) -> EvalSubsetIter<'_> {
+        self.cur_subset.iter()
     }
 }
 
-// Auxiliary struct representing a current active subset
-struct ActiveSubset<'a> {
-    topology: &'a Topology,
-    state: &'a State,
-    subset: &'a [usize],
-}
 
-impl ActiveSubset<'_> {
+impl EvaluationContext<'_> {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
-        self.subset.iter().cloned().map(|i| unsafe {
+        self.iter().map(|i| unsafe {
             Particle {
                 id: i,
                 atom: self.topology.get_atom_unchecked(i),
@@ -263,58 +297,55 @@ impl ActiveSubset<'_> {
     }
 
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.subset
-            .iter()
-            .cloned()
+        self.iter()
             .map(|i| unsafe { (i, self.topology.get_atom_unchecked(i)) })
     }
 }
 
-impl PosIterProvider for ActiveSubset<'_> {
+impl PosIterProvider for EvaluationContext<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.subset
-            .iter()
-            .map(|i| unsafe { self.state.get_pos_unchecked(*i) })
+        self.iter()
+            .map(|i| unsafe { self.state.get_pos_unchecked(i) })
     }
 }
 
-impl LenProvider for ActiveSubset<'_> {
+impl LenProvider for EvaluationContext<'_> {
     fn len(&self) -> usize {
-        self.subset.len()
+        self.cur_subset.len()
     }
 }
 
-impl RandomPosProvider for ActiveSubset<'_> {
+impl RandomPosProvider for EvaluationContext<'_> {
     unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = *self.subset.get(i).unwrap();
+        let ind = self.cur_subset.get_unchecked(i);
         self.state.get_pos_unchecked(ind)
     }
 }
 
-impl AtomIterProvider for ActiveSubset<'_> {
+impl AtomIterProvider for EvaluationContext<'_> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.subset
+        self
             .iter()
-            .map(|i| unsafe { self.topology.get_atom_unchecked(*i) })
+            .map(|i| unsafe { self.topology.get_atom_unchecked(i) })
     }
 }
 
-impl RandomAtomProvider for ActiveSubset<'_> {
+impl RandomAtomProvider for EvaluationContext<'_> {
     unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = *self.subset.get(i).unwrap();
+        let ind = self.cur_subset.get_unchecked(i);
         self.topology.get_atom_unchecked(ind)
     }
 }
 
-impl BoxProvider for ActiveSubset<'_> {
+impl BoxProvider for EvaluationContext<'_> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.state.get_box()
     }
 }
 
-impl MeasurePos for ActiveSubset<'_> {}
-impl MeasureMasses for ActiveSubset<'_> {}
-impl MeasurePeriodic for ActiveSubset<'_> {}
+impl MeasurePos for EvaluationContext<'_> {}
+impl MeasureMasses for EvaluationContext<'_> {}
+impl MeasurePeriodic for EvaluationContext<'_> {}
 
 //###################################
 //#  AST nodes logic implementation
@@ -353,9 +384,9 @@ impl VectorNode {
             Self::Com(inner, dims) => {
                 let res = inner.apply(data)?;
                 let v = if *dims == PBC_NONE {
-                    data.custom_subset(&res).center_of_mass()?
+                    data.with_custom_subset(&res).center_of_mass()?
                 } else {
-                    data.custom_subset(&res).center_of_mass_pbc_dims(*dims)?
+                    data.with_custom_subset(&res).center_of_mass_pbc_dims(*dims)?
                 };
                 *self = Self::Const(v);
                 self.get_vec(data)
@@ -363,9 +394,9 @@ impl VectorNode {
             Self::Cog(inner, dims) => {
                 let res = inner.apply(data)?;
                 let v = if *dims == PBC_NONE {
-                    data.custom_subset(&res).center_of_geometry()
+                    data.with_custom_subset(&res).center_of_geometry()
                 } else {
-                    data.custom_subset(&res)
+                    data.with_custom_subset(&res)
                         .center_of_geometry_pbc_dims(*dims)?
                 };
                 *self = Self::Const(v);
@@ -412,14 +443,14 @@ impl LogicalNode {
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
-        let sub = data.custom_subset(inner);
+        let sub = data.with_custom_subset(inner);
         for at in sub.iter_atoms() {
             properties.insert(*prop_fn(at));
         }
 
         let mut res = vec![];
         // Now loop over *global* subset and add all atoms with the same property
-        let sub = data.global_subset();
+        let sub = data.with_global_subset();
         for (i, at) in sub.iter_ind_atom() {
             let cur_prop = prop_fn(at);
             if properties.contains(cur_prop) {
@@ -427,6 +458,33 @@ impl LogicalNode {
             }
         }
         res
+    }
+}
+
+use std::fmt;
+
+impl fmt::Debug for LogicalNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LogicalNode::Precomputed(v) => {
+                if v.len() > 10 {
+                    write!(f, "Precomputed {:?}...", &v[..10])
+                } else {
+                    write!(f, "Precomputed {:?}", v)
+                }
+            }
+
+            LogicalNode::Not(a) => f.debug_tuple("Not").field(a).finish(),
+            LogicalNode::Or(a, b) => f.debug_tuple("Or").field(a).field(b).finish(),
+            LogicalNode::And(a, b) => f.debug_tuple("And").field(a).field(b).finish(),
+            LogicalNode::Keyword(k) => f.debug_tuple("Keyword").field(k).finish(),
+            LogicalNode::Comparison(c) => f.debug_tuple("Comparison").field(c).finish(),
+            LogicalNode::Same(attr, n) => f.debug_tuple("Same").field(attr).field(n).finish(),
+            LogicalNode::Within(p, n) => f.debug_tuple("Within").field(p).field(n).finish(),
+            LogicalNode::WithinPoint(p, v) => f.debug_tuple("WithinPoint").field(p).field(v).finish(),
+            LogicalNode::All => f.write_str("All"),
+            LogicalNode::Chemical(c) => f.debug_tuple("Chemical").field(c).finish(),
+        }
     }
 }
 
@@ -452,7 +510,7 @@ impl Evaluate for LogicalNode {
 
             Self::Not(node) => {
                 // Here we always use global subset!
-                let set1 = FxHashSet::from_iter(data.global_subset.into_iter().cloned());
+                let set1 = FxHashSet::from_iter(data.iter());
                 let set2 = FxHashSet::from_iter(node.apply(data)?.into_iter().cloned());
                 let res = set1.difference(&set2).cloned().collect();
                 
@@ -480,8 +538,8 @@ impl Evaluate for LogicalNode {
             Self::And(a, b) => {
                 let a_res = a.apply(data)?;
                 // Create new instance of data and set a context subset to
-                // the result of a
-                let b_data = data.clone_with_local_subset(&a_res);
+                // the result of a.
+                let b_data = data.with_custom_subset(&a_res);
 
                 let set1 = FxHashSet::from_iter(a_res.iter().cloned());
                 let set2 = FxHashSet::from_iter(b.apply(&b_data)?.into_iter().cloned());
@@ -528,11 +586,11 @@ impl Evaluate for LogicalNode {
 
             Self::Within(params, node) => {
                 // Inner expr have to be evaluated in global context!
-                let glob_data = data.clone_with_local_subset(&data.global_subset);
+                let glob_data = data.with_global_subset();
                 let inner_res = node.apply(&glob_data)?;
 
-                let sub1 = data.current_subset();
-                let sub2 = data.custom_subset(&inner_res);
+                let sub1 = data;
+                let sub2 = data.with_custom_subset(&inner_res);
                 // Perform distance search
                 let mut res: Vec<usize> = if params.pbc == PBC_NONE {
                     // Non-periodic variant
@@ -543,10 +601,10 @@ impl Evaluate for LogicalNode {
 
                     distance_search_within(
                         params.cutoff,
-                        &sub1,
+                        sub1,
                         &sub2,
-                        sub1.subset.iter().cloned(),
-                        sub2.subset.iter().cloned(),
+                        sub1.iter(),
+                        sub2.iter(),
                         &lower,
                         &upper,
                     )
@@ -554,10 +612,10 @@ impl Evaluate for LogicalNode {
                     // Periodic variant
                     distance_search_within_pbc(
                         params.cutoff,
-                        &sub1,
+                        sub1,
                         &sub2,
-                        sub1.subset.iter().cloned(),
-                        sub2.subset.iter().cloned(),
+                        sub1.iter(),
+                        sub2.iter(),
                         data.state.require_box()?,
                         params.pbc,
                     )
@@ -571,7 +629,7 @@ impl Evaluate for LogicalNode {
             }
 
             Self::WithinPoint(prop, point) => {
-                let sub1 = data.global_subset();
+                let sub1 = data.with_global_subset();
                 let pvec = point.get_vec(data)?;
                 // Perform distance search
                 let res: Vec<usize> = if prop.pbc == PBC_NONE {
@@ -584,7 +642,7 @@ impl Evaluate for LogicalNode {
                         prop.cutoff,
                         &sub1,
                         pvec,
-                        sub1.subset.iter().cloned(),
+                        sub1.iter(),
                         0..1,
                         &lower,
                         &upper,
@@ -595,7 +653,7 @@ impl Evaluate for LogicalNode {
                         prop.cutoff,
                         &sub1,
                         pvec,
-                        sub1.subset.iter().cloned(),
+                        sub1.iter(),
                         0..1,
                         data.state.require_box()?,
                         prop.pbc,
@@ -605,7 +663,7 @@ impl Evaluate for LogicalNode {
             }
 
             // All always works in global subset
-            Self::All => Ok(Cow::from(data.global_subset)),
+            Self::All => Ok(Cow::from_iter(data.with_global_subset().iter())),
 
             Self::Chemical(c) => { 
                 *self = Self::Precomputed(c.apply(data)?.into_owned());
@@ -681,11 +739,11 @@ impl Evaluate for ChemicalNode {
 
     fn apply(&mut self, data: &EvaluationContext)
             -> Result<Cow<'_, [usize]>, SelectionParserError> {
-        let sub = data.current_subset();
+        
         let mut res = vec![];
         match self {
             Self::Protein => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if Self::is_protein(at) {
                         res.push(i)
                     }
@@ -693,7 +751,7 @@ impl Evaluate for ChemicalNode {
             }
 
             Self::Backbone => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if Self::is_backbone(at) {
                         res.push(i)
                     }
@@ -701,7 +759,7 @@ impl Evaluate for ChemicalNode {
             }
 
             Self::Sidechain => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if Self::is_sidechain(at) {
                         res.push(i)
                     }
@@ -709,7 +767,7 @@ impl Evaluate for ChemicalNode {
             }
 
             Self::Water => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if Self::is_water(at) {
                         res.push(i)
                     }
@@ -717,7 +775,7 @@ impl Evaluate for ChemicalNode {
             }
 
             Self::NotWater => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if !Self::is_water(at) {
                         res.push(i)
                     }
@@ -725,7 +783,7 @@ impl Evaluate for ChemicalNode {
             }
 
             Self::Hydrogen => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if Self::is_hydrogen(at) {
                         res.push(i)
                     }
@@ -733,7 +791,7 @@ impl Evaluate for ChemicalNode {
             }
 
             Self::NotHydrogen => {
-                for (i, at) in sub.iter_ind_atom() {
+                for (i, at) in data.iter_ind_atom() {
                     if !Self::is_hydrogen(at) {
                         res.push(i)
                     }
@@ -770,8 +828,8 @@ impl KeywordNode {
         f: fn(&Atom) -> &String,
     ) -> Vec<usize> {
         let mut res = vec![];
-        let sub = data.current_subset();
-        for (ind, a) in sub.iter_ind_atom() {
+        
+        for (ind, a) in data.iter_ind_atom() {
             for arg in args {
                 match arg {
                     StrKeywordArg::Str(s) => {
@@ -799,8 +857,8 @@ impl KeywordNode {
         f: fn(&Atom, usize) -> isize,
     ) -> Vec<usize> {
         let mut res = vec![];
-        let sub = data.current_subset();
-        for (ind, a) in sub.iter_ind_atom() {
+        
+        for (ind, a) in data.iter_ind_atom() {
             for arg in args {
                 match *arg {
                     IntKeywordArg::Int(v) => {
@@ -838,8 +896,8 @@ impl Evaluate for KeywordNode {
             Self::Index(args) => self.map_int_args(data, args, |_a, i| i as isize),
             Self::Chain(args) => {
                 let mut res = vec![];
-                let sub = data.current_subset();
-                for (i, a) in sub.iter_ind_atom() {
+                
+                for (i, a) in data.iter_ind_atom() {
                     for c in args {
                         if *c == a.chain {
                             res.push(i);
@@ -996,9 +1054,8 @@ impl ComparisonNode {
         op: fn(f32, f32) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> {
         let mut res = vec![];
-        let sub = data.current_subset();
-
-        for p in sub.iter_particle() {
+        
+        for p in data.iter_particle() {
             if op(v1.eval(p.id, data)?, v2.eval(p.id, data)?) {
                 res.push(p.id);
             }
@@ -1015,9 +1072,8 @@ impl ComparisonNode {
         op2: fn(f32, f32) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> {
         let mut res = vec![];
-        let sub = data.current_subset();
-
-        for p in sub.iter_particle() {
+        
+        for p in data.iter_particle() {
             let mid = v2.eval(p.id, data)?;
             if op1(v1.eval(p.id, data)?, mid) && op2(mid, v3.eval(p.id, data)?) {
                 res.push(p.id);
