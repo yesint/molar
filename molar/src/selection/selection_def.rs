@@ -112,7 +112,7 @@ impl SelectionDef for std::ops::RangeInclusive<usize> {
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
-            Err(SelectionError::EmptyRange(*self.start(),*self.end()))
+            Err(SelectionError::EmptyRange)
         } else {
             let (b, e) = self.into_inner();
             (b..e + 1).into_sel_index(top, st, subset)

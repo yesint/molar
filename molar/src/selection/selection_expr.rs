@@ -68,7 +68,6 @@ impl SelectionExpr {
         let mut ast = self.ast.borrow_mut();
         //println!("BEFORE:\n{ast:#?}\n");
         let ind = ast.apply(&data)?.into_owned();
-        //println!("AFTER:\n{ast:#?}\n");
         Ok(SVec::from_unsorted(ind))
     }
 
@@ -81,7 +80,8 @@ impl SelectionExpr {
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvaluationContext::new(topology, state, Some(subset))?;
         let mut ast = self.ast.borrow_mut();
-        Ok(SVec::from_iter(ast.apply(&data)?.iter().cloned()))
+        let ind = ast.apply(&data)?.into_owned();
+        Ok(SVec::from_unsorted(ind))
     }
 }
 
