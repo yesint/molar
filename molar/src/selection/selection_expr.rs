@@ -64,7 +64,7 @@ impl SelectionExpr {
         topology: &Topology,
         state: &State,
     ) -> Result<SVec, SelectionParserError> {
-        let data = super::ast::EvaluationContext::new_whole(topology, state)?;
+        let data = super::ast::EvaluationContext::new(topology, state, None)?;
         let mut ast = self.ast.borrow_mut();
         //println!("BEFORE:\n{ast:#?}\n");
         let ind = ast.apply(&data)?.into_owned();
@@ -79,7 +79,7 @@ impl SelectionExpr {
         state: &State,
         subset: &[usize],
     ) -> Result<SVec, SelectionParserError> {
-        let data = super::ast::EvaluationContext::new_part(topology, state, subset)?;
+        let data = super::ast::EvaluationContext::new(topology, state, Some(subset))?;
         let mut ast = self.ast.borrow_mut();
         Ok(SVec::from_iter(ast.apply(&data)?.iter().cloned()))
     }

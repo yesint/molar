@@ -190,7 +190,7 @@ enum EvalSubsetIter<'a> {
     Part(std::iter::Copied<std::slice::Iter<'a, usize>>),
 }
 
-impl<'a> Iterator for EvalSubsetIter<'a> {
+impl Iterator for EvalSubsetIter<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -232,37 +232,33 @@ pub(super) struct EvaluationContext<'a> {
     // Selection is completely within it.
     // Parser is never changing it.
     global_subset: EvalSubset<'a>,
+    // Current subset used by default
     cur_subset: EvalSubset<'a>,
 }
 
 impl<'a> EvaluationContext<'a> {
-    pub(super) fn new_whole(
+    pub(super) fn new(
         topology: &'a Topology,
         state: &'a State,
+        part: Option<&'a [usize]>,
     ) -> Result<Self, SelectionParserError> {
         check_topology_state_sizes(topology, state)?;
 
-        Ok(Self {
-            topology,
-            state,
-            global_subset: EvalSubset::Whole(0..state.len()),
-            cur_subset: EvalSubset::Whole(0..state.len()),
-        })
-    }
-
-    pub(super) fn new_part(
-        topology: &'a Topology,
-        state: &'a State,
-        part: &'a [usize],
-    ) -> Result<Self, SelectionParserError> {
-        check_topology_state_sizes(topology, state)?;
-
-        Ok(Self {
-            topology,
-            state,
-            global_subset: EvalSubset::Part(part),
-            cur_subset: EvalSubset::Part(part),
-        })
+        if part.is_none() {
+            Ok(Self {
+                topology,
+                state,
+                global_subset: EvalSubset::Whole(0..state.len()),
+                cur_subset: EvalSubset::Whole(0..state.len()),
+            })
+        } else {
+            Ok(Self {
+                topology,
+                state,
+                global_subset: EvalSubset::Part(part.unwrap()),
+                cur_subset: EvalSubset::Part(part.unwrap()),
+            })
+        }
     }
 
     fn with_custom_subset(&'a self, custom_subset: &'a [usize]) -> Self {
@@ -279,7 +275,7 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn iter(&self) -> EvalSubsetIter<'_> {
+    fn iter_index(&self) -> EvalSubsetIter<'_> {
         self.cur_subset.iter()
     }
 }
@@ -287,7 +283,7 @@ impl<'a> EvaluationContext<'a> {
 
 impl EvaluationContext<'_> {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
-        self.iter().map(|i| unsafe {
+        self.iter_index().map(|i| unsafe {
             Particle {
                 id: i,
                 atom: self.topology.get_atom_unchecked(i),
@@ -297,14 +293,14 @@ impl EvaluationContext<'_> {
     }
 
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.iter()
+        self.iter_index()
             .map(|i| unsafe { (i, self.topology.get_atom_unchecked(i)) })
     }
 }
 
 impl PosIterProvider for EvaluationContext<'_> {
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.iter()
+        self.iter_index()
             .map(|i| unsafe { self.state.get_pos_unchecked(i) })
     }
 }
@@ -325,7 +321,7 @@ impl RandomPosProvider for EvaluationContext<'_> {
 impl AtomIterProvider for EvaluationContext<'_> {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         self
-            .iter()
+            .iter_index()
             .map(|i| unsafe { self.topology.get_atom_unchecked(i) })
     }
 }
@@ -461,10 +457,8 @@ impl LogicalNode {
     }
 }
 
-use std::fmt;
-
-impl fmt::Debug for LogicalNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for LogicalNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LogicalNode::Precomputed(v) => {
                 if v.len() > 10 {
@@ -510,7 +504,7 @@ impl Evaluate for LogicalNode {
 
             Self::Not(node) => {
                 // Here we always use global subset!
-                let set1 = FxHashSet::from_iter(data.iter());
+                let set1 = FxHashSet::from_iter(data.iter_index());
                 let set2 = FxHashSet::from_iter(node.apply(data)?.into_iter().cloned());
                 let res = set1.difference(&set2).cloned().collect();
                 
@@ -603,8 +597,8 @@ impl Evaluate for LogicalNode {
                         params.cutoff,
                         sub1,
                         &sub2,
-                        sub1.iter(),
-                        sub2.iter(),
+                        sub1.iter_index(),
+                        sub2.iter_index(),
                         &lower,
                         &upper,
                     )
@@ -614,8 +608,8 @@ impl Evaluate for LogicalNode {
                         params.cutoff,
                         sub1,
                         &sub2,
-                        sub1.iter(),
-                        sub2.iter(),
+                        sub1.iter_index(),
+                        sub2.iter_index(),
                         data.state.require_box()?,
                         params.pbc,
                     )
@@ -642,7 +636,7 @@ impl Evaluate for LogicalNode {
                         prop.cutoff,
                         &sub1,
                         pvec,
-                        sub1.iter(),
+                        sub1.iter_index(),
                         0..1,
                         &lower,
                         &upper,
@@ -653,7 +647,7 @@ impl Evaluate for LogicalNode {
                         prop.cutoff,
                         &sub1,
                         pvec,
-                        sub1.iter(),
+                        sub1.iter_index(),
                         0..1,
                         data.state.require_box()?,
                         prop.pbc,
@@ -663,7 +657,7 @@ impl Evaluate for LogicalNode {
             }
 
             // All always works in global subset
-            Self::All => Ok(Cow::from_iter(data.with_global_subset().iter())),
+            Self::All => Ok(Cow::from_iter(data.with_global_subset().iter_index())),
 
             Self::Chemical(c) => { 
                 *self = Self::Precomputed(c.apply(data)?.into_owned());
