@@ -12,7 +12,7 @@ pub trait SelectionDef {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError>;
+    ) -> Result<SVec, SelectionError>;
 }
 
 impl SelectionDef for &SelectionExpr {
@@ -21,10 +21,13 @@ impl SelectionDef for &SelectionExpr {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {        
+    ) -> Result<SVec, SelectionError> {        
         let ind = match subset {
             None => self.apply_whole(top, st)?,
-            Some(sub) => self.apply_subset(top, st, sub)?,
+            Some(_) => {
+                // We can't apply existing expr to a subset
+                Err(SelectionError::SelDefInSubsel)?
+            }
         };
         if ind.is_empty() {
             Err(SelectionError::EmptyExpr(self.get_str().to_string()))
@@ -40,8 +43,17 @@ impl SelectionDef for &str {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
-        SelectionExpr::new(self)?.into_sel_index(top, st, subset)
+    ) -> Result<SVec, SelectionError> {
+        let expr = SelectionExpr::new(self)?;
+        let ind = match subset {
+            None => expr.apply_whole(top, st)?,
+            Some(sub) => expr.apply_subset(top, st, sub)?,
+        };
+        if ind.is_empty() {
+            Err(SelectionError::EmptyExpr(expr.get_str().to_string()))
+        } else {
+            Ok(ind)
+        }
     }
 }
 
@@ -51,7 +63,7 @@ impl SelectionDef for String {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         self.as_str().into_sel_index(top, st, subset)
     }
 }
@@ -62,7 +74,7 @@ impl SelectionDef for &String {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         self.as_str().into_sel_index(top, st, subset)
     }
 }
@@ -73,7 +85,7 @@ impl SelectionDef for std::ops::Range<usize> {
         top: &Topology,
         _st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         let n = match subset {
             None => top.len(),
             Some(sub) => sub.len(),
@@ -98,7 +110,7 @@ impl SelectionDef for std::ops::RangeInclusive<usize> {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
             Err(SelectionError::EmptyRange(*self.start(),*self.end()))
         } else {
@@ -114,13 +126,13 @@ impl SelectionDef for &[usize] {
         top: &Topology,
         _st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
             Err(SelectionError::EmptySlice)
         } else {            
             match subset {
                 None => {
-                    let v: SortedSet<usize> = self.to_vec().into();
+                    let v: SVec = self.to_vec().into();
                     let n = top.len();
                     if v[0] >= n || v[v.len()-1] >= n {
                         Err(SelectionError::IndexValidation(v[0], v[v.len()-1], n-1))
@@ -140,7 +152,7 @@ impl SelectionDef for &Vec<usize> {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         self.as_slice().into_sel_index(top, st, subset)
     }
 }
@@ -151,7 +163,7 @@ impl SelectionDef for Vec<usize> {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         self.as_slice().into_sel_index(top, st, subset)
     }
 }
@@ -162,7 +174,7 @@ impl SelectionDef for SVec {
         top: &Topology,
         _st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
             Err(SelectionError::EmptySlice)
         } else {            
@@ -187,7 +199,7 @@ impl SelectionDef for &SVec {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         self.clone().into_sel_index(top, st, subset)
     }
 }
@@ -198,7 +210,7 @@ impl SelectionDef for Sel {
         top: &Topology,
         st: &State,
         subset: Option<&[usize]>,
-    ) -> Result<SortedSet<usize>, SelectionError> {
+    ) -> Result<SVec, SelectionError> {
         self.0.into_sel_index(top, st, subset)
     }
 }

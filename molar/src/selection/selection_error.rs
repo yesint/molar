@@ -97,7 +97,7 @@ pub enum SelectionError {
     #[error("gromacs ndx error")]
     Ndx(#[from] NdxError),
 
-    #[error("selection as a definition for subselecting is ambigous")]
+    #[error("selection expr is not allowed as a definition for subselecting")]
     SelDefInSubsel,
 
     #[error("can't make par_split from overlapping selections")]
