@@ -1,4 +1,4 @@
-use rayon::iter::IndexedParallelIterator;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 
 use crate::prelude::*;
 
@@ -38,23 +38,42 @@ pub trait IndexProvider: LenProvider {
     }
 }
 
+/// Trait for entities that contain continuous slices of indices (selections and such)
+pub trait IndexSliceProvider {
+    // Provides *sorted* indexes as slice
+    fn get_index_slice(&self) -> &[usize];
+}
+
+impl<T: IndexSliceProvider> LenProvider for T {
+    fn len(&self) -> usize {
+        self.get_index_slice().len()
+    }
+}
+
+impl<T: IndexSliceProvider> IndexProvider for T {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        *self.get_index_slice().get_unchecked(i)
+    }
+
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
+        self.get_index_slice().into_iter().cloned()
+    }
+}
+
+impl<T: IndexSliceProvider> IndexParProvider for T {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        self.get_index_slice().par_iter().cloned()
+    }
+}
+
+/// Trair for parallel iteration over indexes
 pub trait IndexParProvider: LenProvider {
     fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize>;
 }
 
-impl LenProvider for SVec {
-    fn len(&self) -> usize {
-        Vec::len(self)
-    }
-}
-
-impl IndexProvider for SVec {
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.iter().cloned()
-    }
-
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        i
+impl IndexSliceProvider for SVec {
+    fn get_index_slice(&self) -> &[usize] {
+        self.as_slice()
     }
 }
 

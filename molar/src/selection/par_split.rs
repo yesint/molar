@@ -21,39 +21,15 @@ impl<'a> SelPar<'a> {
 unsafe impl Sync for SelPar<'_> {}
 unsafe impl Send for SelPar<'_> {}
 
-impl LenProvider for SelPar<'_> {
-    fn len(&self) -> usize {
-        self.index.len()
+impl IndexSliceProvider for SelPar<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
     }
 }
 
-impl IndexProvider for SelPar<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index.get_unchecked(i)
-    }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
-    }
-}
-
-impl AtomPosAnalysis for SelPar<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
-        unsafe{ (*self.sys).top.atoms.as_ptr()}
-    }
-
-    fn coords_ptr(&self) -> *const Pos {
-        unsafe{ (*self.sys).st.coords.as_ptr()}
-    }
-}
-
-impl NonAtomPosAnalysis for SelPar<'_> {
-    fn top_ptr(&self) -> *const Topology {
-        unsafe{ &raw const (*self.sys).top }
-    }
-
-    fn st_ptr(&self) -> *const State {
-        unsafe{ &raw const (*self.sys).st }
+impl SystemProvider for SelPar<'_> {
+    fn get_system(&self) -> *const System {
+        self.sys
     }
 }
 
@@ -78,55 +54,22 @@ impl<'a> SelParMut<'a> {
 unsafe impl Sync for SelParMut<'_> {}
 unsafe impl Send for SelParMut<'_> {}
 
-impl LenProvider for SelParMut<'_> {
-    fn len(&self) -> usize {
-        self.index.len()
+impl IndexSliceProvider for SelParMut<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
     }
 }
 
-impl IndexProvider for SelParMut<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index.get_unchecked(i)
-    }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
+impl SystemProvider for SelParMut<'_> {
+    fn get_system(&self) -> *const System {
+        self.sys
     }
 }
 
-impl AtomPosAnalysis for SelParMut<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
-        unsafe{ (*self.sys).top.atoms.as_ptr()}
-    }
+// Mutable access to coords and atoms is allowed
+impl AtomPosAnalysisMut for SelParMut<'_> {}
+// NonAtomPosAnalysisMut is NOT implemeneted to avoid races!
 
-    fn coords_ptr(&self) -> *const Pos {
-        unsafe{ (*self.sys).st.coords.as_ptr()}
-    }
-}
-
-impl AtomPosAnalysisMut for SelParMut<'_> {
-    fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        // This creates temp &sys for each parallel selection
-        // since no &mut sys is ever created this is fine
-        unsafe{ (*self.sys).top.atoms.as_ptr() as *mut Atom }
-    }
-
-    fn coords_ptr_mut(&mut self) -> *mut Pos {
-        // This creates temp &sys for each parallel selection
-        // since no &mut sys is ever created this is fine
-        unsafe{ (*self.sys).st.coords.as_ptr() as *mut Pos }
-    }
-}
-
-impl NonAtomPosAnalysis for SelParMut<'_> {
-    fn top_ptr(&self) -> *const Topology {
-        unsafe{ &raw const (*self.sys).top }
-    }
-
-    fn st_ptr(&self) -> *const State {
-        unsafe{ &raw const (*self.sys).st }
-    }
-}
 //============================================================================
 /// Collection of non-overlapping selections that could be mutated in parallel
 /// Selections don't have access to shared fields such as box and bonds.

@@ -59,7 +59,7 @@ impl SelectionExpr {
     }
 
     /// Applies the selection expression to all atoms in the system
-    pub(crate) fn apply_whole(
+    pub(super) fn apply_whole(
         &self,
         topology: &Topology,
         state: &State,
@@ -72,7 +72,7 @@ impl SelectionExpr {
     }
 
     /// Applies the selection expression to a subset of atoms
-    pub(crate) fn apply_subset(
+    pub(super) fn apply_subset(
         &self,
         topology: &Topology,
         state: &State,

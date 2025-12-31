@@ -18,10 +18,11 @@ pub(crate) fn check_topology_state_sizes(
 // Operations on sorted vectors
 //------------------------------
 
-/// Computes the union of two sorted sets
+/// Computes the union of two sorted slices
+/// No check is performed if they are indeed sorted!
 ///
 /// Returns a new set containing all elements that are in either set
-pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T>) -> SortedSet<T> {
+pub(crate) unsafe fn union_sorted<T: Ord + Clone + Copy>(lhs: &[T], rhs: &[T]) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
 
@@ -53,9 +54,9 @@ pub fn union_sorted<T: Ord + Clone + Copy>(lhs: &SortedSet<T>, rhs: &SortedSet<T
 /// Computes the intersection of two sorted sets
 ///
 /// Returns a new set containing elements that appear in both sets
-pub fn intersection_sorted<T: Ord + Clone + Copy>(
-    lhs: &SortedSet<T>,
-    rhs: &SortedSet<T>,
+pub(crate) unsafe fn intersection_sorted<T: Ord + Clone + Copy>(
+    lhs: &[T],
+    rhs: &[T],
 ) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
@@ -84,9 +85,9 @@ pub fn intersection_sorted<T: Ord + Clone + Copy>(
 /// Computes the difference between two sorted sets
 ///
 /// Returns a new set containing elements from the first set that do not appear in the second set
-pub fn difference_sorted<T: Ord + Clone + Copy>(
-    lhs: &SortedSet<T>,
-    rhs: &SortedSet<T>,
+pub(crate) unsafe fn difference_sorted<T: Ord + Clone + Copy>(
+    lhs: &[T],
+    rhs: &[T],
 ) -> SortedSet<T> {
     let mut l = 0;
     let mut r = 0;
@@ -141,7 +142,7 @@ mod tests {
     fn test_union_sorted() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 3, 5, 7, 10, 12]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3, 6, 8]);
-        let result = union_sorted(&set1, &set2);
+        let result = unsafe{unsafe{union_sorted(&set1, &set2)}};
         let expected: SortedSet<usize> =
             SortedSet::from_unsorted(vec![1, 2, 3, 5, 6, 7, 8, 10, 12]);
         assert_eq!(result, expected);
@@ -151,7 +152,7 @@ mod tests {
     fn test_union_sorted_empty() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
-        let result = union_sorted(&set1, &set2);
+        let result = unsafe{union_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
         assert_eq!(result, expected);
     }
@@ -160,7 +161,7 @@ mod tests {
     fn test_union_sorted_disjoint() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![4, 5, 6]);
-        let result = union_sorted(&set1, &set2);
+        let result = unsafe{union_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3, 4, 5, 6]);
         assert_eq!(result, expected);
     }
@@ -169,7 +170,7 @@ mod tests {
     fn test_union_sorted_subset() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3]);
-        let result = union_sorted(&set1, &set2);
+        let result = unsafe{union_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         assert_eq!(result, expected);
     }
@@ -178,7 +179,7 @@ mod tests {
     fn test_intersection_sorted() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 3, 5, 7, 10, 12]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3, 6, 7, 10]);
-        let result = intersection_sorted(&set1, &set2);
+        let result = unsafe{intersection_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![3, 7, 10]);
         assert_eq!(result, expected);
     }
@@ -187,7 +188,7 @@ mod tests {
     fn test_intersection_sorted_empty() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![4, 5, 6]);
-        let result = intersection_sorted(&set1, &set2);
+        let result = unsafe{intersection_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
         println!("{:?}", result);
         assert_eq!(result, expected);
@@ -197,7 +198,7 @@ mod tests {
     fn test_intersection_sorted_subset() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3, 4, 5]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3]);
-        let result = intersection_sorted(&set1, &set2);
+        let result = unsafe{intersection_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3]);
         assert_eq!(result, expected);
     }
@@ -206,7 +207,7 @@ mod tests {
     fn test_intersection_sorted_identical() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
-        let result = intersection_sorted(&set1, &set2);
+        let result = unsafe{intersection_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         assert_eq!(result, expected);
     }
@@ -215,7 +216,7 @@ mod tests {
     fn test_difference_sorted() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![3, 5, 7, 10, 12, 13]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3, 6, 7, 10]);
-        let result = difference_sorted(&set1, &set2);
+        let result = unsafe{difference_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![5, 12, 13]);
         assert_eq!(result, expected);
     }
@@ -224,7 +225,7 @@ mod tests {
     fn test_difference_sorted_empty() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
-        let result = difference_sorted(&set1, &set2);
+        let result = unsafe{difference_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         assert_eq!(result, expected);
     }
@@ -233,7 +234,7 @@ mod tests {
     fn test_difference_sorted_subset() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3, 4, 5]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3]);
-        let result = difference_sorted(&set1, &set2);
+        let result = unsafe{difference_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 4, 5]);
         assert_eq!(result, expected);
     }
@@ -242,7 +243,7 @@ mod tests {
     fn test_difference_sorted_identical() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 2, 3, 5]);
-        let result = difference_sorted(&set1, &set2);
+        let result = unsafe{difference_sorted(&set1, &set2)};
         let expected: SortedSet<usize> = SortedSet::from_unsorted(vec![]);
         assert_eq!(result, expected);
     }

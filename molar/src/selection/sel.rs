@@ -1,6 +1,6 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 
-use crate::prelude::*;
+use crate::{prelude::*, selection::utils::{difference_sorted, intersection_sorted, union_sorted}};
 
 //===========================================================================
 /// Selection index detached from any [System].
@@ -35,25 +35,16 @@ impl Sel {
     }
 }
 
-impl LenProvider for Sel {
-    fn len(&self) -> usize {
-        self.0.len()
+impl IndexSliceProvider for Sel {
+    fn get_index_slice(&self) -> &[usize] {
+        self.0.as_slice()
     }
 }
 
-impl IndexProvider for Sel {
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.0.iter().cloned()
-    }
-
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.0.get_unchecked(i)
-    }
-}
-
-impl IndexParProvider for Sel {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
-        self.0.par_iter().cloned()
+impl SelectionLogic for Sel {
+    type DerivedSel = Sel;
+    fn clone_with_index(&self, index: SVec) -> Self::DerivedSel {
+        Sel(index)
     }
 }
 
@@ -79,6 +70,16 @@ impl Selectable for SelOwnBound<'_> {
     }
 }
 
+impl<'a> SelectionLogic for SelOwnBound<'a> {
+    type DerivedSel = SelOwnBound<'a>;
+    fn clone_with_index(&self, index: SVec) -> Self::DerivedSel {
+        SelOwnBound {
+            sys: &self.sys,
+            index
+        }
+    }
+}
+
 impl SelOwnBound<'_> {
     /// Create new bound sub-selection based on provided definition.
     pub fn select_bound(&self, def: impl SelectionDef) -> Result<Self, SelectionError> {
@@ -88,7 +89,7 @@ impl SelOwnBound<'_> {
         })
     }
 
-    pub fn into_index(self) -> Sel {
+    pub fn into_unbound(self) -> Sel {
         Sel(self.index)
     }
 
@@ -115,45 +116,15 @@ impl SelOwnBound<'_> {
     }
 }
 
-impl LenProvider for SelOwnBound<'_> {
-    fn len(&self) -> usize {
-        self.index.len()
+impl IndexSliceProvider for SelOwnBound<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index.as_slice()
     }
 }
 
-impl IndexProvider for SelOwnBound<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index.get_unchecked(i)
-    }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
-    }
-}
-
-impl IndexParProvider for SelOwnBound<'_> {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
-        self.index.par_iter().cloned()
-    }
-}
-
-impl AtomPosAnalysis for SelOwnBound<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
-        self.sys.top.atoms.as_ptr()
-    }
-
-    fn coords_ptr(&self) -> *const Pos {
-        self.sys.st.coords.as_ptr()
-    }
-}
-
-impl NonAtomPosAnalysis for SelOwnBound<'_> {
-    fn top_ptr(&self) -> *const Topology {
-        &self.sys.top
-    }
-
-    fn st_ptr(&self) -> *const State {
-        &self.sys.st
+impl SystemProvider for SelOwnBound<'_> {
+    fn get_system(&self) -> *const System {
+        self.sys
     }
 }
 
@@ -183,7 +154,7 @@ impl Selectable for SelOwnBoundMut<'_> {
 
 impl SelOwnBoundMut<'_> {
     /// Create new sub-selection based on provided definition.
-    pub fn unbind(self) -> Sel {
+    pub fn into_unbound(self) -> Sel {
         Sel(self.index)
     }
 
@@ -196,65 +167,24 @@ impl SelOwnBoundMut<'_> {
     }
 }
 
-impl LenProvider for SelOwnBoundMut<'_> {
-    fn len(&self) -> usize {
-        self.index.len()
+impl IndexSliceProvider for SelOwnBoundMut<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index.as_slice()
     }
 }
 
-impl IndexProvider for SelOwnBoundMut<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index.get_unchecked(i)
-    }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
+impl SystemProvider for SelOwnBoundMut<'_> {
+    fn get_system(&self) -> *const System {
+        self.sys
     }
 }
 
-impl IndexParProvider for SelOwnBoundMut<'_> {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
-        self.index.par_iter().cloned()
-    }
-}
+impl SystemMutProvider for SelOwnBoundMut<'_> {}
 
-impl AtomPosAnalysis for SelOwnBoundMut<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
-        self.sys.top.atoms.as_ptr()
-    }
-
-    fn coords_ptr(&self) -> *const Pos {
-        self.sys.st.coords.as_ptr()
-    }
-}
-
-impl AtomPosAnalysisMut for SelOwnBoundMut<'_> {
-    fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        self.sys.top.atoms.as_mut_ptr()
-    }
-
-    fn coords_ptr_mut(&mut self) -> *mut Pos {
-        self.sys.st.coords.as_mut_ptr()
-    }
-}
-
-impl NonAtomPosAnalysis for SelOwnBoundMut<'_> {
-    fn st_ptr(&self) -> *const State {
-        &self.sys.st
-    }
-
-    fn top_ptr(&self) -> *const Topology {
-        &self.sys.top
-    }
-}
-
-impl NonAtomPosAnalysisMut for SelOwnBoundMut<'_> {
-    fn st_ptr_mut(&mut self) -> *mut State {
-        &mut self.sys.st
-    }
-
-    fn top_ptr_mut(&mut self) -> *mut Topology {
-        &mut self.sys.top
+impl SelectionLogic for SelOwnBoundMut<'_> {
+    type DerivedSel = Sel;
+    fn clone_with_index(&self, index: SVec) -> Self::DerivedSel {
+        Sel(index)
     }
 }
 
@@ -280,6 +210,16 @@ impl Selectable for SelBound<'_> {
     }
 }
 
+impl<'a> SelectionLogic for SelBound<'a> {
+    type DerivedSel = SelOwnBound<'a>;
+    fn clone_with_index(&self, index: SVec) -> Self::DerivedSel {
+        SelOwnBound {
+            sys: &self.sys,
+            index
+        }
+    }
+}
+
 impl SelBound<'_> {
     /// Create new owned sub-selection based on provided definition.
     pub fn select(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
@@ -299,45 +239,15 @@ impl SelBound<'_> {
     }
 }
 
-impl LenProvider for SelBound<'_> {
-    fn len(&self) -> usize {
-        self.index.len()
+impl IndexSliceProvider for SelBound<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
     }
 }
 
-impl IndexProvider for SelBound<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index.get_unchecked(i)
-    }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
-    }
-}
-
-impl IndexParProvider for SelBound<'_> {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
-        self.index.par_iter().cloned()
-    }
-}
-
-impl AtomPosAnalysis for SelBound<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
-        self.sys.top.atoms.as_ptr()
-    }
-
-    fn coords_ptr(&self) -> *const Pos {
-        self.sys.st.coords.as_ptr()
-    }
-}
-
-impl NonAtomPosAnalysis for SelBound<'_> {
-    fn top_ptr(&self) -> *const Topology {
-        &self.sys.top
-    }
-
-    fn st_ptr(&self) -> *const State {
-        &self.sys.st
+impl SystemProvider for SelBound<'_> {
+    fn get_system(&self) -> *const System {
+        self.sys
     }
 }
 
@@ -354,7 +264,7 @@ pub struct SelBoundMut<'a> {
 }
 
 impl Selectable for SelBoundMut<'_> {
-/// Create new unbound sub-selection based on provided definition.
+    /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
             &self.sys.top,
@@ -365,82 +275,33 @@ impl Selectable for SelBoundMut<'_> {
 }
 
 impl SelBoundMut<'_> {
-    /// Create new sub-selection based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
-        let index = def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?;
-        Ok(SelOwnBound {
-            index,
-            sys: &self.sys,
-        })
-    }
-
     pub fn clone_index(&self) -> Sel {
         Sel(SVec::from_iter(self.index.iter().cloned()))
     }
 }
 
-impl LenProvider for SelBoundMut<'_> {
-    fn len(&self) -> usize {
-        self.index.len()
+impl IndexSliceProvider for SelBoundMut<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
     }
 }
 
-impl IndexProvider for SelBoundMut<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
-        *self.index.get_unchecked(i)
-    }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.index.iter().cloned()
+impl SystemProvider for SelBoundMut<'_> {
+    fn get_system(&self) -> *const System {
+        self.sys
     }
 }
 
-impl IndexParProvider for SelBoundMut<'_> {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
-        self.index.par_iter().cloned()
+impl SystemMutProvider for SelBoundMut<'_> {}
+
+impl SelectionLogic for SelBoundMut<'_> {
+    type DerivedSel = Sel;
+    fn clone_with_index(&self, index: SVec) -> Self::DerivedSel {
+        Sel(index)
     }
 }
 
-impl AtomPosAnalysis for SelBoundMut<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
-        self.sys.top.atoms.as_ptr()
-    }
-
-    fn coords_ptr(&self) -> *const Pos {
-        self.sys.st.coords.as_ptr()
-    }
-}
-
-impl AtomPosAnalysisMut for SelBoundMut<'_> {
-    fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        self.sys.top.atoms.as_mut_ptr()
-    }
-
-    fn coords_ptr_mut(&mut self) -> *mut Pos {
-        self.sys.st.coords.as_mut_ptr()
-    }
-}
-
-impl NonAtomPosAnalysis for SelBoundMut<'_> {
-    fn st_ptr(&self) -> *const State {
-        &self.sys.st
-    }
-
-    fn top_ptr(&self) -> *const Topology {
-        &self.sys.top
-    }
-}
-
-impl NonAtomPosAnalysisMut for SelBoundMut<'_> {
-    fn st_ptr_mut(&mut self) -> *mut State {
-        &mut self.sys.st
-    }
-
-    fn top_ptr_mut(&mut self) -> *mut Topology {
-        &mut self.sys.top
-    }
-}
-
+//-------------------------------------------------------------------
 /// Convenience macro for binding several selections ar once
 #[macro_export]
 macro_rules! bind {
@@ -457,6 +318,32 @@ macro_rules! bind_mut {
         $(let $sel = $sys.bind_mut(&$sel);)+
         $body
     }}
+}
+
+// Operator overloads for selections
+impl std::ops::BitOr for &Sel {
+    type Output = Sel;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Sel(unsafe{union_sorted(&self.0, &rhs.0)})
+    }
+}
+
+impl std::ops::BitAnd for &Sel {
+    type Output = Sel;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let ind = unsafe{intersection_sorted(&self.0, &rhs.0)};
+        if ind.is_empty() { panic!("empty selection intersection") }
+        Sel(ind)
+    }
+}
+
+impl std::ops::Sub for &Sel {
+    type Output = Sel;
+    fn sub(self, rhs: Self) -> Self::Output {
+        let ind = unsafe{difference_sorted(&self.0, &rhs.0)};
+        if ind.is_empty() { panic!("empty selection difference") }
+        Sel(ind)
+    }
 }
 
 //====================================================================================
@@ -477,7 +364,7 @@ mod tests {
             println!("{} {}", at.name, at.resname);
         }
 
-        let ind = sel1.into_index();
+        let ind = sel1.into_unbound();
         for at in sys.try_bind_mut(&ind)?.iter_atoms_mut() {
             at.bfactor += 1.0;
         }

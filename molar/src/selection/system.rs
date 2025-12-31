@@ -1,8 +1,8 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
 
+use super::utils::check_topology_state_sizes;
 use crate::prelude::*;
 use std::path::Path;
-use super::utils::check_topology_state_sizes;
 
 //================================================
 /// System that stores Topology and State
@@ -132,7 +132,10 @@ impl System {
     }
 
     /// Returns mutable parallel iterator over parallel selections.
-    pub fn iter_par_split_mut<'a>(&'a mut self, par: &'a ParSplit) -> impl IndexedParallelIterator<Item = SelParMut<'a>> {
+    pub fn iter_par_split_mut<'a>(
+        &'a mut self,
+        par: &'a ParSplit,
+    ) -> impl IndexedParallelIterator<Item = SelParMut<'a>> {
         par.check_bounds(self);
         par.selections
             .par_iter()
@@ -140,7 +143,10 @@ impl System {
     }
 
     /// Returns parallel iterator over parallel selections.
-    pub fn iter_par_split<'a>(&'a mut self, par: &'a ParSplit) -> impl IndexedParallelIterator<Item = SelPar<'a>> {
+    pub fn iter_par_split<'a>(
+        &'a mut self,
+        par: &'a ParSplit,
+    ) -> impl IndexedParallelIterator<Item = SelPar<'a>> {
         par.check_bounds(self);
         par.selections
             .par_iter()
@@ -286,6 +292,14 @@ impl SaveTopology for System {}
 impl SaveState for System {}
 impl SaveTopologyState for System {}
 
+impl SystemProvider for System {
+    fn get_system(&self) -> *const System {
+        self
+    }
+}
+
+impl SystemMutProvider for System {}
+
 impl LenProvider for System {
     fn len(&self) -> usize {
         self.top.atoms.len()
@@ -305,46 +319,6 @@ impl IndexProvider for System {
 impl IndexParProvider for System {
     fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
         (0..self.len()).into_par_iter()
-    }
-}
-
-impl AtomPosAnalysis for System {
-    fn atoms_ptr(&self) -> *const Atom {
-        self.top.atoms.as_ptr()
-    }
-
-    fn coords_ptr(&self) -> *const Pos {
-        self.st.coords.as_ptr()
-    }
-}
-
-impl AtomPosAnalysisMut for System {
-    fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        self.top.atoms.as_mut_ptr()
-    }
-
-    fn coords_ptr_mut(&mut self) -> *mut Pos {
-        self.st.coords.as_mut_ptr()
-    }
-}
-
-impl NonAtomPosAnalysis for System {
-    fn top_ptr(&self) -> *const Topology {
-        &self.top
-    }
-
-    fn st_ptr(&self) -> *const State {
-        &self.st
-    }
-}
-
-impl NonAtomPosAnalysisMut for System {
-    fn top_ptr_mut(&mut self) -> *mut Topology {
-        &mut self.top
-    }
-
-    fn st_ptr_mut(&mut self) -> *mut State {
-        &mut self.st
     }
 }
 

@@ -37,9 +37,6 @@ pub enum SelectionError {
     #[error("can't set incompatible topology")]
     IncompatibleTopology,
 
-    #[error("can't release source with multiple active references")]
-    Release,
-
     #[error("selection slice is empty")]
     EmptySlice,
 
@@ -58,8 +55,8 @@ pub enum SelectionError {
     #[error("selection difference is empy")]
     EmptyDifference,
 
-    #[error("selection complement is empy")]
-    EmptyComplement,
+    #[error("selection inversion is empy")]
+    EmptyInvert,
 
     #[error(transparent)]
     PeriodicBox(#[from] PeriodicBoxError),
@@ -69,13 +66,4 @@ pub enum SelectionError {
 
     #[error("selection expr is not allowed as a definition for subselecting")]
     SelDefInSubsel,
-}
-
-/// Errors related to accessing selection indexes
-#[derive(Error, Debug)]
-pub enum SelectionIndexError {
-    #[error("selection index is empty")]
-    IndexEmpty,
-    #[error("selection indeces {0}:{1} are out of allowed range 0:{2}")]
-    IndexOutOfBounds(usize, usize, usize),
 }

@@ -296,15 +296,7 @@ impl AtomPosAnalysis for SystemPy {
     }
 }
 
-impl AtomPosAnalysisMut for SystemPy {
-    fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        Python::attach(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
-    }
-
-    fn coords_ptr_mut(&mut self) -> *mut Pos {
-        Python::attach(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
-    }
-}
+impl AtomPosAnalysisMut for SystemPy {}
 
 impl NonAtomPosAnalysis for SystemPy {
     fn top_ptr(&self) -> *const Topology {
@@ -316,15 +308,7 @@ impl NonAtomPosAnalysis for SystemPy {
     }
 }
 
-impl NonAtomPosAnalysisMut for SystemPy {
-    fn st_ptr_mut(&mut self) -> *mut State {
-        Python::attach(|py: Python<'_>| &mut self.st.borrow_mut(py).0 as *mut State)
-    }
-
-    fn top_ptr_mut(&mut self) -> *mut Topology {
-        Python::attach(|py| &mut self.top.borrow_mut(py).0 as *mut Topology)
-    }
-}
+impl NonAtomPosAnalysisMut for SystemPy {}
 
 impl SaveTopology for SystemPy {}
 impl SaveState for SystemPy {}
@@ -609,15 +593,7 @@ impl AtomPosAnalysis for SelPy {
     }
 }
 
-impl AtomPosAnalysisMut for SelPy {
-    fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        Python::attach(|py| self.top.borrow_mut(py).0.atoms.as_mut_ptr())
-    }
-
-    fn coords_ptr_mut(&mut self) -> *mut Pos {
-        Python::attach(|py| self.st.borrow_mut(py).0.coords.as_mut_ptr())
-    }
-}
+impl AtomPosAnalysisMut for SelPy {}
 
 impl NonAtomPosAnalysis for SelPy {
     fn top_ptr(&self) -> *const Topology {
@@ -629,15 +605,7 @@ impl NonAtomPosAnalysis for SelPy {
     }
 }
 
-impl NonAtomPosAnalysisMut for SelPy {
-    fn st_ptr_mut(&mut self) -> *mut State {
-        Python::attach(|py| &mut self.st.borrow_mut(py).0 as *mut State)
-    }
-
-    fn top_ptr_mut(&mut self) -> *mut Topology {
-        Python::attach(|py| &mut self.top.borrow_mut(py).0 as *mut Topology)
-    }
-}
+impl NonAtomPosAnalysisMut for SelPy {}
 
 impl SaveTopology for SelPy {}
 impl SaveState for SelPy {}

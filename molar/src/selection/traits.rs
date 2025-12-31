@@ -1,6 +1,6 @@
 use rayon::iter::IndexedParallelIterator;
-
-use crate::prelude::*;
+use rustc_hash::FxHashSet;
+use crate::{prelude::*, selection::utils::{difference_sorted, intersection_sorted, union_sorted}};
 
 /// Trait for objects that support selecting from
 pub trait Selectable {
@@ -217,19 +217,28 @@ pub trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
 //================================================
 /// Umbrella trait for implementing read-write analysis traits involving atoms and positions
 //================================================
-pub trait AtomPosAnalysisMut: LenProvider + IndexProvider + Sized {
+pub trait AtomPosAnalysisMut: AtomPosAnalysis {
     // Raw pointer to the beginning of array of atoms
-    fn atoms_ptr_mut(&mut self) -> *mut Atom;
+    fn atoms_ptr_mut(&mut self) -> *mut Atom {
+        self.atoms_ptr() as *mut Atom
+    }
     // Raw pointer to the beginning of array of coords
-    fn coords_ptr_mut(&mut self) -> *mut Pos;
+    fn coords_ptr_mut(&mut self) -> *mut Pos {
+        self.coords_ptr() as *mut Pos
+    }
 }
 
 //================================================
 /// Umbrella trait for implementing read-write analysis traits NOT involving atoms and positions
 //================================================
-pub trait NonAtomPosAnalysisMut: Sized {
-    fn top_ptr_mut(&mut self) -> *mut Topology;
-    fn st_ptr_mut(&mut self) -> *mut State;
+pub trait NonAtomPosAnalysisMut: NonAtomPosAnalysis {
+    fn top_ptr_mut(&mut self) -> *mut Topology {
+        self.top_ptr() as *mut Topology
+    }
+    
+    fn st_ptr_mut(&mut self) -> *mut State {
+        self.st_ptr() as *mut State
+    }
 }
 
 //═══════════════════════════════════════════════════════════
@@ -504,3 +513,79 @@ impl<T: AtomPosAnalysis> MeasureRandomAccess for T {}
 impl<T: AtomPosAnalysisMut> ModifyPos for T {}
 impl<T: AtomPosAnalysisMut + NonAtomPosAnalysis> ModifyPeriodic for T {}
 impl<T: AtomPosAnalysisMut + AtomPosAnalysis + NonAtomPosAnalysis> ModifyRandomAccess for T {}
+
+//=============================================================================
+/// Trait for things containing reference to System (mostly selections)
+pub trait SystemProvider {
+    fn get_system(&self) -> *const System;
+}
+
+impl<T: SystemProvider + IndexProvider> AtomPosAnalysis for T {
+    fn atoms_ptr(&self) -> *const Atom {
+        unsafe {(&*self.get_system()).top.atoms.as_ptr()}
+    }
+
+    fn coords_ptr(&self) -> *const Pos {
+        unsafe {(&*self.get_system()).st.coords.as_ptr()}
+    }
+}
+
+impl<T: SystemProvider + IndexProvider> NonAtomPosAnalysis for T {
+    fn st_ptr(&self) -> *const State {
+        unsafe {&(*self.get_system()).st}
+    }
+
+    fn top_ptr(&self) -> *const Topology {
+        unsafe {&(*self.get_system()).top}
+    }
+}
+
+//=============================================================================
+/// Trait for things containing mut reference to System (mostly selections)
+pub trait SystemMutProvider: SystemProvider {
+    fn get_system_mut(&mut self) -> *mut System {
+        self.get_system() as *mut System
+    }
+}
+
+impl<T: SystemMutProvider + IndexProvider> AtomPosAnalysisMut for T {}
+impl<T: SystemMutProvider + IndexProvider> NonAtomPosAnalysisMut for T {}
+    
+//=============================================================================
+/// Trait for logical operations in any (borrowed or own) bound selections
+pub trait SelectionLogic: IndexSliceProvider {
+    type DerivedSel;
+    fn clone_with_index(&self, index: SVec) -> Self::DerivedSel;
+
+    fn or(&self, rhs: &impl IndexSliceProvider) -> Self::DerivedSel {
+        let index = unsafe {union_sorted(self.get_index_slice(), rhs.get_index_slice())};
+        self.clone_with_index(index)
+    }
+
+    fn and(&self, rhs: &impl IndexSliceProvider) -> Result<Self::DerivedSel,SelectionError> {
+        let index = unsafe {intersection_sorted(self.get_index_slice(), rhs.get_index_slice())};
+        if index.is_empty() {
+            return Err(SelectionError::EmptyIntersection)
+        }
+        Ok(self.clone_with_index(index))
+    }
+
+    fn minus(&self, rhs: &impl IndexSliceProvider) -> Result<Self::DerivedSel,SelectionError> {
+        let index = unsafe {difference_sorted(self.get_index_slice(), rhs.get_index_slice())};
+        if index.is_empty() {
+            return Err(SelectionError::EmptyDifference)
+        }
+        Ok(self.clone_with_index(index))
+    }
+
+    fn invert(&self, rhs: &impl IndexSliceProvider) -> Result<Self::DerivedSel,SelectionError> 
+    where Self:  SystemProvider,
+    {   
+        let all = (0..unsafe{&*self.get_system()}.len()).into_iter().collect::<Vec<_>>();
+        let index = unsafe {difference_sorted(&all, rhs.get_index_slice())};
+        if index.is_empty() {
+            return Err(SelectionError::EmptyDifference)
+        }
+        Ok(self.clone_with_index(index))
+    }
+}
