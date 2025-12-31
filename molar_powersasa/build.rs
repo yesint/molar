@@ -8,14 +8,16 @@ fn main() {
         PathBuf::from(local_eigen)
     } else {
         // Unpack bundled eigen if not already unpacked
-        let dst = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("eigen/");
+        let dst = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../target/eigen/");
         let include_path = dst.join("eigen-3.4.0");
         if !include_path.exists() {
-            println!("cargo::warning=unpacking bundled Eigen headers...");
+            println!("cargo::warning=Unpacking bundled Eigen headers...");
             let tar_gz = File::open("eigen-3.4.0.tar.gz").unwrap();
             let tar = GzDecoder::new(tar_gz);
             let mut archive = Archive::new(tar);
             archive.unpack(dst).unwrap();
+        } else {
+            println!("cargo::warning=Bundled Eigen headers already unpacked.");
         }
         include_path
     };
