@@ -99,7 +99,7 @@ impl Membrane {
 
         // Load lipids from provided system
         for (name, descr) in options.lipids.iter() {
-            if let Ok(lips) = sys.bind(&source_sel).select(&descr.whole) {
+            if let Ok(lips) = sys.bind(&source_sel).select_bound(&descr.whole) {
                 // Split into individual lipids
                 let lips: Vec<_> = lips.split_resindex().collect();
 

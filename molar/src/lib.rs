@@ -17,6 +17,7 @@ mod providers;
 mod selection;
 mod state;
 mod topology;
+mod seq_align;
 
 pub mod io;
 pub mod voronoi_cell;

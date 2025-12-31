@@ -3,7 +3,6 @@ use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::iter::zip;
 use thiserror::Error;
@@ -119,7 +118,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
     fn fit_transform(
         &self,
         other: &impl MeasureMasses,
-    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> 
+    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
     where
         Self: Sized,
     {
@@ -138,10 +137,7 @@ pub trait MeasureMasses: PosIterProvider + MassIterProvider + LenProvider {
     }
 
     /// Calculates the mass-weighted Root Mean Square Deviation between two selections
-    fn rmsd_mw(
-        &self,
-        other: &impl MeasureMasses,
-    ) -> Result<f32, MeasureError>
+    fn rmsd_mw(&self, other: &impl MeasureMasses) -> Result<f32, MeasureError>
     where
         Self: Sized,
     {
@@ -582,43 +578,13 @@ where
     T1: AtomIterProvider,
     T2: AtomIterProvider,
 {
-    use bio::alignment::pairwise::*;
-    use bio::alignment::AlignmentOperation::*;
+    use crate::seq_align::*;
 
-    // rust_bio aligns sequences of u8, so we need to code atom names as u8 first
-    // make mapping
-    let mut name_to_u8 = HashMap::<&str, u8>::new();
-    let mut i: u8 = 0;
-    for name in seq1
-        .iter_atoms()
-        .chain(seq2.iter_atoms())
-        .map(|at| at.name.as_str())
-    {
-        if !name_to_u8.contains_key(name) {
-            name_to_u8.insert(name, i);
-            i += 1;
-        }
-    }
-    // Produce sequences
-    let x_seq = seq1
-        .iter_atoms()
-        .map(|at| name_to_u8[at.name.as_str()])
-        .collect::<Vec<_>>();
-    let y_seq = seq2
-        .iter_atoms()
-        .map(|at| name_to_u8[at.name.as_str()])
-        .collect::<Vec<_>>();
+    let x: Vec<&str> = seq1.iter_atoms().map(|a| a.name.as_str()).collect();
+    let y: Vec<&str> = seq2.iter_atoms().map(|a| a.name.as_str()).collect();
 
-    // Simple identity scoring function
-    let generic_score = |a: u8, b: u8| -> i32 {
-        if a == b {
-            1
-        } else {
-            -1
-        }
-    };
-
-    let alignment = Aligner::new(-10, -1, &generic_score).global(&x_seq, &y_seq);
+    let score = |a: &&str, b: &&str| if a == b { 1 } else { -1 };
+    let aln = global_align_affine(&x, &y, -10, -1, score);
 
     // Extract indexes of matched atoms
     let mut matches_x = Vec::new();
@@ -626,21 +592,20 @@ where
     let mut sel1_idx = 0;
     let mut sel2_idx = 0;
 
-    for op in alignment.operations.iter() {
+    for op in aln.operations.iter() {
         match op {
-            Match => {
+            AlignmentOperation::Match => {
                 matches_x.push(sel1_idx);
                 matches_y.push(sel2_idx);
                 sel1_idx += 1;
                 sel2_idx += 1;
             }
-            Subst => {
+            AlignmentOperation::Subst => {
                 sel1_idx += 1;
                 sel2_idx += 1;
             }
-            Del => sel2_idx += 1,     // gap in y
-            Ins => sel1_idx += 1,     // gap in x
-            Xclip(_) | Yclip(_) => {} // ignore soft clipping if present
+            AlignmentOperation::Del => sel2_idx += 1,     // gap in y
+            AlignmentOperation::Ins => sel1_idx += 1,     // gap in xgnore soft clipping if present
         }
     }
 
@@ -652,19 +617,16 @@ where
 /// account only matching atoms. The sequences of atom names from both
 /// selections are aligned first with Needleman–Wunsch Global Alignment algorithm
 /// and then only the matching atoms are used to compute a fit transform
-pub fn fit_transform_matching<T1, T2>(
-    sel1: &T1,
-    sel2: &T2,
-) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
-where
-    T1: AtomIterProvider + Sized,
-    T2: AtomIterProvider + Sized,
-{
-    // let (ind1, ind2) = matching_atom_names(sel1, sel2);
-    // let matched_sel1 = sel1.select(&ind1).unwrap();
-    // let matched_sel2 = sel2.select(&ind2).unwrap();
-    // fit_transform(&matched_sel1, &matched_sel2)
-    todo!()
+pub fn fit_transform_matching(
+    sel1: &(impl SystemProvider + IndexSliceProvider + Selectable),
+    sel2: &(impl SystemProvider + IndexSliceProvider + Selectable),
+) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+    // Returns *local* selection indices
+    let (ind1, ind2) = matching_atom_names(sel1, sel2);
+    let sys = unsafe{&*sel1.get_system_ptr()};
+    let matched_sel1 = sel1.select(ind1).unwrap();
+    let matched_sel2 = sel2.select(ind2).unwrap();
+    fit_transform(&sys.bind(&matched_sel1), &sys.bind(&matched_sel2))
 }
 
 /// Type of order parameter calculation

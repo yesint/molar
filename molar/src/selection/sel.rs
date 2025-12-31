@@ -123,7 +123,7 @@ impl IndexSliceProvider for SelOwnBound<'_> {
 }
 
 impl SystemProvider for SelOwnBound<'_> {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
@@ -174,7 +174,7 @@ impl IndexSliceProvider for SelOwnBoundMut<'_> {
 }
 
 impl SystemProvider for SelOwnBoundMut<'_> {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
@@ -222,7 +222,7 @@ impl<'a> SelectionLogic for SelBound<'a> {
 
 impl SelBound<'_> {
     /// Create new owned sub-selection based on provided definition.
-    pub fn select(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
+    pub fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         let index = def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?;
         Ok(SelOwnBound {
             index,
@@ -230,7 +230,7 @@ impl SelBound<'_> {
         })
     }
 
-    pub fn select_as_index(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+    pub fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?))
     }
 
@@ -246,7 +246,7 @@ impl IndexSliceProvider for SelBound<'_> {
 }
 
 impl SystemProvider for SelBound<'_> {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
@@ -287,7 +287,7 @@ impl IndexSliceProvider for SelBoundMut<'_> {
 }
 
 impl SystemProvider for SelBoundMut<'_> {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }

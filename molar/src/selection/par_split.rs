@@ -28,7 +28,7 @@ impl IndexSliceProvider for SelPar<'_> {
 }
 
 impl SystemProvider for SelPar<'_> {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
@@ -61,7 +61,7 @@ impl IndexSliceProvider for SelParMut<'_> {
 }
 
 impl SystemProvider for SelParMut<'_> {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }

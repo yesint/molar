@@ -38,7 +38,6 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 rayon.workspace = true
-bio = ">=3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

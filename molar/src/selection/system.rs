@@ -26,8 +26,8 @@ impl System {
     }
 
     /// Create unbound sub-selection
-    pub fn sub_select(&self, ind: &Sel, def: impl SelectionDef) -> Result<Sel, SelectionError> {
-        Ok(self.try_bind(ind)?.select_as_index(def)?)
+    pub fn sub_select(&self, ind: &impl IndexSliceProvider, def: impl SelectionDef) -> Result<Sel, SelectionError> {
+        unsafe {Ok(self.try_bind_sorted_slice(ind.get_index_slice())?.select(def)?)}
     }
 
     /// Create all detached
@@ -61,6 +61,24 @@ impl System {
     pub fn select_all_bound_mut(&mut self) -> SelOwnBoundMut<'_> {
         let index = unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) };
         SelOwnBoundMut { sys: self, index }
+    }
+
+    // Internal function. Slice is supposed to be sorted!
+    unsafe fn try_bind_sorted_slice<'a>(&'a self, sel: &'a [usize]) -> Result<SelBound<'a>, SelectionError> {
+        // No need to check for empty index since it's guaranteed to be non-empty
+        let last = unsafe { *sel.get_unchecked(sel.len() - 1) };
+        if last >= self.top.len() {
+            Err(SelectionError::IndexValidation(
+                *sel.first().unwrap(),
+                last,
+                self.top.len() - 1,
+            ))
+        } else {
+            Ok(SelBound {
+                sys: self,
+                index: sel,
+            })
+        }
     }
 
     /// Binds detached selection index to make borrowed selection.
@@ -293,7 +311,7 @@ impl SaveState for System {}
 impl SaveTopologyState for System {}
 
 impl SystemProvider for System {
-    fn get_system(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self
     }
 }

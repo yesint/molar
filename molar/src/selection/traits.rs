@@ -517,26 +517,26 @@ impl<T: AtomPosAnalysisMut + AtomPosAnalysis + NonAtomPosAnalysis> ModifyRandomA
 //=============================================================================
 /// Trait for things containing reference to System (mostly selections)
 pub trait SystemProvider {
-    fn get_system(&self) -> *const System;
+    fn get_system_ptr(&self) -> *const System;
 }
 
 impl<T: SystemProvider + IndexProvider> AtomPosAnalysis for T {
     fn atoms_ptr(&self) -> *const Atom {
-        unsafe {(&*self.get_system()).top.atoms.as_ptr()}
+        unsafe {(&*self.get_system_ptr()).top.atoms.as_ptr()}
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        unsafe {(&*self.get_system()).st.coords.as_ptr()}
+        unsafe {(&*self.get_system_ptr()).st.coords.as_ptr()}
     }
 }
 
 impl<T: SystemProvider + IndexProvider> NonAtomPosAnalysis for T {
     fn st_ptr(&self) -> *const State {
-        unsafe {&(*self.get_system()).st}
+        unsafe {&(*self.get_system_ptr()).st}
     }
 
     fn top_ptr(&self) -> *const Topology {
-        unsafe {&(*self.get_system()).top}
+        unsafe {&(*self.get_system_ptr()).top}
     }
 }
 
@@ -544,7 +544,7 @@ impl<T: SystemProvider + IndexProvider> NonAtomPosAnalysis for T {
 /// Trait for things containing mut reference to System (mostly selections)
 pub trait SystemMutProvider: SystemProvider {
     fn get_system_mut(&mut self) -> *mut System {
-        self.get_system() as *mut System
+        self.get_system_ptr() as *mut System
     }
 }
 
@@ -581,7 +581,7 @@ pub trait SelectionLogic: IndexSliceProvider {
     fn invert(&self, rhs: &impl IndexSliceProvider) -> Result<Self::DerivedSel,SelectionError> 
     where Self:  SystemProvider,
     {   
-        let all = (0..unsafe{&*self.get_system()}.len()).into_iter().collect::<Vec<_>>();
+        let all = (0..unsafe{&*self.get_system_ptr()}.len()).into_iter().collect::<Vec<_>>();
         let index = unsafe {difference_sorted(&all, rhs.get_index_slice())};
         if index.is_empty() {
             return Err(SelectionError::EmptyDifference)
