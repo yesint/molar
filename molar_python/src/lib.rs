@@ -1028,10 +1028,28 @@ fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransf
 }
 
 #[pyfunction(name = "fit_transform_matching")]
-fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransform> {
-    // let tr = fit_transform_matching(sel1, sel2)?;
-    // Ok(IsometryTransform(tr))
-    todo!()
+fn fit_transform_matching_py(py: Python<'_>, sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransform> {
+    let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
+    
+    let top = sel1.top.borrow(py);
+    let st = sel1.st.borrow(py);
+    let sub1 = ind1.into_sel_index(&top.0, &st.0, Some(&sel1.index))?;
+    let sub2 = ind2.into_sel_index(&top.0, &st.0, Some(&sel2.index))?;
+    
+    let sub_sel1 = SelPy {
+        st: Py::clone_ref(&sel1.st, py),
+        top: Py::clone_ref(&sel1.top, py),
+        index: sub1,
+    };
+
+    let sub_sel2 = SelPy {
+        st: Py::clone_ref(&sel1.st, py),
+        top: Py::clone_ref(&sel1.top, py),
+        index: sub2,
+    };
+        
+    let tr = fit_transform(&sub_sel1, &sub_sel2)?;
+    Ok(IsometryTransform(tr))
 }
 
 #[pyfunction]

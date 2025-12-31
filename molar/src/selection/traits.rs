@@ -1,5 +1,4 @@
 use rayon::iter::IndexedParallelIterator;
-use rustc_hash::FxHashSet;
 use crate::{prelude::*, selection::utils::{difference_sorted, intersection_sorted, union_sorted}};
 
 /// Trait for objects that support selecting from

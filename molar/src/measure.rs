@@ -573,7 +573,7 @@ pub trait MeasureRandomAccess: RandomPosProvider {
     }
 }
 
-fn matching_atom_names<T1, T2>(seq1: &T1, seq2: &T2) -> (Vec<usize>, Vec<usize>)
+pub fn get_matching_atoms_by_name<T1, T2>(seq1: &T1, seq2: &T2) -> (Vec<usize>, Vec<usize>)
 where
     T1: AtomIterProvider,
     T2: AtomIterProvider,
@@ -622,7 +622,7 @@ pub fn fit_transform_matching(
     sel2: &(impl SystemProvider + IndexSliceProvider + Selectable),
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
     // Returns *local* selection indices
-    let (ind1, ind2) = matching_atom_names(sel1, sel2);
+    let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
     let sys = unsafe{&*sel1.get_system_ptr()};
     let matched_sel1 = sel1.select(ind1).unwrap();
     let matched_sel2 = sel2.select(ind2).unwrap();
