@@ -1029,8 +1029,9 @@ fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransf
 
 #[pyfunction(name = "fit_transform_matching")]
 fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransform> {
-    let tr = fit_transform_matching(sel1, sel2)?;
-    Ok(IsometryTransform(tr))
+    // let tr = fit_transform_matching(sel1, sel2)?;
+    // Ok(IsometryTransform(tr))
+    todo!()
 }
 
 #[pyfunction]
