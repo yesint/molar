@@ -35,14 +35,6 @@ impl System {
         Sel(unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) })
     }
 
-    /// Create new bound selection based on provided definition.
-    pub fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
-        Ok(SelOwnBound {
-            sys: self,
-            index: def.into_sel_index(&self.top, &self.st, None)?,
-        })
-    }
-
     pub fn select_all_bound(&self) -> SelOwnBound<'_> {
         SelOwnBound {
             sys: self,
@@ -303,6 +295,15 @@ impl System {
 impl Selectable for System {
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
+    }
+}
+
+impl SelectableBound for System {
+    fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
+        Ok(SelOwnBound {
+            index: def.into_sel_index(&self.top, &self.st, None)?,
+            sys: unsafe{&*self.get_system_ptr()},
+        })
     }
 }
 

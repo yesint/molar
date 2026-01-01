@@ -8,7 +8,8 @@ fn main() {
         PathBuf::from(local_eigen)
     } else {
         // Unpack bundled eigen if not already unpacked
-        let dst = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../target/eigen/");
+        let dst =
+            PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../target/eigen/");
         let include_path = dst.join("eigen-3.4.0");
         if !include_path.exists() {
             println!("cargo::warning=Unpacking bundled Eigen headers...");

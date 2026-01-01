@@ -618,15 +618,14 @@ where
 /// selections are aligned first with Needleman–Wunsch Global Alignment algorithm
 /// and then only the matching atoms are used to compute a fit transform
 pub fn fit_transform_matching(
-    sel1: &(impl SystemProvider + IndexSliceProvider + Selectable),
-    sel2: &(impl SystemProvider + IndexSliceProvider + Selectable),
+    sel1: &(impl IndexSliceProvider + SelectableBound),
+    sel2: &(impl IndexSliceProvider + SelectableBound),
 ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
     // Returns *local* selection indices
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
-    let sys = unsafe{&*sel1.get_system_ptr()};
-    let matched_sel1 = sel1.select(ind1).unwrap();
-    let matched_sel2 = sel2.select(ind2).unwrap();
-    fit_transform(&sys.bind(&matched_sel1), &sys.bind(&matched_sel2))
+    let matched_sel1 = sel1.select_bound(ind1).unwrap();
+    let matched_sel2 = sel2.select_bound(ind2).unwrap();
+    fit_transform(&matched_sel1, &matched_sel2)
 }
 
 /// Type of order parameter calculation
@@ -682,4 +681,26 @@ pub enum MeasureError {
 
     #[error("selection error")]
     Sel,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn test_get_matching_atoms_by_name() -> anyhow::Result<()>{
+        let sys = System::from_file("tests/albumin.pdb")?;
+        // Whole residues
+        let sel1 = sys.select_bound("resindex 1:5")?;
+        // With some missing atoms
+        let sel2 = sys.select_bound("resindex 1:5 and not ((resindex 1 2 and name CA) or (resindex 3 and name N))")?;
+        let (ind1, ind2) = get_matching_atoms_by_name(&sel1, &sel2);
+
+        let names1: Vec<_> = ind1.iter().map(|i| sel1.get_atom(*i).unwrap().name.clone()).collect();
+        let names2: Vec<_> = ind2.iter().map(|i| sel2.get_atom(*i).unwrap().name.clone()).collect();
+        println!("{names1:?}");
+        println!("{names2:?}");
+        assert_eq!(names1,names2);
+        Ok(())
+    }
 }

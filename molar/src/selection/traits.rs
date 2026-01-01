@@ -1,9 +1,16 @@
 use rayon::iter::IndexedParallelIterator;
 use crate::{prelude::*, selection::utils::{difference_sorted, intersection_sorted, union_sorted}};
 
-/// Trait for objects that support selecting from
+/// Trait for objects that support creating selections
 pub trait Selectable {
+    // Make unbound immutable selection
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError>;
+}
+
+/// Trait for objects that support creating bound selections
+pub trait SelectableBound: SystemProvider + Selectable {
+    // Make bound immutable selection
+    fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError>;
 }
 
 //============================================================
