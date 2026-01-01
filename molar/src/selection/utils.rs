@@ -142,7 +142,7 @@ mod tests {
     fn test_union_sorted() {
         let set1: SortedSet<usize> = SortedSet::from_unsorted(vec![1, 3, 5, 7, 10, 12]);
         let set2: SortedSet<usize> = SortedSet::from_unsorted(vec![2, 3, 6, 8]);
-        let result = unsafe{unsafe{union_sorted(&set1, &set2)}};
+        let result = unsafe{union_sorted(&set1, &set2)};
         let expected: SortedSet<usize> =
             SortedSet::from_unsorted(vec![1, 2, 3, 5, 6, 7, 8, 10, 12]);
         assert_eq!(result, expected);

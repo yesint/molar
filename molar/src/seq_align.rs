@@ -1,6 +1,8 @@
-//Needleman Wunsch global alignment with affine gaps that mirrors 
-// rust bio’s pairwise aligner logic.
-// Made by ChatGPT 5.2
+//! Needleman Wunsch global alignment with affine gaps. 
+//! 
+//! Mirrors [rust-bio](https://github.com/rust-bio/rust-bio) pairwise aligner logic
+//! but operates on arbitrary types, not only on u8 as in rust-bio.
+//! Made by ChatGPT 5.2.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlignmentOperation {

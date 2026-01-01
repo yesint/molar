@@ -1,5 +1,3 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
-
 use crate::{
     prelude::*,
     selection::utils::{difference_sorted, intersection_sorted, union_sorted},

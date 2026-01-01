@@ -1,5 +1,4 @@
-use crate::{prelude::*, selection::sel};
-use log::Log;
+use crate::prelude::*;
 use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::{borrow::Cow, collections::HashSet};
