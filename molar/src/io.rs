@@ -1,7 +1,7 @@
 //! IO handlers for different file formats and associated traits
 
 use crate::prelude::*;
-use log::{debug, error, warn};
+use log::{debug, warn};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -14,11 +14,11 @@ mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
 
-use tpr_handler::{TprFileHandler,TprHandlerError};
-use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
-use xtc_handler::{XtcFileHandler,XtcHandlerError};
 use gro_handler::{GroFileHandler, GroHandlerError};
 use itp_handler::{ItpFileHandler, ItpHandlerError};
+use tpr_handler::{TprFileHandler, TprHandlerError};
+use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
+use xtc_handler::{XtcFileHandler, XtcHandlerError};
 
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: RandomAtomProvider + RandomBondProvider {}
@@ -39,7 +39,7 @@ pub trait SaveTopologyState: SaveTopology + SaveState {
 }
 
 /// Trait for file format handlers.
-/// Concrete handlers implement only methods which are 
+/// Concrete handlers implement only methods which are
 /// relevant for a particular format.
 #[allow(unused_variables)]
 pub(crate) trait FileFormatHandler: Send {
@@ -110,7 +110,7 @@ pub struct IoStateIterator {
 }
 
 impl IoStateIterator {
-    /// Create new state iterator by consuming the file handler 
+    /// Create new state iterator by consuming the file handler
     fn new(mut fh: FileHandler) -> Self {
         use std::sync::mpsc::sync_channel;
         let (sender, receiver) = sync_channel(10);
