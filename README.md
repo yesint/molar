@@ -384,13 +384,12 @@ All this is fine, but we still have no system to write our converted water molec
 
 ```rust,ignore
 // Load the source file from the first command line argument
-let src = Source::serial_from_file(&args[0])?;
+let sys = System::from_file(&args[0])?;
 
 // Make empty output system
-let out = Source::empty_builder();
-```
+let mut out = System::default();
 
-Here we are creating new empty `Source` of kind `builder`. This means that we will be able to add and delete the atoms to this source. Conventional `serial` source can access and alter existing atoms, but can't add or delete them. Such a distinction is dictated by performance and memory safety reasons - `builder` sources and selections require additional range checks, which make them a tiny bit slower, so it only makes sense to use them when you actually need to add or delete the atoms.
+```
 
 The first thing that we add to out new empty system is all non-water atoms:
 ```rust,ignore
@@ -414,7 +413,7 @@ This code snippet may look a bit puzzling for non-rustaceans, so let's go throug
 - `cloned()` adaptor is used to get copies of existing atoms and coordinates instead of references to them. 
 - We add our new dummy atom at the end of water molecule by "chaining" another iterator at the end of the current one. `std::iter::once(value)` returns an iterator yielding a single value and allows us to add newly constructed `m_at` and `m_pos` to the corrsponding iterators.
 
-We also need to chnge the resname of the old atoms of water molecule from TIP3 to TIP4. As you noticed, `append_atoms_coords()` returns a selection with added atoms, so we can bind it mutably to the output system and set new residue name:
+We also need to change the resname of the old atoms of water molecule from TIP3 to TIP4. As you noticed, `append_atoms_coords()` returns a selection with added atoms, so we can bind it mutably to the output system and set new residue name:
 
 ```rust,ignore
 // Change resname for added atoms
