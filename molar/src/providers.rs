@@ -12,10 +12,12 @@ use crate::prelude::*;
 
 /// Trait for selected indices
 pub trait IndexProvider: LenProvider {
-    fn iter_index(&self) -> impl Iterator<Item = usize>;
-    
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
-    
+
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
+        (0..self.len()).map(|i| unsafe { self.get_index_unchecked(i) })
+    }
+       
     fn first_index(&self) -> usize {
         unsafe { self.get_index_unchecked(0) }
     }
@@ -36,6 +38,11 @@ pub trait IndexProvider: LenProvider {
         }
         s
     }
+}
+
+/// Trair for parallel iteration over indexes
+pub trait IndexParProvider: LenProvider {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize>;
 }
 
 /// Trait for entities that contain continuous slices of indices (selections and such)
@@ -66,11 +73,6 @@ impl<T: IndexSliceProvider> IndexParProvider for T {
     }
 }
 
-/// Trair for parallel iteration over indexes
-pub trait IndexParProvider: LenProvider {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize>;
-}
-
 impl IndexSliceProvider for SVec {
     fn get_index_slice(&self) -> &[usize] {
         self.as_slice()
@@ -87,6 +89,9 @@ pub trait LenProvider {
 }
 
 /// Trait for providing iteration over positions
+/// 
+/// This trait is not dyn compatible, so it can't be combined
+/// with dyn-compatible RandomPosProvider
 pub trait PosIterProvider {
     fn iter_pos(&self) -> impl PosIterator<'_>;
 }
