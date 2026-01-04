@@ -184,38 +184,17 @@ enum EvalSubset<'a> {
     Part(&'a [usize]),
 }
 
-enum EvalSubsetIter<'a> {
-    Whole(std::ops::Range<usize>),
-    Part(std::iter::Copied<std::slice::Iter<'a, usize>>),
-}
-
-impl Iterator for EvalSubsetIter<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            EvalSubsetIter::Whole(r) => r.next(),
-            EvalSubsetIter::Part(it) => it.next(),
-        }
-    }
-}
-
-impl EvalSubset<'_> {
-    fn iter(&self) -> EvalSubsetIter<'_> {
-        match self {
-            Self::Whole(r) => EvalSubsetIter::Whole(r.clone()),
-            Self::Part(ind) => EvalSubsetIter::Part(ind.iter().copied()),
-        }
-    }
-
+impl LenProvider for EvalSubset<'_> {
     fn len(&self) -> usize {
         match self {
             EvalSubset::Whole(r) => r.len(),
             EvalSubset::Part(ind) => ind.len(),
         }
     }
+}
 
-    unsafe fn get_unchecked(&self, i: usize) -> usize {
+impl IndexProvider for EvalSubset<'_> {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         match self {
             EvalSubset::Whole(_) => i,
             EvalSubset::Part(ind) => *ind.get_unchecked(i),
@@ -274,33 +253,15 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    fn iter_index(&self) -> EvalSubsetIter<'_> {
-        self.cur_subset.iter()
-    }
-}
-
-
-impl EvaluationContext<'_> {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
-        self.iter_index().map(|i| unsafe {
-            Particle {
-                id: i,
-                atom: self.topology.get_atom_unchecked(i),
-                pos: self.state.get_pos_unchecked(i),
-            }
-        })
-    }
-
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
         self.iter_index()
             .map(|i| unsafe { (i, self.topology.get_atom_unchecked(i)) })
     }
 }
 
-impl PosIterProvider for EvaluationContext<'_> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.iter_index()
-            .map(|i| unsafe { self.state.get_pos_unchecked(i) })
+impl IndexProvider for EvaluationContext<'_> {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        self.cur_subset.get_index_unchecked(i)
     }
 }
 
@@ -310,25 +271,13 @@ impl LenProvider for EvaluationContext<'_> {
     }
 }
 
-impl RandomPosProvider for EvaluationContext<'_> {
-    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        let ind = self.cur_subset.get_unchecked(i);
-        self.state.get_pos_unchecked(ind)
+impl AtomPosAnalysis for EvaluationContext<'_> {
+    fn atoms_ptr(&self) -> *const Atom {
+        self.topology.atoms.as_ptr()
     }
-}
 
-impl AtomIterProvider for EvaluationContext<'_> {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self
-            .iter_index()
-            .map(|i| unsafe { self.topology.get_atom_unchecked(i) })
-    }
-}
-
-impl RandomAtomProvider for EvaluationContext<'_> {
-    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
-        let ind = self.cur_subset.get_unchecked(i);
-        self.topology.get_atom_unchecked(ind)
+    fn coords_ptr(&self) -> *const Pos {
+        self.state.coords.as_ptr()
     }
 }
 
@@ -338,8 +287,8 @@ impl BoxProvider for EvaluationContext<'_> {
     }
 }
 
-impl MeasurePos for EvaluationContext<'_> {}
-impl MeasureMasses for EvaluationContext<'_> {}
+// impl MeasurePos for EvaluationContext<'_> {}
+// impl MeasureMasses for EvaluationContext<'_> {}
 impl MeasurePeriodic for EvaluationContext<'_> {}
 
 //###################################
