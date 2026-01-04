@@ -64,8 +64,7 @@ impl Selectable for SelOwnBound<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index.as_slice()),
         )?))
     }
@@ -74,7 +73,7 @@ impl Selectable for SelOwnBound<'_> {
 impl SelectableBound for SelOwnBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
-            index: def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index.as_slice()))?,
+            index: def.into_sel_index(self.sys, Some(self.index.as_slice()))?,
             sys: unsafe { &*self.get_system_ptr() },
         })
     }
@@ -147,8 +146,7 @@ impl Selectable for SelOwnBoundMut<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index.as_slice()),
         )?))
     }
@@ -205,8 +203,7 @@ impl Selectable for SelBound<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index),
         )?))
     }
@@ -215,7 +212,7 @@ impl Selectable for SelBound<'_> {
 impl SelectableBound for SelBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
-            index: def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?,
+            index: def.into_sel_index(self.sys, Some(self.index))?,
             sys: unsafe { &*self.get_system_ptr() },
         })
     }
@@ -265,8 +262,7 @@ impl Selectable for SelBoundMut<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index),
         )?))
     }

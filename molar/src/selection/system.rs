@@ -46,7 +46,7 @@ impl System {
         &mut self,
         def: impl SelectionDef,
     ) -> Result<SelOwnBoundMut<'_>, SelectionError> {
-        let index = def.into_sel_index(&self.top, &self.st, None)?;
+        let index = def.into_sel_index(self, None)?;
         Ok(SelOwnBoundMut { sys: self, index })
     }
 
@@ -294,14 +294,14 @@ impl System {
 
 impl Selectable for System {
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
-        Ok(Sel(def.into_sel_index(&self.top, &self.st, None)?))
+        Ok(Sel(def.into_sel_index(self, None)?))
     }
 }
 
 impl SelectableBound for System {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
-            index: def.into_sel_index(&self.top, &self.st, None)?,
+            index: def.into_sel_index(self, None)?,
             sys: unsafe{&*self.get_system_ptr()},
         })
     }

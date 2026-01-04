@@ -1,10 +1,7 @@
 use crate::prelude::*;
-use num_traits::Bounded;
 use regex::bytes::Regex;
 use std::{borrow::Cow, collections::HashSet};
 use thiserror::Error;
-
-use super::utils::check_topology_state_sizes;
 
 //##############################
 //#  AST node types
@@ -202,10 +199,11 @@ impl IndexProvider for EvalSubset<'_> {
     }
 }
 
+//-----------------------------------------------------------
+
 #[derive(Clone)]
-pub(super) struct EvaluationContext<'a> {
-    topology: &'a Topology,
-    state: &'a State,
+pub(super) struct EvalContext<'a,S> {
+    sys: &'a S, // Something system-like
     // This is a subset passed from outside.
     // Selection is completely within it.
     // Parser is never changing it.
@@ -214,25 +212,23 @@ pub(super) struct EvaluationContext<'a> {
     cur_subset: EvalSubset<'a>,
 }
 
-impl<'a> EvaluationContext<'a> {
+impl<'a,S> EvalContext<'a,S> {
     pub(super) fn new(
-        topology: &'a Topology,
-        state: &'a State,
+        sys: &'a S,
         part: Option<&'a [usize]>,
-    ) -> Result<Self, SelectionParserError> {
-        check_topology_state_sizes(topology, state)?;
-
+    ) -> Result<Self, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         if part.is_none() {
             Ok(Self {
-                topology,
-                state,
-                global_subset: EvalSubset::Whole(0..state.len()),
-                cur_subset: EvalSubset::Whole(0..state.len()),
+                sys,
+                global_subset: EvalSubset::Whole(0..sys.len()),
+                cur_subset: EvalSubset::Whole(0..sys.len()),
             })
         } else {
             Ok(Self {
-                topology,
-                state,
+                sys,
                 global_subset: EvalSubset::Part(part.unwrap()),
                 cur_subset: EvalSubset::Part(part.unwrap()),
             })
@@ -242,54 +238,76 @@ impl<'a> EvaluationContext<'a> {
     fn with_custom_subset(&'a self, custom_subset: &'a [usize]) -> Self {
         Self {
             cur_subset: EvalSubset::Part(custom_subset),
-            ..self.clone()
+            global_subset: self.global_subset.clone(),
+            sys: self.sys,
         }
     }
 
     fn with_global_subset(&'a self) -> Self {
         Self {
             cur_subset: self.global_subset.clone(),
-            ..self.clone()
+            global_subset: self.global_subset.clone(),
+            sys: self.sys,
         }
-    }
-
-    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.iter_index()
-            .map(|i| unsafe { (i, self.topology.get_atom_unchecked(i)) })
     }
 }
 
-impl IndexProvider for EvaluationContext<'_> {
+impl<S> EvalContext<'_,S> 
+where
+    S: AtomPosAnalysis + BoxProvider
+{
+    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
+        self.iter_index().zip(self.iter_atoms())
+    }
+}
+
+impl<S> IndexProvider for EvalContext<'_,S> 
+where
+    S: AtomPosAnalysis + BoxProvider
+{
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        // This matches cur_subset for each i, so the performance is
+        // not optimal here. But since match always returns the same
+        // variant branch predictor should optimize it out
         self.cur_subset.get_index_unchecked(i)
     }
 }
 
-impl LenProvider for EvaluationContext<'_> {
+impl<S> LenProvider for EvalContext<'_,S> 
+where
+    S: AtomPosAnalysis + BoxProvider
+{
     fn len(&self) -> usize {
         self.cur_subset.len()
     }
 }
 
-impl AtomPosAnalysis for EvaluationContext<'_> {
+impl<S> AtomPosAnalysis for EvalContext<'_,S> 
+where
+    S: AtomPosAnalysis + BoxProvider
+{
     fn atoms_ptr(&self) -> *const Atom {
-        self.topology.atoms.as_ptr()
+        self.sys.atoms_ptr()
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.state.coords.as_ptr()
+        self.sys.coords_ptr()
     }
 }
 
-impl BoxProvider for EvaluationContext<'_> {
+impl<S> BoxProvider for EvalContext<'_,S> 
+where
+    S: AtomPosAnalysis + BoxProvider
+{
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.state.get_box()
+        self.sys.get_box()
     }
 }
 
-// impl MeasurePos for EvaluationContext<'_> {}
-// impl MeasureMasses for EvaluationContext<'_> {}
-impl MeasurePeriodic for EvaluationContext<'_> {}
+impl<S> MeasurePeriodic for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{}
 
 //###################################
 //#  AST nodes logic implementation
@@ -297,13 +315,18 @@ impl MeasurePeriodic for EvaluationContext<'_> {}
 
 pub(super) trait Evaluate {
     fn is_state_dependent(&self) -> bool;
-    fn apply<'a>(&'a mut self, data: &'a EvaluationContext)
-        -> Result<Cow<'a, [usize]>, SelectionParserError>;
+    fn apply<'a,S>(&'a mut self, data: &'a EvalContext<'a,S>)
+        -> Result<Cow<'a, [usize]>, SelectionParserError>
+        where
+            S: AtomPosAnalysis + BoxProvider;
 }
 
 impl DistanceNode {
-    fn closest_image(&mut self, point: &mut Pos, data: &EvaluationContext) {
-        if let Some(pbox) = data.state.get_box() {
+    fn closest_image<S>(&mut self, point: &mut Pos, data: &EvalContext<'_,S>) 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
+        if let Some(pbox) = data.get_box() {
             match self {
                 Self::Point(target, dims)
                 | Self::Line(target, _, dims)
@@ -321,7 +344,10 @@ impl DistanceNode {
 }
 
 impl VectorNode {
-    fn get_vec(&mut self, data: &EvaluationContext) -> Result<&Pos, SelectionParserError> {
+    fn get_vec<S>(&mut self, data: &EvalContext<'_,S>) -> Result<&Pos, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         match self {
             Self::Const(v) => Ok(v),
             Self::UnitConst(v) => Ok(v),
@@ -349,7 +375,6 @@ impl VectorNode {
             Self::NthAtomOf(inner, i) => {
                 let res = inner.apply(data)?;
                 let v = data
-                    .state
                     .get_pos(*i)
                     .ok_or_else(|| SelectionParserError::OutOfBounds(*i, res.len()))?;
                 *self = Self::Const(*v);
@@ -358,7 +383,10 @@ impl VectorNode {
         }
     }
 
-    fn get_unit_vec(&mut self, data: &EvaluationContext) -> Result<&Pos, SelectionParserError> {
+    fn get_unit_vec<S>(&mut self, data: &EvalContext<'_,S>) -> Result<&Pos, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         match self {
             Self::UnitConst(v) => Ok(v),
             _ => {
@@ -377,13 +405,14 @@ impl VectorNode {
 }
 
 impl LogicalNode {
-    fn map_same_attr<T>(
-        data: &EvaluationContext,
+    fn map_same_attr<T,S>(
+        data: &EvalContext<'_,S>,
         inner: &[usize],
         prop_fn: fn(&Atom) -> &T,
     ) -> Vec<usize>
     where
         T: Eq + std::hash::Hash + Copy,
+        S: AtomPosAnalysis + BoxProvider,
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
@@ -442,10 +471,13 @@ impl Evaluate for LogicalNode {
         }
     }
 
-    fn apply<'a>(
+    fn apply<'a,S>(
         &'a mut self,
-        data: &'a EvaluationContext,
-    ) -> Result<Cow<'a, [usize]>, SelectionParserError> {
+        data: &'a EvalContext<'a,S>,
+    ) -> Result<Cow<'a, [usize]>, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         use rustc_hash::FxHashSet;
         match self {
             Self::Precomputed(v) => Ok(Cow::from(&*v)),
@@ -537,9 +569,9 @@ impl Evaluate for LogicalNode {
                 let mut res: Vec<usize> = if params.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
-                    let (mut lower, mut upper) = get_min_max(data.state, inner_res.iter().cloned());
-                    lower.add_scalar_mut(-params.cutoff - f32::EPSILON);
-                    upper.add_scalar_mut(params.cutoff + f32::EPSILON);
+                    let (mut lower, mut upper) = data.min_max();
+                    lower.coords.add_scalar_mut(-params.cutoff - f32::EPSILON);
+                    upper.coords.add_scalar_mut(params.cutoff + f32::EPSILON);
 
                     distance_search_within(
                         params.cutoff,
@@ -547,8 +579,8 @@ impl Evaluate for LogicalNode {
                         &sub2,
                         sub1.iter_index(),
                         sub2.iter_index(),
-                        &lower,
-                        &upper,
+                        &lower.coords,
+                        &upper.coords,
                     )
                 } else {
                     // Periodic variant
@@ -558,7 +590,7 @@ impl Evaluate for LogicalNode {
                         &sub2,
                         sub1.iter_index(),
                         sub2.iter_index(),
-                        data.state.require_box()?,
+                        data.require_box()?,
                         params.pbc,
                     )
                 };
@@ -597,7 +629,7 @@ impl Evaluate for LogicalNode {
                         pvec,
                         sub1.iter_index(),
                         0..1,
-                        data.state.require_box()?,
+                        data.require_box()?,
                         prop.pbc,
                     )
                 };
@@ -613,21 +645,6 @@ impl Evaluate for LogicalNode {
             },
         }
     }
-
-    // pub fn is_coord_dependent(&self) -> bool {
-    //     match self {
-    //         Self::Not(node) | Self::Same(_, node) => node.is_coord_dependent(),
-
-    //         Self::Comparison(node) => node.is_coord_dependent(),
-
-    //         Self::Or(a, b) | Self::And(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
-
-    //         Self::Within(_, _) | Self::WithinPoint(_, _) => true,
-
-    //         // All always works for global subset
-    //         _ => false,
-    //     }
-    // }
 }
 
 impl ChemicalNode {
@@ -679,9 +696,11 @@ impl Evaluate for ChemicalNode {
         false
     }
 
-    fn apply(&mut self, data: &EvaluationContext)
-            -> Result<Cow<'_, [usize]>, SelectionParserError> {
-        
+    fn apply<'a,S>(&mut self, data: &EvalContext<'a,S>)
+            -> Result<Cow<'_, [usize]>, SelectionParserError> 
+        where
+            S: AtomPosAnalysis + BoxProvider
+    {
         let mut res = vec![];
         match self {
             Self::Protein => {
@@ -745,30 +764,16 @@ impl Evaluate for ChemicalNode {
     }
 }
 
-fn get_min_max(state: &State, iter: impl IndexIterator) -> (Vector3f, Vector3f) {
-    let mut lower = Vector3f::max_value();
-    let mut upper = Vector3f::min_value();
-    for i in iter {
-        let crd = unsafe { state.get_pos_unchecked(i) };
-        for d in 0..3 {
-            if crd[d] < lower[d] {
-                lower[d] = crd[d]
-            }
-            if crd[d] > upper[d] {
-                upper[d] = crd[d]
-            }
-        }
-    }
-    (lower, upper)
-}
-
 impl KeywordNode {
-    fn map_str_args(
+    fn map_str_args<S>(
         &self,
-        data: &EvaluationContext,
+        data: &EvalContext<'_,S>,
         args: &[StrKeywordArg],
         f: fn(&Atom) -> &String,
-    ) -> Vec<usize> {
+    ) -> Vec<usize> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         let mut res = vec![];
         
         for (ind, a) in data.iter_ind_atom() {
@@ -792,12 +797,15 @@ impl KeywordNode {
         res
     }
 
-    fn map_int_args(
+    fn map_int_args<S>(
         &self,
-        data: &EvaluationContext,
+        data: &EvalContext<'_,S>,
         args: &Vec<IntKeywordArg>,
         f: fn(&Atom, usize) -> isize,
-    ) -> Vec<usize> {
+    ) -> Vec<usize> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         let mut res = vec![];
         
         for (ind, a) in data.iter_ind_atom() {
@@ -828,8 +836,11 @@ impl Evaluate for KeywordNode {
         false
     }
 
-    fn apply(&mut self, data: &EvaluationContext)
-            -> Result<Cow<'_, [usize]>, SelectionParserError> {
+    fn apply<'a,S>(&mut self, data: &EvalContext<'a,S>)
+            -> Result<Cow<'_, [usize]>, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         let res = match &*self {
             Self::Name(args) => self.map_str_args(data, args, |a| &a.name),
             Self::Resname(args) => self.map_str_args(data, args, |a| &a.resname),
@@ -870,33 +881,35 @@ impl MathNode {
         }
     }
 
-    fn eval(&mut self, at: usize, data: &EvaluationContext) -> Result<f32, SelectionParserError> {
-        let atom = unsafe { data.topology.get_atom_unchecked(at) };
+    fn eval<'a,S>(&mut self, p: &Particle<'_>, data: &EvalContext<'a,S>) -> Result<f32, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         match self {
             Self::Float(v) => Ok(*v),
-            Self::X => Ok(unsafe { data.state.get_pos_unchecked(at) }[0]),
-            Self::Y => Ok(unsafe { data.state.get_pos_unchecked(at) }[1]),
-            Self::Z => Ok(unsafe { data.state.get_pos_unchecked(at) }[2]),
+            Self::X => Ok(p.pos.x),
+            Self::Y => Ok(p.pos.y),
+            Self::Z => Ok(p.pos.z),
             Self::Xof(vec) => Ok(vec.get_vec(data)?.x),
             Self::Yof(vec) => Ok(vec.get_vec(data)?.y),
             Self::Zof(vec) => Ok(vec.get_vec(data)?.z),
-            Self::Bfactor => Ok(atom.bfactor),
-            Self::Occupancy => Ok(atom.occupancy),
-            Self::Vdw => Ok(atom.vdw()),
-            Self::Mass => Ok(atom.mass),
-            Self::Charge => Ok(atom.charge),
+            Self::Bfactor => Ok(p.atom.bfactor),
+            Self::Occupancy => Ok(p.atom.occupancy),
+            Self::Vdw => Ok(p.atom.vdw()),
+            Self::Mass => Ok(p.atom.mass),
+            Self::Charge => Ok(p.atom.charge),
             Self::BinaryOp(a, op, b) => {
                 let ret = match op {
-                    BinaryOperator::Add => a.eval(at, data)? + b.eval(at, data)?,
-                    BinaryOperator::Sub => a.eval(at, data)? - b.eval(at, data)?,
-                    BinaryOperator::Mul => a.eval(at, data)? * b.eval(at, data)?,
-                    BinaryOperator::Pow => a.eval(at, data)?.powf(b.eval(at, data)?),
+                    BinaryOperator::Add => a.eval(p, data)? + b.eval(p, data)?,
+                    BinaryOperator::Sub => a.eval(p, data)? - b.eval(p, data)?,
+                    BinaryOperator::Mul => a.eval(p, data)? * b.eval(p, data)?,
+                    BinaryOperator::Pow => a.eval(p, data)?.powf(b.eval(p, data)?),
                     BinaryOperator::Div => {
-                        let b_val = b.eval(at, data)?;
+                        let b_val = b.eval(p, data)?;
                         if b_val == 0.0 {
                             return Err(SelectionParserError::DivisionByZero);
                         }
-                        a.eval(at, data)? / b_val
+                        a.eval(p, data)? / b_val
                     }
                 };
                 // Precomute if possible
@@ -907,7 +920,7 @@ impl MathNode {
             }
 
             Self::UnaryMinus(v) => {
-                let ret = -v.eval(at, data)?;
+                let ret = -v.eval(p, data)?;
                 // Precomute if possible
                 if !v.is_state_dependent() {
                     *self = Self::Float(ret);
@@ -917,7 +930,7 @@ impl MathNode {
 
             Self::Function(func, v) => {
                 use MathFunctionName as M;
-                let val = v.eval(at, data)?;
+                let val = v.eval(p, data)?;
                 let ret = match func {
                     M::Abs => val.abs(),
                     M::Sqrt => {
@@ -937,7 +950,7 @@ impl MathNode {
             }
 
             Self::Dist(node) => {
-                let mut pos = unsafe { data.state.get_pos_unchecked(at) }.clone();
+                let mut pos = p.pos.clone();
                 // Point should be unwrapped first!
                 node.closest_image(&mut pos, data);
 
@@ -973,51 +986,44 @@ impl MathNode {
             }
         }
     }
-
-    // fn is_coord_dependent(&self) -> bool {
-    //     match self {
-    //         Self::X | Self::Y | Self::Z | Self::Dist(_) => true,
-    //         Self::Add(a, b)
-    //         | Self::Sub(a, b)
-    //         | Self::Mul(a, b)
-    //         | Self::Div(a, b)
-    //         | Self::Pow(a, b) => a.is_coord_dependent() || b.is_coord_dependent(),
-    //         Self::Neg(v) | Self::Function(_, v) => v.is_coord_dependent(),
-    //         _ => false,
-    //     }
-    // }
 }
 
 impl ComparisonNode {
-    fn eval_op(
-        data: &EvaluationContext,
+    fn eval_op<S>(
+        data: &EvalContext<'_,S>,
         v1: &mut MathNode,
         v2: &mut MathNode,
         op: fn(f32, f32) -> bool,
-    ) -> Result<Vec<usize>, SelectionParserError> {
+    ) -> Result<Vec<usize>, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         let mut res = vec![];
         
         for p in data.iter_particle() {
-            if op(v1.eval(p.id, data)?, v2.eval(p.id, data)?) {
+            if op(v1.eval(&p, data)?, v2.eval(&p, data)?) {
                 res.push(p.id);
             }
         }
         Ok(res)
     }
 
-    fn eval_op_chained(
-        data: &EvaluationContext,
+    fn eval_op_chained<S>(
+        data: &EvalContext<'_,S>,
         v1: &mut MathNode,
         v2: &mut MathNode,
         v3: &mut MathNode,
         op1: fn(f32, f32) -> bool,
         op2: fn(f32, f32) -> bool,
-    ) -> Result<Vec<usize>, SelectionParserError> {
+    ) -> Result<Vec<usize>, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         let mut res = vec![];
         
         for p in data.iter_particle() {
-            let mid = v2.eval(p.id, data)?;
-            if op1(v1.eval(p.id, data)?, mid) && op2(mid, v3.eval(p.id, data)?) {
+            let mid = v2.eval(&p, data)?;
+            if op1(v1.eval(&p, data)?, mid) && op2(mid, v3.eval(&p, data)?) {
                 res.push(p.id);
             }
         }
@@ -1048,8 +1054,11 @@ impl Evaluate for ComparisonNode {
         }
     }
 
-    fn apply(&mut self, data: &EvaluationContext)
-            -> Result<Cow<'_, [usize]>, SelectionParserError> {
+    fn apply<'a,S>(&mut self, data: &EvalContext<'a,S>)
+            -> Result<Cow<'_, [usize]>, SelectionParserError> 
+    where
+        S: AtomPosAnalysis + BoxProvider
+    {
         let res = match self {
             // Simple
             Self::Eq(v1, v2) => Self::eval_op(data, v1, v2, |a, b| a == b),

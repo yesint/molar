@@ -58,13 +58,12 @@ impl SelectionExpr {
         })
     }
 
-    /// Applies the selection expression to all atoms in the system
-    pub(super) fn apply_whole(
+    /// Applies selection expression to all atoms in the system
+    pub(super) fn apply_whole (
         &self,
-        topology: &Topology,
-        state: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider)
     ) -> Result<SVec, SelectionParserError> {
-        let data = super::ast::EvaluationContext::new(topology, state, None)?;
+        let data = super::ast::EvalContext::new(sys, None)?;
         let mut ast = self.ast.borrow_mut();
         //println!("BEFORE:\n{ast:#?}\n");
         let ind = ast.apply(&data)?.into_owned();
@@ -72,13 +71,12 @@ impl SelectionExpr {
     }
 
     /// Applies the selection expression to a subset of atoms
-    pub(super) fn apply_subset(
+    pub(super) fn apply_subset (
         &self,
-        topology: &Topology,
-        state: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: &[usize],
     ) -> Result<SVec, SelectionParserError> {
-        let data = super::ast::EvaluationContext::new(topology, state, Some(subset))?;
+        let data = super::ast::EvalContext::new(sys, Some(subset))?;
         let mut ast = self.ast.borrow_mut();
         let ind = ast.apply(&data)?.into_owned();
         Ok(SVec::from_unsorted(ind))
@@ -91,13 +89,12 @@ impl SelectionExpr {
 
 #[cfg(test)]
 mod tests {
-    use super::{SelectionExpr, State, Topology};
-    use crate::io::*;
+    use super::SelectionExpr;
+    use crate::System;
     use std::sync::LazyLock;
 
-    static TOPST: LazyLock<(Topology, State)> = LazyLock::new(|| {
-        let mut h = FileHandler::open("tests/albumin.pdb").unwrap();
-        h.read().unwrap()
+    static SYS: LazyLock<System> = LazyLock::new(|| {
+        System::from_file("tests/albumin.pdb").unwrap()
     });
 
     #[test]
@@ -107,14 +104,14 @@ mod tests {
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
-        ast.apply_whole(&TOPST.0, &TOPST.1)
+        ast.apply_whole(&*SYS)
             .expect("Error applying AST")
             .to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
-        ast.apply_whole(&TOPST.0, &TOPST.1)
+        ast.apply_whole(&*SYS)
             .expect("Error applying AST")
             .to_vec()
     }
@@ -129,12 +126,12 @@ mod tests {
     fn test_sqrt() {
         let ast = SelectionExpr::new("within 0.3 of x>2+2*3").expect("Error generating AST");
         let _vec1 = ast
-            .apply_whole(&TOPST.0, &TOPST.1)
+            .apply_whole(&*SYS)
             .expect("Error applying AST");
 
         let ast = SelectionExpr::new("x<25").expect("Error generating AST");
         let _vec2 = ast
-            .apply_whole(&TOPST.0, &TOPST.1)
+            .apply_whole(&*SYS)
             .expect("Error applying AST");
 
         //assert_eq!(vec1.len(), vec2.len());

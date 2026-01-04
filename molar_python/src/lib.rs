@@ -394,7 +394,7 @@ impl SystemPy {
             if let Ok(val) = arg.extract::<String>() {
                 if val.is_empty() {
                     // Select all on empty string
-                    (0..top.0.len()).into_sel_index(&top.0, &st.0, None)?
+                    (0..top.0.len()).into_sel_index(&(&top.0, &st.0), None)?
                 } else {
                     // Otherwise do normal textual selection
                     val.into_sel_index(&top.0, &st.0, None)?
