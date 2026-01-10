@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use super::periodic_table::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEMENT_VDW};
 
 /// Information about the atom except its coordinates.
@@ -5,9 +6,9 @@ use super::periodic_table::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEM
 #[derive(Debug, Default, Clone)]
 pub struct Atom {
     /// Atom name.
-    pub name: String,
+    pub name: CompactString,
     /// Residue name.
-    pub resname: String,
+    pub resname: CompactString,
     /// Residue id (aka residue number). This could be negative!
     pub resid: i32, // Could be negative.
     /// Residue index. Assigned when reading the [topology](super::Topology).
@@ -20,7 +21,7 @@ pub struct Atom {
     /// Charge in electroc charges.
     pub charge: f32,
     /// Name of the atom type.
-    pub type_name: String,
+    pub type_name: CompactString,
     /// Unique id of the atom type.
     pub type_id: u32,
     // PDB chain identifier.

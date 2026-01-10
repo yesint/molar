@@ -38,6 +38,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 rayon.workspace = true
+compact_str = "0.9.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

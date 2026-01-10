@@ -769,7 +769,7 @@ impl KeywordNode {
         &self,
         data: &EvalContext<'_,S>,
         args: &[StrKeywordArg],
-        f: fn(&Atom) -> &String,
+        f: fn(&Atom) -> &str,
     ) -> Vec<usize> 
     where
         S: AtomPosAnalysis + BoxProvider

@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use compact_str::CompactString;
 use molar_molfile::molfile_bindings::*;
 use std::default::Default;
 use std::ffi::{c_void, CStr, CString, NulError};
@@ -69,9 +70,9 @@ pub enum VmdHandlerError {
     FixedSizeFieldOverflow(usize, usize),
 }
 
-// Helper convertion function from C fixed-size string to String
-fn char_slice_to_str(buf: &[::std::os::raw::c_char]) -> Result<String, VmdHandlerError> {
-    unsafe { Ok(CStr::from_ptr(buf.as_ptr()).to_str()?.to_owned()) }
+// Helper convertion function from C fixed-size string to CompactString
+fn char_slice_to_comp_str(buf: &[::std::os::raw::c_char]) -> Result<CompactString, VmdHandlerError> {
+    unsafe { Ok( CStr::from_ptr(buf.as_ptr()).to_str()?.into() ) }
 }
 
 fn get_plugin(ext: &str) -> Result<*mut molfile_plugin_t, FileFormatError> {
@@ -197,10 +198,10 @@ impl FileFormatHandler for VmdMolFileHandler {
 
         for ref vmd_at in vmd_atoms {
             let mut at = Atom {
-                name: char_slice_to_str(&vmd_at.name)?,
+                name: char_slice_to_comp_str(&vmd_at.name)?,
                 resid: vmd_at.resid,
-                resname: char_slice_to_str(&vmd_at.resname)?,
-                chain: char_slice_to_str(&vmd_at.chain)?.chars().next().unwrap_or(' '),
+                resname: char_slice_to_comp_str(&vmd_at.resname)?,
+                chain: char_slice_to_comp_str(&vmd_at.chain)?.chars().next().unwrap_or(' '),
                 charge: vmd_at.charge,
                 occupancy: vmd_at.occupancy,
                 bfactor: vmd_at.bfactor,

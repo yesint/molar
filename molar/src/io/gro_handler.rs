@@ -174,12 +174,12 @@ impl FileFormatHandler for GroFileHandler {
                     .get(5..10)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
                     .trim()
-                    .to_owned(),
+                    .into(),
                 name: line
                     .get(10..15)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
                     .trim()
-                    .to_owned(),
+                    .into(),
                 chain: ' ',
                 type_name: "".into(),
                 ..Default::default()
