@@ -7,7 +7,7 @@ use numpy::{
     nalgebra::{self, Const, Dyn, VectorView},
     PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
-use pyo3::{exceptions::PyTypeError, prelude::*, types::PyTuple, IntoPyObjectExt};
+use pyo3::{IntoPyObjectExt, exceptions::PyTypeError, prelude::*, types::{PySlice, PyTuple}};
 
 mod utils;
 use utils::*;
@@ -50,7 +50,8 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         let (top, st) = h.read()?;
-        Ok((TopologyPy(top.into()), StatePy(st.into())))
+
+        Ok((TopologyPy(top.into()), StatePy::from_state(st)?))
     }
 
     fn read_topology(&mut self) -> anyhow::Result<TopologyPy> {
@@ -68,7 +69,7 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         let st = h.read_state()?;
-        Ok(StatePy(st.into()))
+        StatePy::from_state(st)
     }
 
     fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
@@ -77,15 +78,9 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.extract::<PyRef<'_, SystemPy>>() {
-            let top = &s.top.borrow(data.py()).0;
-            let st = &s.st.borrow(data.py()).0;
-            h.write_topology(top)?;
-            h.write_state(st)?;
+            h.write(&*s)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
-            let top = &s.top.borrow(data.py()).0;
-            let st = &s.st.borrow(data.py()).0;
-            h.write_topology(top)?;
-            h.write_state(st)?;
+            h.write(&*s)?;
         } else if let Ok(s) = data.cast::<PyTuple>() {
             if s.len() != 2 {
                 return Err(anyhow!("tuple must have two elements, not {}", s.len()));
@@ -96,14 +91,13 @@ impl FileHandlerPy {
                 .map_err(|_| anyhow!("first tuple element should be a Topology"))?
                 .borrow()
                 .0;
-            let st = &s
+            let st = s
                 .get_item(1)?
                 .cast::<StatePy>()
                 .map_err(|_| anyhow!("second tuple element should be a State"))?
-                .borrow()
-                .0;
+                .as_ptr() as *const StatePy;
             h.write_topology(top)?;
-            h.write_state(st)?;
+            h.write_state(unsafe { &*st })?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -122,7 +116,8 @@ impl FileHandlerPy {
             let top = &s.top.borrow(data.py()).0;
             h.write_topology(top)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
-            h.write_topology(&s.top.borrow(data.py()).0)?;
+            let py = data.py();
+            h.write_topology(&s.sys.borrow(py).top.bind(py).borrow().0)?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, TopologyPy>>() {
             h.write_topology(&s.0)?;
         } else {
@@ -140,12 +135,15 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.extract::<PyRef<'_, SystemPy>>() {
-            let st = &s.st.borrow(data.py()).0;
-            h.write_state(st)?;
+            let st = s.st.as_ptr() as *const StatePy;
+            h.write_state(unsafe { &*st })?;
         } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
-            h.write_state(&s.st.borrow(data.py()).0)?;
+            let py = data.py();
+            let st = s.sys.bind(py).borrow().st.bind(py).borrow();
+            h.write_state(&*st)?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, StatePy>>() {
-            h.write_state(&s.0)?;
+            let st = s.as_ptr() as *const StatePy;
+            h.write_state(unsafe { &*st })?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -164,11 +162,14 @@ impl FileHandlerPy {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
-        let st = slf.1.as_mut().unwrap().next().map(|st| StatePy(st.into()));
+        let st = slf
+            .1
+            .as_mut()
+            .expect("Not transformed to state iterator yet")
+            .next()
+            .map(|st| StatePy::from_state(st).unwrap());
         if st.is_some() {
-            Python::attach(|py| Some(st.unwrap().into_py_any(py)))
-                .unwrap()
-                .ok()
+            Some(st.unwrap().into_py_any(slf.py()).unwrap())
         } else {
             None
         }
@@ -264,7 +265,7 @@ impl FileStatsPy {
     }
 }
 
-#[pyclass(unsendable, sequence, name = "System")]
+#[pyclass(name = "System")]
 struct SystemPy {
     top: Py<TopologyPy>,
     st: Py<StatePy>,
@@ -280,10 +281,6 @@ impl IndexProvider for SystemPy {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         i
     }
-
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        0..self.len()
-    }
 }
 
 impl AtomPosAnalysis for SystemPy {
@@ -292,23 +289,37 @@ impl AtomPosAnalysis for SystemPy {
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        Python::attach(|py| self.st.borrow(py).0.coords.as_ptr())
+        Python::attach(|py| self.st.borrow(py).coords.bind(py).data() as *const Pos)
     }
 }
 
 impl AtomPosAnalysisMut for SystemPy {}
 
-impl NonAtomPosAnalysis for SystemPy {
-    fn top_ptr(&self) -> *const Topology {
-        Python::attach(|py| &self.top.borrow(py).0 as *const Topology)
-    }
-
-    fn st_ptr(&self) -> *const State {
-        Python::attach(|py| &self.st.borrow(py).0 as *const State)
+impl BoxProvider for SystemPy {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        Python::attach(|py| {
+            let st = self.st.borrow(py);
+            let ptr = st.pbox.as_ref().map(|b| b as *const PeriodicBox)?;
+            unsafe { Some(&*ptr) }
+        })
     }
 }
 
-impl NonAtomPosAnalysisMut for SystemPy {}
+impl RandomBondProvider for SystemPy {
+    fn num_bonds(&self) -> usize {
+        0
+    }
+
+    unsafe fn get_bond_unchecked(&self, _i: usize) -> &[usize; 2] {
+        unreachable!()
+    }
+}
+
+impl TimeProvider for SystemPy {
+    fn get_time(&self) -> f32 {
+        Python::attach(|py| self.st.borrow(py).time)
+    }
+}
 
 impl SaveTopology for SystemPy {}
 impl SaveState for SystemPy {}
@@ -322,34 +333,36 @@ impl SystemPy {
         let py = py_args.py();
         if py_args.len() == 1 {
             // From file
-            let mut fh = molar::io::FileHandler::open(&py_args.get_item(0)?.extract::<String>()?)
-                .map_err(|e| anyhow!(e))?;
+            let fname = py_args.get_item(0)?.extract::<String>()?;
+            let mut fh = molar::io::FileHandler::open(&fname).map_err(|e| anyhow!(e))?;
             let (top, st) = fh.read().map_err(|e| anyhow!(e))?;
             Ok(SystemPy {
                 top: Py::new(py, TopologyPy(top))?,
-                st: Py::new(py, StatePy(st))?,
+                st: Py::new(py, StatePy::from_state(st)?)?,
             })
         } else if py_args.len() == 2 {
             // From existing Topology and State python objects
-            let top = py_args.get_item(0)?;
-            let st = py_args.get_item(1)?;
-            let n1 = top.cast::<TopologyPy>()?.borrow().0.len();
-            let n2 = st.cast::<StatePy>()?.borrow().0.len();
+            let arg1 = py_args.get_item(0)?;
+            let arg2 = py_args.get_item(1)?;
+            let top = arg1.cast::<TopologyPy>()?;
+            let st = arg2.cast::<StatePy>()?;
+            let n1 = top.borrow().0.len();
+            let n2 = st.borrow().len();
             if n1 != n2 {
                 Err(PyTypeError::new_err(
                     "topology and state are of different size",
                 ))
             } else {
                 Ok(SystemPy {
-                    top: Py::clone_ref(&top.cast::<TopologyPy>()?.as_unbound(), py),
-                    st: Py::clone_ref(&st.cast::<StatePy>()?.as_unbound(), py),
+                    top: top.as_unbound().clone_ref(py),
+                    st: st.as_unbound().clone_ref(py),
                 })
             }
         } else {
             // Empty System
             Ok(SystemPy {
-                top: Py::new(py_args.py(), TopologyPy(Default::default()))?,
-                st: Py::new(py_args.py(), StatePy(Default::default()))?,
+                top: Py::new(py, TopologyPy(Default::default()))?,
+                st: Py::new(py, StatePy::from_state(Default::default())?)?,
             })
         }
     }
@@ -385,24 +398,24 @@ impl SystemPy {
     #[pyo3(signature = (arg=None))]
     fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> anyhow::Result<SelPy> {
         let py = slf.py();
-        let bs = slf.borrow();
-        let top = bs.top.borrow(py);
-        let st = bs.st.borrow(py);
+        let sys = slf.borrow();
 
         let index = if let Some(arg) = arg {
             // Argument present
             if let Ok(val) = arg.extract::<String>() {
                 if val.is_empty() {
                     // Select all on empty string
-                    (0..top.0.len()).into_sel_index(&(&top.0, &st.0), None)?
+                    (0..sys.len()).into_sel_index(&*sys, None)?
                 } else {
                     // Otherwise do normal textual selection
-                    val.into_sel_index(&top.0, &st.0, None)?
+                    val.into_sel_index(&*sys, None)?
                 }
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
-                (val.0..val.1).into_sel_index(&top.0, &st.0, None)?
+                // Range selection
+                (val.0..val.1).into_sel_index(&*sys, None)?
             } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-                val.into_sel_index(&top.0, &st.0, None)?
+                // Vector of indices
+                val.into_sel_index(&*sys, None)?
             } else {
                 bail!(
                     "Invalid argument type {} when creating selection",
@@ -411,20 +424,20 @@ impl SystemPy {
             }
         } else {
             // No argument, select all
-            (0..top.0.len()).into_sel_index(&top.0, &st.0, None)?
+            (0..sys.len()).into_sel_index(&*sys, None)?
         };
 
         Ok(SelPy {
-            top: Py::clone_ref(&bs.top, py),
-            st: Py::clone_ref(&bs.st, py),
+            sys: slf.as_unbound().clone_ref(py),
             index,
         })
     }
 
     fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<Py<StatePy>> {
-        if self.st.borrow(st.py()).0.interchangeable(&st.borrow().0) {
-            let ret = Py::clone_ref(&self.st, st.py());
-            self.st = Py::clone_ref(st.as_unbound(), st.py());
+        let py = st.py();
+        if self.st.borrow(py).coords.bind(py).shape() == st.borrow().coords.bind(py).shape() {
+            let ret = self.st.clone_ref(py);
+            self.st = st.as_unbound().clone_ref(py);
             Ok(ret)
         } else {
             bail!("incompatible state")
@@ -433,21 +446,13 @@ impl SystemPy {
 
     fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<Py<TopologyPy>> {
         if self.top.borrow(top.py()).0.interchangeable(&top.borrow().0) {
-            let ret = Py::clone_ref(&self.top, top.py());
-            self.top = Py::clone_ref(top.as_unbound(), top.py());
+            let ret = self.top.clone_ref(top.py());
+            self.top = top.as_unbound().clone_ref(top.py());
             Ok(ret)
         } else {
             bail!("incompatible topology")
         }
     }
-
-    // fn get_state(&self) -> State {
-    //     State(self.0.get_state())
-    // }
-
-    // fn get_topology(&self) -> Topology {
-    //     Topology(self.0.get_topology())
-    // }
 
     fn save(&self, fname: &str) -> anyhow::Result<()> {
         Ok(SaveTopologyState::save(self, fname)?)
@@ -460,12 +465,16 @@ impl SystemPy {
             // Selection provided
             let sb = sel.borrow();
             slf_b.top.borrow_mut(py).0.remove_atoms(sb.iter_index())?;
-            slf_b.st.borrow_mut(py).0.remove_coords(sb.iter_index())?;
+
+            slf_b.st.borrow_mut(py).remove_coords(py, sb.iter_index())?;
             Ok(())
         } else {
             let sel = Self::__call__(slf, Some(arg))?;
             slf_b.top.borrow_mut(py).0.remove_atoms(sel.iter_index())?;
-            slf_b.st.borrow_mut(py).0.remove_coords(sel.iter_index())?;
+            slf_b
+                .st
+                .borrow_mut(py)
+                .remove_coords(py, sel.iter_index())?;
             Ok(())
         }
     }
@@ -475,7 +484,7 @@ impl SystemPy {
         let py = slf.py();
         let slf_b = slf.borrow();
         let topb = &mut slf_b.top.borrow_mut(py).0;
-        let stb = &mut slf_b.st.borrow_mut(py).0;
+        let stb = &mut slf_b.st.borrow_mut(py);
 
         if args.len() == 1 {
             let arg = args.get_item(0)?;
@@ -531,30 +540,28 @@ impl SystemPy {
 
     #[getter]
     fn get_box(&self, py: Python<'_>) -> PeriodicBoxPy {
-        BoxProvider::get_box(&self.st.borrow(py).0)
+        self.st
+            .borrow(py)
+            .pbox
+            .as_ref()
             .map(|b| PeriodicBoxPy(b.clone()))
             .unwrap()
     }
 
     #[setter]
     fn set_box(&mut self, py: Python<'_>, b: &PeriodicBoxPy) {
-        *self.st.borrow_mut(py).0.get_box_mut().unwrap() = b.0.clone();
+        *self.st.borrow_mut(py).pbox.as_mut().unwrap() = b.0.clone();
     }
 
     #[setter]
-    fn set_time(&mut self, t: f32) {
-        TimeMutProvider::set_time(self, t);
+    fn set_time(&mut self, py: Python<'_>, t: f32) {
+        self.st.borrow_mut(py).time = t;
     }
 
-    fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
-        *self.st.borrow_mut(sys.py()).0.get_box_mut().unwrap() = sys
-            .borrow()
-            .st
-            .borrow(sys.py())
-            .0
-            .get_box()
-            .unwrap()
-            .clone();
+    fn set_box_from(&mut self, sys: Bound<'_, SystemPy>) {
+        let sys_ref = sys.borrow();
+        let py = sys.py();
+        self.st.bind(py).borrow_mut().pbox = sys_ref.st.bind(py).borrow().pbox.clone();
     }
 }
 
@@ -562,8 +569,7 @@ impl SystemPy {
 
 #[pyclass(sequence, name = "Sel")]
 struct SelPy {
-    top: Py<TopologyPy>,
-    st: Py<StatePy>,
+    sys: Py<SystemPy>,
     index: SVec,
 }
 
@@ -585,39 +591,58 @@ impl IndexProvider for SelPy {
 
 impl AtomPosAnalysis for SelPy {
     fn atoms_ptr(&self) -> *const Atom {
-        Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
+        Python::attach(|py| self.sys.borrow(py).top.borrow(py).0.atoms.as_ptr())
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        Python::attach(|py| self.st.borrow(py).0.coords.as_ptr())
+        Python::attach(|py| self.sys.borrow(py).st.borrow(py).coords.bind(py).data() as *const Pos)
     }
 }
 
 impl AtomPosAnalysisMut for SelPy {}
 
-impl NonAtomPosAnalysis for SelPy {
-    fn top_ptr(&self) -> *const Topology {
-        Python::attach(|py| &self.top.borrow(py).0 as *const Topology)
-    }
-
-    fn st_ptr(&self) -> *const State {
-        Python::attach(|py| &self.st.borrow(py).0 as *const State)
+impl BoxProvider for SelPy {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        Python::attach(|py| {
+            let ptr = self
+                .sys
+                .borrow(py)
+                .st
+                .borrow(py)
+                .pbox
+                .as_ref()
+                .map(|b| b as *const PeriodicBox)?;
+            unsafe { Some(&*ptr) }
+        })
     }
 }
 
-impl NonAtomPosAnalysisMut for SelPy {}
+impl RandomBondProvider for SelPy {
+    fn num_bonds(&self) -> usize {
+        0
+    }
+
+    unsafe fn get_bond_unchecked(&self, _i: usize) -> &[usize; 2] {
+        unreachable!()
+    }
+}
+
+impl TimeProvider for SelPy {
+    fn get_time(&self) -> f32 {
+        Python::attach(|py| self.sys.borrow(py).st.borrow(py).time)
+    }
+}
 
 impl SaveTopology for SelPy {}
 impl SaveState for SelPy {}
 impl SaveTopologyState for SelPy {}
 
 impl SelPy {
-    fn from_svec(&self, py: Python<'_>, index: SVec) -> Self {
-        Self {
-            top: Py::clone_ref(&self.top, py),
-            st: Py::clone_ref(&self.st, py),
+    fn from_svec(&self, index: SVec) -> Self {
+        Python::attach(|py| Self {
+            sys: self.sys.clone_ref(py),
             index,
-        }
+        })
     }
 }
 
@@ -628,23 +653,22 @@ impl SelPy {
     }
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<SelPy> {
-        let top = self.top.borrow(arg.py());
-        let st = self.st.borrow(arg.py());
+        let sys = self.sys.borrow(arg.py());
         if let Ok(val) = arg.extract::<String>() {
             let v = val
-                .into_sel_index(&top.0, &st.0, None)
+                .into_sel_index(&*sys, None)
                 .map_err(|e| anyhow!(e))?;
-            Ok(self.from_svec(arg.py(), v))
+            Ok(self.from_svec(v))
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             let v = (val.0..=val.1)
-                .into_sel_index(&top.0, &st.0, None)
+                .into_sel_index(&*sys, None)
                 .map_err(|e| anyhow!(e))?;
-            Ok(self.from_svec(arg.py(), v))
+            Ok(self.from_svec(v))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
             let v = val
-                .into_sel_index(&top.0, &st.0, None)
+                .into_sel_index(&*sys, None)
                 .map_err(|e| anyhow!(e))?;
-            Ok(self.from_svec(arg.py(), v))
+            Ok(self.from_svec(v))
         } else {
             Err(anyhow!(
                 "Invalid argument type {} when creating selection",
@@ -673,9 +697,16 @@ impl SelPy {
 
         let py = slf.py();
 
+        let all = PySlice::new(py, 0, n as isize, 1);
+        let idx = (all, i); 
+        let sys = s.sys.bind(py).borrow();
+        let st = sys.st.borrow(py);
+        let arr = st.coords.bind(py);
+        let el = arr.get_item(idx)?.cast_into::<PyArray1<f32>>()?;
+
         Ok(ParticlePy {
-            top: Py::clone_ref(&s.top, py),
-            st: Py::clone_ref(&s.st, py),
+            top: slf.borrow().sys.borrow(py).top.clone_ref(py),
+            pos: el.unbind(),
             id: ind,
         }
         .into_py_any(py)?)
@@ -1028,14 +1059,18 @@ fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransf
 }
 
 #[pyfunction(name = "fit_transform_matching")]
-fn fit_transform_matching_py(py: Python<'_>, sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransform> {
+fn fit_transform_matching_py(
+    py: Python<'_>,
+    sel1: &SelPy,
+    sel2: &SelPy,
+) -> anyhow::Result<IsometryTransform> {
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
-    
+
     let top = sel1.top.borrow(py);
     let st = sel1.st.borrow(py);
     let sub1 = ind1.into_sel_index(&top.0, &st.0, Some(&sel1.index))?;
     let sub2 = ind2.into_sel_index(&top.0, &st.0, Some(&sel2.index))?;
-    
+
     let sub_sel1 = SelPy {
         st: Py::clone_ref(&sel1.st, py),
         top: Py::clone_ref(&sel1.top, py),
@@ -1047,7 +1082,7 @@ fn fit_transform_matching_py(py: Python<'_>, sel1: &SelPy, sel2: &SelPy) -> anyh
         top: Py::clone_ref(&sel1.top, py),
         index: sub2,
     };
-        
+
     let tr = fit_transform(&sub_sel1, &sub_sel2)?;
     Ok(IsometryTransform(tr))
 }

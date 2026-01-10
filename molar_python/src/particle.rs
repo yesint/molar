@@ -1,12 +1,12 @@
 use molar::prelude::*;
-use numpy::{PyArrayMethods, PyReadonlyArray1};
+use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1};
 use pyo3::prelude::*;
 use super::{atom::AtomPy, topology_state::{StatePy, TopologyPy}};
 
 #[pyclass(unsendable, name="Particle")]
 pub(crate) struct ParticlePy {
+    pub(crate) pos: Py<PyArray1<f32>>,
     pub(crate) top: Py<TopologyPy>,
-    pub(crate) st: Py<StatePy>,
     // id is readonly
     #[pyo3(get)]
     pub(crate) id: usize,
