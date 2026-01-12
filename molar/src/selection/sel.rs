@@ -129,7 +129,11 @@ impl SystemProvider for SelOwnBound<'_> {
     }
 }
 
-impl SaveTopology for SelOwnBound<'_> {}
+impl SaveTopology for SelOwnBound<'_> {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &dyn AtomLike> + '_> {
+        Box::new(self.iter_atoms().map(|a| a as &dyn AtomLike))
+    }
+}
 impl SaveState for SelOwnBound<'_> {}
 impl SaveTopologyState for SelOwnBound<'_> {}
 
@@ -246,7 +250,11 @@ impl SystemProvider for SelBound<'_> {
     }
 }
 
-impl SaveTopology for SelBound<'_> {}
+impl SaveTopology for SelBound<'_> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a dyn AtomLike> + 'a> {
+        Box::new(self.iter_atoms().map(|a| a as &dyn AtomLike))
+    }
+}
 impl SaveState for SelBound<'_> {}
 impl SaveTopologyState for SelBound<'_> {}
 

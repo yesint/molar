@@ -307,7 +307,11 @@ impl SelectableBound for System {
     }
 }
 
-impl SaveTopology for System {}
+impl SaveTopology for System {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &dyn AtomLike> + '_> {
+        Box::new(self.iter_atoms().map(|a| a as &dyn AtomLike))
+    }
+}
 impl SaveState for System {}
 impl SaveTopologyState for System {}
 

@@ -1,6 +1,14 @@
 use crate::prelude::*;
 use thiserror::Error;
 
+pub trait TopLike: Default + BondIterProvider + MoleculeIterProvider + SaveTopology {
+    // Construction methods (to use with format readers)
+    fn add_atom_dyn(&mut self, atom: &dyn AtomLike);
+    fn add_bond(&mut self, bond: &[usize;2]);
+    fn add_molecule(&mut self, bond: &[usize;2]);
+    // Retrieval methods (to use with format writers) are provided by base traits
+}
+
 /// Topology of the molecular system: atoms, bonds, molecules, etc.
 ///
 /// [Topology] is typically read from structure of trajectory file and is not intended
@@ -91,7 +99,11 @@ impl Topology {
 }
 
 //---------------------------
-impl SaveTopology for Topology {}
+impl SaveTopology for Topology {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &dyn AtomLike> + '_> {
+        Box::new(self.atoms.iter().map(|a| a as &dyn AtomLike))
+    }
+}
 
 impl AtomIterProvider for Topology {
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
