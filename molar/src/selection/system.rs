@@ -308,11 +308,17 @@ impl SelectableBound for System {
 }
 
 impl SaveTopology for System {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &dyn AtomLike> + '_> {
-        Box::new(self.iter_atoms().map(|a| a as &dyn AtomLike))
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+        Box::new(self.iter_atoms())
     }
 }
-impl SaveState for System {}
+
+impl SaveState for System {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Box::new(self.iter_pos())
+    }
+}
+
 impl SaveTopologyState for System {}
 
 impl SystemProvider for System {

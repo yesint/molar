@@ -100,8 +100,8 @@ impl Topology {
 
 //---------------------------
 impl SaveTopology for Topology {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &dyn AtomLike> + '_> {
-        Box::new(self.atoms.iter().map(|a| a as &dyn AtomLike))
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+        Box::new(self.atoms.iter())
     }
 }
 

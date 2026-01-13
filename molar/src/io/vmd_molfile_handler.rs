@@ -230,8 +230,7 @@ impl FileFormatHandler for VmdMolFileHandler {
         self.open_write_if_needed(n)?;
 
         let mut vmd_atoms = Vec::<molfile_atom_t>::with_capacity(n);
-        for i in 0..data.len() {
-            let at = unsafe{data.get_atom_unchecked(i)};
+        for at in data.iter_atoms_dyn() {
             let mut vmd_at = molfile_atom_t::default();
             copy_str_to_c_buffer(&at.name, &mut vmd_at.name)?;
             copy_str_to_c_buffer(&at.resname, &mut vmd_at.resname)?;
@@ -335,8 +334,8 @@ impl FileFormatHandler for VmdMolFileHandler {
 
         // Buffer for coordinates allocated on heap
         let mut buf = Vec::from_iter(
-            (0..data.len())
-                .map(|i| unsafe{data.get_pos_unchecked(i)}.coords.iter().cloned())
+            data.iter_pos_dyn()
+                .map(|p| p.coords.iter().cloned())
                 .flatten()
                 .map(|el| el * 10.0),
         );

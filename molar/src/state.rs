@@ -73,7 +73,11 @@ impl State {
     }
 }
 
-impl SaveState for State {}
+impl SaveState for State {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Box::new(self.iter_pos())
+    }
+}
 
 impl TimeProvider for State {
     fn get_time(&self) -> f32 {
