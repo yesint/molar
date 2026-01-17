@@ -139,7 +139,7 @@ impl FileHandlerPy {
             h.write_state(unsafe { &*st })?;
         } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
             let py = data.py();
-            let st = s.sys.bind(py).borrow().st.bind(py).borrow();
+            let st = s.st.bind(py).borrow();
             h.write_state(&*st)?;
         } else if let Ok(s) = data.extract::<PyRefMut<'_, StatePy>>() {
             let st = s.as_ptr() as *const StatePy;
@@ -437,6 +437,8 @@ impl SystemPy {
 
         Ok(SelPy {
             sys: slf.as_unbound().clone_ref(py),
+            top: sys.top.clone_ref(py),
+            st: sys.st.clone_ref(py),
             index,
         })
     }
@@ -577,7 +579,12 @@ impl SystemPy {
 
 #[pyclass(sequence, name = "Sel")]
 struct SelPy {
+    // Reference to parent system
     sys: Py<SystemPy>,
+    // Separate references to topology and state
+    // saves one borrow of sys to access them in methods
+    top: Py<TopologyPy>,
+    st: Py<StatePy>,
     index: SVec,
 }
 
@@ -599,11 +606,11 @@ impl IndexProvider for SelPy {
 
 impl AtomPosAnalysis for SelPy {
     fn atoms_ptr(&self) -> *const Atom {
-        Python::attach(|py| self.sys.borrow(py).top.borrow(py).0.atoms.as_ptr())
+        Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        Python::attach(|py| self.sys.borrow(py).st.borrow(py).coords.bind(py).data() as *const Pos)
+        Python::attach(|py| self.st.borrow(py).coords.bind(py).data() as *const Pos)
     }
 }
 
@@ -637,7 +644,7 @@ impl RandomBondProvider for SelPy {
 
 impl TimeProvider for SelPy {
     fn get_time(&self) -> f32 {
-        Python::attach(|py| self.sys.borrow(py).st.borrow(py).time)
+        Python::attach(|py| self.st.borrow(py).time)
     }
 }
 
@@ -658,14 +665,14 @@ impl MeasurePeriodic for SelPy {}
 impl RandomMoleculeProvider for SelPy {
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
         let p = Python::attach(|py| {
-            self.sys.borrow(py).top.borrow(py).0.get_molecule_unchecked(i) as *const [usize;2]
+            self.top.borrow(py).0.get_molecule_unchecked(i) as *const [usize;2]
         });
         unsafe{&*p}
     }
 
     fn num_molecules(&self) -> usize {
         Python::attach(|py| {
-            self.sys.borrow(py).top.borrow(py).0.num_molecules()
+            self.top.borrow(py).0.num_molecules()
         })
     }
 }
@@ -674,6 +681,8 @@ impl SelPy {
     fn from_svec(&self, index: SVec) -> Self {
         Python::attach(|py| Self {
             sys: self.sys.clone_ref(py),
+            top: self.top.clone_ref(py),
+            st: self.st.clone_ref(py),
             index,
         })
     }
@@ -805,10 +814,10 @@ impl SelPy {
 
     fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<Py<StatePy>> {
         let py = st.py();
-        let n = self.sys.borrow(py).st.borrow(py).len();
+        let n = self.st.borrow(py).len();
         //let st_ref = cur_st.borrow(py);
         if n == st.borrow().len() {
-            let ret = self.sys.borrow(py).st.clone_ref(py);
+            let ret = self.st.clone_ref(py);
             self.sys.borrow_mut(py).st = st.as_unbound().clone_ref(py);
             Ok(ret)
         } else {
@@ -878,8 +887,7 @@ impl SelPy {
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
         Python::attach(|py|{
-            let sys = self.sys.borrow(py);
-            let st = sys.st.borrow(py);
+            let st = self.st.borrow(py);
             let b = st.pbox.as_ref().unwrap();
             PeriodicBoxPy(b.clone())
         })
@@ -888,8 +896,7 @@ impl SelPy {
     #[setter]
     fn set_box(&mut self, b: &PeriodicBoxPy) {
         Python::attach(|py|{
-            let sys = self.sys.borrow(py);
-            let mut st = sys.st.borrow_mut(py);
+            let mut st = self.st.borrow_mut(py);
             st.pbox = Some(b.0.clone());
         })
     }
@@ -897,8 +904,7 @@ impl SelPy {
     #[setter]
     fn set_time(&mut self, t: f32) {
         Python::attach(|py|{
-            let sys = self.sys.borrow(py);
-            let mut st = sys.st.borrow_mut(py);
+            let mut st = self.st.borrow_mut(py);
             st.time = t;
         })
     }
@@ -1019,6 +1025,8 @@ impl SelPy {
         AtomPosAnalysis::split_resindex(self)
             .map(|s| SelPy {
                 sys: self.sys.clone_ref(py),
+                top: self.top.clone_ref(py),
+                st: self.st.clone_ref(py),
                 index: s.into_svec(),
             })
             .collect()
@@ -1028,6 +1036,8 @@ impl SelPy {
         self.split(|p| Some(p.atom.chain))
             .map(|s| SelPy {
                 sys: self.sys.clone_ref(py),
+                top: self.top.clone_ref(py),
+                st: self.st.clone_ref(py),
                 index: s.into_svec(),
             })
             .collect()
@@ -1037,6 +1047,8 @@ impl SelPy {
         self.split_mol_iter()
             .map(|s| SelPy {
                 sys: self.sys.clone_ref(py),
+                top: self.top.clone_ref(py),
+                st: self.st.clone_ref(py),
                 index: s.into_svec(),
             })
             .collect()
@@ -1121,11 +1133,15 @@ fn fit_transform_matching_py(
 
     let sub_sel1 = SelPy {
         sys: sel1.sys.clone_ref(py),
+        top: sel1.top.clone_ref(py),
+        st: sel1.st.clone_ref(py),
         index: sub1,
     };
 
     let sub_sel2 = SelPy {
         sys: sel2.sys.clone_ref(py),
+        top: sel2.top.clone_ref(py),
+        st: sel2.st.clone_ref(py),
         index: sub2,
     };
 
