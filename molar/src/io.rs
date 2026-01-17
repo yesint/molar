@@ -21,8 +21,8 @@ use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
 use xtc_handler::{XtcFileHandler, XtcHandlerError};
 
 /// Trait for saving [Topology] to file
-pub trait SaveTopology<A = Atom>: RandomBondProvider + LenProvider {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a A> + 'a>;
+pub trait SaveTopology: RandomBondProvider + LenProvider {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a>;
 }
 
 /// Trait for saving [State] to file

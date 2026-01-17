@@ -4,7 +4,7 @@ use super::periodic_box::PeriodicBoxPy;
 use anyhow::{anyhow, bail};
 use molar::prelude::*;
 use numpy::{
-    ndarray::Axis, npyffi, Element, PyArray2, PyArrayDescrMethods, PyArrayMethods,
+    npyffi, Element, PyArray2, PyArrayDescrMethods, PyArrayMethods,
     PyUntypedArrayMethods, PY_ARRAY_API,
 };
 use pyo3::{prelude::*, types::PyCapsule};
@@ -201,7 +201,23 @@ impl StatePy {
     }
 }
 
-impl SaveState for StatePy {}
+impl SaveState for StatePy {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Python::attach(|py| {
+            let a = self.coords.bind(py);
+            let n = a.shape()[1];
+            // SAFETY:
+            // - Fortran contiguous (3, n) means memory layout is [x0,y0,z0, x1,y1,z1, ...]
+            // - Pos must be #[repr(C)] and exactly 3*f32 bytes (12), alignment compatible (usually 4).
+            // - coords must stay alive (it does: owned by self) and not be reallocated/resized during iteration.
+            let pos_slice: &'a [Pos] = unsafe {
+                let ptr_f32: *const f32 = a.data();
+                std::slice::from_raw_parts(ptr_f32 as *const Pos, n)
+            };
+            Box::new(pos_slice.iter())
+        })
+    }
+}
 
 impl LenProvider for StatePy {
     fn len(&self) -> usize {
@@ -230,5 +246,18 @@ impl RandomPosProvider for StatePy {
     }
 }
 
-#[pyclass(unsendable, name = "Topology")]
+#[pyclass(name = "Topology")]
 pub(crate) struct TopologyPy(pub(crate) Topology);
+
+impl LenProvider for TopologyPy {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+#[pymethods]
+impl TopologyPy {
+    fn __len__(&self) -> usize {
+        self.0.len()
+    }
+}

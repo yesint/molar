@@ -321,8 +321,16 @@ impl TimeProvider for SystemPy {
     }
 }
 
-impl SaveTopology for SystemPy {}
-impl SaveState for SystemPy {}
+impl SaveTopology for SystemPy {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+        Box::new(self.iter_atoms())
+    }
+}
+impl SaveState for SystemPy {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Box::new(self.iter_pos())
+    }
+}
 impl SaveTopologyState for SystemPy {}
 
 #[pymethods]
@@ -633,9 +641,34 @@ impl TimeProvider for SelPy {
     }
 }
 
-impl SaveTopology for SelPy {}
-impl SaveState for SelPy {}
+impl SaveTopology for SelPy {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+        Box::new(self.iter_atoms())
+    }
+}
+impl SaveState for SelPy {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Box::new(self.iter_pos())
+    }
+}
 impl SaveTopologyState for SelPy {}
+
+impl MeasurePeriodic for SelPy {}
+
+impl RandomMoleculeProvider for SelPy {
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        let p = Python::attach(|py| {
+            self.sys.borrow(py).top.borrow(py).0.get_molecule_unchecked(i) as *const [usize;2]
+        });
+        unsafe{&*p}
+    }
+
+    fn num_molecules(&self) -> usize {
+        Python::attach(|py| {
+            self.sys.borrow(py).top.borrow(py).0.num_molecules()
+        })
+    }
+}
 
 impl SelPy {
     fn from_svec(&self, index: SVec) -> Self {
@@ -656,17 +689,17 @@ impl SelPy {
         let sys = self.sys.borrow(arg.py());
         if let Ok(val) = arg.extract::<String>() {
             let v = val
-                .into_sel_index(&*sys, None)
+                .into_sel_index(&*sys, Some(self.index.as_slice()))
                 .map_err(|e| anyhow!(e))?;
             Ok(self.from_svec(v))
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             let v = (val.0..=val.1)
-                .into_sel_index(&*sys, None)
+                .into_sel_index(&*sys, Some(self.index.as_slice()))
                 .map_err(|e| anyhow!(e))?;
             Ok(self.from_svec(v))
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
             let v = val
-                .into_sel_index(&*sys, None)
+                .into_sel_index(&*sys, Some(self.index.as_slice()))
                 .map_err(|e| anyhow!(e))?;
             Ok(self.from_svec(v))
         } else {
@@ -682,7 +715,8 @@ impl SelPy {
     fn __getitem__(slf: Bound<Self>, i: isize) -> PyResult<Py<PyAny>> {
         let s = slf.borrow();
         let n = s.__len__();
-        let ind = if i < 0 {
+        
+        let mut ind = if i < 0 {
             if i.abs() > n as isize {
                 return Err(
                     anyhow!("Negative index {i} is out of bounds {}:-1", -(n as isize)).into(),
@@ -695,10 +729,13 @@ impl SelPy {
             i as usize
         };
 
+        // Obtained ind is local to selection, so make it global
+        ind += unsafe{s.index.get_unchecked(0)};
+
         let py = slf.py();
 
         let all = PySlice::new(py, 0, n as isize, 1);
-        let idx = (all, i); 
+        let idx = (all, ind); 
         let sys = s.sys.bind(py).borrow();
         let st = sys.st.borrow(py);
         let arr = st.coords.bind(py);
@@ -730,7 +767,7 @@ impl SelPy {
     }
 
     fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
-        let coord_ptr = self.st.borrow(py).0.coords.as_ptr() as *const f32;
+        let coord_ptr = self.coords_ptr() as *const f32;
         // We allocate an uninitialized PyArray manually and fill it with data.
         // By doing this we save on unnecessary initiallization and extra allocation
         unsafe {
@@ -745,7 +782,7 @@ impl SelPy {
         }
     }
 
-    fn set_coord(&mut self, py: Python<'_>, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
+    fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         // Check if the shape is correct
         if arr.shape() != [3, self.__len__()] {
             return Err(anyhow!(
@@ -755,7 +792,7 @@ impl SelPy {
             ))?;
         }
         let arr_ptr = arr.data();
-        let coord_ptr = self.st.borrow(py).0.coords.as_ptr() as *mut f32;
+        let coord_ptr = self.coords_ptr_mut() as *mut f32;
 
         unsafe {
             for i in self.index.iter_index() {
@@ -763,39 +800,43 @@ impl SelPy {
                 std::ptr::copy_nonoverlapping(arr_ptr.add(i * 3), pos_ptr, 3);
             }
         }
-
         Ok(())
     }
 
     fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<Py<StatePy>> {
-        if self.st.borrow(st.py()).0.interchangeable(&st.borrow().0) {
-            let ret = Py::clone_ref(&self.st, st.py());
-            self.st = Py::clone_ref(st.as_unbound(), st.py());
+        let py = st.py();
+        let n = self.sys.borrow(py).st.borrow(py).len();
+        //let st_ref = cur_st.borrow(py);
+        if n == st.borrow().len() {
+            let ret = self.sys.borrow(py).st.clone_ref(py);
+            self.sys.borrow_mut(py).st = st.as_unbound().clone_ref(py);
             Ok(ret)
         } else {
             bail!("incompatible state")
         }
     }
 
-    fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<Py<TopologyPy>> {
-        if self.top.borrow(top.py()).0.interchangeable(&top.borrow().0) {
-            let ret = Py::clone_ref(&self.top, top.py());
-            self.top = Py::clone_ref(top.as_unbound(), top.py());
-            Ok(ret)
-        } else {
-            bail!("incompatible topology")
-        }
-    }
+    // fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<Py<TopologyPy>> {
+    //     let py = top.py();
+    //     let cur_top = &self.sys.borrow(py).top;
+    //     if cur_top.len() == top.borrow().len() {
+    //         self.sys.borrow_mut(py).top = top.as_unbound().clone_ref(py);
+    //         Ok(cur_top.clone_ref(py))
+    //     } else {
+    //         bail!("incompatible topology")
+    //     }
+    // }
 
     fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<Py<StatePy>> {
+        let py = arg.py();
         if let Ok(val) = arg.cast::<SystemPy>() {
             let b = val.borrow();
-            let s = b.st.bind(arg.py());
+            let s = b.st.bind(py);
             self.set_state(s)
         } else if let Ok(val) = arg.cast::<SelPy>() {
             let b = val.borrow();
-            let s = b.st.bind(arg.py());
-            self.set_state(s)
+            let s = &b.sys.borrow(py).st;
+            self.set_state(s.bind(py))
         } else {
             Err(anyhow!(
                 "Invalid argument type {} in set_state_from()",
@@ -835,31 +876,43 @@ impl SelPy {
     }
 
     #[getter]
-    fn get_box(&self, py: Python<'_>) -> PeriodicBoxPy {
-        BoxProvider::get_box(&self.st.borrow(py).0)
-            .map(|b| PeriodicBoxPy(b.clone()))
-            .unwrap()
+    fn get_box(&self) -> PeriodicBoxPy {
+        Python::attach(|py|{
+            let sys = self.sys.borrow(py);
+            let st = sys.st.borrow(py);
+            let b = st.pbox.as_ref().unwrap();
+            PeriodicBoxPy(b.clone())
+        })
     }
 
     #[setter]
-    fn set_box(&mut self, py: Python<'_>, b: &PeriodicBoxPy) {
-        *self.st.borrow_mut(py).0.get_box_mut().unwrap() = b.0.clone();
+    fn set_box(&mut self, b: &PeriodicBoxPy) {
+        Python::attach(|py|{
+            let sys = self.sys.borrow(py);
+            let mut st = sys.st.borrow_mut(py);
+            st.pbox = Some(b.0.clone());
+        })
     }
 
     #[setter]
     fn set_time(&mut self, t: f32) {
-        TimeMutProvider::set_time(self, t);
+        Python::attach(|py|{
+            let sys = self.sys.borrow(py);
+            let mut st = sys.st.borrow_mut(py);
+            st.time = t;
+        })
     }
 
     fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
-        *self.st.borrow_mut(sys.py()).0.get_box_mut().unwrap() = sys
-            .borrow()
-            .st
-            .borrow(sys.py())
-            .0
-            .get_box()
-            .unwrap()
-            .clone();
+        Python::attach(|py|{
+            let sb2 = sys.borrow();
+            let st2 = sb2.st.borrow(py);
+            let b = st2.pbox.as_ref().unwrap();
+            
+            let sb1 = self.sys.borrow(py);
+            let mut st1 = sb1.st.borrow_mut(py);
+            st1.pbox = Some(b.clone());
+        })
     }
 
     #[pyo3(signature = (dims=[false,false,false]))]
@@ -965,8 +1018,7 @@ impl SelPy {
     fn split_resindex(&self, py: Python<'_>) -> Vec<SelPy> {
         AtomPosAnalysis::split_resindex(self)
             .map(|s| SelPy {
-                top: Py::clone_ref(&self.top, py),
-                st: Py::clone_ref(&self.st, py),
+                sys: self.sys.clone_ref(py),
                 index: s.into_svec(),
             })
             .collect()
@@ -975,8 +1027,7 @@ impl SelPy {
     fn split_chain(&self, py: Python<'_>) -> Vec<SelPy> {
         self.split(|p| Some(p.atom.chain))
             .map(|s| SelPy {
-                top: Py::clone_ref(&self.top, py),
-                st: Py::clone_ref(&self.st, py),
+                sys: self.sys.clone_ref(py),
                 index: s.into_svec(),
             })
             .collect()
@@ -985,8 +1036,7 @@ impl SelPy {
     fn split_molecule(&self, py: Python<'_>) -> Vec<SelPy> {
         self.split_mol_iter()
             .map(|s| SelPy {
-                top: Py::clone_ref(&self.top, py),
-                st: Py::clone_ref(&self.st, py),
+                sys: self.sys.clone_ref(py),
                 index: s.into_svec(),
             })
             .collect()
@@ -1066,20 +1116,16 @@ fn fit_transform_matching_py(
 ) -> anyhow::Result<IsometryTransform> {
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
 
-    let top = sel1.top.borrow(py);
-    let st = sel1.st.borrow(py);
-    let sub1 = ind1.into_sel_index(&top.0, &st.0, Some(&sel1.index))?;
-    let sub2 = ind2.into_sel_index(&top.0, &st.0, Some(&sel2.index))?;
+    let sub1 = ind1.into_sel_index(sel1, Some(&sel1.index))?;
+    let sub2 = ind2.into_sel_index(sel2, Some(&sel2.index))?;
 
     let sub_sel1 = SelPy {
-        st: Py::clone_ref(&sel1.st, py),
-        top: Py::clone_ref(&sel1.top, py),
+        sys: sel1.sys.clone_ref(py),
         index: sub1,
     };
 
     let sub_sel2 = SelPy {
-        st: Py::clone_ref(&sel1.st, py),
-        top: Py::clone_ref(&sel1.top, py),
+        sys: sel2.sys.clone_ref(py),
         index: sub2,
     };
 
@@ -1144,7 +1190,7 @@ fn distance_search<'py>(
                     sel2.iter_pos(),
                     sel1.iter_index(),
                     sel2.iter_index(),
-                    &sel1.get_box(py).0,
+                    &sel1.get_box().0,
                     pbc_dims,
                 );
             } else {
@@ -1162,7 +1208,7 @@ fn distance_search<'py>(
                     d,
                     sel1.iter_pos(),
                     sel1.iter_index(),
-                    &sel1.get_box(py).0,
+                    &sel1.get_box().0,
                     pbc_dims,
                 );
             } else {
@@ -1197,7 +1243,7 @@ fn distance_search<'py>(
                     sel2.iter_pos(),
                     &vdw1,
                     &vdw2,
-                    &sel1.get_box(py).0,
+                    &sel1.get_box().0,
                     pbc_dims,
                 );
             }

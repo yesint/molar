@@ -1,9 +1,9 @@
 use molar::prelude::*;
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1};
+use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::prelude::*;
-use super::{atom::AtomPy, topology_state::{StatePy, TopologyPy}};
+use super::{atom::AtomPy, topology_state::TopologyPy};
 
-#[pyclass(unsendable, name="Particle")]
+#[pyclass(name="Particle")]
 pub(crate) struct ParticlePy {
     pub(crate) pos: Py<PyArray1<f32>>,
     pub(crate) top: Py<TopologyPy>,
@@ -14,62 +14,74 @@ pub(crate) struct ParticlePy {
 
 #[pymethods]
 impl ParticlePy {
-    //pos
-    #[getter]
-    fn get_pos<'py>(slf: &Bound<'py, Self>) -> Bound<'py, PyAny> {
-        let s = slf.borrow();
-        let mut st = s.st.borrow_mut(slf.py());
-        let v = st.0.get_pos_mut(s.id).unwrap();
-        let p = super::utils::map_pyarray_to_pos(v, slf);
-        unsafe{Bound::from_borrowed_ptr(slf.py(), p as *mut pyo3::ffi::PyObject)}
-    }
+    // //pos
+    // #[getter]
+    // fn get_pos<'py>(slf: &Bound<'py, Self>) -> Bound<'py, PyAny> {
+    //     let s = slf.borrow();
+    //     let mut st = s.st.borrow_mut(slf.py());
+    //     let v = st.0.get_pos_mut(s.id).unwrap();
+    //     let p = super::utils::map_pyarray_to_pos(v, slf);
+    //     unsafe{Bound::from_borrowed_ptr(slf.py(), p as *mut pyo3::ffi::PyObject)}
+    // }
 
-    #[setter]
-    fn set_pos<'py>(&mut self, py: Python<'py>, value: PyReadonlyArray1<'py, f32>) {
-        let mut p = self.st.borrow_mut(py).0.get_pos_mut(self.id).unwrap().coords;
-        unsafe {
-            std::ptr::copy_nonoverlapping(value.data(), p.as_mut_ptr(), 3);
-        }
-    }
+    // #[setter]
+    // fn set_pos<'py>(&mut self, py: Python<'py>, value: PyReadonlyArray1<'py, f32>) {
+    //     let mut p = self.st.borrow_mut(py).0.get_pos_mut(self.id).unwrap().coords;
+    //     unsafe {
+    //         std::ptr::copy_nonoverlapping(value.data(), p.as_mut_ptr(), 3);
+    //     }
+    // }
 
     fn get_id(&self) -> usize {
         self.id
     }
 
+    #[getter(pos)]
+    fn get_pos<'a>(&'a self, py: Python<'a>) -> Bound<'a,PyArray1<f32>> {
+        self.pos.bind(py).clone()
+    }
+
+    #[setter(pos)]
+    fn set_pos<'py>(&mut self, py: Python<'py>, pos: PyArrayLike1<f32>) -> PyResult<()>{
+        if pos.len() != 3 {
+            return Err(pyo3::exceptions::PyTypeError::new_err("pos must have 3 elements"));
+        }
+        let p1 = pos.data();
+        let p2= self.pos.bind(py).data();
+        if p1 != p2 {
+            unsafe{std::ptr::copy_nonoverlapping(p1, p2, 3)}; 
+        }
+        Ok(())
+    }
+
     #[getter(x)]
     fn get_x(&self, py: Python<'_>) -> f32 {
-        let st = self.st.borrow(py);
-        st.0.get_pos(self.id).unwrap().x
+        unsafe{*self.pos.bind(py).data().add(0)}
     }
 
     #[setter(x)]
     fn set_x(&mut self, py: Python<'_>, value: f32) {
-        let mut st = self.st.borrow_mut(py);
-        st.0.get_pos_mut(self.id).unwrap().x = value;
+        unsafe{*self.pos.bind(py).data().add(0) = value};
     }
 
     #[getter(y)]
     fn get_y(&self, py: Python<'_>) -> f32 {
-        let st = self.st.borrow(py);
-        st.0.get_pos(self.id).unwrap().y
+        unsafe{*self.pos.bind(py).data().add(1)}
     }
 
     #[setter(y)]
     fn set_y(&mut self, py: Python<'_>, value: f32) {
-        let mut st = self.st.borrow_mut(py);
-        st.0.get_pos_mut(self.id).unwrap().y = value;
+        unsafe{*self.pos.bind(py).data().add(1) = value};
     }
 
     #[getter(z)]
     fn get_z(&self, py: Python<'_>) -> f32 {
-        let st = self.st.borrow(py);
-        st.0.get_pos(self.id).unwrap().z
+        unsafe{*self.pos.bind(py).data().add(2)}
     }
 
     #[setter(z)]
     fn set_z(&mut self, py: Python<'_>, value: f32) {
-        let mut st = self.st.borrow_mut(py);
-        st.0.get_pos_mut(self.id).unwrap().z = value;
+        unsafe{*self.pos.bind(py).data().add(2) = value};
     }
 
     // atom
@@ -89,26 +101,26 @@ impl ParticlePy {
     #[getter(name)]
     fn get_name(&self, py: Python<'_>) -> String {
         let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().name.clone()
+        top.0.get_atom(self.id).unwrap().name.as_str().to_owned()
     }
 
     #[setter(name)]
     fn set_name(&mut self, py: Python<'_>, value: &str) {
         let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().name = value.into();
+        top.0.get_atom_mut(self.id).unwrap().name = value.to_owned().into();
     }
 
     // resname
     #[getter(resname)]
     fn get_resname(&self, py: Python<'_>) -> String {
         let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().resname.clone()
+        top.0.get_atom(self.id).unwrap().resname.as_str().to_owned()
     }
 
-    #[setter(name)]
+    #[setter(resname)]
     fn set_resname(&mut self, py: Python<'_>, value: &str) {
         let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().resname = value.into();
+        top.0.get_atom_mut(self.id).unwrap().resname = value.to_owned().into();
     }
 
     // resid
@@ -180,7 +192,7 @@ impl ParticlePy {
     #[getter(type_name)]
     fn get_type_name(&self, py: Python<'_>) -> String {
         let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().type_name.clone()
+        top.0.get_atom(self.id).unwrap().type_name.as_str().to_owned()
     }
 
     #[setter(type_name)]

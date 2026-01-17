@@ -31,36 +31,32 @@ def test1():
         print(st.time,sel.com())
 
 def test2():
-    fh = FileHandler('../../molar/tests/protein.pdb','r')
-    top = fh.read_topology()
-    st = fh.read_state()
-    src = System(top,st)
+    src = System('../../molar/tests/protein.pdb')
     sel = src("resid 5:600")
-    del top,st,fh
     pos0 = sel[0].pos
-    pos1 = sel[1].pos
-    pos2 = sel[2].pos
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del pos2
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    del pos1
-    print(f"ref: {getrefcount(sel)-1} {getrefcount(pos0)-1}")
-    #del sel
-    print(f"ref: {getrefcount(pos0)-1} pos0: {pos0}")
+    print(f"ref: {getrefcount(pos0)} pos0: {pos0}")
     pos0[1]+=1
-    print(f"ref: {getrefcount(pos0)-1} pos0: {sel[0].pos}")
+    print(f"ref: {getrefcount(pos0)} pos0: {sel[0].pos}")
 
 
 def test3():
+    src = System('../../molar/tests/protein.pdb')
+    sel = src("resid 5:600")
     print("[0] before:",sel[0].pos)
-    print("[1] before]:",sel[1].pos)
-    sel[0].pos = sel[1].pos
+    sel[0].pos = [100,100,3]
     print("[0] after [0]=[1]:",sel[0].pos)
 
-    print("[0].name before:",sel[0].name)
-    print("[1].name before:",sel[1].name)
-    print("[0].name after [0]=[1]:",sel[0].name)
+    print("[0].name before:",sel[0].name,sel[1].name)
+    sel[0].name = "AAA"
+    print("[0].name after [0]=[1]:",sel[0].name, sel[1].name)
 
+    print("[0].resid before:",sel[0].resid,sel[100].resid)
+    sel[0].resid = sel[100].resid
+    print("[0].resid after [0]=[1]:",sel[0].resid, sel[100].resid)
+
+    print("[0].resid before:",sel[0].resname,sel[50].resname)
+    sel[0].resname = sel[50].resname
+    print("[0].resid after [0]=[1]:",sel[0].resname, sel[50].resname)
 
 def test4():
     print(f'Size: {len(sel)}')
@@ -69,6 +65,8 @@ def test4():
 
 
 def test5():
+    src = System('../../molar/tests/protein.pdb')
+    sel = src("resid 5:600")
     print(sel[100].pos, sel[0].name)
     print(sel[-100].atom.name)
     print("x=",sel[-100].x)
@@ -77,16 +75,20 @@ def test5():
     
 
 def test6():
+    src = System('../../molar/tests/protein.pdb')
+    sel = src("resid 5:600")
     subsel = sel("name CA")
     print(len(sel), sel[0].name)
     print(len(subsel), subsel[0].name)
 
 def test7():
+    src = System('../../molar/tests/protein.pdb')
+    sel = src("resid 5:600")
     crd = sel.get_coord()
-    print(sel[0].pos, crd[:,0])
+    print("before:",sel[0].pos, crd[:,0])
     crd[0,0] = 42
     sel.set_coord(crd)
-    print(sel[0].pos, crd[:,0])
+    print("after:",sel[0].pos, crd[:,0])
 
     arr = np.zeros((3, len(sel)), dtype=np.float32)
     sel.set_coord(arr)
@@ -110,7 +112,7 @@ def test9():
     #b = PeriodicBox([[1,0,0],[0,1,0],[0,0,1]])
     b = PeriodicBox([1,2,3],[90,90,90])
     print(b.to_vectors_angles())
-    print(b.shortest_vector([0.5,0.5,0.6]))
+    print(b.shortest_vector([0.9,0.5,0.6]))
 
 
 def test_distance_search():
@@ -121,8 +123,9 @@ def test_distance_search():
     print(len(pairs),len(dist))
     print(pairs,dist)
 
+test7()
 #test7()
 #test2()
-test_distance_search()
+#test_distance_search()
 #test_distance_search()
 #test_set_state()

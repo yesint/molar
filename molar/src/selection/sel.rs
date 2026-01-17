@@ -520,4 +520,16 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_subsel() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let sel = sys.select_bound("resid 1:10")?;
+        let subsel = sel.select_bound("name CA")?;
+        let a1 = &sel.get_atom(0).unwrap().name;
+        let a2 = &subsel.get_atom(0).unwrap().name;
+        assert_eq!(a1,"N");
+        assert_eq!(a2,"CA");
+        Ok(())
+    }
 }
