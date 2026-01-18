@@ -121,8 +121,15 @@ def test_distance_search():
     print(len(pairs),len(dist))
     print(pairs,dist)
 
+def test_append():
+    s = System('../../molar/tests/topol.tpr')
+    sel1 = s("resid 5:100")
+    s.append(sel1)
+    
+
 #test7()
 #test2()
-test_distance_search()
+#test_distance_search()
 #test_distance_search()
 #test_set_state()
+test_append()
