@@ -123,9 +123,16 @@ def test_distance_search():
     print(len(pairs),len(dist))
     print(pairs,dist)
 
-test7()
+def test_append():
+    sys = System('../../molar/tests/protein.pdb')
+    sel = sys("resid 550")
+    sys.append(sel)
+
+
+#test7()
 #test7()
 #test2()
 #test_distance_search()
 #test_distance_search()
 #test_set_state()
+test_append()

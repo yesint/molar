@@ -493,8 +493,9 @@ impl SystemPy {
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> anyhow::Result<()> {
         let py = slf.py();
         let slf_b = slf.borrow();
-        let topb = &mut slf_b.top.borrow_mut(py).0;
-        let stb = &mut slf_b.st.borrow_mut(py);
+        let topb = &slf_b.top.borrow(py).0 as *const Topology as *mut Topology;
+        let stb = &*slf_b.st.borrow(py) as *const StatePy as *mut StatePy;
+        
 
         if args.len() == 1 {
             let arg = args.get_item(0)?;

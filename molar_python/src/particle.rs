@@ -5,6 +5,7 @@ use super::{atom::AtomPy, topology_state::TopologyPy};
 
 #[pyclass(name="Particle")]
 pub(crate) struct ParticlePy {
+    // This is a column view into the stored numpy array with coords
     pub(crate) pos: Py<PyArray1<f32>>,
     pub(crate) top: Py<TopologyPy>,
     // id is readonly
