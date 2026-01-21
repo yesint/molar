@@ -7,9 +7,15 @@ use numpy::{
     nalgebra::{self, Const, Dyn, VectorView},
     PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
-use pyo3::{IntoPyObjectExt, exceptions::PyTypeError, prelude::*, types::{PySlice, PyTuple}};
+use pyo3::{
+    exceptions::PyTypeError,
+    prelude::*,
+    types::{PySlice, PyTuple},
+    IntoPyObjectExt,
+};
 
 mod utils;
+use triomphe::Arc;
 use utils::*;
 
 mod atom;
@@ -51,7 +57,7 @@ impl FileHandlerPy {
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         let (top, st) = h.read()?;
 
-        Ok((TopologyPy(top.into()), StatePy::from_state(st)?))
+        Ok((top.into(), st.into()))
     }
 
     fn read_topology(&mut self) -> anyhow::Result<TopologyPy> {
@@ -60,7 +66,7 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         let top = h.read_topology()?;
-        Ok(TopologyPy(top.into()))
+        Ok(top.into())
     }
 
     fn read_state(&mut self) -> anyhow::Result<StatePy> {
@@ -69,7 +75,7 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
         let st = h.read_state()?;
-        StatePy::from_state(st)
+        Ok(st.into())
     }
 
     fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
@@ -85,18 +91,18 @@ impl FileHandlerPy {
             if s.len() != 2 {
                 return Err(anyhow!("tuple must have two elements, not {}", s.len()));
             }
-            let top = &s
+            let top = s
                 .get_item(0)?
                 .cast::<TopologyPy>()
                 .map_err(|_| anyhow!("first tuple element should be a Topology"))?
-                .borrow()
-                .0;
+                .as_ptr() as *const TopologyPy;
+
             let st = s
                 .get_item(1)?
                 .cast::<StatePy>()
                 .map_err(|_| anyhow!("second tuple element should be a State"))?
                 .as_ptr() as *const StatePy;
-            h.write_topology(top)?;
+            h.write_topology(unsafe { &*top })?;
             h.write_state(unsafe { &*st })?;
         } else {
             return Err(anyhow!(
@@ -112,14 +118,12 @@ impl FileHandlerPy {
             .0
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.extract::<PyRef<'_, SystemPy>>() {
-            let top = &s.top.borrow(data.py()).0;
-            h.write_topology(top)?;
-        } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
-            let py = data.py();
-            h.write_topology(&s.sys.borrow(py).top.bind(py).borrow().0)?;
-        } else if let Ok(s) = data.extract::<PyRefMut<'_, TopologyPy>>() {
-            h.write_topology(&s.0)?;
+        if let Ok(s) = data.cast::<SystemPy>() {
+            h.write_topology(&s.borrow().top)?;
+        } else if let Ok(s) = data.cast::<SelPy>() {
+            h.write_topology(&s.borrow().sys.top)?;
+        } else if let Ok(s) = data.cast::<TopologyPy>() {
+            h.write_topology(&*s.borrow())?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -134,16 +138,12 @@ impl FileHandlerPy {
             .0
             .as_mut()
             .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.extract::<PyRef<'_, SystemPy>>() {
-            let st = s.st.as_ptr() as *const StatePy;
-            h.write_state(unsafe { &*st })?;
-        } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
-            let py = data.py();
-            let st = s.st.bind(py).borrow();
-            h.write_state(&*st)?;
-        } else if let Ok(s) = data.extract::<PyRefMut<'_, StatePy>>() {
-            let st = s.as_ptr() as *const StatePy;
-            h.write_state(unsafe { &*st })?;
+        if let Ok(s) = data.cast::<SystemPy>() {
+            h.write_state(&s.borrow().st)?;
+        } else if let Ok(s) = data.cast::<SelPy>() {
+            h.write_state(&s.borrow().sys.st)?;
+        } else if let Ok(s) = data.cast::<StatePy>() {
+            h.write_state(&*s.borrow())?;
         } else {
             return Err(anyhow!(
                 "Invalid data type {} when writing to file",
@@ -167,7 +167,7 @@ impl FileHandlerPy {
             .as_mut()
             .expect("Not transformed to state iterator yet")
             .next()
-            .map(|st| StatePy::from_state(st).unwrap());
+            .map(|st| StatePy::from(st));
         if st.is_some() {
             Some(st.unwrap().into_py_any(slf.py()).unwrap())
         } else {
@@ -267,13 +267,22 @@ impl FileStatsPy {
 
 #[pyclass(name = "System")]
 struct SystemPy {
-    top: Py<TopologyPy>,
-    st: Py<StatePy>,
+    top: TopologyPy,
+    st: StatePy,
+}
+
+impl SystemPy {
+    pub(crate) fn clone_ref(&self) -> SystemPy {
+        Self {
+            top: self.top.clone_ref(),
+            st: self.st.clone_ref(),
+        }
+    }
 }
 
 impl LenProvider for SystemPy {
     fn len(&self) -> usize {
-        Python::attach(|py| self.top.borrow(py).0.len())
+        self.top.len()
     }
 }
 
@@ -285,11 +294,11 @@ impl IndexProvider for SystemPy {
 
 impl AtomPosAnalysis for SystemPy {
     fn atoms_ptr(&self) -> *const Atom {
-        Python::attach(|py| self.top.borrow(py).0.atoms.as_ptr())
+        self.top.get().atoms.as_ptr()
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        Python::attach(|py| self.st.borrow(py).coords.bind(py).data() as *const Pos)
+        self.st.get().coords.as_ptr()
     }
 }
 
@@ -297,11 +306,7 @@ impl AtomPosAnalysisMut for SystemPy {}
 
 impl BoxProvider for SystemPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        Python::attach(|py| {
-            let st = self.st.borrow(py);
-            let ptr = st.pbox.as_ref().map(|b| b as *const PeriodicBox)?;
-            unsafe { Some(&*ptr) }
-        })
+        self.st.get().get_box()
     }
 }
 
@@ -317,7 +322,7 @@ impl RandomBondProvider for SystemPy {
 
 impl TimeProvider for SystemPy {
     fn get_time(&self) -> f32 {
-        Python::attach(|py| self.st.borrow(py).time)
+        self.st.get().get_time()
     }
 }
 
@@ -338,15 +343,14 @@ impl SystemPy {
     #[new]
     #[pyo3(signature = (*py_args))]
     fn new(py_args: &Bound<'_, PyTuple>) -> PyResult<Self> {
-        let py = py_args.py();
         if py_args.len() == 1 {
             // From file
             let fname = py_args.get_item(0)?.extract::<String>()?;
             let mut fh = molar::io::FileHandler::open(&fname).map_err(|e| anyhow!(e))?;
             let (top, st) = fh.read().map_err(|e| anyhow!(e))?;
             Ok(SystemPy {
-                top: Py::new(py, TopologyPy(top))?,
-                st: Py::new(py, StatePy::from_state(st)?)?,
+                top: top.into(),
+                st: st.into(),
             })
         } else if py_args.len() == 2 {
             // From existing Topology and State python objects
@@ -354,7 +358,7 @@ impl SystemPy {
             let arg2 = py_args.get_item(1)?;
             let top = arg1.cast::<TopologyPy>()?;
             let st = arg2.cast::<StatePy>()?;
-            let n1 = top.borrow().0.len();
+            let n1 = top.borrow().len();
             let n2 = st.borrow().len();
             if n1 != n2 {
                 Err(PyTypeError::new_err(
@@ -362,21 +366,21 @@ impl SystemPy {
                 ))
             } else {
                 Ok(SystemPy {
-                    top: top.as_unbound().clone_ref(py),
-                    st: st.as_unbound().clone_ref(py),
+                    top: top.borrow().clone_ref(),
+                    st: st.borrow().clone_ref(),
                 })
             }
         } else {
             // Empty System
             Ok(SystemPy {
-                top: Py::new(py, TopologyPy(Default::default()))?,
-                st: Py::new(py, StatePy::from_state(Default::default())?)?,
+                top: TopologyPy(Default::default()),
+                st: StatePy(Default::default()),
             })
         }
     }
 
-    fn __len__(&self, py: Python<'_>) -> usize {
-        self.top.borrow(py).0.len()
+    fn __len__(&self) -> usize {
+        self.top.get().len()
     }
 
     // fn select_all(slf: &Bound<Self>) -> anyhow::Result<Sel> {
@@ -405,7 +409,6 @@ impl SystemPy {
 
     #[pyo3(signature = (arg=None))]
     fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> anyhow::Result<SelPy> {
-        let py = slf.py();
         let sys = slf.borrow();
 
         let index = if let Some(arg) = arg {
@@ -436,28 +439,25 @@ impl SystemPy {
         };
 
         Ok(SelPy {
-            sys: slf.as_unbound().clone_ref(py),
-            top: sys.top.clone_ref(py),
-            st: sys.st.clone_ref(py),
+            sys: slf.borrow().clone_ref(),
             index,
         })
     }
 
-    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<Py<StatePy>> {
-        let py = st.py();
-        if self.st.borrow(py).coords.bind(py).shape() == st.borrow().coords.bind(py).shape() {
-            let ret = self.st.clone_ref(py);
-            self.st = st.as_unbound().clone_ref(py);
+    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<StatePy> {
+        if self.st.get().interchangeable(st.borrow().get()) {
+            let ret = self.st.clone_ref();
+            self.st = st.borrow().clone_ref();
             Ok(ret)
         } else {
             bail!("incompatible state")
         }
     }
 
-    fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<Py<TopologyPy>> {
-        if self.top.borrow(top.py()).0.interchangeable(&top.borrow().0) {
-            let ret = self.top.clone_ref(top.py());
-            self.top = top.as_unbound().clone_ref(top.py());
+    fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<TopologyPy> {
+        if self.top.get().interchangeable(top.borrow().get()) {
+            let ret = self.top.clone_ref();
+            self.top = top.borrow().clone_ref();
             Ok(ret)
         } else {
             bail!("incompatible topology")
@@ -469,46 +469,34 @@ impl SystemPy {
     }
 
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> anyhow::Result<()> {
-        let py = slf.py();
-        let slf_b = slf.borrow();
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
             let sb = sel.borrow();
-            slf_b.top.borrow_mut(py).0.remove_atoms(sb.iter_index())?;
-
-            slf_b.st.borrow_mut(py).remove_coords(py, sb.iter_index())?;
+            sb.sys.top.get_mut().remove_atoms(sb.iter_index())?;
+            sb.sys.st.get_mut().remove_coords(sb.iter_index())?;
             Ok(())
         } else {
             let sel = Self::__call__(slf, Some(arg))?;
-            slf_b.top.borrow_mut(py).0.remove_atoms(sel.iter_index())?;
-            slf_b
-                .st
-                .borrow_mut(py)
-                .remove_coords(py, sel.iter_index())?;
+            sel.sys.top.get_mut().remove_atoms(sel.iter_index())?;
+            sel.sys.st.get_mut().remove_coords(sel.iter_index())?;
             Ok(())
         }
     }
 
     #[pyo3(signature = (*args))]
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> anyhow::Result<()> {
-        let py = slf.py();
         let slf_b = slf.borrow();
-        let topb = &slf_b.top.borrow(py).0 as *const Topology as *mut Topology;
-        let stb = &*slf_b.st.borrow(py) as *const StatePy as *mut StatePy;
-        
 
         if args.len() == 1 {
             let arg = args.get_item(0)?;
-            // In the future other types can be used as well
             let sel = if let Ok(sel) = arg.cast::<SelPy>() {
                 sel
             } else {
-                &Bound::new(py, Self::__call__(slf, Some(&arg))?)?
+                &Bound::new(slf.py(), Self::__call__(slf, Some(&arg))?)?
             };
 
-            let sb = sel.borrow();
-            topb.add_atoms(sb.iter_atoms().cloned());
-            stb.add_coords(sb.iter_pos().cloned());
+            slf_b.top.get_mut().add_atoms(sel.borrow().iter_atoms().cloned());
+            slf_b.st.get_mut().add_coords(sel.borrow().iter_pos().cloned());
 
             Ok(())
         } else if args.len() == 2 {
@@ -522,8 +510,8 @@ impl SystemPy {
                 .extract::<PyArrayLike1<f32>>()
                 .map_err(|_| anyhow!("expected pos"))?;
             let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
-            topb.add_atoms(std::iter::once(&ab.0).cloned());
-            stb.add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
+            slf_b.top.get_mut().add_atoms(std::iter::once(&ab.0).cloned());
+            slf_b.st.get_mut().add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
             Ok(())
         } else {
             bail!("1 or 2 arguments expected");
@@ -580,12 +568,7 @@ impl SystemPy {
 
 #[pyclass(sequence, name = "Sel")]
 struct SelPy {
-    // Reference to parent system
-    sys: Py<SystemPy>,
-    // Separate references to topology and state
-    // saves one borrow of sys to access them in methods
-    top: Py<TopologyPy>,
-    st: Py<StatePy>,
+    sys: SystemPy,
     index: SVec,
 }
 
@@ -666,15 +649,13 @@ impl MeasurePeriodic for SelPy {}
 impl RandomMoleculeProvider for SelPy {
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
         let p = Python::attach(|py| {
-            self.top.borrow(py).0.get_molecule_unchecked(i) as *const [usize;2]
+            self.top.borrow(py).0.get_molecule_unchecked(i) as *const [usize; 2]
         });
-        unsafe{&*p}
+        unsafe { &*p }
     }
 
     fn num_molecules(&self) -> usize {
-        Python::attach(|py| {
-            self.top.borrow(py).0.num_molecules()
-        })
+        Python::attach(|py| self.top.borrow(py).0.num_molecules())
     }
 }
 
@@ -725,7 +706,7 @@ impl SelPy {
     fn __getitem__(slf: Bound<Self>, i: isize) -> PyResult<Py<PyAny>> {
         let s = slf.borrow();
         let n = s.__len__();
-        
+
         let mut ind = if i < 0 {
             if i.abs() > n as isize {
                 return Err(
@@ -740,12 +721,12 @@ impl SelPy {
         };
 
         // Obtained ind is local to selection, so make it global
-        ind += unsafe{s.index.get_unchecked(0)};
+        ind += unsafe { s.index.get_unchecked(0) };
 
         let py = slf.py();
 
         let all = PySlice::new(py, 0, n as isize, 1);
-        let idx = (all, ind); 
+        let idx = (all, ind);
         let sys = s.sys.bind(py).borrow();
         let st = sys.st.borrow(py);
         let arr = st.coords.bind(py);
@@ -887,7 +868,7 @@ impl SelPy {
 
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
-        Python::attach(|py|{
+        Python::attach(|py| {
             let st = self.st.borrow(py);
             let b = st.pbox.as_ref().unwrap();
             PeriodicBoxPy(b.clone())
@@ -896,7 +877,7 @@ impl SelPy {
 
     #[setter]
     fn set_box(&mut self, b: &PeriodicBoxPy) {
-        Python::attach(|py|{
+        Python::attach(|py| {
             let mut st = self.st.borrow_mut(py);
             st.pbox = Some(b.0.clone());
         })
@@ -904,18 +885,18 @@ impl SelPy {
 
     #[setter]
     fn set_time(&mut self, t: f32) {
-        Python::attach(|py|{
+        Python::attach(|py| {
             let mut st = self.st.borrow_mut(py);
             st.time = t;
         })
     }
 
     fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
-        Python::attach(|py|{
+        Python::attach(|py| {
             let sb2 = sys.borrow();
             let st2 = sb2.st.borrow(py);
             let b = st2.pbox.as_ref().unwrap();
-            
+
             let sb1 = self.sys.borrow(py);
             let mut st1 = sb1.st.borrow_mut(py);
             st1.pbox = Some(b.clone());

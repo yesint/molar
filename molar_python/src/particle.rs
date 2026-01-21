@@ -1,13 +1,13 @@
-use molar::prelude::*;
+use super::topology_state::TopologyPy;
+use crate::topology_state::StatePy;
+use crate::utils::map_pyarray_to_pos;
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::prelude::*;
-use super::{atom::AtomPy, topology_state::TopologyPy};
 
-#[pyclass(name="Particle")]
+#[pyclass(name = "Particle")]
 pub(crate) struct ParticlePy {
-    // This is a column view into the stored numpy array with coords
-    pub(crate) pos: Py<PyArray1<f32>>,
-    pub(crate) top: Py<TopologyPy>,
+    pub(crate) top: TopologyPy,
+    pub(crate) st: StatePy,
     // id is readonly
     #[pyo3(get)]
     pub(crate) id: usize,
@@ -38,219 +38,244 @@ impl ParticlePy {
     }
 
     #[getter(pos)]
-    fn get_pos<'a>(&'a self, py: Python<'a>) -> Bound<'a,PyArray1<f32>> {
-        self.pos.bind(py).clone()
+    fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<f32>> {
+        let s = slf.borrow();
+        unsafe {
+            let data_ptr = s.st.get_mut().coords.as_mut_ptr().add(s.id);
+            map_pyarray_to_pos(data_ptr, slf)
+        }
     }
 
     #[setter(pos)]
-    fn set_pos<'py>(&mut self, py: Python<'py>, pos: PyArrayLike1<f32>) -> PyResult<()>{
+    fn set_pos(&mut self, pos: PyArrayLike1<f32>) -> PyResult<()> {
         if pos.len() != 3 {
-            return Err(pyo3::exceptions::PyTypeError::new_err("pos must have 3 elements"));
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "pos must have 3 elements",
+            ));
         }
-        let p1 = pos.data();
-        let p2= self.pos.bind(py).data();
-        if p1 != p2 {
-            unsafe{std::ptr::copy_nonoverlapping(p1, p2, 3)}; 
+        let src = pos.data();
+        let dst = self.st.get_mut().coords.as_mut_ptr() as *mut f32;
+        if src != dst {
+            unsafe { std::ptr::copy_nonoverlapping(src, dst, 3) };
         }
         Ok(())
     }
 
     #[getter(x)]
-    fn get_x(&self, py: Python<'_>) -> f32 {
-        unsafe{*self.pos.bind(py).data().add(0)}
+    fn get_x(&self) -> f32 {
+        unsafe { self.st.get().coords.get_unchecked(self.id).x }
     }
 
     #[setter(x)]
-    fn set_x(&mut self, py: Python<'_>, value: f32) {
-        unsafe{*self.pos.bind(py).data().add(0) = value};
+    fn set_x(&mut self, value: f32) {
+        unsafe { self.st.get_mut().coords.get_unchecked_mut(self.id).x = value }
     }
 
     #[getter(y)]
-    fn get_y(&self, py: Python<'_>) -> f32 {
-        unsafe{*self.pos.bind(py).data().add(1)}
+    fn get_y(&self) -> f32 {
+        unsafe { self.st.get().coords.get_unchecked(self.id).y }
     }
 
     #[setter(y)]
-    fn set_y(&mut self, py: Python<'_>, value: f32) {
-        unsafe{*self.pos.bind(py).data().add(1) = value};
+    fn set_y(&mut self, value: f32) {
+        unsafe { self.st.get_mut().coords.get_unchecked_mut(self.id).y = value }
     }
 
     #[getter(z)]
-    fn get_z(&self, py: Python<'_>) -> f32 {
-        unsafe{*self.pos.bind(py).data().add(2)}
+    fn get_z(&self) -> f32 {
+        unsafe { self.st.get().coords.get_unchecked(self.id).z }
     }
 
     #[setter(z)]
-    fn set_z(&mut self, py: Python<'_>, value: f32) {
-        unsafe{*self.pos.bind(py).data().add(2) = value};
+    fn set_z(&mut self, value: f32) {
+        unsafe { self.st.get_mut().coords.get_unchecked_mut(self.id).z = value }
     }
 
     // atom
-    #[getter(atom)]
-    fn get_atom(&self, py: Python<'_>) -> AtomPy {
-        let top = self.top.borrow(py);
-        AtomPy(top.0.get_atom(self.id).unwrap().clone())
-    }
+    // #[getter(atom)]
+    // fn get_atom(&self) -> AtomPy {
+    //     unsafe{ AtomPy(self.top.get_mut().atoms.as_mut_ptr().add(self.id)) }
+    // }
 
-    #[setter(atom)]
-    fn set_atom(&mut self, py: Python<'_>, value: &AtomPy) {
-        let mut top = self.top.borrow_mut(py);
-        *top.0.get_atom_mut(self.id).unwrap() = value.0.clone();
-    }
+    // #[setter(atom)]
+    // fn set_atom(&mut self, py: Python<'_>, value: &AtomPy) {
+    //     let mut top = self.top.borrow_mut(py);
+    //     *top.0.get_atom_mut(self.id).unwrap() = value.0.clone();
+    // }
 
-    // name
     #[getter(name)]
-    fn get_name(&self, py: Python<'_>) -> String {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().name.as_str().to_owned()
+    fn get_name(&self) -> String {
+        unsafe {
+            self.top
+                .get()
+                .atoms
+                .get_unchecked(self.id)
+                .name
+                .as_str()
+                .to_owned()
+        }
     }
 
     #[setter(name)]
-    fn set_name(&mut self, py: Python<'_>, value: &str) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().name = value.to_owned().into();
+    fn set_name(&mut self, value: &str) {
+        unsafe {
+            self.top.get_mut().atoms.get_unchecked_mut(self.id).name = value.to_owned().into()
+        }
     }
-
     // resname
     #[getter(resname)]
-    fn get_resname(&self, py: Python<'_>) -> String {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().resname.as_str().to_owned()
+    fn get_resname(&self) -> String {
+        unsafe {
+            self.top
+                .get()
+                .atoms
+                .get_unchecked(self.id)
+                .resname
+                .as_str()
+                .to_owned()
+        }
     }
 
     #[setter(resname)]
-    fn set_resname(&mut self, py: Python<'_>, value: &str) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().resname = value.to_owned().into();
+    fn set_resname(&mut self, value: &str) {
+        unsafe {
+            self.top.get_mut().atoms.get_unchecked_mut(self.id).resname = value.to_owned().into()
+        }
     }
 
     // resid
     #[getter(resid)]
-    fn get_resid(&self, py: Python<'_>) -> i32 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().resid
+    fn get_resid(&self) -> i32 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).resid }
     }
 
     #[setter(resid)]
-    fn set_resid(&mut self, py: Python<'_>, value: i32) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().resid = value;
+    fn set_resid(&mut self, value: i32) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).resid = value }
     }
 
     // resindex
     #[getter(resindex)]
-    fn get_resindex(&self, py: Python<'_>) -> usize {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().resindex
+    fn get_resindex(&self) -> usize {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).resindex }
     }
 
     #[setter(resindex)]
-    fn set_resindex(&mut self, py: Python<'_>, value: usize) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().resindex = value;
+    fn set_resindex(&mut self, value: usize) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).resindex = value }
     }
 
     // atomic_number
     #[getter(atomic_number)]
-    fn get_atomic_number(&self, py: Python<'_>) -> u8 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().atomic_number
+    fn get_atomic_number(&self) -> u8 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).atomic_number }
     }
 
     #[setter(atomic_number)]
-    fn set_atomic_number(&mut self, py: Python<'_>, value: u8) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().atomic_number = value;
+    fn set_atomic_number(&mut self, value: u8) {
+        unsafe {
+            self.top
+                .get_mut()
+                .atoms
+                .get_unchecked_mut(self.id)
+                .atomic_number = value
+        }
     }
 
     // mass
     #[getter(mass)]
-    fn get_mass(&self, py: Python<'_>) -> f32 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().mass
+    fn get_mass(&self) -> f32 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).mass }
     }
 
     #[setter(mass)]
-    fn set_mass(&mut self, py: Python<'_>, value: f32) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().mass = value;
+    fn set_mass(&mut self, value: f32) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).mass = value }
     }
 
     // charge
     #[getter(charge)]
-    fn get_charge(&self, py: Python<'_>) -> f32 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().charge
+    fn get_charge(&self) -> f32 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).charge }
     }
 
     #[setter(charge)]
-    fn set_charge(&mut self, py: Python<'_>, value: f32) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().charge = value;
+    fn set_charge(&mut self, value: f32) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).charge = value }
     }
 
     // type_name
     #[getter(type_name)]
-    fn get_type_name(&self, py: Python<'_>) -> String {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().type_name.as_str().to_owned()
+    fn get_type_name(&self) -> String {
+        unsafe {
+            self.top
+                .get()
+                .atoms
+                .get_unchecked(self.id)
+                .type_name
+                .as_str()
+                .to_owned()
+        }
     }
 
     #[setter(type_name)]
-    fn set_type_name(&mut self, py: Python<'_>, value: &str) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().type_name = value.into();
+    fn set_type_name(&mut self, value: &str) {
+        unsafe {
+            self.top
+                .get_mut()
+                .atoms
+                .get_unchecked_mut(self.id)
+                .type_name = value.to_owned().into()
+        }
     }
 
     // type_id
     #[getter(type_id)]
-    fn get_type_id(&self, py: Python<'_>) -> u32 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().type_id
+    fn get_type_id(&self) -> u32 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).type_id }
     }
 
     #[setter(type_id)]
-    fn set_type_id(&mut self, py: Python<'_>, value: u32) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().type_id = value;
+    fn set_type_id(&mut self, value: u32) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).type_id = value }
     }
 
     // chain
     #[getter(chain)]
-    fn get_chain(&self, py: Python<'_>) -> char {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().chain
+    fn get_chain(&self) -> char {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).chain }
     }
 
     #[setter(chain)]
-    fn set_chain(&mut self, py: Python<'_>, value: char) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().chain = value;
+    fn set_chain(&mut self, value: char) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).chain = value }
     }
 
     // bfactor
     #[getter(bfactor)]
-    fn get_bfactor(&self, py: Python<'_>) -> f32 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().bfactor
+    fn get_bfactor(&self) -> f32 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).bfactor }
     }
 
     #[setter(bfactor)]
-    fn set_bfactor(&mut self, py: Python<'_>, value: f32) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().bfactor = value;
+    fn set_bfactor(&mut self, value: f32) {
+        unsafe { self.top.get_mut().atoms.get_unchecked_mut(self.id).bfactor = value }
     }
 
     // occupancy
     #[getter(occupancy)]
-    fn get_occupancy(&self, py: Python<'_>) -> f32 {
-        let top = self.top.borrow(py);
-        top.0.get_atom(self.id).unwrap().occupancy
+    fn get_occupancy(&self) -> f32 {
+        unsafe { self.top.get().atoms.get_unchecked(self.id).occupancy }
     }
 
     #[setter(occupancy)]
-    fn set_occupancy(&mut self, py: Python<'_>, value: f32) {
-        let mut top = self.top.borrow_mut(py);
-        top.0.get_atom_mut(self.id).unwrap().occupancy = value;
+    fn set_occupancy(&mut self, value: f32) {
+        unsafe {
+            self.top
+                .get_mut()
+                .atoms
+                .get_unchecked_mut(self.id)
+                .occupancy = value
+        }
     }
 }
