@@ -94,7 +94,7 @@ def test7():
     sel.set_coord(arr)
     print(sel[0].pos, crd[:,0])
 
-    print(sel[5].atom.resname)
+    print(sel[5].resname)
 
 def test8():
     src = System('../../molar/tests/protein.pdb')
@@ -129,10 +129,10 @@ def test_append():
     sys.append(sel)
 
 
-#test7()
+test7()
 #test7()
 #test2()
 #test_distance_search()
 #test_distance_search()
 #test_set_state()
-test_append()
+#test_append()
