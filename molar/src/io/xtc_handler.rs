@@ -3,8 +3,8 @@ use molar_xdrfile::xdrfile_bindings::*;
 use nalgebra::{Matrix3, Point3};
 use thiserror::Error;
 
-use crate::periodic_box::PeriodicBox;
 use crate::io::FileFormatHandler;
+use crate::periodic_box::PeriodicBox;
 
 use log::{debug, warn};
 use std::ffi::{CString, NulError};
@@ -195,11 +195,7 @@ impl FileFormatHandler for XtcFileHandler {
 
         // Coordinate buffer
         #[allow(unused_mut)]
-        let buf = Vec::<Point3<f32>>::from_iter(
-            (0..data.len())
-                .map(|i| unsafe { data.get_pos_unchecked(i) })
-                .cloned(),
-        );
+        let buf = Vec::<Point3<f32>>::from_iter(data.iter_pos_dyn().cloned());
 
         let ok = unsafe {
             write_xtc(

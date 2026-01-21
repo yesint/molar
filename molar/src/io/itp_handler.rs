@@ -81,9 +81,9 @@ impl FileFormatHandler for ItpFileHandler {
                 break;
             }
             let mut at = Atom {
-                name: fields[4].to_owned(),
-                resname: fields[3].to_owned(),
-                type_name: fields[1].to_owned(),
+                name: fields[4].into(),
+                resname: fields[3].into(),
+                type_name: fields[1].into(),
                 resid: fields[2].parse().map_err(ItpHandlerError::ParseInt)?,
                 charge: fields[6].parse().map_err(ItpHandlerError::ParseFloat)?,
                 mass: fields[7].parse().map_err(ItpHandlerError::ParseFloat)?,

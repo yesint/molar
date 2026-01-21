@@ -76,9 +76,7 @@ impl FileFormatHandler for GroFileHandler {
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
         // Write atom lines
-        for i in 0..data.len() {
-            let at = unsafe {data.get_atom_unchecked(i)};
-            let pos = unsafe {data.get_pos_unchecked(i)};
+        for (i,(at,pos)) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()).enumerate() {
             let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
             let resid = at.resid % 99999; // Prevents overflow of resid field.
 
@@ -174,12 +172,12 @@ impl FileFormatHandler for GroFileHandler {
                     .get(5..10)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
                     .trim()
-                    .to_owned(),
+                    .into(),
                 name: line
                     .get(10..15)
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
                     .trim()
-                    .to_owned(),
+                    .into(),
                 chain: ' ',
                 type_name: "".into(),
                 ..Default::default()

@@ -64,8 +64,7 @@ impl Selectable for SelOwnBound<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index.as_slice()),
         )?))
     }
@@ -74,7 +73,7 @@ impl Selectable for SelOwnBound<'_> {
 impl SelectableBound for SelOwnBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
-            index: def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index.as_slice()))?,
+            index: def.into_sel_index(self.sys, Some(self.index.as_slice()))?,
             sys: unsafe { &*self.get_system_ptr() },
         })
     }
@@ -130,8 +129,17 @@ impl SystemProvider for SelOwnBound<'_> {
     }
 }
 
-impl SaveTopology for SelOwnBound<'_> {}
-impl SaveState for SelOwnBound<'_> {}
+impl SaveTopology for SelOwnBound<'_> {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+        Box::new(self.iter_atoms())
+    }
+}
+impl SaveState for SelOwnBound<'_> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Box::new(self.iter_pos())
+    }
+}
+
 impl SaveTopologyState for SelOwnBound<'_> {}
 
 //================================================
@@ -147,8 +155,7 @@ impl Selectable for SelOwnBoundMut<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index.as_slice()),
         )?))
     }
@@ -205,8 +212,7 @@ impl Selectable for SelBound<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index),
         )?))
     }
@@ -215,7 +221,7 @@ impl Selectable for SelBound<'_> {
 impl SelectableBound for SelBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
-            index: def.into_sel_index(&self.sys.top, &self.sys.st, Some(self.index))?,
+            index: def.into_sel_index(self.sys, Some(self.index))?,
             sys: unsafe { &*self.get_system_ptr() },
         })
     }
@@ -249,8 +255,17 @@ impl SystemProvider for SelBound<'_> {
     }
 }
 
-impl SaveTopology for SelBound<'_> {}
-impl SaveState for SelBound<'_> {}
+impl SaveTopology for SelBound<'_> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+        Box::new(self.iter_atoms())
+    }
+}
+impl SaveState for SelBound<'_> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+        Box::new(self.iter_pos())
+    }
+}
+
 impl SaveTopologyState for SelBound<'_> {}
 
 //================================================
@@ -265,8 +280,7 @@ impl Selectable for SelBoundMut<'_> {
     /// Create new unbound sub-selection based on provided definition.
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError> {
         Ok(Sel(def.into_sel_index(
-            &self.sys.top,
-            &self.sys.st,
+            self.sys,
             Some(self.index),
         )?))
     }
@@ -504,6 +518,18 @@ mod tests {
 
         assert_eq!(seq_sorted, par_sorted);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_subsel() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let sel = sys.select_bound("resid 1:10")?;
+        let subsel = sel.select_bound("name CA")?;
+        let a1 = &sel.get_atom(0).unwrap().name;
+        let a2 = &subsel.get_atom(0).unwrap().name;
+        assert_eq!(a1,"N");
+        assert_eq!(a2,"CA");
         Ok(())
     }
 }

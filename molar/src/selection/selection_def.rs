@@ -4,26 +4,27 @@ use super::utils::local_to_global;
 
 /// Trait for selection definitions. 
 /// Implementors could be used as argumnets for selection creation methods.
-pub trait SelectionDef {
+pub trait SelectionDef 
+{
     /// All errors, including bounds checks, have to be captured, 
     /// caller assumes that returned index is correct and does no additional checks..
-    fn into_sel_index(
+    fn into_sel_index (
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider), // Something System-like
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError>;
 }
 
-impl SelectionDef for &SelectionExpr {
-    fn into_sel_index(
+impl SelectionDef for &SelectionExpr 
+
+{
+    fn into_sel_index (
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {        
         let ind = match subset {
-            None => self.apply_whole(top, st)?,
+            None => self.apply_whole(sys)?,
             Some(_) => {
                 // We can't apply existing expr to a subset
                 Err(SelectionError::SelDefInSubsel)?
@@ -37,17 +38,18 @@ impl SelectionDef for &SelectionExpr {
     }
 }
 
-impl SelectionDef for &str {
-    fn into_sel_index(
+impl SelectionDef for &str 
+
+{
+    fn into_sel_index (
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         let expr = SelectionExpr::new(self)?;
         let ind = match subset {
-            None => expr.apply_whole(top, st)?,
-            Some(sub) => expr.apply_subset(top, st, sub)?,
+            None => expr.apply_whole(sys)?,
+            Some(sub) => expr.apply_subset(sys, sub)?,
         };
         if ind.is_empty() {
             Err(SelectionError::EmptyExpr(expr.get_str().to_string()))
@@ -57,37 +59,40 @@ impl SelectionDef for &str {
     }
 }
 
-impl SelectionDef for String {
+impl SelectionDef for String 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
-        self.as_str().into_sel_index(top, st, subset)
+        self.as_str().into_sel_index(sys, subset)
     }
 }
 
-impl SelectionDef for &String {
-    fn into_sel_index(
+impl SelectionDef for &String 
+
+{
+    fn into_sel_index (
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
-        self.as_str().into_sel_index(top, st, subset)
+        self.as_str().into_sel_index(sys, subset)
     }
 }
 
-impl SelectionDef for std::ops::Range<usize> {
+impl SelectionDef for std::ops::Range<usize> 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        _st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         let n = match subset {
-            None => top.len(),
+            None => sys.len(),
             Some(sub) => sub.len(),
         };
 
@@ -107,24 +112,24 @@ impl SelectionDef for std::ops::Range<usize> {
 impl SelectionDef for std::ops::RangeInclusive<usize> {
     fn into_sel_index(
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
             Err(SelectionError::EmptyRange)
         } else {
             let (b, e) = self.into_inner();
-            (b..e + 1).into_sel_index(top, st, subset)
+            (b..e + 1).into_sel_index(sys, subset)
         }
     }
 }
 
-impl SelectionDef for &[usize] {
+impl SelectionDef for &[usize] 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        _st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
@@ -133,7 +138,7 @@ impl SelectionDef for &[usize] {
             match subset {
                 None => {
                     let v: SVec = self.to_vec().into();
-                    let n = top.len();
+                    let n = sys.len();
                     if v[0] >= n || v[v.len()-1] >= n {
                         Err(SelectionError::IndexValidation(v[0], v[v.len()-1], n-1))
                     } else {
@@ -146,33 +151,36 @@ impl SelectionDef for &[usize] {
     }
 }
 
-impl SelectionDef for &Vec<usize> {
+impl SelectionDef for &Vec<usize> 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
-        self.as_slice().into_sel_index(top, st, subset)
+        self.as_slice().into_sel_index(sys, subset)
     }
 }
 
-impl SelectionDef for Vec<usize> {
-    fn into_sel_index(
+impl SelectionDef for Vec<usize> 
+
+{
+    fn into_sel_index (
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
-        self.as_slice().into_sel_index(top, st, subset)
+        self.as_slice().into_sel_index(sys, subset)
     }
 }
 
-impl SelectionDef for SVec {
+impl SelectionDef for SVec 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        _st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
@@ -180,7 +188,7 @@ impl SelectionDef for SVec {
         } else {            
             match subset {
                 None => {                    
-                    let n = top.len();
+                    let n = sys.len();
                     if self[self.len()-1] >= n {
                         Err(SelectionError::IndexValidation(self[0], self[self.len()-1], n-1))
                     } else {
@@ -193,24 +201,26 @@ impl SelectionDef for SVec {
     }
 }
 
-impl SelectionDef for &SVec {
+impl SelectionDef for &SVec 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
-        self.clone().into_sel_index(top, st, subset)
+        self.clone().into_sel_index(sys, subset)
     }
 }
 
-impl SelectionDef for Sel {
+impl SelectionDef for Sel 
+
+{
     fn into_sel_index(
         self,
-        top: &Topology,
-        st: &State,
+        sys: &(impl AtomPosAnalysis + BoxProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
-        self.0.into_sel_index(top, st, subset)
+        self.0.into_sel_index(sys, subset)
     }
 }

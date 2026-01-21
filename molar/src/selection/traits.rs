@@ -171,52 +171,6 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
 pub trait NonAtomPosAnalysis: LenProvider + IndexProvider + Sized {
     fn top_ptr(&self) -> *const Topology;
     fn st_ptr(&self) -> *const State;
-
-    /// Splits by molecule and returns an iterator over them.
-    /// If molecule is only partially contained in self then only this part is returned (molecules are clipped).
-    /// If there are no molecules in [Topology] return an empty iterator.
-    fn split_mol_iter(&self) -> impl Iterator<Item = Sel>
-    where
-        Self: Sized,
-    {
-        // Iterate over molecules and find those inside selection
-        let first = self.first_index();
-        let last = self.last_index();
-
-        let mut molid = 0;
-
-        let next_fn = move || {
-            if unsafe { &*self.top_ptr() }.num_molecules() == 0 {
-                return None;
-            }
-
-            let res = match self.get_molecule(molid) {
-                Some(mol) => {
-                    let b = mol[0];
-                    let e = mol[1];
-                    if b < first && e >= first && e <= last {
-                        // molecule starts before Sel
-                        Some(0..=e - first)
-                    } else if b >= first && e <= last {
-                        // molecule inside Sel
-                        Some(b - first..=e - first)
-                    } else if b >= first && b <= last && e > last {
-                        // molecule ends after Sel
-                        Some(b - first..=last - first)
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            }
-            .map(|r| Sel(unsafe { SVec::from_sorted(r.into_iter().collect()) }));
-
-            molid += 1;
-            res
-        };
-
-        std::iter::from_fn(next_fn)
-    }
 }
 //================================================
 
