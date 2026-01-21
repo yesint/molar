@@ -4,38 +4,41 @@ use std::ffi::c_void;
 use molar::prelude::*;
 
 // Constructs PyArray backed by existing Pos data.
-pub(crate) fn map_pyarray_to_pos<'py>(
-    data: &mut Pos,
+pub(crate) unsafe fn map_pyarray_to_pos<'py>(
+    data: *mut Pos,
     parent: &Bound<'py, PyAny>,
-) -> *mut npyffi::PyArrayObject {
+) -> Bound<'py, PyArray1<f32>> {
     use numpy::Element;
     use numpy::PyArrayDescrMethods;
 
+    let py = parent.py();
     let mut dims = numpy::ndarray::Dim(3);
 
     unsafe {
         let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
             parent.py(),
-            PY_ARRAY_API.get_type_object(parent.py(), npyffi::NpyTypes::PyArray_Type),
+            PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
             f32::get_dtype(parent.py()).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
-            std::ptr::null_mut(),                    // no strides
-            data.coords.as_mut_ptr() as *mut c_void, // data
-            npyffi::NPY_ARRAY_WRITEABLE,             // flag
-            std::ptr::null_mut(),                    // obj
+            std::ptr::null_mut(), // no strides
+            data as *mut c_void, // data
+            npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_ALIGNED | npyffi::NPY_ARRAY_C_CONTIGUOUS,             // flag
+            std::ptr::null_mut(), // obj
         );
 
-        // The following mangling with the ref counting is deduced by
-        // tries and errors and seems to work correctly and keeps the parent object alive
-        // until any of the referencing PyArray objects are alive.
-
-        // We set the parent as a base object of the PyArray to link them together.
-        PY_ARRAY_API.PyArray_SetBaseObject(parent.py(), ptr.cast(), parent.as_ptr());
-        // Increase reference count of parent object since
-        // our PyArray is now referencing it!
+        // IMPORTANT: SetBaseObject steals a reference to `base`.
+        // So we must INCREF first and NOT INCREF after.
         pyo3::ffi::Py_IncRef(parent.as_ptr());
-        ptr.cast()
+        PY_ARRAY_API.PyArray_SetBaseObject(
+            py,
+            ptr.cast(),
+            parent.as_ptr(),
+        );
+        
+        // Turn raw pointer into a Bound<PyArray1<f32>>
+        let any = Bound::from_owned_ptr(py, ptr.cast::<pyo3::ffi::PyObject>());
+        any.cast_into::<PyArray1<f32>>().unwrap()            
     }
 }
 
