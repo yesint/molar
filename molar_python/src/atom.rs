@@ -14,7 +14,7 @@ impl AtomPy {
     }
 
     #[getter(name)]
-    fn get_name(&self, _py: Python) -> &str {
+    fn get_name(&self) -> &str {
         self.0.name.as_str()
     }
 
@@ -25,7 +25,7 @@ impl AtomPy {
 
     // resname
     #[getter(resname)]
-    fn get_resname(&self, _py: Python) -> &str {
+    fn get_resname(&self) -> &str {
         self.0.resname.as_str()
     }
 
@@ -36,7 +36,7 @@ impl AtomPy {
 
     // resid
     #[getter(resid)]
-    fn get_resid(&self, _py: Python) -> i32 {
+    fn get_resid(&self) -> i32 {
         self.0.resid
     }
 
@@ -47,7 +47,7 @@ impl AtomPy {
 
     // atomic_number
     #[getter(atomic_number)]
-    fn get_atomic_number(&self, _py: Python) -> u8 {
+    fn get_atomic_number(&self) -> u8 {
         self.0.atomic_number
     }
 
@@ -58,7 +58,7 @@ impl AtomPy {
 
     // mass
     #[getter(mass)]
-    fn get_mass(&self, _py: Python) -> f32 {
+    fn get_mass(&self) -> f32 {
         self.0.mass
     }
 
@@ -69,7 +69,7 @@ impl AtomPy {
 
     // charge
     #[getter(charge)]
-    fn get_charge(&self, _py: Python) -> f32 {
+    fn get_charge(&self) -> f32 {
         self.0.charge
     }
 
@@ -80,7 +80,7 @@ impl AtomPy {
 
     // type_name
     #[getter(type_name)]
-    fn get_type_name(&self, _py: Python) -> &str {
+    fn get_type_name(&self) -> &str {
         self.0.type_name.as_str()
     }
 
@@ -91,7 +91,7 @@ impl AtomPy {
 
     // type_id
     #[getter(type_id)]
-    fn get_type_id(&self, _py: Python) -> u32 {
+    fn get_type_id(&self) -> u32 {
         self.0.type_id
     }
 
@@ -102,7 +102,7 @@ impl AtomPy {
 
     // chain
     #[getter(chain)]
-    fn get_chain(&self, _py: Python) -> char {
+    fn get_chain(&self) -> char {
         self.0.chain
     }
 
@@ -113,7 +113,7 @@ impl AtomPy {
 
     // bfactor
     #[getter(bfactor)]
-    fn get_bfactor(&self, _py: Python) -> f32 {
+    fn get_bfactor(&self) -> f32 {
         self.0.bfactor
     }
 
@@ -124,7 +124,7 @@ impl AtomPy {
 
     // occupancy
     #[getter(occupancy)]
-    fn get_occupancy(&self, _py: Python) -> f32 {
+    fn get_occupancy(&self) -> f32 {
         self.0.occupancy
     }
 
@@ -139,16 +139,10 @@ impl AtomPy {
 #[pyclass(name = "AtomView", unsendable)]
 pub(crate) struct AtomView(pub(crate) *mut Atom);
 
-impl AtomView {
-    pub(crate) fn new(atom: &mut Atom) -> Self {
-        Self(atom)
-    }
-}
-
 #[pymethods]
 impl AtomView {
     #[getter(name)]
-    fn get_name(&self, _py: Python) -> &str {
+    fn get_name(&self) -> &str {
         unsafe { &*self.0 }.name.as_str()
     }
 
@@ -159,7 +153,7 @@ impl AtomView {
 
     // resname
     #[getter(resname)]
-    fn get_resname(&self, _py: Python) -> &str {
+    fn get_resname(&self) -> &str {
         unsafe { &*self.0 }.resname.as_str()
     }
 
@@ -170,7 +164,7 @@ impl AtomView {
 
     // resid
     #[getter(resid)]
-    fn get_resid(&self, _py: Python) -> i32 {
+    fn get_resid(&self) -> i32 {
         unsafe { &*self.0 }.resid
     }
 
@@ -181,7 +175,7 @@ impl AtomView {
 
     // atomic_number
     #[getter(atomic_number)]
-    fn get_atomic_number(&self, _py: Python) -> u8 {
+    fn get_atomic_number(&self) -> u8 {
         unsafe { &*self.0 }.atomic_number
     }
 
@@ -192,7 +186,7 @@ impl AtomView {
 
     // mass
     #[getter(mass)]
-    fn get_mass(&self, _py: Python) -> f32 {
+    fn get_mass(&self) -> f32 {
         unsafe { &*self.0 }.mass
     }
 
@@ -203,7 +197,7 @@ impl AtomView {
 
     // charge
     #[getter(charge)]
-    fn get_charge(&self, _py: Python) -> f32 {
+    fn get_charge(&self) -> f32 {
         unsafe { &*self.0 }.charge
     }
 
@@ -214,7 +208,7 @@ impl AtomView {
 
     // type_name
     #[getter(type_name)]
-    fn get_type_name(&self, _py: Python) -> &str {
+    fn get_type_name(&self) -> &str {
         unsafe { &*self.0 }.type_name.as_str()
     }
 
@@ -225,7 +219,7 @@ impl AtomView {
 
     // type_id
     #[getter(type_id)]
-    fn get_type_id(&self, _py: Python) -> u32 {
+    fn get_type_id(&self) -> u32 {
         unsafe { &*self.0 }.type_id
     }
 
@@ -236,7 +230,7 @@ impl AtomView {
 
     // chain
     #[getter(chain)]
-    fn get_chain(&self, _py: Python) -> char {
+    fn get_chain(&self) -> char {
         unsafe { &*self.0 }.chain
     }
 
@@ -247,7 +241,7 @@ impl AtomView {
 
     // bfactor
     #[getter(bfactor)]
-    fn get_bfactor(&self, _py: Python) -> f32 {
+    fn get_bfactor(&self) -> f32 {
         unsafe { &*self.0 }.bfactor
     }
 
@@ -258,7 +252,7 @@ impl AtomView {
 
     // occupancy
     #[getter(occupancy)]
-    fn get_occupancy(&self, _py: Python) -> f32 {
+    fn get_occupancy(&self) -> f32 {
         unsafe { &*self.0 }.occupancy
     }
 
