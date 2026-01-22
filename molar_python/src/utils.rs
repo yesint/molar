@@ -3,6 +3,19 @@ use pyo3::prelude::*;
 use std::ffi::c_void;
 use molar::prelude::*;
 
+
+pub(crate) fn to_py_value_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
+    pyo3::exceptions::PyValueError::new_err(e.to_string())
+}
+
+pub(crate) fn to_py_io_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
+    pyo3::exceptions::PyIOError::new_err(e.to_string())
+}
+
+pub(crate) fn to_py_runtime_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
+    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+}
+
 // Constructs PyArray backed by existing Pos data.
 pub(crate) unsafe fn map_pyarray_to_pos<'py>(
     data: *mut Pos,

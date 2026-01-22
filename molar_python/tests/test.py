@@ -2,7 +2,8 @@ from pymolar import *
 from sys import getrefcount
 import numpy as np
 
-#sel = System('../../molar/tests/protein.pdb').select("resid 5:600")
+
+sys = System('../../molar/tests/protein.pdb')
 
 def test_set_state():
     top,st1 = FileHandler('../../molar/tests/protein.pdb','r').read()
@@ -24,15 +25,14 @@ def test_set_state():
     
 
 def test1():
-    sel = System('../../molar/tests/protein.pdb')("resid 5:600")
+    sel = sys("resid 5:600")
     trj = FileHandler('../../molar/tests/protein.xtc','r')
     for st in trj:
         sel.set_state(st)
         print(st.time,sel.com())
 
 def test2():
-    src = System('../../molar/tests/protein.pdb')
-    sel = src("resid 5:600")
+    sel = sys("resid 5:600")
     pos0 = sel[0].pos
     print(f"ref: {getrefcount(pos0)} pos0: {pos0}")
     pos0[1]+=1
@@ -40,8 +40,7 @@ def test2():
 
 
 def test3():
-    src = System('../../molar/tests/protein.pdb')
-    sel = src("resid 5:600")
+    sel = sys("resid 5:600")
     print("[0] before:",sel[0].pos)
     sel[0].pos = [100,100,3]
     print("[0] after [0]=[1]:",sel[0].pos)
@@ -65,8 +64,7 @@ def test4():
 
 
 def test5():
-    src = System('../../molar/tests/protein.pdb')
-    sel = src("resid 5:600")
+    sel = sys("resid 5:600")
     print(sel[100].pos, sel[0].name)
     print(sel[-100].atom.name)
     print("x=",sel[-100].x)
@@ -75,15 +73,13 @@ def test5():
     
 
 def test6():
-    src = System('../../molar/tests/protein.pdb')
-    sel = src("resid 5:600")
+    sel = sys("resid 5:600")
     subsel = sel("name CA")
     print(len(sel), sel[0].name)
     print(len(subsel), subsel[0].name)
 
 def test7():
-    src = System('../../molar/tests/protein.pdb')
-    sel = src("resid 5:600")
+    sel = sys("resid 5:600")
     crd = sel.get_coord()
     print("before:",sel[0].pos, crd[:,0])
     crd[0,0] = 42
@@ -97,14 +93,13 @@ def test7():
     print(sel[5].resname)
 
 def test8():
-    src = System('../../molar/tests/protein.pdb')
     sel = []
-    sel.append( src("resid 500:600") )
-    sel.append( src(None) )
-    sel.append( src() )
-    sel.append( src((0,199)) )
+    sel.append( sys("resid 500:600") )
+    sel.append( sys(None) )
+    sel.append( sys() )
+    sel.append( sys((0,199)) )
 
-    sel.append( src([1,3,4,5,6,7]) )
+    sel.append( sys([1,3,4,5,6,7]) )
     for s in sel:
         print(len(s))
 
@@ -116,15 +111,13 @@ def test9():
 
 
 def test_distance_search():
-    s = System('../../molar/tests/topol.tpr')
-    sel1 = s("resid 5:100")
-    sel2 = s("resid 101:200")
+    sel1 = sys("resid 5:100")
+    sel2 = sys("resid 101:200")
     pairs,dist = distance_search('vdw',sel1,sel2)
     print(len(pairs),len(dist))
     print(pairs,dist)
 
 def test_append():
-    sys = System('../../molar/tests/protein.pdb')
     sel = sys("resid 550")
     sys.append(sel)
 

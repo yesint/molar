@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail};
 use molar::prelude::*;
 //use molar::prelude::*;
 use numpy::{
@@ -8,10 +7,7 @@ use numpy::{
     PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
 };
 use pyo3::{
-    exceptions::PyTypeError,
-    prelude::*,
-    types::PyTuple,
-    IntoPyObjectExt,
+    IntoPyObjectExt, exceptions::{PyIndexError, PyNotImplementedError, PyTypeError, PyValueError}, prelude::*, types::PyTuple
 };
 
 mod utils;
@@ -41,113 +37,116 @@ const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state 
 #[pymethods]
 impl FileHandlerPy {
     #[new]
-    fn new(fname: &str, mode: &str) -> anyhow::Result<Self> {
+    fn new(fname: &str, mode: &str) -> PyResult<Self> {
         match mode {
-            "r" => Ok(FileHandlerPy(Some(FileHandler::open(fname)?), None)),
-            "w" => Ok(FileHandlerPy(Some(FileHandler::create(fname)?), None)),
-            _ => Err(anyhow!("Wrong file open mode")),
+            "r" => Ok(FileHandlerPy(
+                Some(FileHandler::open(fname).map_err(to_py_io_err)?),
+                None,
+            )),
+            "w" => Ok(FileHandlerPy(
+                Some(FileHandler::create(fname).map_err(to_py_io_err)?),
+                None,
+            )),
+            _ => Err(PyValueError::new_err("Wrong file open mode")),
         }
     }
 
-    fn read(&mut self) -> anyhow::Result<(TopologyPy, StatePy)> {
+    fn read(&mut self) -> PyResult<(TopologyPy, StatePy)> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        let (top, st) = h.read()?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        let (top, st) = h.read().map_err(to_py_io_err)?;
 
         Ok((top.into(), st.into()))
     }
 
-    fn read_topology(&mut self) -> anyhow::Result<TopologyPy> {
+    fn read_topology(&mut self) -> PyResult<TopologyPy> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        let top = h.read_topology()?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        let top = h.read_topology().map_err(to_py_io_err)?;
         Ok(top.into())
     }
 
-    fn read_state(&mut self) -> anyhow::Result<StatePy> {
+    fn read_state(&mut self) -> PyResult<StatePy> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        let st = h.read_state()?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        let st = h.read_state().map_err(to_py_io_err)?;
         Ok(st.into())
     }
 
-    fn write(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+    fn write(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+
         if let Ok(s) = data.extract::<PyRef<'_, SystemPy>>() {
-            h.write(&*s)?;
+            h.write(&*s).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
-            h.write(&*s)?;
+            h.write(&*s).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<PyTuple>() {
             if s.len() != 2 {
-                return Err(anyhow!("tuple must have two elements, not {}", s.len()));
+                return Err(PyValueError::new_err(format!(
+                    "tuple must have two elements, not {}",
+                    s.len()
+                )));
             }
-            let top = s
-                .get_item(0)?
-                .cast::<TopologyPy>()
-                .map_err(|_| anyhow!("first tuple element should be a Topology"))?
-                .as_ptr() as *const TopologyPy;
+            let top = s.get_item(0)?.cast::<TopologyPy>()?.as_ptr() as *const TopologyPy;
 
-            let st = s
-                .get_item(1)?
-                .cast::<StatePy>()
-                .map_err(|_| anyhow!("second tuple element should be a State"))?
-                .as_ptr() as *const StatePy;
-            h.write_topology(unsafe { &*top })?;
-            h.write_state(unsafe { &*st })?;
+            let st = s.get_item(1)?.cast::<StatePy>()?.as_ptr() as *const StatePy;
+            h.write_topology(unsafe { &*top }).map_err(to_py_io_err)?;
+            h.write_state(unsafe { &*st }).map_err(to_py_io_err)?;
         } else {
-            return Err(anyhow!(
+            return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
-                data.get_type()
-            ));
+                data.get_type().name()?.to_string()
+            )));
         }
         Ok(())
     }
 
-    fn write_topology(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+    fn write_topology(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.cast::<SystemPy>() {
-            h.write_topology(&s.borrow().top)?;
+            h.write_topology(&s.borrow().top).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<SelPy>() {
-            h.write_topology(&s.borrow().sys.top)?;
+            h.write_topology(&s.borrow().sys.top)
+                .map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<TopologyPy>() {
-            h.write_topology(&*s.borrow())?;
+            h.write_topology(&*s.borrow()).map_err(to_py_io_err)?;
         } else {
-            return Err(anyhow!(
+            return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
-                data.get_type()
-            ));
+                data.get_type().name()?.to_string()
+            )));
         }
         Ok(())
     }
 
-    fn write_state(&mut self, data: Bound<'_, PyAny>) -> anyhow::Result<()> {
+    fn write_state(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.cast::<SystemPy>() {
-            h.write_state(&s.borrow().st)?;
+            h.write_state(&s.borrow().st).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<SelPy>() {
-            h.write_state(&s.borrow().sys.st)?;
+            h.write_state(&s.borrow().sys.st).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<StatePy>() {
-            h.write_state(&*s.borrow())?;
+            h.write_state(&*s.borrow()).map_err(to_py_io_err)?;
         } else {
-            return Err(anyhow!(
+            return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
-                data.get_type()
-            ));
+                data.get_type().name()?.to_string()
+            )));
         }
         Ok(())
     }
@@ -178,59 +177,59 @@ impl FileHandlerPy {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        h.skip_to_frame(fr).map_err(|e| anyhow!(e))?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        h.skip_to_frame(fr).map_err(to_py_io_err)?;
         Ok(())
     }
 
-    fn skip_to_time(&mut self, t: f32) -> anyhow::Result<()> {
+    fn skip_to_time(&mut self, t: f32) -> PyResult<()> {
         let h = self
             .0
             .as_mut()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        h.skip_to_time(t)?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        h.skip_to_time(t).map_err(to_py_io_err)?;
         Ok(())
     }
 
-    fn tell_first(&self) -> anyhow::Result<(usize, f32)> {
+    fn tell_first(&self) -> PyResult<(usize, f32)> {
         let h = self
             .0
             .as_ref()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        Ok(h.tell_first()?)
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        Ok(h.tell_first().map_err(to_py_io_err)?)
     }
 
-    fn tell_current(&self) -> anyhow::Result<(usize, f32)> {
+    fn tell_current(&self) -> PyResult<(usize, f32)> {
         let h = self
             .0
             .as_ref()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        Ok(h.tell_current()?)
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        Ok(h.tell_current().map_err(to_py_io_err)?)
     }
 
-    fn tell_last(&self) -> anyhow::Result<(usize, f32)> {
+    fn tell_last(&self) -> PyResult<(usize, f32)> {
         let h = self
             .0
             .as_ref()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
-        Ok(h.tell_last()?)
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        Ok(h.tell_last().map_err(to_py_io_err)?)
     }
 
     #[getter]
-    fn stats(&self) -> anyhow::Result<FileStatsPy> {
+    fn stats(&self) -> PyResult<FileStatsPy> {
         let h = self
             .0
             .as_ref()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         Ok(FileStatsPy(h.stats.clone()))
     }
 
     #[getter]
-    fn file_name(&self) -> anyhow::Result<PathBuf> {
+    fn file_name(&self) -> PyResult<PathBuf> {
         let h = self
             .0
             .as_ref()
-            .ok_or_else(|| anyhow!(ALREADY_TRANDFORMED))?;
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         Ok(h.file_path.clone())
     }
 }
@@ -345,11 +344,11 @@ impl SystemPy {
         if py_args.len() == 1 {
             // From file
             let fname = py_args.get_item(0)?.extract::<String>()?;
-            let mut fh = molar::io::FileHandler::open(&fname).map_err(|e| anyhow!(e))?;
-            let (top, st) = fh.read().map_err(|e| anyhow!(e))?;
+            let mut fh = molar::io::FileHandler::open(&fname).map_err(to_py_io_err)?;
+            let (top, st) = fh.read().map_err(to_py_io_err)?;
             Ok(SystemPy {
-                top: top.into(),
-                st: st.into(),
+                top: TopologyPy::from(top),
+                st: StatePy::from(st),
             })
         } else if py_args.len() == 2 {
             // From existing Topology and State python objects
@@ -382,7 +381,7 @@ impl SystemPy {
         self.top.get().len()
     }
 
-    // fn select_all(slf: &Bound<Self>) -> anyhow::Result<Sel> {
+    // fn select_all(slf: &Bound<Self>) -> PyResult<Sel> {
     //     let bs = slf.borrow();
     //     let top = bs.top.borrow(slf.py());
     //     let st = bs.st.borrow(slf.py());
@@ -394,7 +393,7 @@ impl SystemPy {
     //     })
     // }
 
-    // fn select(slf: &Bound<Self>, sel_str: &str) -> anyhow::Result<Sel> {
+    // fn select(slf: &Bound<Self>, sel_str: &str) -> PyResult<Sel> {
     //     let bs = slf.borrow();
     //     let top = bs.top.borrow(slf.py());
     //     let st = bs.st.borrow(slf.py());
@@ -407,7 +406,7 @@ impl SystemPy {
     // }
 
     #[pyo3(signature = (arg=None))]
-    fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> anyhow::Result<SelPy> {
+    fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> PyResult<SelPy> {
         let sys = slf.borrow();
 
         let index = if let Some(arg) = arg {
@@ -415,75 +414,91 @@ impl SystemPy {
             if let Ok(val) = arg.extract::<String>() {
                 if val.is_empty() {
                     // Select all on empty string
-                    (0..sys.len()).into_sel_index(&*sys, None)?
+                    (0..sys.len()).into_sel_index(&*sys, None)
                 } else {
                     // Otherwise do normal textual selection
-                    val.into_sel_index(&*sys, None)?
+                    val.into_sel_index(&*sys, None)
                 }
             } else if let Ok(val) = arg.extract::<(usize, usize)>() {
                 // Range selection
-                (val.0..val.1).into_sel_index(&*sys, None)?
+                (val.0..val.1).into_sel_index(&*sys, None)
             } else if let Ok(val) = arg.extract::<Vec<usize>>() {
                 // Vector of indices
-                val.into_sel_index(&*sys, None)?
+                val.into_sel_index(&*sys, None)
             } else {
-                bail!(
-                    "Invalid argument type {} when creating selection",
-                    arg.get_type()
-                )
+                let ty_name = arg.get_type().name()?.to_string();
+                return Err(PyTypeError::new_err(format!(
+                    "Invalid argument type {ty_name} when creating selection"
+                )));
             }
         } else {
             // No argument, select all
-            (0..sys.len()).into_sel_index(&*sys, None)?
+            (0..sys.len()).into_sel_index(&*sys, None)
         };
 
         Ok(SelPy {
             sys: slf.borrow().clone_ref(),
-            index,
+            index: index.map_err(|e| PyTypeError::new_err(e.to_string()))?,
         })
     }
 
-    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<StatePy> {
+    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> PyResult<StatePy> {
         if self.st.get().interchangeable(st.borrow().get()) {
             let ret = self.st.clone_ref();
             self.st = st.borrow().clone_ref();
             Ok(ret)
         } else {
-            bail!("incompatible state")
+            Err(PyValueError::new_err("incompatible state"))
         }
     }
 
-    fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<TopologyPy> {
+    fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> PyResult<TopologyPy> {
         if self.top.get().interchangeable(top.borrow().get()) {
             let ret = self.top.clone_ref();
             self.top = top.borrow().clone_ref();
             Ok(ret)
         } else {
-            bail!("incompatible topology")
+            Err(PyValueError::new_err("incompatible topology"))
         }
     }
 
-    fn save(&self, fname: &str) -> anyhow::Result<()> {
-        Ok(SaveTopologyState::save(self, fname)?)
+    fn save(&self, fname: &str) -> PyResult<()> {
+        Ok(SaveTopologyState::save(self, fname).map_err(to_py_io_err)?)
     }
 
-    fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> anyhow::Result<()> {
+    fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> PyResult<()> {
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
             let sb = sel.borrow();
-            sb.sys.top.get_mut().remove_atoms(sb.iter_index())?;
-            sb.sys.st.get_mut().remove_coords(sb.iter_index())?;
+            sb.sys
+                .top
+                .get_mut()
+                .remove_atoms(sb.iter_index())
+                .map_err(to_py_runtime_err)?;
+            sb.sys
+                .st
+                .get_mut()
+                .remove_coords(sb.iter_index())
+                .map_err(to_py_runtime_err)?;
             Ok(())
         } else {
             let sel = Self::__call__(slf, Some(arg))?;
-            sel.sys.top.get_mut().remove_atoms(sel.iter_index())?;
-            sel.sys.st.get_mut().remove_coords(sel.iter_index())?;
+            sel.sys
+                .top
+                .get_mut()
+                .remove_atoms(sel.iter_index())
+                .map_err(to_py_runtime_err)?;
+            sel.sys
+                .st
+                .get_mut()
+                .remove_coords(sel.iter_index())
+                .map_err(to_py_runtime_err)?;
             Ok(())
         }
     }
 
     #[pyo3(signature = (*args))]
-    fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> anyhow::Result<()> {
+    fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> PyResult<()> {
         let slf_b = slf.borrow();
 
         if args.len() == 1 {
@@ -506,14 +521,8 @@ impl SystemPy {
             Ok(())
         } else if args.len() == 2 {
             let arg1 = args.get_item(0)?;
-            let ab = arg1
-                .cast::<AtomPy>()
-                .map_err(|_| anyhow!("expected atom"))?
-                .borrow();
-            let pos = args
-                .get_item(1)?
-                .extract::<PyArrayLike1<f32>>()
-                .map_err(|_| anyhow!("expected pos"))?;
+            let ab = arg1.cast::<AtomPy>()?.borrow();
+            let pos = args.get_item(1)?.extract::<PyArrayLike1<f32>>()?;
             let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
             slf_b
                 .top
@@ -525,7 +534,7 @@ impl SystemPy {
                 .add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
             Ok(())
         } else {
-            bail!("1 or 2 arguments expected");
+            Err(PyValueError::new_err("1 or 2 arguments expected"))
         }
     }
 
@@ -568,9 +577,19 @@ impl SystemPy {
         self.st.get_mut().time = t;
     }
 
-    fn set_box_from(&mut self, sys: Bound<'_, SystemPy>) {
-        let sys_ref = sys.borrow();
-        self.st.get_mut().pbox = sys_ref.st.get().pbox.clone();
+    fn set_box_from(&mut self, src: Bound<'_, PyAny>) -> PyResult<()> {
+        let st_ref = if let Ok(sys) = src.cast::<SystemPy>() {
+            &sys.borrow().st
+        } else if let Ok(sel) = src.cast::<SelPy>() {
+            &sel.borrow().sys.st
+        } else {
+            return Err(PyTypeError::new_err(format!(
+                "Invalid argument type {} in set_box_from()",
+                src.get_type().name()?.to_string()
+            )));
+        };
+        self.st.get_mut().pbox = st_ref.get().pbox.clone();
+        Ok(())
     }
 }
 
@@ -681,20 +700,19 @@ impl SelPy {
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<SelPy> {
         let v = if let Ok(val) = arg.extract::<String>() {
             val.into_sel_index(&self.sys, Some(self.index.as_slice()))
-                .map_err(|e| anyhow!(e))?
+                .map_err(to_py_runtime_err)?
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             (val.0..=val.1)
                 .into_sel_index(&self.sys, Some(self.index.as_slice()))
-                .map_err(|e| anyhow!(e))?
+                .map_err(to_py_runtime_err)?
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
             val.into_sel_index(&self.sys, Some(self.index.as_slice()))
-                .map_err(|e| anyhow!(e))?
+                .map_err(to_py_runtime_err)?
         } else {
-            return Err(anyhow!(
+            return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} when creating selection",
                 arg.get_type()
-            )
-            .into());
+            )));
         };
         Ok(self.from_svec(v))
     }
@@ -706,13 +724,16 @@ impl SelPy {
 
         let mut ind = if i < 0 {
             if i.abs() > n as isize {
-                return Err(
-                    anyhow!("Negative index {i} is out of bounds {}:-1", -(n as isize)).into(),
-                );
+                return Err(PyIndexError::new_err(format!(
+                    "Negative index {i} is out of bounds {}:-1",
+                    -(n as isize)
+                )));
             }
             n - i.unsigned_abs()
         } else if i >= n as isize {
-            return Err(anyhow!("Index {} is out of bounds 0:{}", i, n).into());
+            return Err(PyIndexError::new_err(
+                format!("Index {} is out of bounds 0:{}", i, n),
+            ));
         } else {
             i as usize
         };
@@ -764,11 +785,11 @@ impl SelPy {
     fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         // Check if the shape is correct
         if arr.shape() != [3, self.__len__()] {
-            return Err(anyhow!(
+            return Err(PyValueError::new_err(format!(
                 "Array shape must be [3, {}], not {:?}",
                 self.__len__(),
                 arr.shape()
-            ))?;
+            )));
         }
         let arr_ptr = arr.data();
         let coord_ptr = self.coords_ptr_mut() as *mut f32;
@@ -782,17 +803,17 @@ impl SelPy {
         Ok(())
     }
 
-    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> anyhow::Result<StatePy> {
+    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> PyResult<StatePy> {
         if self.sys.st.get().interchangeable(st.borrow().get()) {
             let ret = self.sys.st.clone_ref();
             self.sys.st = st.borrow().clone_ref();
             Ok(ret)
         } else {
-            bail!("incompatible state")
+            return Err(PyValueError::new_err("incompatible state"));
         }
     }
 
-    // fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> anyhow::Result<Py<TopologyPy>> {
+    // fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> PyResult<Py<TopologyPy>> {
     //     let py = top.py();
     //     let cur_top = &self.sys.borrow(py).top;
     //     if cur_top.len() == top.borrow().len() {
@@ -803,7 +824,7 @@ impl SelPy {
     //     }
     // }
 
-    fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> anyhow::Result<StatePy> {
+    fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
         let py = arg.py();
         if let Ok(sys) = arg.cast::<SystemPy>() {
             let st = sys.borrow().st.clone_ref().into_pyobject(py).unwrap();
@@ -812,11 +833,10 @@ impl SelPy {
             let st = sel.borrow().sys.st.clone_ref().into_pyobject(py).unwrap();
             self.set_state(&st)
         } else {
-            Err(anyhow!(
+            Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} in set_state_from()",
                 arg.get_type()
-            )
-            .into())
+            )))
         }
     }
 
@@ -877,7 +897,7 @@ impl SelPy {
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
             &MeasurePeriodic::center_of_mass_pbc_dims(self, pbc_dims)
-                .map_err(|e| anyhow!(e))?
+                .map_err(to_py_runtime_err)?
                 .coords,
             py,
         ))
@@ -892,19 +912,19 @@ impl SelPy {
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
             &MeasurePeriodic::center_of_geometry_pbc_dims(self, pbc_dims)
-                .map_err(|e| anyhow!(e))?
+                .map_err(to_py_runtime_err)?
                 .coords,
             py,
         ))
     }
 
-    fn principal_transform(&self) -> anyhow::Result<IsometryTransform> {
-        let tr = MeasureMasses::principal_transform(self)?;
+    fn principal_transform(&self) -> PyResult<IsometryTransform> {
+        let tr = MeasureMasses::principal_transform(self).map_err(to_py_runtime_err)?;
         Ok(IsometryTransform(tr))
     }
 
-    fn principal_transform_pbc(&self) -> anyhow::Result<IsometryTransform> {
-        let tr = MeasurePeriodic::principal_transform_pbc(self)?;
+    fn principal_transform_pbc(&self) -> PyResult<IsometryTransform> {
+        let tr = MeasurePeriodic::principal_transform_pbc(self).map_err(to_py_runtime_err)?;
         Ok(IsometryTransform(tr))
     }
 
@@ -912,12 +932,12 @@ impl SelPy {
         ModifyPos::apply_transform(self, &tr.0);
     }
 
-    fn gyration(&self) -> anyhow::Result<f32> {
-        Ok(MeasureMasses::gyration(self)?)
+    fn gyration(&self) -> PyResult<f32> {
+        Ok(MeasureMasses::gyration(self).map_err(to_py_runtime_err)?)
     }
 
-    fn gyration_pbc(&self) -> anyhow::Result<f32> {
-        Ok(MeasurePeriodic::gyration_pbc(self)?)
+    fn gyration_pbc(&self) -> PyResult<f32> {
+        Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
     }
 
     fn min_max<'py>(
@@ -933,11 +953,11 @@ impl SelPy {
     fn inertia<'py>(
         &self,
         py: Python<'py>,
-    ) -> anyhow::Result<(
+    ) -> PyResult<(
         Bound<'py, numpy::PyArray1<f32>>,
         Bound<'py, numpy::PyArray2<f32>>,
     )> {
-        let (moments, axes) = MeasureMasses::inertia(self)?;
+        let (moments, axes) = MeasureMasses::inertia(self).map_err(to_py_runtime_err)?;
         let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
         Ok((mom, ax))
@@ -946,24 +966,24 @@ impl SelPy {
     fn inertia_pbc<'py>(
         &self,
         py: Python<'py>,
-    ) -> anyhow::Result<(
+    ) -> PyResult<(
         Bound<'py, numpy::PyArray1<f32>>,
         Bound<'py, numpy::PyArray2<f32>>,
     )> {
-        let (moments, axes) = MeasurePeriodic::inertia_pbc(self)?;
+        let (moments, axes) = MeasurePeriodic::inertia_pbc(self).map_err(to_py_runtime_err)?;
         let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
         Ok((mom, ax))
     }
 
-    fn save(&self, fname: &str) -> anyhow::Result<()> {
-        Ok(SaveTopologyState::save(self, fname)?)
+    fn save(&self, fname: &str) -> PyResult<()> {
+        Ok(SaveTopologyState::save(self, fname).map_err(to_py_runtime_err)?)
     }
 
-    fn translate<'py>(&mut self, arg: PyArrayLike1<'py, f32>) -> anyhow::Result<()> {
+    fn translate<'py>(&mut self, arg: PyArrayLike1<'py, f32>) -> PyResult<()> {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
-            .ok_or_else(|| anyhow!("conversion to Vector3 has failed"))?;
+            .ok_or_else(|| PyValueError::new_err("conversion to Vector3 has failed"))?;
         ModifyPos::translate(self, &vec);
         Ok(())
     }
@@ -1056,20 +1076,21 @@ struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 // Free functions
 
 #[pyfunction(name = "fit_transform")]
-fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<IsometryTransform> {
-    let tr = molar::prelude::fit_transform(sel1, sel2)?;
+fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
+    let tr = molar::prelude::fit_transform(sel1, sel2).map_err(to_py_runtime_err)?;
     Ok(IsometryTransform(tr))
 }
 
 #[pyfunction(name = "fit_transform_matching")]
-fn fit_transform_matching_py(
-    sel1: &SelPy,
-    sel2: &SelPy,
-) -> anyhow::Result<IsometryTransform> {
+fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
 
-    let sub1 = ind1.into_sel_index(sel1, Some(&sel1.index))?;
-    let sub2 = ind2.into_sel_index(sel2, Some(&sel2.index))?;
+    let sub1 = ind1
+        .into_sel_index(sel1, Some(&sel1.index))
+        .map_err(to_py_runtime_err)?;
+    let sub2 = ind2
+        .into_sel_index(sel2, Some(&sel2.index))
+        .map_err(to_py_runtime_err)?;
 
     let sub_sel1 = SelPy {
         sys: sel1.sys.clone_ref(),
@@ -1081,18 +1102,18 @@ fn fit_transform_matching_py(
         index: sub2,
     };
 
-    let tr = fit_transform(&sub_sel1, &sub_sel2)?;
+    let tr = fit_transform(&sub_sel1, &sub_sel2).map_err(to_py_runtime_err)?;
     Ok(IsometryTransform(tr))
 }
 
 #[pyfunction]
-fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<f32> {
-    Ok(rmsd(sel1, sel2)?)
+fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
+    Ok(rmsd(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 
 #[pyfunction(name = "rmsd_mw")]
-fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> anyhow::Result<f32> {
-    Ok(rmsd_mw(sel1, sel2)?)
+fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
+    Ok(rmsd_mw(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 
 #[pyclass]
@@ -1126,7 +1147,7 @@ fn distance_search<'py>(
     data1: &Bound<'py, SelPy>,
     data2: Option<&Bound<'py, SelPy>>,
     dims: [bool; 3],
-) -> anyhow::Result<Bound<'py, PyAny>> {
+) -> PyResult<Bound<'py, PyAny>> {
     let mut res: Vec<(usize, usize, f32)>;
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
     let sel1 = data1.borrow();
@@ -1169,14 +1190,14 @@ fn distance_search<'py>(
         }
     } else if let Ok(s) = cutoff.extract::<String>() {
         if s != "vdw" {
-            bail!("Unknown cutoff type {s}");
+            return Err(PyTypeError::new_err(format!("Unknown cutoff type {s}")));
         }
 
         // VdW cutof
         let vdw1: Vec<f32> = sel1.iter_atoms().map(|a| a.vdw()).collect();
 
         if sel1.len() != vdw1.len() {
-            bail!("Size mismatch 1: {} {}", sel1.len(), vdw1.len());
+            return Err(PyValueError::new_err(format!("Size mismatch 1: {} {}", sel1.len(), vdw1.len())));
         }
 
         if let Some(d2) = data2 {
@@ -1184,7 +1205,7 @@ fn distance_search<'py>(
             let vdw2: Vec<f32> = sel2.iter_atoms().map(|a| a.vdw()).collect();
 
             if sel2.len() != vdw2.len() {
-                bail!("Size mismatch 2: {} {}", sel2.len(), vdw2.len());
+                return Err(PyValueError::new_err(format!("Size mismatch 2: {} {}", sel2.len(), vdw2.len())));
             }
 
             if pbc_dims.any() {
@@ -1208,7 +1229,7 @@ fn distance_search<'py>(
                 }
             }
         } else {
-            bail!("VdW distance search is not yet supported for single selection");
+            return Err(PyNotImplementedError::new_err("VdW distance search is not yet supported for single selection"));
         }
     } else {
         unreachable!()
@@ -1239,11 +1260,11 @@ struct NdxFilePy(NdxFile);
 #[pymethods]
 impl NdxFilePy {
     #[new]
-    fn new(fname: &str) -> anyhow::Result<Self> {
-        Ok(NdxFilePy(NdxFile::new(fname)?))
+    fn new(fname: &str) -> PyResult<Self> {
+        Ok(NdxFilePy(NdxFile::new(fname).map_err(to_py_value_err)?))
     }
 
-    // fn get_group_as_sel(&self, py: Python<'_>, gr_name: &str, sys: &System) -> anyhow::Result<Sel> {
+    // fn get_group_as_sel(&self, py: Python<'_>, gr_name: &str, sys: &System) -> PyResult<Sel> {
     //     Ok(Sel{
     //         sel: self.0.get_group_as_sel(gr_name, &sys.0)?,
     //         st: Py::clone_ref(&sys.st, py),

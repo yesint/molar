@@ -1,9 +1,10 @@
 use std::cell::UnsafeCell;
 
+use crate::{SelPy, SystemPy};
+
 use super::periodic_box::PeriodicBoxPy;
-use anyhow::anyhow;
 use molar::prelude::*;
-use pyo3::prelude::*;
+use pyo3::{exceptions::{PyAttributeError, PyTypeError}, prelude::*};
 use triomphe::Arc;
 
 #[pyclass(name = "State")]
@@ -39,43 +40,48 @@ impl StatePy {
     }
 
     #[getter]
-    fn get_box(&self) -> anyhow::Result<PeriodicBoxPy> {
+    fn get_box(&self) -> PyResult<PeriodicBoxPy> {
         Ok(PeriodicBoxPy(
             self.get().pbox
                 .as_ref()
-                .ok_or_else(|| anyhow!("No periodic box"))?
+                .ok_or_else(|| PyAttributeError::new_err("No periodic box to get"))?
                 .clone(),
         ))
     }
 
     #[setter]
-    fn set_box(&mut self, val: Bound<'_, PeriodicBoxPy>) -> anyhow::Result<()> {
+    fn set_box(&mut self, val: Bound<'_, PeriodicBoxPy>) -> PyResult<()> {
         let b = self.get_mut()
             .pbox
             .as_mut()
-            .ok_or_else(|| anyhow!("No periodic box"))?;
+            .ok_or_else(|| PyAttributeError::new_err("No periodic box to set"))?;
         *b = val.borrow().0.clone();
         Ok(())
     }
-}
 
-impl StatePy {
-    pub(crate) fn from_state(st: State) -> Self {
-        Self(Arc::new(UnsafeCell::new(st)))
+    #[getter]
+    fn get_time(&mut self) -> f32 {
+        self.get().time
     }
 
-    /// Remove columns (atoms) from `coords` by index and reallocate a fresh NumPy array.
-    /// `removed` yields 0-based column indices in `[0, n)`.
-    pub fn remove_coords(
-        &mut self,
-        removed: impl Iterator<Item = usize>,
-    ) -> anyhow::Result<()> {
-        self.get_mut().remove_coords(removed)?;
+    #[setter]
+    fn set_time(&mut self, t: f32) {
+        self.get_mut().time = t;
+    }
+
+    fn set_box_from(&mut self, arg: Bound<'_, PyAny>) -> PyResult<()> {
+        let st_ref = if let Ok(sys) = arg.cast::<SystemPy>() {
+            &sys.borrow().st
+        } else if let Ok(sel) = arg.cast::<SelPy>() {
+            &sel.borrow().sys.st
+        } else {
+            let ty_name = arg.get_type().name()?.to_string();
+            return Err(PyTypeError::new_err(format!(
+                "Invalid argument type {ty_name} in set_box_from()"
+            )));
+        };
+        self.get_mut().pbox = st_ref.get().pbox.clone();
         Ok(())
-    }
-
-    pub fn add_coords(&mut self, added: impl Iterator<Item = Pos>) {
-        self.get_mut().add_coords(added);
     }
 }
 

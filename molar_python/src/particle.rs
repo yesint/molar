@@ -1,7 +1,10 @@
 use super::topology_state::TopologyPy;
-use crate::topology_state::StatePy;
+use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
+use crate::{atom::AtomPy, topology_state::StatePy};
+use molar::RandomAtomMutProvider;
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
 #[pyclass(name = "Particle")]
@@ -15,28 +18,6 @@ pub(crate) struct ParticlePy {
 
 #[pymethods]
 impl ParticlePy {
-    // //pos
-    // #[getter]
-    // fn get_pos<'py>(slf: &Bound<'py, Self>) -> Bound<'py, PyAny> {
-    //     let s = slf.borrow();
-    //     let mut st = s.st.borrow_mut(slf.py());
-    //     let v = st.0.get_pos_mut(s.id).unwrap();
-    //     let p = super::utils::map_pyarray_to_pos(v, slf);
-    //     unsafe{Bound::from_borrowed_ptr(slf.py(), p as *mut pyo3::ffi::PyObject)}
-    // }
-
-    // #[setter]
-    // fn set_pos<'py>(&mut self, py: Python<'py>, value: PyReadonlyArray1<'py, f32>) {
-    //     let mut p = self.st.borrow_mut(py).0.get_pos_mut(self.id).unwrap().coords;
-    //     unsafe {
-    //         std::ptr::copy_nonoverlapping(value.data(), p.as_mut_ptr(), 3);
-    //     }
-    // }
-
-    fn get_id(&self) -> usize {
-        self.id
-    }
-
     #[getter(pos)]
     fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<f32>> {
         let s = slf.borrow();
@@ -91,17 +72,27 @@ impl ParticlePy {
         unsafe { self.st.get_mut().coords.get_unchecked_mut(self.id).z = value }
     }
 
-    // atom
-    // #[getter(atom)]
-    // fn get_atom(&self) -> AtomPy {
-    //     unsafe{ AtomPy(self.top.get_mut().atoms.as_mut_ptr().add(self.id)) }
-    // }
+    //atom
+    #[getter(atom)]
+    fn get_atom(&self) -> AtomView {
+        unsafe { AtomView(self.top.get_mut().get_atom_mut_unchecked(self.id)) }
+    }
 
-    // #[setter(atom)]
-    // fn set_atom(&mut self, py: Python<'_>, value: &AtomPy) {
-    //     let mut top = self.top.borrow_mut(py);
-    //     *top.0.get_atom_mut(self.id).unwrap() = value.0.clone();
-    // }
+    #[setter(atom)]
+    fn set_atom(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<()> {
+        let at = if let Ok(at) = arg.cast::<AtomPy>() {
+            at.borrow().0.clone()
+        } else if let Ok(v) = arg.cast::<AtomView>() {
+            unsafe { (*v.borrow().0).clone() }
+        } else {
+            let ty_name = arg.get_type().name()?.to_string();
+            return Err(PyTypeError::new_err(format!(
+                "Invalid argument type {ty_name} in set_atom()"
+            )));
+        };
+        unsafe { *self.top.get_mut().get_atom_mut_unchecked(self.id) = at };
+        Ok(())
+    }
 
     #[getter(name)]
     fn get_name(&self) -> String {
