@@ -8,7 +8,7 @@ use pyo3::{exceptions::{PyAttributeError, PyTypeError}, prelude::*};
 use triomphe::Arc;
 
 #[pyclass(name = "State")]
-pub(crate) struct StatePy (pub(crate) Arc<UnsafeCell<State>>);
+pub struct StatePy (pub(crate) Arc<UnsafeCell<State>>);
 
 unsafe impl Send for StatePy {}
 unsafe impl Sync for StatePy {}
@@ -118,7 +118,7 @@ impl RandomPosProvider for StatePy {
 //----------------------------------------------------------------
 
 #[pyclass(name = "Topology")]
-pub(crate) struct TopologyPy(pub(crate) Arc<UnsafeCell<Topology>>);
+pub struct TopologyPy(pub(crate) Arc<UnsafeCell<Topology>>);
 
 unsafe impl Send for TopologyPy {}
 unsafe impl Sync for TopologyPy {}
