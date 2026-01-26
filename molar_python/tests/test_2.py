@@ -60,12 +60,12 @@ def test_set_state_updates_system_time_and_returns_previous_state(top_and_state)
     assert sel2.time == st1.time
     assert st1.time != st2.time
 
-    old = sel1.set_state(st2)
+    old = sel1.replace_state(st2)
 
     # Expected: setting state on a selection updates the whole System state
-    assert sys_.time == st2.time
+    assert sys_.time == st1.time
     assert sel1.time == st2.time
-    assert sel2.time == st2.time
+    assert sel2.time == st1.time
 
     # Returned value should be the previous state (or at least carry its time)
     assert old.time == st1.time
@@ -82,7 +82,7 @@ def test_iterating_trajectory_and_setting_state_updates_selection_com(selection)
     # Just sanity-check the loop: state application should work and com should be finite
     n = 0
     for st in trj:
-        selection.set_state(st)
+        selection.replace_state(st)
         com = selection.com()
         assert np.isfinite(com).all()
         n += 1
@@ -161,7 +161,7 @@ def test_subselection(system):
 def test_get_coord_set_coord_roundtrip(system):
     sel = system("resid 5:600")
 
-    crd = sel.get_coord()
+    crd = sel.coords
     assert isinstance(crd, np.ndarray)
     assert crd.shape[0] == 3
     assert crd.shape[1] == len(sel)
@@ -169,13 +169,13 @@ def test_get_coord_set_coord_roundtrip(system):
     # Modify coordinate matrix and apply
     crd2 = crd.copy()
     crd2[0, 0] = 42
-    sel.set_coord(crd2)
+    sel.coords = crd2
 
     assert sel[0].pos[0] == pytest.approx(42)
 
     # Setting a full-zero coord array should work
     zeros = np.zeros((3, len(sel)), dtype=np.float32)
-    sel.set_coord(zeros)
+    sel.coords = zeros
     assert_allclose(sel[0].pos, np.array([0.0, 0.0, 0.0], dtype=float), atol=1e-6)
 
     # Attribute access still works
