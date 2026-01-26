@@ -6,7 +6,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::{exceptions::PyIndexError, prelude::*, types::PyAny};
 
 use crate::utils::*;
-use crate::topology_state::StatePy;
+use crate::topology_state::{StatePy, TopologyPy};
 use crate::periodic_box::PeriodicBoxPy;
 use crate::system::SystemPy;
 use crate::{ParticlePy, ParticleIterator};
@@ -177,11 +177,13 @@ impl SelPy {
         .borrow()
     }
 
+    #[getter("index")]
     fn get_index<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<usize>> {
         numpy::PyArray1::from_iter(py, self.index.iter_index())
     }
 
-    fn get_coord<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
+    #[getter("coords")]
+    fn get_coords<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
         let coord_ptr = self.coords_ptr() as *const f32;
         unsafe {
             let arr = numpy::PyArray2::<f32>::new(py, [3, self.len()], true);
@@ -194,7 +196,23 @@ impl SelPy {
         }
     }
 
-    fn set_coord(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
+    #[getter("system")]
+    fn get_system(&self) -> SystemPy {
+        self.sys.clone_ref()
+    }
+
+    #[setter("system")]
+    fn set_system(&mut self, sys: &SystemPy) -> PyResult<()>{
+        if self.sys.st.get().interchangeable(sys.st.get()) {
+            self.sys = sys.clone_ref();
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible system"));
+        }
+    }
+
+    #[setter("coords")]
+    fn set_coords(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         if arr.shape() != [3, self.__len__()] {
             return Err(PyValueError::new_err(format!(
                 "Array shape must be [3, {}], not {:?}",
@@ -214,29 +232,74 @@ impl SelPy {
         Ok(())
     }
 
-    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> PyResult<StatePy> {
-        if self.sys.st.get().interchangeable(st.borrow().get()) {
+    #[getter("state")]
+    fn get_state(&mut self) -> StatePy {
+        self.sys.st.clone_ref()
+    }
+
+    #[setter("state")]
+    fn set_state(&mut self, st: &StatePy) -> PyResult<()> {
+        if self.sys.st.get().interchangeable(st.get()) {
+            self.sys.st = st.clone_ref();
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible state"));
+        }
+    }
+
+    fn replace_state(&mut self, st: &StatePy) -> PyResult<StatePy> {
+        if self.sys.st.get().interchangeable(st.get()) {
             let ret = self.sys.st.clone_ref();
-            self.sys.st = st.borrow().clone_ref();
+            self.sys.st = st.clone_ref();
             Ok(ret)
         } else {
             return Err(PyValueError::new_err("incompatible state"));
         }
     }
 
-    fn set_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
-        let py = arg.py();
+    fn replace_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
         if let Ok(sys) = arg.cast::<SystemPy>() {
-            let st = sys.borrow().st.clone_ref().into_pyobject(py).unwrap();
-            self.set_state(&st)
+            let st = sys.borrow().st.clone_ref();
+            self.replace_state(&st)
         } else if let Ok(sel) = arg.cast::<SelPy>() {
-            let st = sel.borrow().sys.st.clone_ref().into_pyobject(py).unwrap();
-            self.set_state(&st)
+            let st = sel.borrow().sys.st.clone_ref();
+            self.replace_state(&st)
         } else {
             Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} in set_state_from()",
                 arg.get_type()
             )))
+        }
+    }
+
+    fn replace_system(&mut self, sys: &SystemPy) -> PyResult<SystemPy> {
+        let ret = self.sys.clone_ref();
+        self.sys = sys.clone_ref();
+        Ok(ret)
+    }
+
+    #[getter("topology")]
+    fn get_topology(&self) -> TopologyPy {
+        self.sys.top.clone_ref()
+    }
+
+    #[setter("topology")]
+    fn set_topology(&mut self, top: &TopologyPy) -> PyResult<()> {
+        if self.sys.top.get().interchangeable(top.get()) {
+            self.sys.top = top.clone_ref();
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible topology"));
+        }
+    }
+
+    fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
+        if self.sys.top.get().interchangeable(top.get()) {
+            let ret = self.sys.top.clone_ref();
+            self.sys.top = top.clone_ref();
+            Ok(ret)
+        } else {
+            return Err(PyValueError::new_err("incompatible topology"));
         }
     }
 
