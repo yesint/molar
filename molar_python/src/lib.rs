@@ -3,7 +3,7 @@ use numpy::{
     nalgebra::{self}, PyArrayMethods,
 };
 use pyo3::{
-    IntoPyObjectExt, exceptions::{PyNotImplementedError, PyTypeError, PyValueError}, prelude::*, types::PyTuple
+    IntoPyObjectExt, exceptions::{PyNotImplementedError, PyTypeError, PyValueError}, prelude::*,
 };
 
 mod utils;
@@ -254,13 +254,12 @@ impl NdxFilePy {
         Ok(NdxFilePy(NdxFile::new(fname).map_err(to_py_value_err)?))
     }
 
-    // fn get_group_as_sel(&self, py: Python<'_>, gr_name: &str, sys: &System) -> PyResult<Sel> {
-    //     Ok(Sel{
-    //         sel: self.0.get_group_as_sel(gr_name, &sys.0)?,
-    //         st: Py::clone_ref(&sys.st, py),
-    //         top: Py::clone_ref(&sys.top, py),
-    //     })
-    // }
+    fn get_group_as_sel(&self, gr_name: &str, sys: &SystemPy) -> PyResult<SelPy> {
+        Ok(SelPy{
+            sys: sys.clone_ref(),
+            index: self.0.get_group(gr_name).map_err(to_py_value_err)?.to_owned()
+        })
+    }
 }
 
 //====================================
