@@ -1,9 +1,10 @@
 use molar::prelude::*;
-use numpy::PyArrayLike1;
+use numpy::{PyArray1, PyArrayLike1};
 use numpy::nalgebra::{Const, VectorView};
 use pyo3::exceptions::PyValueError;
 use pyo3::{exceptions::PyTypeError, prelude::*, types::PyTuple};
 
+use crate::atom::AtomView;
 use crate::utils::*;
 use crate::topology_state::{TopologyPy, StatePy};
 use crate::periodic_box::PeriodicBoxPy;
@@ -300,5 +301,75 @@ impl SystemPy {
         };
         self.st.get_mut().pbox = st_ref.get().pbox.clone();
         Ok(())
+    }
+
+    fn iter_pos(slf: PyRef<'_, Self>) -> PyRef<'_, SysPosIterator> {
+        Bound::new(
+            slf.py(),
+            SysPosIterator {
+                sys: slf.clone_ref(),
+                cur: 0,
+            },
+        )
+        .unwrap()
+        .borrow()
+    }
+
+    fn iter_atoms(slf: PyRef<'_, Self>) -> PyRef<'_, SysAtomIterator> {
+        Bound::new(
+            slf.py(),
+            SysAtomIterator {
+                sys: slf.clone_ref(),
+                cur: 0,
+            },
+        )
+        .unwrap()
+        .borrow()
+    }
+}
+
+#[pyclass]
+pub struct SysPosIterator {
+    pub(crate) sys: SystemPy,
+    pub(crate) cur: usize,
+}
+
+#[pymethods]
+impl SysPosIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
+        let mut s = slf.borrow_mut();
+        if s.cur >= s.sys.len() {
+            return None;
+        }
+        let pos_ptr = unsafe { s.sys.coords_ptr().add(s.cur) as *mut Pos };
+        s.cur += 1;
+
+        unsafe { Some(map_pyarray_to_pos(pos_ptr, slf)) }
+    }
+}
+
+#[pyclass]
+pub struct SysAtomIterator {
+    pub(crate) sys: SystemPy,
+    pub(crate) cur: usize,
+}
+
+#[pymethods]
+impl SysAtomIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> Option<AtomView> {
+        if self.cur >= self.sys.len() {
+            return None;
+        }
+        let atom_ptr = unsafe { self.sys.atoms_ptr().add(self.cur) as *mut Atom };
+        self.cur += 1;
+        Some(AtomView(atom_ptr))
     }
 }

@@ -1,15 +1,17 @@
 use molar::prelude::*;
 use numpy::nalgebra::{Const, Dyn, VectorView};
-use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray};
-use pyo3::IntoPyObjectExt;
+use numpy::{
+    PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
+};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::{exceptions::PyIndexError, prelude::*, types::PyAny};
 
-use crate::utils::*;
-use crate::topology_state::{StatePy, TopologyPy};
 use crate::periodic_box::PeriodicBoxPy;
 use crate::system::SystemPy;
-use crate::{ParticlePy, ParticleIterator};
+use crate::topology_state::{StatePy, TopologyPy};
+use crate::utils::*;
+use crate::atom::AtomView;
+use crate::{ParticleIterator, ParticlePy};
 
 #[pyclass(sequence, name = "Sel")]
 pub struct SelPy {
@@ -109,6 +111,63 @@ impl SelPy {
     }
 }
 
+impl Clone for SelPy {
+    fn clone(&self) -> Self {
+        SelPy {
+            sys: self.sys.clone_ref(),
+            index: self.index.clone(),
+        }
+    }
+}
+
+#[pyclass]
+pub struct SelPosIterator {
+    pub(crate) sel: SelPy,
+    pub(crate) cur: usize,
+}
+
+#[pymethods]
+impl SelPosIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
+        let mut s = slf.borrow_mut();
+        if s.cur >= s.sel.len() {
+            return None;
+        }
+        let idx = unsafe { s.sel.index.get_index_unchecked(s.cur) };
+        let pos_ptr = unsafe { s.sel.coords_ptr().add(idx) as *mut Pos };
+        s.cur += 1;
+
+        unsafe { Some(map_pyarray_to_pos(pos_ptr, slf)) }
+    }
+}
+
+#[pyclass]
+pub struct SelAtomIterator {
+    pub(crate) sel: SelPy,
+    pub(crate) cur: usize,
+}
+
+#[pymethods]
+impl SelAtomIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> Option<AtomView> {
+        if self.cur >= self.sel.len() {
+            return None;
+        }
+        let idx = unsafe { self.sel.index.get_index_unchecked(self.cur) };
+        let atom_ptr = unsafe { self.sel.atoms_ptr().add(idx) as *mut Atom };
+        self.cur += 1;
+        Some(AtomView(atom_ptr))
+    }
+}
+
 #[pymethods]
 impl SelPy {
     fn __len__(&self) -> usize {
@@ -135,9 +194,8 @@ impl SelPy {
         Ok(self.from_svec(v))
     }
 
-    pub(crate) fn __getitem__(slf: Bound<Self>, i: isize) -> PyResult<Py<PyAny>> {
-        let s = slf.borrow();
-        let n = s.__len__();
+    pub(crate) fn __getitem__(&self, i: isize) -> PyResult<ParticlePy> {
+        let n = self.len();
 
         let mut ind = if i < 0 {
             if i.abs() > n as isize {
@@ -148,28 +206,28 @@ impl SelPy {
             }
             n - i.unsigned_abs()
         } else if i >= n as isize {
-            return Err(PyIndexError::new_err(
-                format!("Index {} is out of bounds 0:{}", i, n),
-            ));
+            return Err(PyIndexError::new_err(format!(
+                "Index {} is out of bounds 0:{}",
+                i, n
+            )));
         } else {
             i as usize
         };
 
-        ind += unsafe { s.index.get_unchecked(0) };
+        ind += unsafe { self.index.get_unchecked(0) };
 
         Ok(ParticlePy {
-            top: slf.borrow().sys.top.clone_ref(),
-            st: slf.borrow().sys.st.clone_ref(),
+            top: self.sys.top.clone_ref(),
+            st: self.sys.st.clone_ref(),
             id: ind,
-        }
-        .into_py_any(slf.py())?)
+        })
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, ParticleIterator> {
         Bound::new(
             slf.py(),
             ParticleIterator {
-                sel: slf.into(),
+                sel: slf.clone(),
                 cur: 0,
             },
         )
@@ -202,7 +260,7 @@ impl SelPy {
     }
 
     #[setter("system")]
-    fn set_system(&mut self, sys: &SystemPy) -> PyResult<()>{
+    fn set_system(&mut self, sys: &SystemPy) -> PyResult<()> {
         if self.sys.st.get().interchangeable(sys.st.get()) {
             self.sys = sys.clone_ref();
             Ok(())
@@ -481,4 +539,29 @@ impl SelPy {
     fn to_gromacs_ndx(&self, name: &str) -> String {
         self.index.as_gromacs_ndx_str(name)
     }
+
+    fn iter_pos(slf: PyRef<'_, Self>) -> PyRef<'_, SelPosIterator> {
+        Bound::new(
+            slf.py(),
+            SelPosIterator {
+                sel: slf.clone(),
+                cur: 0,
+            },
+        )
+        .unwrap()
+        .borrow()
+    }
+
+    fn iter_atoms(slf: PyRef<'_, Self>) -> PyRef<'_, SelAtomIterator> {
+        Bound::new(
+            slf.py(),
+            SelAtomIterator {
+                sel: slf.clone(),
+                cur: 0,
+            },
+        )
+        .unwrap()
+        .borrow()
+    }
 }
+

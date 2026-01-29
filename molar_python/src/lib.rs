@@ -1,9 +1,12 @@
 use molar::prelude::*;
 use numpy::{
-    nalgebra::{self}, PyArrayMethods,
+    nalgebra::{self},
+    PyArrayMethods,
 };
 use pyo3::{
-    IntoPyObjectExt, exceptions::{PyNotImplementedError, PyTypeError, PyValueError}, prelude::*,
+    exceptions::{PyNotImplementedError, PyTypeError, PyValueError},
+    prelude::*,
+    IntoPyObjectExt,
 };
 
 mod utils;
@@ -32,6 +35,8 @@ use selection::SelPy;
 
 mod topology_state;
 use topology_state::*;
+
+use crate::{selection::{SelAtomIterator, SelPosIterator}, system::{SysAtomIterator, SysPosIterator}};
 //-------------------------------------------
 
 #[pyclass(unsendable, name = "SasaResults")]
@@ -108,7 +113,7 @@ fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
 
 #[pyclass]
 struct ParticleIterator {
-    sel: Py<SelPy>,
+    sel: SelPy,
     cur: isize,
 }
 
@@ -118,12 +123,8 @@ impl ParticleIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
-        let ret = Python::attach(|py| {
-            let s = slf.sel.bind(py);
-            SelPy::__getitem__(s.clone(), slf.cur)
-        })
-        .ok();
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<ParticlePy> {
+        let ret = SelPy::__getitem__(&slf.sel, slf.cur).ok();
         slf.cur += 1;
         ret
     }
@@ -187,7 +188,11 @@ fn distance_search<'py>(
         let vdw1: Vec<f32> = sel1.iter_atoms().map(|a| a.vdw()).collect();
 
         if sel1.len() != vdw1.len() {
-            return Err(PyValueError::new_err(format!("Size mismatch 1: {} {}", sel1.len(), vdw1.len())));
+            return Err(PyValueError::new_err(format!(
+                "Size mismatch 1: {} {}",
+                sel1.len(),
+                vdw1.len()
+            )));
         }
 
         if let Some(d2) = data2 {
@@ -195,7 +200,11 @@ fn distance_search<'py>(
             let vdw2: Vec<f32> = sel2.iter_atoms().map(|a| a.vdw()).collect();
 
             if sel2.len() != vdw2.len() {
-                return Err(PyValueError::new_err(format!("Size mismatch 2: {} {}", sel2.len(), vdw2.len())));
+                return Err(PyValueError::new_err(format!(
+                    "Size mismatch 2: {} {}",
+                    sel2.len(),
+                    vdw2.len()
+                )));
             }
 
             if pbc_dims.any() {
@@ -219,7 +228,9 @@ fn distance_search<'py>(
                 }
             }
         } else {
-            return Err(PyNotImplementedError::new_err("VdW distance search is not yet supported for single selection"));
+            return Err(PyNotImplementedError::new_err(
+                "VdW distance search is not yet supported for single selection",
+            ));
         }
     } else {
         unreachable!()
@@ -255,9 +266,13 @@ impl NdxFilePy {
     }
 
     fn get_group_as_sel(&self, gr_name: &str, sys: &SystemPy) -> PyResult<SelPy> {
-        Ok(SelPy{
+        Ok(SelPy {
             sys: sys.clone_ref(),
-            index: self.0.get_group(gr_name).map_err(to_py_value_err)?.to_owned()
+            index: self
+                .0
+                .get_group(gr_name)
+                .map_err(to_py_value_err)?
+                .to_owned(),
         })
     }
 }
@@ -284,6 +299,10 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SelPy>()?;
     m.add_class::<SasaResultsPy>()?;
     m.add_class::<NdxFilePy>()?;
+    m.add_class::<SysPosIterator>()?;
+    m.add_class::<SysAtomIterator>()?;
+    m.add_class::<SelPosIterator>()?;
+    m.add_class::<SelAtomIterator>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform_py, m)?)?;
     m.add_function(wrap_pyfunction!(fit_transform_matching_py, m)?)?;
