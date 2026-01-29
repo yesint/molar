@@ -5,6 +5,7 @@ use numpy::{PyArray1, PyArrayLike1};
 use numpy::nalgebra::{Const, VectorView};
 use pyo3::exceptions::PyValueError;
 use pyo3::{exceptions::PyTypeError, prelude::*, types::PyTuple};
+use triomphe::Arc;
 
 use crate::atom::AtomView;
 use crate::utils::*;
@@ -258,6 +259,10 @@ impl SystemPy {
     }
 
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> PyResult<()> {
+        if !Arc::is_unique(&slf.borrow().st.0) || !Arc::is_unique(&slf.borrow().top.0) {
+            return Err(PyValueError::new_err("can't remove atoms, multiple references exist"));
+        }
+
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
             let sb = sel.borrow();
