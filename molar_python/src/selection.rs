@@ -1,3 +1,5 @@
+use std::mem;
+
 use molar::prelude::*;
 use numpy::nalgebra::{Const, Dyn, VectorView};
 use numpy::{
@@ -315,6 +317,15 @@ impl SelPy {
         }
     }
 
+    fn replace_state_deep(&mut self, st: &mut StatePy) -> PyResult<()> {
+        if self.sys.st.get().interchangeable(st.get()) {
+            mem::swap(self.sys.st.get_mut(), st.get_mut());
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible state"));
+        }
+    }
+
     fn replace_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
         if let Ok(sys) = arg.cast::<SystemPy>() {
             let st = sys.borrow().st.clone_ref();
@@ -361,6 +372,15 @@ impl SelPy {
         }
     }
 
+    fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
+        if self.sys.top.get().interchangeable(top.get()) {
+            mem::swap(self.sys.top.get_mut(), top.get_mut());
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible topology"));
+        }
+    }
+
     pub fn set_same_chain(&mut self, val: char) {
         AtomIterMutProvider::set_same_chain(self, val)
     }
@@ -390,6 +410,11 @@ impl SelPy {
         TimeProvider::get_time(self)
     }
 
+    #[setter]
+    fn set_time(&mut self, t: f32) {
+        self.sys.st.get_mut().time = t;
+    }
+
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
         PeriodicBoxPy(self.sys.st.require_box().unwrap().clone())
@@ -400,14 +425,11 @@ impl SelPy {
         self.sys.st.get_mut().pbox = Some(b.0.clone());
     }
 
-    #[setter]
-    fn set_time(&mut self, t: f32) {
-        self.sys.st.get_mut().time = t;
-    }
-
     fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
         self.sys.st.get_mut().pbox = Some(sys.borrow().st.get().require_box().unwrap().clone());
     }
+
+    // Analysis functions
 
     #[pyo3(signature = (dims=[false,false,false]))]
     fn com<'py>(

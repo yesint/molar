@@ -74,6 +74,38 @@ def test_set_state_updates_system_time_and_returns_previous_state(top_and_state)
     assert st1.time != st2.time
 
 
+def test_replace_state_deep(top_and_state):
+    top, st1 = top_and_state
+
+    # Read a second state (and tweak its time)
+    st2 = FileHandler(str(PDB_PATH), "r").read_state()
+    st2.time = 100
+
+    time2 = st2.time
+
+    sys_ = System(top, st1)
+    sel1 = sys_("name CA")
+    sel2 = sys_("name CB")
+
+    assert sys_.time == st1.time
+    assert sel1.time == st1.time
+    assert sel2.time == st1.time
+    assert st1.time != st2.time
+
+    sys_.replace_state_deep(st2)
+
+    # Expected: setting state on a selection updates the whole System state
+    assert sys_.time == time2
+    assert sel1.time == time2
+    assert sel2.time == time2
+
+    # Ensure original st1 was also mutated
+    assert st1.time == time2
+
+    # Ensure original st2 now has what was st1
+    assert st2.time != time2
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not XTC_PATH.exists(), reason="Trajectory file not available")
 def test_iterating_trajectory_and_setting_state_updates_selection_com(selection):
@@ -214,8 +246,8 @@ def test_periodic_box_vectors_angles_and_shortest_vector():
 
 
 def test_distance_search_outputs_are_consistent(system):
-    sel1 = system("resid 5:100")
-    sel2 = system("resid 101:200")
+    sel1 = system("resid 550:560")
+    sel2 = system("resid 570:580")
 
     pairs, dist = distance_search("vdw", sel1, sel2)
 

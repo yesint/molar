@@ -1,3 +1,5 @@
+use std::mem;
+
 use molar::prelude::*;
 use numpy::{PyArray1, PyArrayLike1};
 use numpy::nalgebra::{Const, VectorView};
@@ -167,26 +169,90 @@ impl SystemPy {
         })
     }
 
-    fn set_state(&mut self, st: &Bound<'_, StatePy>) -> PyResult<StatePy> {
-        if self.st.get().interchangeable(st.borrow().get()) {
+    fn replace_state(&mut self, st: &StatePy) -> PyResult<StatePy> {
+        if self.st.get().interchangeable(st.get()) {
             let ret = self.st.clone_ref();
-            self.st = st.borrow().clone_ref();
+            self.st = st.clone_ref();
             Ok(ret)
         } else {
-            Err(PyValueError::new_err("incompatible state"))
+            return Err(PyValueError::new_err("incompatible state"));
         }
     }
 
-    fn set_topology(&mut self, top: &Bound<'_, TopologyPy>) -> PyResult<TopologyPy> {
-        if self.top.get().interchangeable(top.borrow().get()) {
+    fn replace_state_deep(&mut self, st: &mut StatePy) -> PyResult<()> {
+        if self.st.get().interchangeable(st.get()) {
+            mem::swap(self.st.get_mut(), st.get_mut());
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible state"));
+        }
+    }
+
+    fn replace_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
+        if let Ok(sys) = arg.cast::<SystemPy>() {
+            let st = sys.borrow().st.clone_ref();
+            self.replace_state(&st)
+        } else if let Ok(sel) = arg.cast::<SelPy>() {
+            let st = sel.borrow().sys.st.clone_ref();
+            self.replace_state(&st)
+        } else {
+            Err(PyTypeError::new_err(format!(
+                "Invalid argument type {} in set_state_from()",
+                arg.get_type()
+            )))
+        }
+    }
+
+    fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
+        if self.top.get().interchangeable(top.get()) {
             let ret = self.top.clone_ref();
-            self.top = top.borrow().clone_ref();
+            self.top = top.clone_ref();
             Ok(ret)
         } else {
-            Err(PyValueError::new_err("incompatible topology"))
+            return Err(PyValueError::new_err("incompatible topology"));
         }
     }
 
+    fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
+        if self.top.get().interchangeable(top.get()) {
+            mem::swap(self.top.get_mut(), top.get_mut());
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible topology"));
+        }
+    }
+
+    #[getter("state")]
+    fn get_state(&mut self) -> StatePy {
+        self.st.clone_ref()
+    }
+
+    #[setter("state")]
+    fn set_state(&mut self, st: &StatePy) -> PyResult<()> {
+        if self.st.get().interchangeable(st.get()) {
+            self.st = st.clone_ref();
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible state"));
+        }
+    }
+
+    #[getter("topology")]
+    fn get_topology(&self) -> TopologyPy {
+        self.top.clone_ref()
+    }
+
+    #[setter("topology")]
+    fn set_topology(&mut self, top: &TopologyPy) -> PyResult<()> {
+        if self.top.get().interchangeable(top.get()) {
+            self.top = top.clone_ref();
+            Ok(())
+        } else {
+            return Err(PyValueError::new_err("incompatible topology"));
+        }
+    }
+
+    
     fn save(&self, fname: &str) -> PyResult<()> {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_io_err)?)
     }
