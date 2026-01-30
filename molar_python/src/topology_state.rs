@@ -60,7 +60,7 @@ impl StatePy {
     }
 
     #[getter]
-    fn get_time(&mut self) -> f32 {
+    fn get_time(&self) -> f32 {
         self.get().time
     }
 
