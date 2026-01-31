@@ -84,8 +84,6 @@ Keywords select atoms by their properties:
 | `resname` | — | Residue name | `resname ALA GLY` |
 | `name` | — | Atom name | `name CA CB` |
 | `chain` | — | Chain ID | `chain A B C` |
-| `occupancy` | `occ` | Occupancy value | `occupancy 1.0` |
-| `bfactor` | `beta` | B-factor value | `bfactor 20.0:50.0` |
 
 ### Keyword syntax
 
@@ -93,20 +91,20 @@ Integer keywords (`index`, `resid`, `resindex`) accept ranges and single values:
 ```ignore
 resid 5                    # Single residue
 resid 1:10                 # Range (inclusive)
-resid 1 5 10:20            # Multiple selections
+resid 1 5 10:20            # Multiple selections, implicit OR
 ```
 
 String keywords (`name`, `resname`, `chain`) accept multiple values and regex patterns:
 ```ignore
 resname ALA GLY            # Multiple residues
 name CA CB CG              # Multiple atom names
-name /C[AB]/               # Regex pattern: CA or CB
+name /C.+/               # Regex pattern: C followed by at least one symbol
 chain A /[AB]/             # Chain A or chains matching [AB]
 ```
 
-## Chemical compounds
+## Molecular groups
 
-Pre-defined selections for common molecular features:
+Pre-defined selections for common molecular groups:
 
 | Keyword | Description |
 |---------|-------------|
@@ -137,9 +135,11 @@ z 15.0:25.0                # Shorthand for chained comparison
 mass > 12.0                # Atomic mass greater than 12
 charge != 0.0              # Non-neutral atoms
 vdw < 2.0                  # Van der Waals radius less than 2
+occupancy > 0              # non-zero occupancy
+beta > 0.5                 # B-factors above 0.5
 ```
 
-### Operators
+### Comparison operators
 
 - `==` — Equal
 - `!=` — Not equal
@@ -162,7 +162,7 @@ Compare between two values:
 Use math operations and functions in comparisons:
 
 ```ignore
-sqrt(x^2 + y^2) < 10.0     # Distance from origin less than 10
+sqrt(x^2 + y^2) < 10.0     # Distance from origin in XY plane less than 10
 abs(z) > 5.0               # Absolute Z coordinate
 sin(x) * 2.0 == 1.0        # Trigonometric operations
 ```
@@ -175,20 +175,20 @@ Supported functions: `abs`, `sqrt`, `sin`, `cos`
 
 #### Distance to point
 ```ignore
-within 5.0 of [1.0, 2.0, 3.0]      # Within 5 Å of point
-within 3.0 pbc of [0.0, 0.0, 0.0]  # With periodic boundary conditions
+dist point [1.0, 2.0, 3.0] < 1.0        # Within 5 Å of a given point
+dist pbc point [1.0, 2.0, 3.0] > 2.0    # With periodic boundary conditions
 ```
 
 #### Distance to line
 ```ignore
-within 2.0 of line [1,2,3] [4,5,6]           # Two-point definition
-within 2.0 of line [1,2,3] dir [1,0,0]       # Point and direction
+dist line [1,2,3] [4,5,6] < 3.0            # Two points defining the line
+dist line [1,2,3] dir [1,0,0] >= 1.3       # Point and direction
 ```
 
 #### Distance to plane
 ```ignore
-within 1.0 of plane [0,0,0] [1,0,0] [0,1,0]        # Three-point definition
-within 1.0 of plane [0,0,0] normal [0,0,1]        # Point and normal
+dist plane [0,0,0] [1,0,0] [0,1,0] < 1.0   # Three-point definition
+dist plane [0,0,0] normal [0,0,1]  < 1.0   # Point and normal
 ```
 
 ### Center of mass/geometry
@@ -198,7 +198,8 @@ Calculate geometric properties of selections:
 ```ignore
 within 5.0 of com of protein           # Within 5 Å of protein COM
 within 3.0 pbc of cog of chain A       # Within 3 Å of chain A COG
-within 2.0 of com pbc 1 1 0 of water   # PBC only in X and Y
+within 2.0 of com pbc yyn of water     # PBC only in X and Y
+within 2.0 of com pbc 110 of water     # PBC only in X and Y
 ```
 
 ### PBC options
@@ -206,7 +207,7 @@ within 2.0 of com pbc 1 1 0 of water   # PBC only in X and Y
 Periodic boundary condition modes for geometric expressions:
 
 - `pbc` — Apply PBC in all dimensions
-- `pbc 1 0 1` or `pbc y n y` — Apply PBC selectively (X, Y, Z)
+- `pbc 1 0 1` or `pbc yny` — Apply PBC selectively (X, Y, Z), spaces are optional
 - `nopbc` — No periodic boundary conditions (default)
 
 ## Logical operators
@@ -260,8 +261,8 @@ same chain as resid 5      # All atoms in chains containing residue 5
 "10 < resid < 20"                     // Residues 10-20
 
 // Geometric selections
-"within 5.0 of [0, 0, 0]"             // Within 5 Å of origin
-"within 3.0 of com of protein"        // Near protein center of mass
+"within 5.0 of [0, 0, 0]"                     // Within 5 Å of origin
+"within 3.0 pbc of com of protein"            // Near protein center of mass with pbc
 "same residue as within 2.0 of com of water"  // Residues near water
 
 // Complex combined
