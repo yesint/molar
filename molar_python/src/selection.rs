@@ -140,10 +140,8 @@ impl SelPosIterator {
             return None;
         }
         let idx = unsafe { s.sel.index.get_index_unchecked(s.cur) };
-        let pos_ptr = unsafe { s.sel.coords_ptr().add(idx) as *mut Pos };
         s.cur += 1;
-
-        unsafe { Some(map_pyarray_to_pos(pos_ptr, slf)) }
+        unsafe { Some(map_pyarray_to_pos(&s.sel.sys.st, idx, slf.py())) }
     }
 }
 

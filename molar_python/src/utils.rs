@@ -1,8 +1,12 @@
-use numpy::{nalgebra::{self, Const}, npyffi, Element, PyArray1, PyArrayMethods, ToNpyDims, PY_ARRAY_API};
-use pyo3::prelude::*;
-use std::ffi::c_void;
 use molar::prelude::*;
+use numpy::{
+    nalgebra::{self, Const},
+    npyffi, Element, PyArray1, PyArrayMethods, ToNpyDims, PY_ARRAY_API,
+};
+use pyo3::{prelude::*, types::PyCapsule};
+use std::ffi::c_void;
 
+use crate::topology_state::StatePy;
 
 pub(crate) fn to_py_value_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
     pyo3::exceptions::PyValueError::new_err(e.to_string())
@@ -18,40 +22,42 @@ pub(crate) fn to_py_runtime_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
 
 // Constructs PyArray backed by existing Pos data.
 pub(crate) unsafe fn map_pyarray_to_pos<'py>(
-    data: *mut Pos,
-    parent: &Bound<'py, PyAny>,
+    st: &StatePy,
+    id: usize,
+    py: Python<'py>,
 ) -> Bound<'py, PyArray1<f32>> {
     use numpy::Element;
     use numpy::PyArrayDescrMethods;
 
-    let py = parent.py();
     let mut dims = numpy::ndarray::Dim(3);
+
+    // Clone reference to parent State and put it to capsule
+    let capsule =
+        PyCapsule::new_with_destructor(py, st.clone_ref(), None, |st, _| drop(st)).unwrap();
 
     unsafe {
         let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
-            parent.py(),
+            py,
             PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-            f32::get_dtype(parent.py()).into_dtype_ptr(),
+            f32::get_dtype(py).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(), // no strides
-            data as *mut c_void, // data
-            npyffi::NPY_ARRAY_WRITEABLE | npyffi::NPY_ARRAY_ALIGNED | npyffi::NPY_ARRAY_C_CONTIGUOUS,             // flag
+            st.get_mut().coords.as_mut_ptr().add(id) as *mut c_void, // data
+            npyffi::NPY_ARRAY_WRITEABLE
+                | npyffi::NPY_ARRAY_ALIGNED
+                | npyffi::NPY_ARRAY_C_CONTIGUOUS, // flag
             std::ptr::null_mut(), // obj
         );
 
         // IMPORTANT: SetBaseObject steals a reference to `base`.
         // So we must INCREF first and NOT INCREF after.
-        pyo3::ffi::Py_IncRef(parent.as_ptr());
-        PY_ARRAY_API.PyArray_SetBaseObject(
-            py,
-            ptr.cast(),
-            parent.as_ptr(),
-        );
-        
+        pyo3::ffi::Py_IncRef(capsule.as_ptr());
+        PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), capsule.as_ptr());
+
         // Turn raw pointer into a Bound<PyArray1<f32>>
         let any = Bound::from_owned_ptr(py, ptr.cast::<pyo3::ffi::PyObject>());
-        any.cast_into::<PyArray1<f32>>().unwrap()            
+        any.cast_into::<PyArray1<f32>>().unwrap()
     }
 }
 
@@ -73,10 +79,10 @@ pub(crate) fn map_const_pyarray_to_vec3<'py>(
             f32::get_dtype(py).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
-            std::ptr::null_mut(),                    // no strides
+            std::ptr::null_mut(),         // no strides
             data.as_ptr() as *mut c_void, // data
-            0,             // no writable flag
-            std::ptr::null_mut(),                    // obj
+            0,                            // no writable flag
+            std::ptr::null_mut(),         // obj
         );
 
         // The following mangling with the ref counting is deduced by
@@ -92,11 +98,10 @@ pub(crate) fn map_const_pyarray_to_vec3<'py>(
     }
 }
 
-
 /// numpy built-in [to_pyarray] method always produces 2D arrays,while we need 1D
 /// arrays when converting from vectors. This is the fork of original method which
 /// does this.
-/// 
+///
 /// Note that the NumPy array always has Fortran memory layout
 /// matching the [memory layout][memory-layout] used by [`nalgebra`].
 ///

@@ -22,8 +22,7 @@ impl ParticlePy {
     fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<f32>> {
         let s = slf.borrow();
         unsafe {
-            let data_ptr = s.st.get_mut().coords.as_mut_ptr().add(s.id);
-            map_pyarray_to_pos(data_ptr, slf)
+            map_pyarray_to_pos(&s.st, s.id, slf.py())
         }
     }
 

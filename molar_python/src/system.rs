@@ -416,10 +416,8 @@ impl SysPosIterator {
         if s.cur >= s.sys.len() {
             return None;
         }
-        let pos_ptr = unsafe { s.sys.coords_ptr().add(s.cur) as *mut Pos };
         s.cur += 1;
-
-        unsafe { Some(map_pyarray_to_pos(pos_ptr, slf)) }
+        unsafe { Some(map_pyarray_to_pos(&s.sys.st, s.cur, slf.py())) }
     }
 }
 
