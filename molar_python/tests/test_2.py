@@ -106,7 +106,6 @@ def test_replace_state_deep(top_and_state):
     assert st2.time != time2
 
 
-@pytest.mark.slow
 @pytest.mark.skipif(not XTC_PATH.exists(), reason="Trajectory file not available")
 def test_iterating_trajectory_and_setting_state_updates_selection_com(selection):
     trj = FileHandler(str(XTC_PATH), "r")
