@@ -1,36 +1,64 @@
-use std::mem;
+use std::cell::UnsafeCell;
 
 use molar::prelude::*;
-use numpy::{PyArray1, PyArrayLike1};
 use numpy::nalgebra::{Const, VectorView};
+use numpy::{PyArray1, PyArrayLike1};
 use pyo3::exceptions::PyValueError;
 use pyo3::{exceptions::PyTypeError, prelude::*, types::PyTuple};
-use triomphe::Arc;
 
 use crate::atom::AtomView;
-use crate::utils::*;
-use crate::topology_state::{TopologyPy, StatePy};
 use crate::periodic_box::PeriodicBoxPy;
+use crate::topology_state::{StatePy, TopologyPy};
+use crate::utils::*;
 use crate::SelPy;
 
-#[pyclass(name = "System")]
+#[pyclass(name = "System", frozen)]
 pub struct SystemPy {
-    pub top: TopologyPy,
-    pub st: StatePy,
+    // Since we have to replace top and st we need to wrap them into UnsafeCell
+    pub(crate) top: UnsafeCell<Py<TopologyPy>>,
+    pub(crate) st: UnsafeCell<Py<StatePy>>,
 }
 
+unsafe impl Send for SystemPy {}
+unsafe impl Sync for SystemPy {}
+
 impl SystemPy {
-    pub(crate) fn clone_ref(&self) -> SystemPy {
-        Self {
-            top: self.top.clone_ref(),
-            st: self.st.clone_ref(),
-        }
+    pub(crate) fn top(&self) -> &Topology {
+        unsafe{&*self.top.get()}.get().inner()
+    }
+
+    pub(crate) fn top_mut(&self) -> &mut Topology {
+        unsafe{&*self.top.get()}.get().inner_mut()
+    }
+
+    pub(crate) fn st(&self) -> &State {
+        unsafe{&*self.st.get()}.get().inner()
+    }
+
+    pub(crate) fn st_mut(&self) -> &mut State {
+        unsafe{&*self.st.get()}.get().inner_mut()
+    }
+
+    pub(crate) fn top_py(&self) -> &Py<TopologyPy> {
+        unsafe{&*self.top.get()}
+    }
+
+    pub(crate) fn top_py_mut(&self) -> &mut Py<TopologyPy> {
+        unsafe{&mut *self.top.get()}
+    }
+
+    pub(crate) fn st_py(&self) -> &Py<StatePy> {
+        unsafe{&*self.st.get()}
+    }
+
+    pub(crate) fn st_py_mut(&self) -> &mut Py<StatePy> {
+        unsafe{&mut *self.st.get()}
     }
 }
 
 impl LenProvider for SystemPy {
     fn len(&self) -> usize {
-        self.top.len()
+        self.top().len()
     }
 }
 
@@ -42,11 +70,11 @@ impl IndexProvider for SystemPy {
 
 impl AtomPosAnalysis for SystemPy {
     fn atoms_ptr(&self) -> *const Atom {
-        self.top.inner().atoms.as_ptr()
+        self.top().atoms.as_ptr()
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.st.inner().coords.as_ptr()
+        self.st().coords.as_ptr()
     }
 }
 
@@ -54,7 +82,7 @@ impl AtomPosAnalysisMut for SystemPy {}
 
 impl BoxProvider for SystemPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.st.inner().get_box()
+        self.st().get_box()
     }
 }
 
@@ -70,7 +98,7 @@ impl RandomBondProvider for SystemPy {
 
 impl TimeProvider for SystemPy {
     fn get_time(&self) -> f32 {
-        self.st.inner().get_time()
+        self.st().get_time()
     }
 }
 
@@ -99,8 +127,8 @@ impl SystemPy {
             let mut fh = molar::io::FileHandler::open(&fname).map_err(to_py_io_err)?;
             let (top, st) = fh.read().map_err(to_py_io_err)?;
             Ok(SystemPy {
-                top: TopologyPy::from(top),
-                st: StatePy::from(st),
+                top: UnsafeCell::new(TopologyPy::from(top).into_py()),
+                st: UnsafeCell::new(StatePy::from(st).into_py()),
             })
         } else if py_args.len() == 2 {
             // From existing Topology and State python objects
@@ -116,26 +144,26 @@ impl SystemPy {
                 ))
             } else {
                 Ok(SystemPy {
-                    top: top.borrow().clone_ref(),
-                    st: st.borrow().clone_ref(),
+                    top: UnsafeCell::new(top.clone().unbind()),
+                    st: UnsafeCell::new(st.clone().unbind()),
                 })
             }
         } else {
             // Empty System
             Ok(SystemPy {
-                top: TopologyPy(Default::default()),
-                st: StatePy(Default::default()),
+                top: UnsafeCell::new(TopologyPy(Default::default()).into_py()),
+                st: UnsafeCell::new(StatePy(Default::default()).into_py()),
             })
         }
     }
 
     fn __len__(&self) -> usize {
-        self.top.inner().len()
+        self.top().len()
     }
 
     #[pyo3(signature = (arg=None))]
     fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> PyResult<SelPy> {
-        let sys = slf.borrow();
+        let sys = slf.get();
 
         let index = if let Some(arg) = arg {
             // Argument present
@@ -165,73 +193,64 @@ impl SystemPy {
         };
 
         Ok(SelPy {
-            sys: slf.borrow().clone_ref(),
+            top: UnsafeCell::new(sys.top_py().clone_ref(slf.py())),
+            st: UnsafeCell::new(sys.st_py().clone_ref(slf.py())),
             index: index.map_err(|e| PyTypeError::new_err(e.to_string()))?,
         })
     }
 
-    fn replace_state(&mut self, st: &StatePy) -> PyResult<StatePy> {
-        if self.st.inner().interchangeable(st.inner()) {
-            let ret = self.st.clone_ref();
-            self.st = st.clone_ref();
-            Ok(ret)
-        } else {
-            return Err(PyValueError::new_err("incompatible state"));
-        }
-    }
-
-    fn replace_state_deep(&mut self, st: &mut StatePy) -> PyResult<()> {
-        if self.st.inner().interchangeable(st.inner()) {
-            mem::swap(self.st.inner_mut(), st.inner_mut());
+    fn replace_state_deep(&self, st: &Bound<StatePy>) -> PyResult<()> {
+        if self.st().interchangeable(st.get().inner()) {
+            unsafe{std::ptr::swap(self.st_mut(), st.get().inner_mut())};
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible state"));
         }
     }
 
-    fn replace_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
-        if let Ok(sys) = arg.cast::<SystemPy>() {
-            let st = sys.borrow().st.clone_ref();
-            self.replace_state(&st)
-        } else if let Ok(sel) = arg.cast::<SelPy>() {
-            let st = sel.borrow().sys.st.clone_ref();
-            self.replace_state(&st)
-        } else {
-            Err(PyTypeError::new_err(format!(
-                "Invalid argument type {} in set_state_from()",
-                arg.get_type()
-            )))
-        }
-    }
+    // fn replace_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
+    //     if let Ok(sys) = arg.cast::<SystemPy>() {
+    //         let st = sys.borrow().st.clone_ref();
+    //         self.replace_state(&st)
+    //     } else if let Ok(sel) = arg.cast::<SelPy>() {
+    //         let st = sel.borrow().sys.st.clone_ref();
+    //         self.replace_state(&st)
+    //     } else {
+    //         Err(PyTypeError::new_err(format!(
+    //             "Invalid argument type {} in set_state_from()",
+    //             arg.get_type()
+    //         )))
+    //     }
+    // }
 
-    fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
-        if self.top.inner().interchangeable(top.inner()) {
-            let ret = self.top.clone_ref();
-            self.top = top.clone_ref();
-            Ok(ret)
-        } else {
-            return Err(PyValueError::new_err("incompatible topology"));
-        }
-    }
+    // fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
+    //     if self.top.inner().interchangeable(top.inner()) {
+    //         let ret = self.top.clone_ref();
+    //         self.top = top.clone_ref();
+    //         Ok(ret)
+    //     } else {
+    //         return Err(PyValueError::new_err("incompatible topology"));
+    //     }
+    // }
 
-    fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
-        if self.top.inner().interchangeable(top.inner()) {
-            mem::swap(self.top.inner_mut(), top.inner_mut());
-            Ok(())
-        } else {
-            return Err(PyValueError::new_err("incompatible topology"));
-        }
-    }
+    // fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
+    //     if self.top.inner().interchangeable(top.inner()) {
+    //         mem::swap(self.top.inner_mut(), top.inner_mut());
+    //         Ok(())
+    //     } else {
+    //         return Err(PyValueError::new_err("incompatible topology"));
+    //     }
+    // }
 
     #[getter("state")]
-    fn get_state(&mut self) -> StatePy {
-        self.st.clone_ref()
+    fn get_state(slf: Bound<Self>) -> Bound<StatePy> {
+        slf.get().st_py().bind(slf.py()).clone()
     }
 
     #[setter("state")]
-    fn set_state(&mut self, st: &StatePy) -> PyResult<()> {
-        if self.st.inner().interchangeable(st.inner()) {
-            self.st = st.clone_ref();
+    fn set_state(&self, st: &Bound<StatePy>) -> PyResult<()> {
+        if self.st().interchangeable(st.get().inner()) {
+            *self.st_py_mut() = st.clone().unbind();
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible state"));
@@ -239,54 +258,44 @@ impl SystemPy {
     }
 
     #[getter("topology")]
-    fn get_topology(&self) -> TopologyPy {
-        self.top.clone_ref()
+    fn get_topology(slf: Bound<Self>) -> Bound<TopologyPy> {
+        slf.get().top_py().bind(slf.py()).clone()
     }
 
     #[setter("topology")]
-    fn set_topology(&mut self, top: &TopologyPy) -> PyResult<()> {
-        if self.top.inner().interchangeable(top.inner()) {
-            self.top = top.clone_ref();
+    fn set_topology(&self, top: &Bound<TopologyPy>) -> PyResult<()> {
+        if self.top().interchangeable(top.get().inner()) {
+            *self.top_py_mut() = top.clone().unbind();
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible topology"));
         }
     }
 
-    
     fn save(&self, fname: &str) -> PyResult<()> {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_io_err)?)
     }
 
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> PyResult<()> {
-        if !Arc::is_unique(&slf.borrow().st.0) || !Arc::is_unique(&slf.borrow().top.0) {
-            return Err(PyValueError::new_err("can't remove atoms, multiple references exist"));
-        }
-
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
-            let sb = sel.borrow();
-            sb.sys
-                .top
-                .inner_mut()
+            let sb = sel.get();
+            sb
+                .top_mut()
                 .remove_atoms(sb.iter_index())
                 .map_err(to_py_runtime_err)?;
-            sb.sys
-                .st
-                .inner_mut()
+            sb.st_mut()
                 .remove_coords(sb.iter_index())
                 .map_err(to_py_runtime_err)?;
             Ok(())
         } else {
             let sel = Self::__call__(slf, Some(arg))?;
-            sel.sys
-                .top
-                .inner_mut()
+            sel
+                .top_mut()
                 .remove_atoms(sel.iter_index())
                 .map_err(to_py_runtime_err)?;
-            sel.sys
-                .st
-                .inner_mut()
+            sel
+                .st_mut()
                 .remove_coords(sel.iter_index())
                 .map_err(to_py_runtime_err)?;
             Ok(())
@@ -295,7 +304,7 @@ impl SystemPy {
 
     #[pyo3(signature = (*args))]
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> PyResult<()> {
-        let slf_b = slf.borrow();
+        let slf_b = slf.get();
 
         if args.len() == 1 {
             let arg = args.get_item(0)?;
@@ -306,12 +315,10 @@ impl SystemPy {
             };
 
             slf_b
-                .top
-                .inner_mut()
+                .top_mut()
                 .add_atoms(sel.borrow().iter_atoms().cloned());
             slf_b
-                .st
-                .inner_mut()
+                .st_mut()
                 .add_coords(sel.borrow().iter_pos().cloned());
 
             Ok(())
@@ -321,12 +328,10 @@ impl SystemPy {
             let pos = args.get_item(1)?.extract::<PyArrayLike1<f32>>()?;
             let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
             slf_b
-                .top
-                .inner_mut()
+                .top_mut()
                 .add_atoms(std::iter::once(&ab.0).cloned());
             slf_b
-                .st
-                .inner_mut()
+                .st_mut()
                 .add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
             Ok(())
         } else {
@@ -341,8 +346,7 @@ impl SystemPy {
 
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
-        self.st
-            .inner()
+        self.st()
             .pbox
             .as_ref()
             .map(|b| PeriodicBoxPy(b.clone()))
@@ -350,27 +354,27 @@ impl SystemPy {
     }
 
     #[setter]
-    fn set_box(&mut self, b: &PeriodicBoxPy) {
-        *self.st.inner_mut().pbox.as_mut().unwrap() = b.0.clone();
+    fn set_box(&self, b: &PeriodicBoxPy) {
+        *self.st_mut().pbox.as_mut().unwrap() = b.0.clone();
     }
 
     #[setter]
-    fn set_time(&mut self, t: f32) {
-        self.st.inner_mut().time = t;
+    fn set_time(&self, t: f32) {
+        self.st_mut().time = t;
     }
 
-    fn set_box_from(&mut self, src: Bound<'_, PyAny>) -> PyResult<()> {
+    fn set_box_from(&self, src: Bound<'_, PyAny>) -> PyResult<()> {
         let st_ref = if let Ok(sys) = src.cast::<SystemPy>() {
-            &sys.borrow().st
+            sys.get().st()
         } else if let Ok(sel) = src.cast::<SelPy>() {
-            &sel.borrow().sys.st
+            sel.get().st()
         } else {
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} in set_box_from()",
                 src.get_type().name()?.to_string()
             )));
         };
-        self.st.inner_mut().pbox = st_ref.inner().pbox.clone();
+        self.st_mut().pbox = st_ref.pbox.clone();
         Ok(())
     }
 
@@ -378,7 +382,7 @@ impl SystemPy {
         Bound::new(
             slf.py(),
             SysPosIterator {
-                sys: slf.clone_ref(),
+                st: slf.st_py().clone_ref(slf.py()),
                 cur: 0,
             },
         )
@@ -390,7 +394,7 @@ impl SystemPy {
         Bound::new(
             slf.py(),
             SysAtomIterator {
-                sys: slf.clone_ref(),
+                top: slf.top_py().clone_ref(slf.py()),
                 cur: 0,
             },
         )
@@ -401,7 +405,7 @@ impl SystemPy {
 
 #[pyclass]
 pub struct SysPosIterator {
-    pub(crate) sys: SystemPy,
+    pub(crate) st: Py<StatePy>,
     pub(crate) cur: usize,
 }
 
@@ -413,17 +417,17 @@ impl SysPosIterator {
 
     fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
         let mut s = slf.borrow_mut();
-        if s.cur >= s.sys.len() {
+        if s.cur >= s.st.get().len() {
             return None;
         }
         s.cur += 1;
-        unsafe { Some(map_pyarray_to_pos(&s.sys.st, s.cur, slf.py())) }
+        unsafe { Some(map_pyarray_to_pos(&s.st.bind(slf.py()), s.cur)) }
     }
 }
 
 #[pyclass]
 pub struct SysAtomIterator {
-    pub(crate) sys: SystemPy,
+    pub(crate) top: Py<TopologyPy>,
     pub(crate) cur: usize,
 }
 
@@ -434,10 +438,10 @@ impl SysAtomIterator {
     }
 
     fn __next__(&mut self) -> Option<AtomView> {
-        if self.cur >= self.sys.len() {
+        if self.cur >= self.top.get().len() {
             return None;
         }
-        let atom_ptr = unsafe { self.sys.atoms_ptr().add(self.cur) as *mut Atom };
+        let atom_ptr = unsafe { self.top.get().inner().atoms.as_ptr().add(self.cur) as *mut Atom };
         self.cur += 1;
         Some(AtomView(atom_ptr))
     }

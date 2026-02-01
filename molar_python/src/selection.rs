@@ -1,4 +1,4 @@
-use std::mem;
+use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
@@ -9,17 +9,55 @@ use numpy::{
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::{exceptions::PyIndexError, prelude::*, types::PyAny};
 
+use crate::atom::AtomView;
 use crate::periodic_box::PeriodicBoxPy;
 use crate::system::SystemPy;
 use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
-use crate::atom::AtomView;
 use crate::{ParticleIterator, ParticlePy};
 
-#[pyclass(name = "Sel")]
+#[pyclass(name = "Sel", frozen)]
 pub struct SelPy {
-    pub sys: SystemPy,
-    pub index: SVec,
+    pub(crate) top: UnsafeCell<Py<TopologyPy>>,
+    pub(crate) st: UnsafeCell<Py<StatePy>>,
+    pub(crate) index: SVec,
+}
+
+unsafe impl Send for SelPy {}
+unsafe impl Sync for SelPy {}
+
+impl SelPy {
+    pub(crate) fn top(&self) -> &Topology {
+        unsafe { &*self.top.get() }.get().inner()
+    }
+
+    pub(crate) fn top_mut(&self) -> &mut Topology {
+        unsafe { &*self.top.get() }.get().inner_mut()
+    }
+
+    pub(crate) fn st(&self) -> &State {
+        unsafe { &*self.st.get() }.get().inner()
+    }
+
+    pub(crate) fn st_mut(&self) -> &mut State {
+        unsafe { &*self.st.get() }.get().inner_mut()
+    }
+
+    pub(crate) fn top_py(&self) -> &Py<TopologyPy> {
+        unsafe { &*self.top.get() }
+    }
+
+    pub(crate) fn top_py_mut(&self) -> &mut Py<TopologyPy> {
+        unsafe { &mut *self.top.get() }
+    }
+
+    pub(crate) fn st_py(&self) -> &Py<StatePy> {
+        unsafe { &*self.st.get() }
+    }
+
+    pub(crate) fn st_py_mut(&self) -> &mut Py<StatePy> {
+        unsafe { &mut *self.st.get() }
+    }
 }
 
 impl LenProvider for SelPy {
@@ -40,11 +78,11 @@ impl IndexProvider for SelPy {
 
 impl AtomPosAnalysis for SelPy {
     fn atoms_ptr(&self) -> *const Atom {
-        self.sys.top.inner().atoms.as_ptr()
+        self.top().atoms.as_ptr()
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.sys.st.inner().coords.as_ptr()
+        self.st().coords.as_ptr()
     }
 }
 
@@ -52,13 +90,7 @@ impl AtomPosAnalysisMut for SelPy {}
 
 impl BoxProvider for SelPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        let ptr = self
-            .sys
-            .st
-            .inner()
-            .pbox
-            .as_ref()
-            .map(|b| b as *const PeriodicBox)?;
+        let ptr = self.st().pbox.as_ref().map(|b| b as *const PeriodicBox)?;
         unsafe { Some(&*ptr) }
     }
 }
@@ -75,7 +107,7 @@ impl RandomBondProvider for SelPy {
 
 impl TimeProvider for SelPy {
     fn get_time(&self) -> f32 {
-        self.sys.st.inner().time
+        self.st().time
     }
 }
 
@@ -97,31 +129,60 @@ impl MeasurePeriodic for SelPy {}
 
 impl RandomMoleculeProvider for SelPy {
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.sys.top.inner().get_molecule_unchecked(i)
+        self.top().get_molecule_unchecked(i)
     }
 
     fn num_molecules(&self) -> usize {
-        self.sys.top.inner().num_molecules()
+        self.top().num_molecules()
     }
 }
 
 impl SelPy {
     pub fn from_svec(&self, index: SVec) -> Self {
-        Self {
-            sys: self.sys.clone_ref(),
+        Python::attach(|py| Self {
+            top: UnsafeCell::new(self.top_py().clone_ref(py)),
+            st: UnsafeCell::new(self.st_py().clone_ref(py)),
             index,
-        }
+        })
     }
 }
 
 impl Clone for SelPy {
     fn clone(&self) -> Self {
-        SelPy {
-            sys: self.sys.clone_ref(),
+        Python::attach(|py| SelPy {
+            top: UnsafeCell::new(self.top_py().clone_ref(py)),
+            st: UnsafeCell::new(self.st_py().clone_ref(py)),
             index: self.index.clone(),
-        }
+        })
     }
 }
+
+//-------------------------------------------
+pub struct SelTmp<'a> {
+    pub(crate) top: &'a Topology,
+    pub(crate) st: &'a State,
+    pub(crate) index: &'a [usize],
+}
+
+impl IndexSliceProvider for SelTmp<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
+    }
+}
+
+impl AtomPosAnalysis for SelTmp<'_> {
+    fn atoms_ptr(&self) -> *const Atom {
+        self.top.atoms.as_ptr()
+    }
+
+    fn coords_ptr(&self) -> *const Pos {
+        self.st.coords.as_ptr()
+    }
+}
+
+impl AtomPosAnalysisMut for SelTmp<'_> {}
+
+//-----------------------------------------
 
 #[pyclass(frozen)]
 pub struct SelPosIterator {
@@ -137,13 +198,13 @@ impl SelPosIterator {
 
     fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
         let s = slf.get();
-        let sel = s.sel.borrow(slf.py());
+        let sel = s.sel.get();
         if s.cur.load(Ordering::Relaxed) >= sel.len() {
             return None;
         }
         let idx = unsafe { sel.index.get_index_unchecked(s.cur.load(Ordering::Relaxed)) };
         s.cur.fetch_add(1, Ordering::Relaxed);
-        unsafe { Some(map_pyarray_to_pos(&sel.sys.st, idx, slf.py())) }
+        unsafe { Some(map_pyarray_to_pos(sel.st_py().bind(slf.py()), idx)) }
     }
 }
 
@@ -179,15 +240,20 @@ impl SelPy {
     }
 
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<SelPy> {
+        // Construct temp system
+        let sys = SystemPy {
+            top: UnsafeCell::new(self.top_py().clone_ref(arg.py())),
+            st: UnsafeCell::new(self.st_py().clone_ref(arg.py())),
+        };
         let v = if let Ok(val) = arg.extract::<String>() {
-            val.into_sel_index(&self.sys, Some(self.index.as_slice()))
+            val.into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
         } else if let Ok(val) = arg.extract::<(usize, usize)>() {
             (val.0..=val.1)
-                .into_sel_index(&self.sys, Some(self.index.as_slice()))
+                .into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
         } else if let Ok(val) = arg.extract::<Vec<usize>>() {
-            val.into_sel_index(&self.sys, Some(self.index.as_slice()))
+            val.into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
         } else {
             return Err(PyTypeError::new_err(format!(
@@ -220,10 +286,12 @@ impl SelPy {
 
         ind += unsafe { self.index.get_unchecked(0) };
 
-        Ok(ParticlePy {
-            top: self.sys.top.clone_ref(),
-            st: self.sys.st.clone_ref(),
-            id: ind,
+        Python::attach(|py| {
+            Ok(ParticlePy {
+                top: self.top_py().clone_ref(py),
+                st: self.st_py().clone_ref(py),
+                id: ind,
+            })
         })
     }
 
@@ -259,22 +327,27 @@ impl SelPy {
     }
 
     #[getter("system")]
-    fn get_system(&self) -> SystemPy {
-        self.sys.clone_ref()
+    fn get_system<'py>(slf: Bound<'py, Self>) -> Bound<'py, SystemPy> {
+        Bound::new(
+            slf.py(),
+            SystemPy {
+                top: UnsafeCell::new(slf.get().top_py().clone_ref(slf.py())),
+                st: UnsafeCell::new(slf.get().st_py().clone_ref(slf.py())),
+            },
+        )
+        .unwrap()
     }
 
     #[setter("system")]
-    fn set_system(&mut self, sys: &SystemPy) -> PyResult<()> {
-        if self.sys.st.inner().interchangeable(sys.st.inner()) {
-            self.sys = sys.clone_ref();
-            Ok(())
-        } else {
-            return Err(PyValueError::new_err("incompatible system"));
-        }
+    fn set_system(&self, sys: &Bound<SystemPy>) -> PyResult<()> {
+        let py = sys.py();
+        self.set_topology(sys.get().top_py().bind(py))?;
+        self.set_state(sys.get().st_py().bind(py))?;
+        Ok(())
     }
 
     #[setter("coords")]
-    fn set_coords(&mut self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
+    fn set_coords(&self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         if arr.shape() != [3, self.__len__()] {
             return Err(PyValueError::new_err(format!(
                 "Array shape must be [3, {}], not {:?}",
@@ -283,7 +356,7 @@ impl SelPy {
             )));
         }
         let arr_ptr = arr.data();
-        let coord_ptr = self.coords_ptr_mut() as *mut f32;
+        let coord_ptr = self.coords_ptr() as *const f32 as *mut f32;
 
         unsafe {
             for i in self.index.iter_index() {
@@ -295,116 +368,105 @@ impl SelPy {
     }
 
     #[getter("state")]
-    fn get_state(&mut self) -> StatePy {
-        self.sys.st.clone_ref()
+    fn get_state(slf: Bound<Self>) -> Bound<StatePy> {
+        slf.get().st_py().bind(slf.py()).clone()
     }
 
     #[setter("state")]
-    fn set_state(&mut self, st: &StatePy) -> PyResult<()> {
-        if self.sys.st.inner().interchangeable(st.inner()) {
-            self.sys.st = st.clone_ref();
+    fn set_state(&self, st: &Bound<StatePy>) -> PyResult<()> {
+        if self.st().interchangeable(st.get().inner()) {
+            *self.st_py_mut() = st.clone().unbind();
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible state"));
         }
-    }
-
-    fn replace_state(&mut self, st: &StatePy) -> PyResult<StatePy> {
-        if self.sys.st.inner().interchangeable(st.inner()) {
-            let ret = self.sys.st.clone_ref();
-            self.sys.st = st.clone_ref();
-            Ok(ret)
-        } else {
-            return Err(PyValueError::new_err("incompatible state"));
-        }
-    }
-
-    fn replace_state_deep(&mut self, st: &mut StatePy) -> PyResult<()> {
-        if self.sys.st.inner().interchangeable(st.inner()) {
-            mem::swap(self.sys.st.inner_mut(), st.inner_mut());
-            Ok(())
-        } else {
-            return Err(PyValueError::new_err("incompatible state"));
-        }
-    }
-
-    fn replace_state_from(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
-        if let Ok(sys) = arg.cast::<SystemPy>() {
-            let st = sys.borrow().st.clone_ref();
-            self.replace_state(&st)
-        } else if let Ok(sel) = arg.cast::<SelPy>() {
-            let st = sel.borrow().sys.st.clone_ref();
-            self.replace_state(&st)
-        } else {
-            Err(PyTypeError::new_err(format!(
-                "Invalid argument type {} in set_state_from()",
-                arg.get_type()
-            )))
-        }
-    }
-
-    fn replace_system(&mut self, sys: &SystemPy) -> PyResult<SystemPy> {
-        let ret = self.sys.clone_ref();
-        self.sys = sys.clone_ref();
-        Ok(ret)
     }
 
     #[getter("topology")]
-    fn get_topology(&self) -> TopologyPy {
-        self.sys.top.clone_ref()
+    fn get_topology(slf: Bound<Self>) -> Bound<TopologyPy> {
+        slf.get().top_py().bind(slf.py()).clone()
     }
 
     #[setter("topology")]
-    fn set_topology(&mut self, top: &TopologyPy) -> PyResult<()> {
-        if self.sys.top.inner().interchangeable(top.inner()) {
-            self.sys.top = top.clone_ref();
+    fn set_topology(&self, top: &Bound<TopologyPy>) -> PyResult<()> {
+        if self.top().interchangeable(top.get().inner()) {
+            *self.top_py_mut() = top.clone().unbind();
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible topology"));
         }
     }
 
-    fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
-        if self.sys.top.inner().interchangeable(top.inner()) {
-            let ret = self.sys.top.clone_ref();
-            self.sys.top = top.clone_ref();
-            Ok(ret)
-        } else {
-            return Err(PyValueError::new_err("incompatible topology"));
-        }
-    }
-
-    fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
-        if self.sys.top.inner().interchangeable(top.inner()) {
-            mem::swap(self.sys.top.inner_mut(), top.inner_mut());
+    fn replace_state_deep(&self, st: &Bound<StatePy>) -> PyResult<()> {
+        if self.st().interchangeable(st.get().inner()) {
+            unsafe { std::ptr::swap(self.st_mut(), st.get().inner_mut()) };
             Ok(())
         } else {
-            return Err(PyValueError::new_err("incompatible topology"));
+            return Err(PyValueError::new_err("incompatible state"));
         }
     }
+    // fn replace_state_from(&self, arg: &Bound<'_, PyAny>) -> PyResult<StatePy> {
+    //     if let Ok(sys) = arg.cast::<SystemPy>() {
+    //         let st = sys.borrow().st.clone_ref();
+    //         self.replace_state(&st)
+    //     } else if let Ok(sel) = arg.cast::<SelPy>() {
+    //         let st = sel.borrow().sys.st.clone_ref();
+    //         self.replace_state(&st)
+    //     } else {
+    //         Err(PyTypeError::new_err(format!(
+    //             "Invalid argument type {} in set_state_from()",
+    //             arg.get_type()
+    //         )))
+    //     }
+    // }
 
-    pub fn set_same_chain(&mut self, val: char) {
-        AtomIterMutProvider::set_same_chain(self.sys.top.inner_mut(), val)
+    // fn replace_system(&self, sys: &SystemPy) -> PyResult<SystemPy> {
+    //     let ret = self.sys.clone_ref();
+    //     self.sys = sys.clone_ref();
+    //     Ok(ret)
+    // }
+
+    // fn replace_topology(&self, top: &TopologyPy) -> PyResult<TopologyPy> {
+    //     if self.sys.top.inner().interchangeable(top.inner()) {
+    //         let ret = self.sys.top.clone_ref();
+    //         self.sys.top = top.clone_ref();
+    //         Ok(ret)
+    //     } else {
+    //         return Err(PyValueError::new_err("incompatible topology"));
+    //     }
+    // }
+
+    // fn replace_topology_deep(&self, top: &mut TopologyPy) -> PyResult<()> {
+    //     if self.sys.top.inner().interchangeable(top.inner()) {
+    //         mem::swap(self.sys.top.inner_mut(), top.inner_mut());
+    //         Ok(())
+    //     } else {
+    //         return Err(PyValueError::new_err("incompatible topology"));
+    //     }
+    // }
+
+    pub fn set_same_chain(&self, val: char) {
+        AtomIterMutProvider::set_same_chain(self.top_mut(), val)
     }
 
-    pub fn set_same_resname(&mut self, val: &str) {
-        AtomIterMutProvider::set_same_resname(self, val)
+    pub fn set_same_resname(&self, val: &str) {
+        AtomIterMutProvider::set_same_resname(self.top_mut(), val)
     }
 
-    pub fn set_same_resid(&mut self, val: i32) {
-        AtomIterMutProvider::set_same_resid(self, val)
+    pub fn set_same_resid(&self, val: i32) {
+        AtomIterMutProvider::set_same_resid(self.top_mut(), val)
     }
 
-    pub fn set_same_name(&mut self, val: &str) {
-        AtomIterMutProvider::set_same_name(self, val)
+    pub fn set_same_name(&self, val: &str) {
+        AtomIterMutProvider::set_same_name(self.top_mut(), val)
     }
 
-    pub fn set_same_mass(&mut self, val: f32) {
-        AtomIterMutProvider::set_same_mass(self, val)
+    pub fn set_same_mass(&self, val: f32) {
+        AtomIterMutProvider::set_same_mass(self.top_mut(), val)
     }
 
-    pub fn set_same_bfactor(&mut self, val: f32) {
-        AtomIterMutProvider::set_same_bfactor(self, val)
+    pub fn set_same_bfactor(&self, val: f32) {
+        AtomIterMutProvider::set_same_bfactor(self.top_mut(), val)
     }
 
     #[getter]
@@ -413,22 +475,22 @@ impl SelPy {
     }
 
     #[setter]
-    fn set_time(&mut self, t: f32) {
-        self.sys.st.inner_mut().time = t;
+    fn set_time(&self, t: f32) {
+        self.st_mut().time = t;
     }
 
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
-        PeriodicBoxPy(self.sys.st.require_box().unwrap().clone())
+        PeriodicBoxPy(self.st().require_box().unwrap().clone())
     }
 
     #[setter]
-    fn set_box(&mut self, b: &PeriodicBoxPy) {
-        self.sys.st.inner_mut().pbox = Some(b.0.clone());
+    fn set_box(&self, b: &PeriodicBoxPy) {
+        self.st_mut().pbox = Some(b.0.clone());
     }
 
     fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
-        self.sys.st.inner_mut().pbox = Some(sys.borrow().st.inner().require_box().unwrap().clone());
+        self.st_mut().pbox = Some(sys.get().st().require_box().unwrap().clone());
     }
 
     // Analysis functions
@@ -473,8 +535,13 @@ impl SelPy {
         Ok(crate::IsometryTransform(tr))
     }
 
-    fn apply_transform(&mut self, tr: &crate::IsometryTransform) {
-        ModifyPos::apply_transform(self, &tr.0);
+    fn apply_transform(&self, tr: &crate::IsometryTransform) {
+        SelTmp {
+            top: self.top(),
+            st: self.st(),
+            index: &self.index,
+        }
+        .apply_transform(&tr.0);
     }
 
     fn gyration(&self) -> PyResult<f32> {
@@ -525,39 +592,53 @@ impl SelPy {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_runtime_err)?)
     }
 
-    fn translate<'py>(&mut self, arg: PyArrayLike1<'py, f32>) -> PyResult<()> {
+    fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> PyResult<()> {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion to Vector3 has failed"))?;
-        ModifyPos::translate(self, &vec);
+        SelTmp {
+            top: self.top(),
+            st: self.st(),
+            index: &self.index,
+        }
+        .translate(&vec);
         Ok(())
     }
 
     fn split_resindex(&self) -> Vec<SelPy> {
-        AtomPosAnalysis::split_resindex(self)
-            .map(|s| SelPy {
-                sys: self.sys.clone_ref(),
-                index: s.into_svec(),
-            })
-            .collect()
+        Python::attach(|py| {
+            AtomPosAnalysis::split_resindex(self)
+                .map(|s| SelPy {
+                    top: UnsafeCell::new(self.top_py().clone_ref(py)),
+                    st: UnsafeCell::new(self.st_py().clone_ref(py)),
+                    index: s.into_svec(),
+                })
+                .collect()
+        })
     }
 
     fn split_chain(&self) -> Vec<SelPy> {
-        self.split(|p| Some(p.atom.chain))
-            .map(|s| SelPy {
-                sys: self.sys.clone_ref(),
-                index: s.into_svec(),
-            })
-            .collect()
+        Python::attach(|py| {
+            self.split(|p| Some(p.atom.chain))
+                .map(|s| SelPy {
+                    top: UnsafeCell::new(self.top_py().clone_ref(py)),
+                    st: UnsafeCell::new(self.st_py().clone_ref(py)),
+                    index: s.into_svec(),
+                })
+                .collect()
+        })
     }
 
     fn split_molecule(&self) -> Vec<SelPy> {
-        self.split_mol_iter()
-            .map(|s| SelPy {
-                sys: self.sys.clone_ref(),
-                index: s.into_svec(),
-            })
-            .collect()
+        Python::attach(|py| {
+            self.split_mol_iter()
+                .map(|s| SelPy {
+                    top: UnsafeCell::new(self.top_py().clone_ref(py)),
+                    st: UnsafeCell::new(self.st_py().clone_ref(py)),
+                    index: s.into_svec(),
+                })
+                .collect()
+        })
     }
 
     fn to_gromacs_ndx(&self, name: &str) -> String {
@@ -586,4 +667,3 @@ impl SelPy {
         .unwrap()
     }
 }
-

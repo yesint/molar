@@ -1,3 +1,5 @@
+use std::cell::UnsafeCell;
+
 use molar::prelude::*;
 use numpy::{
     nalgebra::{self},
@@ -36,7 +38,10 @@ use selection::SelPy;
 mod topology_state;
 use topology_state::*;
 
-use crate::{selection::{SelAtomIterator, SelPosIterator}, system::{SysAtomIterator, SysPosIterator}};
+use crate::{
+    selection::{SelAtomIterator, SelPosIterator, SelTmp},
+    system::{SysAtomIterator, SysPosIterator},
+};
 //-------------------------------------------
 
 #[pyclass(unsendable, name = "SasaResults")]
@@ -87,14 +92,16 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
         .into_sel_index(sel2, Some(&sel2.index))
         .map_err(to_py_runtime_err)?;
 
-    let sub_sel1 = SelPy {
-        sys: sel1.sys.clone_ref(),
-        index: sub1,
+    let sub_sel1 = SelTmp {
+        top: sel1.top(),
+        st: sel1.st(),
+        index: &sub1,
     };
 
-    let sub_sel2 = SelPy {
-        sys: sel2.sys.clone_ref(),
-        index: sub2,
+    let sub_sel2 = SelTmp {
+        top: sel2.top(),
+        st: sel2.st(),
+        index: &sub2,
     };
 
     let tr = fit_transform(&sub_sel1, &sub_sel2).map_err(to_py_runtime_err)?;
@@ -266,13 +273,16 @@ impl NdxFilePy {
     }
 
     fn get_group_as_sel(&self, gr_name: &str, sys: &SystemPy) -> PyResult<SelPy> {
-        Ok(SelPy {
-            sys: sys.clone_ref(),
-            index: self
-                .0
-                .get_group(gr_name)
-                .map_err(to_py_value_err)?
-                .to_owned(),
+        Python::attach(|py| {
+            Ok(SelPy {
+                top: UnsafeCell::new(sys.top_py().clone_ref(py)),
+                st: UnsafeCell::new(sys.st_py().clone_ref(py)),
+                index: self
+                    .0
+                    .get_group(gr_name)
+                    .map_err(to_py_value_err)?
+                    .to_owned(),
+            })
         })
     }
 }

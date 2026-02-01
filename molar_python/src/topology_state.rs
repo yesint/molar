@@ -4,32 +4,34 @@ use crate::{SelPy, SystemPy};
 
 use super::periodic_box::PeriodicBoxPy;
 use molar::prelude::*;
-use pyo3::{exceptions::{PyAttributeError, PyTypeError}, prelude::*};
-use triomphe::Arc;
+use pyo3::{
+    exceptions::{PyAttributeError, PyTypeError},
+    prelude::*,
+};
 
-#[pyclass(name = "State")]
-pub struct StatePy (pub(crate) Arc<UnsafeCell<State>>);
+#[pyclass(name = "State", frozen)]
+pub struct StatePy(pub(crate) UnsafeCell<State>);
 
 unsafe impl Send for StatePy {}
 unsafe impl Sync for StatePy {}
 
 impl From<State> for StatePy {
     fn from(value: State) -> Self {
-        Self(Arc::new(UnsafeCell::new(value)))
+        Self(UnsafeCell::new(value))
     }
 }
 
 impl StatePy {
     pub(crate) fn inner(&self) -> &State {
-        unsafe {&*self.0.get()}
+        unsafe { &*self.0.get() }
     }
 
     pub(crate) fn inner_mut(&self) -> &mut State {
-        unsafe {&mut *self.0.get()}
+        unsafe { &mut *self.0.get() }
     }
 
-    pub(crate) fn clone_ref(&self) -> StatePy {
-        Self(Arc::clone(&self.0))
+    pub(crate) fn into_py(self) -> Py<StatePy> {
+        Python::attach(|py| Py::new(py, self).unwrap())
     }
 }
 
@@ -42,7 +44,8 @@ impl StatePy {
     #[getter]
     fn get_box(&self) -> PyResult<PeriodicBoxPy> {
         Ok(PeriodicBoxPy(
-            self.inner().pbox
+            self.inner()
+                .pbox
                 .as_ref()
                 .ok_or_else(|| PyAttributeError::new_err("No periodic box to get"))?
                 .clone(),
@@ -50,8 +53,9 @@ impl StatePy {
     }
 
     #[setter]
-    fn set_box(&mut self, val: Bound<'_, PeriodicBoxPy>) -> PyResult<()> {
-        let b = self.inner_mut()
+    fn set_box(&self, val: Bound<'_, PeriodicBoxPy>) -> PyResult<()> {
+        let b = self
+            .inner_mut()
             .pbox
             .as_mut()
             .ok_or_else(|| PyAttributeError::new_err("No periodic box to set"))?;
@@ -65,22 +69,22 @@ impl StatePy {
     }
 
     #[setter]
-    fn set_time(&mut self, t: f32) {
+    fn set_time(&self, t: f32) {
         self.inner_mut().time = t;
     }
 
-    fn set_box_from(&mut self, arg: Bound<'_, PyAny>) -> PyResult<()> {
+    fn set_box_from(&self, arg: Bound<'_, PyAny>) -> PyResult<()> {
         let st_ref = if let Ok(sys) = arg.cast::<SystemPy>() {
-            &sys.borrow().st
+            sys.get().st()
         } else if let Ok(sel) = arg.cast::<SelPy>() {
-            &sel.borrow().sys.st
+            sel.get().st()
         } else {
             let ty_name = arg.get_type().name()?.to_string();
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {ty_name} in set_box_from()"
             )));
         };
-        self.inner_mut().pbox = st_ref.inner().pbox.clone();
+        self.inner_mut().pbox = st_ref.pbox.clone();
         Ok(())
     }
 }
@@ -117,34 +121,35 @@ impl RandomPosProvider for StatePy {
 
 //----------------------------------------------------------------
 
-#[pyclass(name = "Topology")]
-pub struct TopologyPy(pub(crate) Arc<UnsafeCell<Topology>>);
+#[pyclass(name = "Topology", frozen)]
+pub struct TopologyPy(pub(crate) UnsafeCell<Topology>);
 
 unsafe impl Send for TopologyPy {}
 unsafe impl Sync for TopologyPy {}
 
 impl From<Topology> for TopologyPy {
     fn from(value: Topology) -> Self {
-        Self(Arc::new(UnsafeCell::new(value)))
+        Self(UnsafeCell::new(value))
     }
 }
 
 impl TopologyPy {
     pub(crate) fn inner(&self) -> &Topology {
-        unsafe {&*self.0.get()}
+        unsafe { &*self.0.get() }
     }
 
     pub(crate) fn inner_mut(&self) -> &mut Topology {
-        unsafe {&mut *self.0.get()}
+        unsafe { &mut *self.0.get() }
     }
 
-    pub(crate) fn clone_ref(&self) -> TopologyPy {
-        Self(Arc::clone(&self.0))
+    
+    pub(crate) fn into_py(self) -> Py<TopologyPy> {
+        Python::attach(|py| Py::new(py, self).unwrap())
     }
 }
 
 impl LenProvider for TopologyPy {
-    fn len(&self)-> usize {
+    fn len(&self) -> usize {
         self.inner().len()
     }
 }

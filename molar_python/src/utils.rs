@@ -3,7 +3,7 @@ use numpy::{
     nalgebra::{self, Const},
     npyffi, Element, PyArray1, PyArrayMethods, ToNpyDims, PY_ARRAY_API,
 };
-use pyo3::{prelude::*, types::PyCapsule};
+use pyo3::prelude::*;
 use std::ffi::c_void;
 
 use crate::topology_state::StatePy;
@@ -22,18 +22,14 @@ pub(crate) fn to_py_runtime_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
 
 // Constructs PyArray backed by existing Pos data.
 pub(crate) unsafe fn map_pyarray_to_pos<'py>(
-    st: &StatePy,
+    st: &Bound<'py,StatePy>,
     id: usize,
-    py: Python<'py>,
 ) -> Bound<'py, PyArray1<f32>> {
     use numpy::Element;
     use numpy::PyArrayDescrMethods;
 
+    let py = st.py();
     let mut dims = numpy::ndarray::Dim(3);
-
-    // Clone reference to parent State and put it to capsule
-    let capsule =
-        PyCapsule::new_with_destructor(py, st.clone_ref(), None, |st, _| drop(st)).unwrap();
 
     unsafe {
         let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
@@ -43,7 +39,7 @@ pub(crate) unsafe fn map_pyarray_to_pos<'py>(
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(), // no strides
-            st.inner_mut().coords.as_mut_ptr().add(id) as *mut c_void, // data
+            st.get().inner_mut().coords.as_mut_ptr().add(id) as *mut c_void, // data
             npyffi::NPY_ARRAY_WRITEABLE
                 | npyffi::NPY_ARRAY_ALIGNED
                 | npyffi::NPY_ARRAY_C_CONTIGUOUS, // flag
@@ -52,8 +48,8 @@ pub(crate) unsafe fn map_pyarray_to_pos<'py>(
 
         // IMPORTANT: SetBaseObject steals a reference to `base`.
         // So we must INCREF first and NOT INCREF after.
-        pyo3::ffi::Py_IncRef(capsule.as_ptr());
-        PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), capsule.as_ptr());
+        pyo3::ffi::Py_IncRef(st.as_ptr());
+        PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), st.as_ptr());
 
         // Turn raw pointer into a Bound<PyArray1<f32>>
         let any = Bound::from_owned_ptr(py, ptr.cast::<pyo3::ffi::PyObject>());

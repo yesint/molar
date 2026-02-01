@@ -2,39 +2,57 @@ use super::topology_state::TopologyPy;
 use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
 use crate::{atom::AtomPy, topology_state::StatePy};
-use molar::RandomAtomMutProvider;
+use molar::{RandomAtomMutProvider, State, Topology};
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
-#[pyclass(name = "Particle")]
+#[pyclass(name = "Particle", frozen)]
 pub(crate) struct ParticlePy {
-    pub(crate) top: TopologyPy,
-    pub(crate) st: StatePy,
+    pub(crate) top: Py<TopologyPy>,
+    pub(crate) st: Py<StatePy>,
     // id is readonly
     #[pyo3(get)]
     pub(crate) id: usize,
+}
+
+impl ParticlePy {
+    pub(crate) fn top(&self) -> &Topology {
+        self.top.get().inner()
+    }
+
+    pub(crate) fn top_mut(&self) -> &mut Topology {
+        self.top.get().inner_mut()
+    }
+
+    pub(crate) fn st(&self) -> &State {
+        self.st.get().inner()
+    }
+
+    pub(crate) fn st_mut(&self) -> &mut State {
+        self.st.get().inner_mut()
+    }
 }
 
 #[pymethods]
 impl ParticlePy {
     #[getter(pos)]
     fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<f32>> {
-        let s = slf.borrow();
+        let s = slf.get();
         unsafe {
-            map_pyarray_to_pos(&s.st, s.id, slf.py())
+            map_pyarray_to_pos(s.st.bind(slf.py()), s.id)
         }
     }
 
     #[setter(pos)]
-    fn set_pos(&mut self, pos: PyArrayLike1<f32>) -> PyResult<()> {
+    fn set_pos(&self, pos: PyArrayLike1<f32>) -> PyResult<()> {
         if pos.len() != 3 {
             return Err(pyo3::exceptions::PyTypeError::new_err(
                 "pos must have 3 elements",
             ));
         }
         let src = pos.data();
-        let dst = self.st.inner_mut().coords.as_mut_ptr() as *mut f32;
+        let dst = self.st_mut().coords.as_mut_ptr() as *mut f32;
         if src != dst {
             unsafe { std::ptr::copy_nonoverlapping(src, dst, 3) };
         }
@@ -43,42 +61,42 @@ impl ParticlePy {
 
     #[getter(x)]
     fn get_x(&self) -> f32 {
-        unsafe { self.st.inner().coords.get_unchecked(self.id).x }
+        unsafe { self.st().coords.get_unchecked(self.id).x }
     }
 
     #[setter(x)]
-    fn set_x(&mut self, value: f32) {
-        unsafe { self.st.inner_mut().coords.get_unchecked_mut(self.id).x = value }
+    fn set_x(&self, value: f32) {
+        unsafe { self.st_mut().coords.get_unchecked_mut(self.id).x = value }
     }
 
     #[getter(y)]
     fn get_y(&self) -> f32 {
-        unsafe { self.st.inner().coords.get_unchecked(self.id).y }
+        unsafe { self.st().coords.get_unchecked(self.id).y }
     }
 
     #[setter(y)]
-    fn set_y(&mut self, value: f32) {
-        unsafe { self.st.inner_mut().coords.get_unchecked_mut(self.id).y = value }
+    fn set_y(&self, value: f32) {
+        unsafe { self.st_mut().coords.get_unchecked_mut(self.id).y = value }
     }
 
     #[getter(z)]
     fn get_z(&self) -> f32 {
-        unsafe { self.st.inner().coords.get_unchecked(self.id).z }
+        unsafe { self.st().coords.get_unchecked(self.id).z }
     }
 
     #[setter(z)]
-    fn set_z(&mut self, value: f32) {
-        unsafe { self.st.inner_mut().coords.get_unchecked_mut(self.id).z = value }
+    fn set_z(&self, value: f32) {
+        unsafe { self.st_mut().coords.get_unchecked_mut(self.id).z = value }
     }
 
     //atom
     #[getter(atom)]
     fn get_atom(&self) -> AtomView {
-        unsafe { AtomView(self.top.inner_mut().get_atom_mut_unchecked(self.id)) }
+        unsafe { AtomView(self.top_mut().get_atom_mut_unchecked(self.id)) }
     }
 
     #[setter(atom)]
-    fn set_atom(&mut self, arg: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn set_atom(&self, arg: &Bound<'_, PyAny>) -> PyResult<()> {
         let at = if let Ok(at) = arg.cast::<AtomPy>() {
             at.borrow().0.clone()
         } else if let Ok(v) = arg.cast::<AtomView>() {
@@ -89,15 +107,14 @@ impl ParticlePy {
                 "Invalid argument type {ty_name} in set_atom()"
             )));
         };
-        unsafe { *self.top.inner_mut().get_atom_mut_unchecked(self.id) = at };
+        unsafe { *self.top_mut().get_atom_mut_unchecked(self.id) = at };
         Ok(())
     }
 
     #[getter(name)]
     fn get_name(&self) -> String {
         unsafe {
-            self.top
-                .inner()
+            self.top()
                 .atoms
                 .get_unchecked(self.id)
                 .name
@@ -107,17 +124,16 @@ impl ParticlePy {
     }
 
     #[setter(name)]
-    fn set_name(&mut self, value: &str) {
+    fn set_name(&self, value: &str) {
         unsafe {
-            self.top.inner_mut().atoms.get_unchecked_mut(self.id).name = value.to_owned().into()
+            self.top_mut().atoms.get_unchecked_mut(self.id).name = value.to_owned().into()
         }
     }
     // resname
     #[getter(resname)]
     fn get_resname(&self) -> String {
         unsafe {
-            self.top
-                .inner()
+            self.top()
                 .atoms
                 .get_unchecked(self.id)
                 .resname
@@ -127,45 +143,44 @@ impl ParticlePy {
     }
 
     #[setter(resname)]
-    fn set_resname(&mut self, value: &str) {
+    fn set_resname(&self, value: &str) {
         unsafe {
-            self.top.inner_mut().atoms.get_unchecked_mut(self.id).resname = value.to_owned().into()
+            self.top_mut().atoms.get_unchecked_mut(self.id).resname = value.to_owned().into()
         }
     }
 
     // resid
     #[getter(resid)]
     fn get_resid(&self) -> i32 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).resid }
+        unsafe { self.top().atoms.get_unchecked(self.id).resid }
     }
 
     #[setter(resid)]
-    fn set_resid(&mut self, value: i32) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).resid = value }
+    fn set_resid(&self, value: i32) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).resid = value }
     }
 
     // resindex
     #[getter(resindex)]
     fn get_resindex(&self) -> usize {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).resindex }
+        unsafe { self.top().atoms.get_unchecked(self.id).resindex }
     }
 
     #[setter(resindex)]
-    fn set_resindex(&mut self, value: usize) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).resindex = value }
+    fn set_resindex(&self, value: usize) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).resindex = value }
     }
 
     // atomic_number
     #[getter(atomic_number)]
     fn get_atomic_number(&self) -> u8 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).atomic_number }
+        unsafe { self.top().atoms.get_unchecked(self.id).atomic_number }
     }
 
     #[setter(atomic_number)]
-    fn set_atomic_number(&mut self, value: u8) {
+    fn set_atomic_number(&self, value: u8) {
         unsafe {
-            self.top
-                .inner_mut()
+            self.top_mut()
                 .atoms
                 .get_unchecked_mut(self.id)
                 .atomic_number = value
@@ -175,31 +190,30 @@ impl ParticlePy {
     // mass
     #[getter(mass)]
     fn get_mass(&self) -> f32 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).mass }
+        unsafe { self.top().atoms.get_unchecked(self.id).mass }
     }
 
     #[setter(mass)]
-    fn set_mass(&mut self, value: f32) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).mass = value }
+    fn set_mass(&self, value: f32) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).mass = value }
     }
 
     // charge
     #[getter(charge)]
     fn get_charge(&self) -> f32 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).charge }
+        unsafe { self.top().atoms.get_unchecked(self.id).charge }
     }
 
     #[setter(charge)]
-    fn set_charge(&mut self, value: f32) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).charge = value }
+    fn set_charge(&self, value: f32) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).charge = value }
     }
 
     // type_name
     #[getter(type_name)]
     fn get_type_name(&self) -> String {
         unsafe {
-            self.top
-                .inner()
+            self.top()
                 .atoms
                 .get_unchecked(self.id)
                 .type_name
@@ -209,10 +223,9 @@ impl ParticlePy {
     }
 
     #[setter(type_name)]
-    fn set_type_name(&mut self, value: &str) {
+    fn set_type_name(&self, value: &str) {
         unsafe {
-            self.top
-                .inner_mut()
+            self.top_mut()
                 .atoms
                 .get_unchecked_mut(self.id)
                 .type_name = value.to_owned().into()
@@ -222,47 +235,46 @@ impl ParticlePy {
     // type_id
     #[getter(type_id)]
     fn get_type_id(&self) -> u32 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).type_id }
+        unsafe { self.top().atoms.get_unchecked(self.id).type_id }
     }
 
     #[setter(type_id)]
-    fn set_type_id(&mut self, value: u32) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).type_id = value }
+    fn set_type_id(&self, value: u32) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).type_id = value }
     }
 
     // chain
     #[getter(chain)]
     fn get_chain(&self) -> char {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).chain }
+        unsafe { self.top().atoms.get_unchecked(self.id).chain }
     }
 
     #[setter(chain)]
-    fn set_chain(&mut self, value: char) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).chain = value }
+    fn set_chain(&self, value: char) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).chain = value }
     }
 
     // bfactor
     #[getter(bfactor)]
     fn get_bfactor(&self) -> f32 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).bfactor }
+        unsafe { self.top().atoms.get_unchecked(self.id).bfactor }
     }
 
     #[setter(bfactor)]
-    fn set_bfactor(&mut self, value: f32) {
-        unsafe { self.top.inner_mut().atoms.get_unchecked_mut(self.id).bfactor = value }
+    fn set_bfactor(&self, value: f32) {
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).bfactor = value }
     }
 
     // occupancy
     #[getter(occupancy)]
     fn get_occupancy(&self) -> f32 {
-        unsafe { self.top.inner().atoms.get_unchecked(self.id).occupancy }
+        unsafe { self.top().atoms.get_unchecked(self.id).occupancy }
     }
 
     #[setter(occupancy)]
-    fn set_occupancy(&mut self, value: f32) {
+    fn set_occupancy(&self, value: f32) {
         unsafe {
-            self.top
-                .inner_mut()
+            self.top_mut()
                 .atoms
                 .get_unchecked_mut(self.id)
                 .occupancy = value
