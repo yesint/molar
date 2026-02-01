@@ -1,4 +1,5 @@
 use std::mem;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
 use numpy::nalgebra::{Const, Dyn, VectorView};
@@ -15,7 +16,7 @@ use crate::utils::*;
 use crate::atom::AtomView;
 use crate::{ParticleIterator, ParticlePy};
 
-#[pyclass(sequence, name = "Sel")]
+#[pyclass(name = "Sel")]
 pub struct SelPy {
     pub sys: SystemPy,
     pub index: SVec,
@@ -39,11 +40,11 @@ impl IndexProvider for SelPy {
 
 impl AtomPosAnalysis for SelPy {
     fn atoms_ptr(&self) -> *const Atom {
-        self.sys.top.get().atoms.as_ptr()
+        self.sys.top.inner().atoms.as_ptr()
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.sys.st.get().coords.as_ptr()
+        self.sys.st.inner().coords.as_ptr()
     }
 }
 
@@ -54,7 +55,7 @@ impl BoxProvider for SelPy {
         let ptr = self
             .sys
             .st
-            .get()
+            .inner()
             .pbox
             .as_ref()
             .map(|b| b as *const PeriodicBox)?;
@@ -74,7 +75,7 @@ impl RandomBondProvider for SelPy {
 
 impl TimeProvider for SelPy {
     fn get_time(&self) -> f32 {
-        self.sys.st.get().time
+        self.sys.st.inner().time
     }
 }
 
@@ -96,11 +97,11 @@ impl MeasurePeriodic for SelPy {}
 
 impl RandomMoleculeProvider for SelPy {
     unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.sys.top.get().get_molecule_unchecked(i)
+        self.sys.top.inner().get_molecule_unchecked(i)
     }
 
     fn num_molecules(&self) -> usize {
-        self.sys.top.get().num_molecules()
+        self.sys.top.inner().num_molecules()
     }
 }
 
@@ -122,10 +123,10 @@ impl Clone for SelPy {
     }
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct SelPosIterator {
-    pub(crate) sel: SelPy,
-    pub(crate) cur: usize,
+    pub(crate) sel: Py<SelPy>,
+    pub(crate) cur: AtomicUsize,
 }
 
 #[pymethods]
@@ -135,20 +136,21 @@ impl SelPosIterator {
     }
 
     fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
-        let mut s = slf.borrow_mut();
-        if s.cur >= s.sel.len() {
+        let s = slf.get();
+        let sel = s.sel.borrow(slf.py());
+        if s.cur.load(Ordering::Relaxed) >= sel.len() {
             return None;
         }
-        let idx = unsafe { s.sel.index.get_index_unchecked(s.cur) };
-        s.cur += 1;
-        unsafe { Some(map_pyarray_to_pos(&s.sel.sys.st, idx, slf.py())) }
+        let idx = unsafe { sel.index.get_index_unchecked(s.cur.load(Ordering::Relaxed)) };
+        s.cur.fetch_add(1, Ordering::Relaxed);
+        unsafe { Some(map_pyarray_to_pos(&sel.sys.st, idx, slf.py())) }
     }
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct SelAtomIterator {
-    pub(crate) sel: SelPy,
-    pub(crate) cur: usize,
+    pub(crate) sel: Py<SelPy>,
+    pub(crate) cur: AtomicUsize,
 }
 
 #[pymethods]
@@ -157,13 +159,15 @@ impl SelAtomIterator {
         slf
     }
 
-    fn __next__(&mut self) -> Option<AtomView> {
-        if self.cur >= self.sel.len() {
+    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<AtomView> {
+        let s = slf.get();
+        let sel = s.sel.borrow(slf.py());
+        if s.cur.load(Ordering::Relaxed) >= sel.len() {
             return None;
         }
-        let idx = unsafe { self.sel.index.get_index_unchecked(self.cur) };
-        let atom_ptr = unsafe { self.sel.atoms_ptr().add(idx) as *mut Atom };
-        self.cur += 1;
+        let idx = unsafe { sel.index.get_index_unchecked(s.cur.load(Ordering::Relaxed)) };
+        s.cur.fetch_add(1, Ordering::Relaxed);
+        let atom_ptr = unsafe { sel.atoms_ptr().add(idx) as *mut Atom };
         Some(AtomView(atom_ptr))
     }
 }
@@ -261,7 +265,7 @@ impl SelPy {
 
     #[setter("system")]
     fn set_system(&mut self, sys: &SystemPy) -> PyResult<()> {
-        if self.sys.st.get().interchangeable(sys.st.get()) {
+        if self.sys.st.inner().interchangeable(sys.st.inner()) {
             self.sys = sys.clone_ref();
             Ok(())
         } else {
@@ -297,7 +301,7 @@ impl SelPy {
 
     #[setter("state")]
     fn set_state(&mut self, st: &StatePy) -> PyResult<()> {
-        if self.sys.st.get().interchangeable(st.get()) {
+        if self.sys.st.inner().interchangeable(st.inner()) {
             self.sys.st = st.clone_ref();
             Ok(())
         } else {
@@ -306,7 +310,7 @@ impl SelPy {
     }
 
     fn replace_state(&mut self, st: &StatePy) -> PyResult<StatePy> {
-        if self.sys.st.get().interchangeable(st.get()) {
+        if self.sys.st.inner().interchangeable(st.inner()) {
             let ret = self.sys.st.clone_ref();
             self.sys.st = st.clone_ref();
             Ok(ret)
@@ -316,8 +320,8 @@ impl SelPy {
     }
 
     fn replace_state_deep(&mut self, st: &mut StatePy) -> PyResult<()> {
-        if self.sys.st.get().interchangeable(st.get()) {
-            mem::swap(self.sys.st.get_mut(), st.get_mut());
+        if self.sys.st.inner().interchangeable(st.inner()) {
+            mem::swap(self.sys.st.inner_mut(), st.inner_mut());
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible state"));
@@ -352,7 +356,7 @@ impl SelPy {
 
     #[setter("topology")]
     fn set_topology(&mut self, top: &TopologyPy) -> PyResult<()> {
-        if self.sys.top.get().interchangeable(top.get()) {
+        if self.sys.top.inner().interchangeable(top.inner()) {
             self.sys.top = top.clone_ref();
             Ok(())
         } else {
@@ -361,7 +365,7 @@ impl SelPy {
     }
 
     fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
-        if self.sys.top.get().interchangeable(top.get()) {
+        if self.sys.top.inner().interchangeable(top.inner()) {
             let ret = self.sys.top.clone_ref();
             self.sys.top = top.clone_ref();
             Ok(ret)
@@ -371,8 +375,8 @@ impl SelPy {
     }
 
     fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
-        if self.sys.top.get().interchangeable(top.get()) {
-            mem::swap(self.sys.top.get_mut(), top.get_mut());
+        if self.sys.top.inner().interchangeable(top.inner()) {
+            mem::swap(self.sys.top.inner_mut(), top.inner_mut());
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible topology"));
@@ -380,7 +384,7 @@ impl SelPy {
     }
 
     pub fn set_same_chain(&mut self, val: char) {
-        AtomIterMutProvider::set_same_chain(self, val)
+        AtomIterMutProvider::set_same_chain(self.sys.top.inner_mut(), val)
     }
 
     pub fn set_same_resname(&mut self, val: &str) {
@@ -410,7 +414,7 @@ impl SelPy {
 
     #[setter]
     fn set_time(&mut self, t: f32) {
-        self.sys.st.get_mut().time = t;
+        self.sys.st.inner_mut().time = t;
     }
 
     #[getter]
@@ -420,11 +424,11 @@ impl SelPy {
 
     #[setter]
     fn set_box(&mut self, b: &PeriodicBoxPy) {
-        self.sys.st.get_mut().pbox = Some(b.0.clone());
+        self.sys.st.inner_mut().pbox = Some(b.0.clone());
     }
 
     fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
-        self.sys.st.get_mut().pbox = Some(sys.borrow().st.get().require_box().unwrap().clone());
+        self.sys.st.inner_mut().pbox = Some(sys.borrow().st.inner().require_box().unwrap().clone());
     }
 
     // Analysis functions
@@ -560,28 +564,26 @@ impl SelPy {
         self.index.as_gromacs_ndx_str(name)
     }
 
-    fn iter_pos(slf: PyRef<'_, Self>) -> PyRef<'_, SelPosIterator> {
+    fn iter_pos(slf: Bound<'_, Self>) -> Bound<'_, SelPosIterator> {
         Bound::new(
             slf.py(),
             SelPosIterator {
-                sel: slf.clone(),
-                cur: 0,
+                sel: slf.clone().unbind(),
+                cur: AtomicUsize::new(0),
             },
         )
         .unwrap()
-        .borrow()
     }
 
-    fn iter_atoms(slf: PyRef<'_, Self>) -> PyRef<'_, SelAtomIterator> {
+    fn iter_atoms(slf: Bound<'_, Self>) -> Bound<'_, SelAtomIterator> {
         Bound::new(
             slf.py(),
             SelAtomIterator {
-                sel: slf.clone(),
-                cur: 0,
+                sel: slf.clone().unbind(),
+                cur: AtomicUsize::new(0),
             },
         )
         .unwrap()
-        .borrow()
     }
 }
 

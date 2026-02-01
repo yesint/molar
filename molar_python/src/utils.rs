@@ -43,7 +43,7 @@ pub(crate) unsafe fn map_pyarray_to_pos<'py>(
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(), // no strides
-            st.get_mut().coords.as_mut_ptr().add(id) as *mut c_void, // data
+            st.inner_mut().coords.as_mut_ptr().add(id) as *mut c_void, // data
             npyffi::NPY_ARRAY_WRITEABLE
                 | npyffi::NPY_ARRAY_ALIGNED
                 | npyffi::NPY_ARRAY_C_CONTIGUOUS, // flag

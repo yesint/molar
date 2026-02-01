@@ -42,11 +42,11 @@ impl IndexProvider for SystemPy {
 
 impl AtomPosAnalysis for SystemPy {
     fn atoms_ptr(&self) -> *const Atom {
-        self.top.get().atoms.as_ptr()
+        self.top.inner().atoms.as_ptr()
     }
 
     fn coords_ptr(&self) -> *const Pos {
-        self.st.get().coords.as_ptr()
+        self.st.inner().coords.as_ptr()
     }
 }
 
@@ -54,7 +54,7 @@ impl AtomPosAnalysisMut for SystemPy {}
 
 impl BoxProvider for SystemPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.st.get().get_box()
+        self.st.inner().get_box()
     }
 }
 
@@ -70,7 +70,7 @@ impl RandomBondProvider for SystemPy {
 
 impl TimeProvider for SystemPy {
     fn get_time(&self) -> f32 {
-        self.st.get().get_time()
+        self.st.inner().get_time()
     }
 }
 
@@ -130,7 +130,7 @@ impl SystemPy {
     }
 
     fn __len__(&self) -> usize {
-        self.top.get().len()
+        self.top.inner().len()
     }
 
     #[pyo3(signature = (arg=None))]
@@ -171,7 +171,7 @@ impl SystemPy {
     }
 
     fn replace_state(&mut self, st: &StatePy) -> PyResult<StatePy> {
-        if self.st.get().interchangeable(st.get()) {
+        if self.st.inner().interchangeable(st.inner()) {
             let ret = self.st.clone_ref();
             self.st = st.clone_ref();
             Ok(ret)
@@ -181,8 +181,8 @@ impl SystemPy {
     }
 
     fn replace_state_deep(&mut self, st: &mut StatePy) -> PyResult<()> {
-        if self.st.get().interchangeable(st.get()) {
-            mem::swap(self.st.get_mut(), st.get_mut());
+        if self.st.inner().interchangeable(st.inner()) {
+            mem::swap(self.st.inner_mut(), st.inner_mut());
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible state"));
@@ -205,7 +205,7 @@ impl SystemPy {
     }
 
     fn replace_topology(&mut self, top: &TopologyPy) -> PyResult<TopologyPy> {
-        if self.top.get().interchangeable(top.get()) {
+        if self.top.inner().interchangeable(top.inner()) {
             let ret = self.top.clone_ref();
             self.top = top.clone_ref();
             Ok(ret)
@@ -215,8 +215,8 @@ impl SystemPy {
     }
 
     fn replace_topology_deep(&mut self, top: &mut TopologyPy) -> PyResult<()> {
-        if self.top.get().interchangeable(top.get()) {
-            mem::swap(self.top.get_mut(), top.get_mut());
+        if self.top.inner().interchangeable(top.inner()) {
+            mem::swap(self.top.inner_mut(), top.inner_mut());
             Ok(())
         } else {
             return Err(PyValueError::new_err("incompatible topology"));
@@ -230,7 +230,7 @@ impl SystemPy {
 
     #[setter("state")]
     fn set_state(&mut self, st: &StatePy) -> PyResult<()> {
-        if self.st.get().interchangeable(st.get()) {
+        if self.st.inner().interchangeable(st.inner()) {
             self.st = st.clone_ref();
             Ok(())
         } else {
@@ -245,7 +245,7 @@ impl SystemPy {
 
     #[setter("topology")]
     fn set_topology(&mut self, top: &TopologyPy) -> PyResult<()> {
-        if self.top.get().interchangeable(top.get()) {
+        if self.top.inner().interchangeable(top.inner()) {
             self.top = top.clone_ref();
             Ok(())
         } else {
@@ -268,12 +268,12 @@ impl SystemPy {
             let sb = sel.borrow();
             sb.sys
                 .top
-                .get_mut()
+                .inner_mut()
                 .remove_atoms(sb.iter_index())
                 .map_err(to_py_runtime_err)?;
             sb.sys
                 .st
-                .get_mut()
+                .inner_mut()
                 .remove_coords(sb.iter_index())
                 .map_err(to_py_runtime_err)?;
             Ok(())
@@ -281,12 +281,12 @@ impl SystemPy {
             let sel = Self::__call__(slf, Some(arg))?;
             sel.sys
                 .top
-                .get_mut()
+                .inner_mut()
                 .remove_atoms(sel.iter_index())
                 .map_err(to_py_runtime_err)?;
             sel.sys
                 .st
-                .get_mut()
+                .inner_mut()
                 .remove_coords(sel.iter_index())
                 .map_err(to_py_runtime_err)?;
             Ok(())
@@ -307,11 +307,11 @@ impl SystemPy {
 
             slf_b
                 .top
-                .get_mut()
+                .inner_mut()
                 .add_atoms(sel.borrow().iter_atoms().cloned());
             slf_b
                 .st
-                .get_mut()
+                .inner_mut()
                 .add_coords(sel.borrow().iter_pos().cloned());
 
             Ok(())
@@ -322,11 +322,11 @@ impl SystemPy {
             let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
             slf_b
                 .top
-                .get_mut()
+                .inner_mut()
                 .add_atoms(std::iter::once(&ab.0).cloned());
             slf_b
                 .st
-                .get_mut()
+                .inner_mut()
                 .add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
             Ok(())
         } else {
@@ -342,7 +342,7 @@ impl SystemPy {
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
         self.st
-            .get()
+            .inner()
             .pbox
             .as_ref()
             .map(|b| PeriodicBoxPy(b.clone()))
@@ -351,12 +351,12 @@ impl SystemPy {
 
     #[setter]
     fn set_box(&mut self, b: &PeriodicBoxPy) {
-        *self.st.get_mut().pbox.as_mut().unwrap() = b.0.clone();
+        *self.st.inner_mut().pbox.as_mut().unwrap() = b.0.clone();
     }
 
     #[setter]
     fn set_time(&mut self, t: f32) {
-        self.st.get_mut().time = t;
+        self.st.inner_mut().time = t;
     }
 
     fn set_box_from(&mut self, src: Bound<'_, PyAny>) -> PyResult<()> {
@@ -370,7 +370,7 @@ impl SystemPy {
                 src.get_type().name()?.to_string()
             )));
         };
-        self.st.get_mut().pbox = st_ref.get().pbox.clone();
+        self.st.inner_mut().pbox = st_ref.inner().pbox.clone();
         Ok(())
     }
 

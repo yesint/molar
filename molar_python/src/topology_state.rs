@@ -20,11 +20,11 @@ impl From<State> for StatePy {
 }
 
 impl StatePy {
-    pub(crate) fn get(&self) -> &State {
+    pub(crate) fn inner(&self) -> &State {
         unsafe {&*self.0.get()}
     }
 
-    pub(crate) fn get_mut(&self) -> &mut State {
+    pub(crate) fn inner_mut(&self) -> &mut State {
         unsafe {&mut *self.0.get()}
     }
 
@@ -36,13 +36,13 @@ impl StatePy {
 #[pymethods]
 impl StatePy {
     fn __len__(&self) -> usize {
-        self.get().len()
+        self.inner().len()
     }
 
     #[getter]
     fn get_box(&self) -> PyResult<PeriodicBoxPy> {
         Ok(PeriodicBoxPy(
-            self.get().pbox
+            self.inner().pbox
                 .as_ref()
                 .ok_or_else(|| PyAttributeError::new_err("No periodic box to get"))?
                 .clone(),
@@ -51,7 +51,7 @@ impl StatePy {
 
     #[setter]
     fn set_box(&mut self, val: Bound<'_, PeriodicBoxPy>) -> PyResult<()> {
-        let b = self.get_mut()
+        let b = self.inner_mut()
             .pbox
             .as_mut()
             .ok_or_else(|| PyAttributeError::new_err("No periodic box to set"))?;
@@ -61,12 +61,12 @@ impl StatePy {
 
     #[getter]
     fn get_time(&self) -> f32 {
-        self.get().time
+        self.inner().time
     }
 
     #[setter]
     fn set_time(&mut self, t: f32) {
-        self.get_mut().time = t;
+        self.inner_mut().time = t;
     }
 
     fn set_box_from(&mut self, arg: Bound<'_, PyAny>) -> PyResult<()> {
@@ -80,14 +80,14 @@ impl StatePy {
                 "Invalid argument type {ty_name} in set_box_from()"
             )));
         };
-        self.get_mut().pbox = st_ref.get().pbox.clone();
+        self.inner_mut().pbox = st_ref.inner().pbox.clone();
         Ok(())
     }
 }
 
 impl SaveState for StatePy {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
-        self.get().iter_pos_dyn()
+        self.inner().iter_pos_dyn()
     }
 }
 
@@ -99,19 +99,19 @@ impl LenProvider for StatePy {
 
 impl TimeProvider for StatePy {
     fn get_time(&self) -> f32 {
-        self.get().time
+        self.inner().time
     }
 }
 
 impl BoxProvider for StatePy {
     fn get_box(&self) -> Option<&PeriodicBox> {
-        self.get().pbox.as_ref()
+        self.inner().pbox.as_ref()
     }
 }
 
 impl RandomPosProvider for StatePy {
     unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        self.get().get_pos_unchecked(i)
+        self.inner().get_pos_unchecked(i)
     }
 }
 
@@ -130,11 +130,11 @@ impl From<Topology> for TopologyPy {
 }
 
 impl TopologyPy {
-    pub(crate) fn get(&self) -> &Topology {
+    pub(crate) fn inner(&self) -> &Topology {
         unsafe {&*self.0.get()}
     }
 
-    pub(crate) fn get_mut(&self) -> &mut Topology {
+    pub(crate) fn inner_mut(&self) -> &mut Topology {
         unsafe {&mut *self.0.get()}
     }
 
@@ -145,29 +145,29 @@ impl TopologyPy {
 
 impl LenProvider for TopologyPy {
     fn len(&self)-> usize {
-        self.get().len()
+        self.inner().len()
     }
 }
 
 #[pymethods]
 impl TopologyPy {
     fn __len__(&self) -> usize {
-        self.get().len()
+        self.inner().len()
     }
 }
 
 impl RandomBondProvider for TopologyPy {
     fn num_bonds(&self) -> usize {
-        self.get().num_bonds()
+        self.inner().num_bonds()
     }
 
     unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.get().get_bond_unchecked(i)
+        self.inner().get_bond_unchecked(i)
     }
 }
 
 impl SaveTopology for TopologyPy {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
-        self.get().iter_atoms_dyn()
+        self.inner().iter_atoms_dyn()
     }
 }
