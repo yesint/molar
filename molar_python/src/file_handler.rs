@@ -98,9 +98,9 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.cast::<SystemPy>() {
-            h.write_topology(s.get().top()).map_err(to_py_io_err)?;
+            h.write_topology(s.get().r_top()).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<SelPy>() {
-            h.write_topology(s.get().top())
+            h.write_topology(s.get().r_top())
                 .map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<TopologyPy>() {
             h.write_topology(&*s.borrow()).map_err(to_py_io_err)?;
@@ -119,9 +119,9 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         if let Ok(s) = data.cast::<SystemPy>() {
-            h.write_state(s.get().st()).map_err(to_py_io_err)?;
+            h.write_state(s.get().r_st()).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<SelPy>() {
-            h.write_state(s.get().st()).map_err(to_py_io_err)?;
+            h.write_state(s.get().r_st()).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<StatePy>() {
             h.write_state(&*s.borrow()).map_err(to_py_io_err)?;
         } else {

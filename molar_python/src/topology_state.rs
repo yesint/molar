@@ -75,9 +75,9 @@ impl StatePy {
 
     fn set_box_from(&self, arg: Bound<'_, PyAny>) -> PyResult<()> {
         let st_ref = if let Ok(sys) = arg.cast::<SystemPy>() {
-            sys.get().st()
+            sys.get().r_st()
         } else if let Ok(sel) = arg.cast::<SelPy>() {
-            sel.get().st()
+            sel.get().r_st()
         } else {
             let ty_name = arg.get_type().name()?.to_string();
             return Err(PyTypeError::new_err(format!(

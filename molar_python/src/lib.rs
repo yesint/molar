@@ -1,4 +1,4 @@
-use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
 use numpy::{
@@ -39,7 +39,7 @@ mod topology_state;
 use topology_state::*;
 
 use crate::{
-    selection::{SelAtomIterator, SelPosIterator, SelTmp},
+    selection::{SelAtomIterator, SelPosIterator, TmpSel},
     system::{SysAtomIterator, SysPosIterator},
 };
 //-------------------------------------------
@@ -86,21 +86,21 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
 
     let sub1 = ind1
-        .into_sel_index(sel1, Some(&sel1.index))
+        .into_sel_index(sel1, Some(&sel1.index()))
         .map_err(to_py_runtime_err)?;
     let sub2 = ind2
-        .into_sel_index(sel2, Some(&sel2.index))
+        .into_sel_index(sel2, Some(&sel2.index()))
         .map_err(to_py_runtime_err)?;
 
-    let sub_sel1 = SelTmp {
-        top: sel1.top(),
-        st: sel1.st(),
+    let sub_sel1 = TmpSel {
+        top: sel1.r_top(),
+        st: sel1.r_st(),
         index: &sub1,
     };
 
-    let sub_sel2 = SelTmp {
-        top: sel2.top(),
-        st: sel2.st(),
+    let sub_sel2 = TmpSel {
+        top: sel2.r_top(),
+        st: sel2.r_st(),
         index: &sub2,
     };
 
@@ -118,10 +118,10 @@ fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
     Ok(rmsd_mw(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 struct ParticleIterator {
-    sel: SelPy,
-    cur: isize,
+    sel: Py<SelPy>,
+    cur: AtomicUsize,
 }
 
 #[pymethods]
@@ -130,9 +130,9 @@ impl ParticleIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<ParticlePy> {
-        let ret = SelPy::__getitem__(&slf.sel, slf.cur).ok();
-        slf.cur += 1;
+    fn __next__(slf: &Bound<'_, Self>) -> Option<ParticlePy> {
+        let ret = SelPy::__getitem__(slf.get().sel.get(), slf.get().cur.load(Ordering::Relaxed) as isize).ok();
+        slf.get().cur.fetch_add(1, Ordering::Relaxed);
         ret
     }
 }
@@ -274,15 +274,14 @@ impl NdxFilePy {
 
     fn get_group_as_sel(&self, gr_name: &str, sys: &SystemPy) -> PyResult<SelPy> {
         Python::attach(|py| {
-            Ok(SelPy {
-                top: UnsafeCell::new(sys.top_py().clone_ref(py)),
-                st: UnsafeCell::new(sys.st_py().clone_ref(py)),
-                index: self
-                    .0
+            Ok(SelPy::new(
+                sys.py_top().clone_ref(py),
+                sys.py_st().clone_ref(py),
+                self.0
                     .get_group(gr_name)
                     .map_err(to_py_value_err)?
                     .to_owned(),
-            })
+            ))
         })
     }
 }

@@ -60,7 +60,8 @@ def test_set_state_updates_system_time_and_returns_previous_state(top_and_state)
     assert sel2.time == st1.time
     assert st1.time != st2.time
 
-    old = sel1.replace_state(st2)
+    old = sel1.state
+    sel1.state = st2
 
     # Expected: setting state on a selection updates the whole System state
     assert sys_.time == st1.time
@@ -113,7 +114,7 @@ def test_iterating_trajectory_and_setting_state_updates_selection_com(selection)
     # Just sanity-check the loop: state application should work and com should be finite
     n = 0
     for st in trj:
-        selection.replace_state(st)
+        selection.state = st
         com = selection.com()
         assert np.isfinite(com).all()
         n += 1
