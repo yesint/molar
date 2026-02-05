@@ -95,15 +95,15 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 
-    fn tell_first(&self) -> Result<(usize, f32), FileFormatError> {
+    fn tell_first(&mut self) -> Result<(usize, f32), FileFormatError> {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 
-    fn tell_current(&self) -> Result<(usize, f32), FileFormatError> {
+    fn tell_current(&mut self) -> Result<(usize, f32), FileFormatError> {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 
-    fn tell_last(&self) -> Result<(usize, f32), FileFormatError> {
+    fn tell_last(&mut self) -> Result<(usize, f32), FileFormatError> {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 }
@@ -479,7 +479,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support random access
-    pub fn tell_first(&self) -> Result<(usize, f32), FileIoError> {
+    pub fn tell_first(&mut self) -> Result<(usize, f32), FileIoError> {
         Ok(self
             .format_handler
             .tell_first()
@@ -493,7 +493,7 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format info cannot be obtained
-    pub fn tell_current(&self) -> Result<(usize, f32), FileIoError> {
+    pub fn tell_current(&mut self) -> Result<(usize, f32), FileIoError> {
         Ok(self
             .format_handler
             .tell_current()
@@ -506,14 +506,14 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support random access
-    pub fn tell_last(&self) -> Result<(usize, f32), FileIoError> {
+    pub fn tell_last(&mut self) -> Result<(usize, f32), FileIoError> {
         Ok(self
             .format_handler
             .tell_last()
             .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
-    /// Consumes frames until reaching serial frame number `fr` (which is not consumed)
+    /// Skips frames until reaching serial frame number `fr` (which is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
     pub fn skip_to_frame(&mut self, fr: usize) -> Result<(), FileIoError> {
         // Try random-access first
@@ -538,7 +538,7 @@ impl FileHandler {
         })
     }
 
-    /// Consumes frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
+    /// Skips frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
     pub fn skip_to_time(&mut self, t: f32) -> Result<(), FileIoError> {
         // Try random-access first
@@ -559,6 +559,18 @@ impl FileHandler {
             }
         })
     }
+
+    // pub fn skip_to_last(&mut self) -> Result<(), FileIoError> {
+    //     // Try random-access first
+    //     self.seek_last().or_else(|_| {
+    //         // Not a random access trajectory
+    //         // Do serial read until reaching EOF
+    //         while let Ok(_) = self.read_state() {}
+            
+    //         Ok(())
+            
+    //     })
+    // }
 }
 
 impl Drop for FileHandler {
@@ -686,9 +698,10 @@ mod tests {
         let (cur_fr, cur_t) = r.tell_current()?;
         println!("cur: {cur_fr}:{cur_t}");
 
-        r.seek_frame(2000)?;
+        let fr = 1000;
+        r.seek_frame(fr)?;
         let (cur_fr, cur_t) = r.tell_current()?;
-        println!("cur after seek to fr 2000: {cur_fr}:{cur_t}");
+        println!("cur after seek to fr {fr}: {cur_fr}:{cur_t}");
         Ok(())
     }
 
