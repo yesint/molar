@@ -20,7 +20,7 @@ homepage = "https://github.com/yesint/molar"
 repository = "https://github.com/yesint/molar"
 documentation = "https://docs.rs/molar"
 readme = "README.md"
-keywords = ["MD", "molecular dynamics", "science", "trajectory", "modeling"]
+keywords = ["MD", "science", "trajectory", "modeling"]
 categories = ["science", "simulation", "external-ffi-bindings"]
 description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
 
