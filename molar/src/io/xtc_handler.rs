@@ -42,11 +42,11 @@ impl XtcReader {
             // Remember current offset to return to it if header will be read successfully
             let pos = self.reader.file.stream_position()?;
             let h_res = self.reader.read_header();
-            self.reader.file.seek(SeekFrom::Start(pos))?;
-
+            
             if let Ok(h) = h_res {
                 // Success! Update frame count and return header
                 self.cur_fr -= 1;
+                self.reader.file.seek(SeekFrom::Start(pos))?;
                 return Ok(h);
             } else {
                 // Header not found, seek backwards
