@@ -4,19 +4,20 @@ use thiserror::Error;
 
 use crate::io::FileFormatHandler;
 use crate::periodic_box::PeriodicBox;
-use crate::{Matrix3f, Pos};
+use crate::{FileFormatError, Matrix3f, Pos};
 
-use std::io::{Seek, SeekFrom};
+use std::io::{self, Seek, SeekFrom};
 use std::mem::ManuallyDrop;
 use std::path::Path;
 
 pub(crate) struct XtcReader {
     reader: molly::XTCReader<std::fs::File>,
+    cur_fr: usize,
 }
 
 pub(crate) struct XtcWriter {
     writer: molly::XTCWriter<std::fs::File>,
-    cur_fr: u32,
+    cur_fr: usize,
 }
 
 pub enum XtcFileHandler {
@@ -25,13 +26,46 @@ pub enum XtcFileHandler {
 }
 
 impl XtcReader {
-    // Reads a header and computes an offset to the next frame
-    // The file is not advanced
-    fn get_cur_header_and_offset(&mut self) -> std::io::Result<(molly::Header, u64)> {
-        // Remember where we start so we can return to it later.
-        let start_pos = self.reader.file.stream_position()?;
-        // Read header
-        let header = self.reader.read_header()?;
+    // Seek the start of the previous frame and read its header.
+    // The file position remains at the beginning of the frame.
+    fn goto_prev_and_inspect_header(&mut self) -> io::Result<molly::Header> {
+        // Save where we are initially
+        let initial_pos = self.reader.file.stream_position()?;
+        // Logic is taken from xdrfile extention for mdtraj, no idea how it works :)
+        const XDR_INT_SIZE: i64 = 4;
+        self.reader
+            .file
+            .seek(SeekFrom::Current(-3 * XDR_INT_SIZE))?;
+        // In a loop try reading the header until we succeed
+        // or beginning of the file reached
+        loop {
+            // Remember current offset to return to it if header will be read successfully
+            let pos = self.reader.file.stream_position()?;
+            let h_res = self.reader.read_header();
+            self.reader.file.seek(SeekFrom::Start(pos))?;
+
+            if let Ok(h) = h_res {
+                // Success! Update frame count and return header
+                self.cur_fr -= 1;
+                return Ok(h);
+            } else {
+                // Header not found, seek backwards
+                self.reader
+                    .file
+                    .seek(SeekFrom::Current(-2 * XDR_INT_SIZE))
+                    .or_else(|e| {
+                        // This will fail if passing beginning of the file
+                        // Go back to initial file position
+                        self.reader.file.seek(SeekFrom::Start(initial_pos))?;
+                        return Err(e);
+                    })?;
+            }
+        }
+    }
+
+    // Jumps to the beginng of next frame after given one
+    // Assumes that we have just read the header
+    fn seek_next_frame_after_header(&mut self, header: &molly::Header) -> io::Result<u64> {
         let skip = if header.natoms <= 9 {
             // Know how many bytes are in this frame until the next header since the positions
             // are uncompressed.
@@ -45,39 +79,28 @@ impl XtcReader {
             nbytes + molly::padding(nbytes as usize) as u64
         };
         let offset = self.reader.file.seek(SeekFrom::Current(skip as i64))?;
-        // Return back to where we started.
-        self.reader.file.seek(SeekFrom::Start(start_pos))?;
-        Ok((header, offset))
+        Ok(offset)
     }
 
-    fn get_last_header_and_offset(&mut self) -> Result<(molly::Header, u64), XtcHandlerError> {
-        // We start seeking from the end
-        // Save where we are
-        let saved_pos = self.reader.file.stream_position()?;
-        // Logic is taken from xdrfile extention for mdtraj, no idea how it works :)
-        const XDR_INT_SIZE: i64 = 4;
-        let mut offset = self.reader.file.seek(SeekFrom::End(-3 * XDR_INT_SIZE))?; // 4 is an XDR_INT_SIZE
-        // In a loop try reading the header until we can
-        loop {
-            if let Ok(h) = self.reader.read_header() {
-                // Success!
-                // Go back to saved position
-                self.reader.file.seek(SeekFrom::Start(saved_pos))?;
-                // Return what we found
-                return Ok((h, offset));
-            } else if offset > 0 {
-                // Header not found, seek backwards
-                offset = self
-                    .reader
-                    .file
-                    .seek(SeekFrom::Current(-2 * XDR_INT_SIZE))?;
-            } else {
-                // We reached beginning of the file, this is an error
-                // Go back to saved position
-                self.reader.file.seek(SeekFrom::Start(saved_pos))?;
-                return Err(XtcHandlerError::SeekLastFrame);
-            }
-        }
+    // Seek the start of the next frame and read its header.
+    // The file position remains at the beginning of the frame.
+    fn goto_next_and_inspect_header(&mut self) -> io::Result<molly::Header> {
+        // Remember where we start so we can return to it later.
+        let initial_pos = self.reader.file.stream_position()?;
+        // Read current header
+        let mut header = self.reader.read_header()?;
+        let frame_offset = self.seek_next_frame_after_header(&header)?;
+        // Read next header. This may fail and in this case we should
+        // restore initial file position
+        header = self.reader.read_header().or_else(|e| {
+            self.reader.file.seek(SeekFrom::Start(initial_pos))?;
+            Err(e)
+        })?;
+        // Update frame counter
+        self.cur_fr += 1;
+        // Seek back to frame start after reading header
+        self.reader.file.seek(SeekFrom::Start(frame_offset))?;
+        Ok(header)
     }
 }
 
@@ -88,6 +111,7 @@ impl FileFormatHandler for XtcFileHandler {
     {
         Ok(XtcFileHandler::Reader(XtcReader {
             reader: molly::XTCReader::open(fname)?,
+            cur_fr: 0,
         }))
     }
 
@@ -105,7 +129,9 @@ impl FileFormatHandler for XtcFileHandler {
         match self {
             Self::Reader(r) => {
                 let mut molly_fr = molly::Frame::default();
-                r.reader.read_frame(&mut molly_fr).map_err(|e| XtcHandlerError::ReadFrame(e))?;
+                r.reader
+                    .read_frame(&mut molly_fr)
+                    .map_err(|e| XtcHandlerError::ReadFrame(e))?;
                 // Destructure the frame
                 let molly::Frame {
                     positions,
@@ -124,7 +150,9 @@ impl FileFormatHandler for XtcFileHandler {
                 let coords = unsafe { Vec::from_raw_parts(p, len, cap) };
                 // Create a periodic box matrix
                 let m = Matrix3f::from_iterator(boxvec.to_cols_array().into_iter());
-                // Create our State
+                // Update frame counter
+                r.cur_fr += 1;
+                // Create and return our State
                 Ok(State {
                     coords,
                     time,
@@ -156,11 +184,15 @@ impl FileFormatHandler for XtcFileHandler {
                 let fr = molly::Frame {
                     precision: 1000.0,
                     time: data.get_time(),
-                    step: w.cur_fr,
+                    step: w.cur_fr as u32,
                     positions,
                     boxvec,
                 };
-                w.writer.write_frame(&fr).map_err(|e| XtcHandlerError::WriteFrame(e))?
+                // Update frame counter
+                w.cur_fr += 1;
+                w.writer
+                    .write_frame(&fr)
+                    .map_err(|e| XtcHandlerError::WriteFrame(e))?
             }
 
             Self::Reader(_) => unreachable!(),
@@ -169,15 +201,22 @@ impl FileFormatHandler for XtcFileHandler {
         Ok(())
     }
 
-    // Skip fr frames starting from the current position
-    fn seek_frame(&mut self, fr: usize) -> Result<(), super::FileFormatError> {
+    fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
         match self {
             Self::Reader(r) => {
-                for _ in 0..fr {
-                    let (_, offset) = r
-                        .get_cur_header_and_offset()
-                        .map_err(|e| XtcHandlerError::SeekFrame(fr,e))?;
-                    r.reader.file.seek(SeekFrom::Start(offset))?;
+                if fr == r.cur_fr {
+                    return Ok(());
+                }
+                if fr < r.cur_fr {
+                    for _ in 0..r.cur_fr - fr {
+                        r.goto_prev_and_inspect_header()
+                            .map_err(|e| XtcHandlerError::SeekFrame(fr, e))?;
+                    }
+                } else {
+                    for _ in 0..fr - r.cur_fr {
+                        r.goto_next_and_inspect_header()
+                            .map_err(|e| XtcHandlerError::SeekFrame(fr, e))?;
+                    }
                 }
             }
             Self::Writer(_) => unreachable!(),
@@ -187,55 +226,21 @@ impl FileFormatHandler for XtcFileHandler {
 
     fn seek_time(&mut self, t: f32) -> Result<(), super::FileFormatError> {
         match self {
-            Self::Reader(r) => loop {
-                let (header, offset) = r
-                    .get_cur_header_and_offset()
-                    .map_err(|e| XtcHandlerError::SeekTime(t,e))?;
-                if header.time >= t {
-                    break;
+            Self::Reader(r) => {
+                loop {
+                    let pos = r.reader.file.stream_position()?;
+                    let header = r.reader.read_header()?;
+                    if header.time >= t {
+                        r.reader.file.seek(SeekFrom::Start(pos))?;
+                        break;
+                    }
+                    r.seek_next_frame_after_header(&header)
+                        .map_err(|e| XtcHandlerError::SeekTime(t, e))?;
                 }
-                r.reader.file.seek(SeekFrom::Start(offset))?;
-            },
+            }
             Self::Writer(_) => unreachable!(),
         }
         Ok(())
-    }
-
-    fn tell_last(&mut self) -> Result<(usize, f32), super::FileFormatError> {
-        match self {
-            Self::Reader(r) => {
-                let (h, _) = r.get_last_header_and_offset()?;
-                Ok((h.step as usize, h.time))
-            }
-            Self::Writer(_) => unreachable!(),
-        }
-    }
-
-    fn tell_current(&mut self) -> Result<(usize, f32), super::FileFormatError> {
-        match self {
-            Self::Reader(r) => {
-                let saved_pos = r.reader.file.stream_position()?;
-                let h = r.reader.read_header()?;
-                r.reader.file.seek(SeekFrom::Start(saved_pos))?;
-                Ok((h.step as usize, h.time))
-            }
-            Self::Writer(_) => unreachable!(),
-        }
-    }
-
-    fn tell_first(&mut self) -> Result<(usize, f32), super::FileFormatError> {
-        match self {
-            Self::Reader(r) => {
-                // Save where we are
-                let saved_pos = r.reader.file.stream_position()?;
-                r.reader.file.seek(SeekFrom::Start(0))?;
-                let h = r.reader.read_header()?;
-                // Go back to saved position
-                r.reader.file.seek(SeekFrom::Start(saved_pos))?;
-                Ok((h.step as usize, h.time))
-            }
-            Self::Writer(_) => unreachable!(),
-        }
     }
 }
 
@@ -249,9 +254,6 @@ pub enum XtcHandlerError {
 
     #[error("failed to write frame")]
     WriteFrame(#[source] std::io::Error),
-
-    #[error("failed to find the header of last frame")]
-    SeekLastFrame,
 
     #[error("seek to frame {0} failed")]
     SeekFrame(usize, #[source] std::io::Error),

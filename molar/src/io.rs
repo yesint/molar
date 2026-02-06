@@ -95,15 +95,7 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 
-    fn tell_first(&mut self) -> Result<(usize, f32), FileFormatError> {
-        Err(FileFormatError::NotRandomAccessFormat)
-    }
-
-    fn tell_current(&mut self) -> Result<(usize, f32), FileFormatError> {
-        Err(FileFormatError::NotRandomAccessFormat)
-    }
-
-    fn tell_last(&mut self) -> Result<(usize, f32), FileFormatError> {
+    fn seek_last(&mut self) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 }
@@ -473,43 +465,14 @@ impl FileHandler {
             .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
-    /// Returns frame number and time of first frame in trajectory.
-    ///
-    /// Currently only works for XTC format.
+    /// Jumps to the last frame in trajectory.
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support random access
-    pub fn tell_first(&mut self) -> Result<(usize, f32), FileIoError> {
+    pub fn seek_last(&mut self) -> Result<(), FileIoError> {
         Ok(self
             .format_handler
-            .tell_first()
-            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
-    }
-
-    /// Returns current frame number and time in trajectory.
-    ///
-    /// For random access formats (XTC) returns actual frame info.
-    /// For other formats returns number of processed frames and current time.
-    ///
-    /// # Errors
-    /// Returns [FileIoError] if format info cannot be obtained
-    pub fn tell_current(&mut self) -> Result<(usize, f32), FileIoError> {
-        Ok(self
-            .format_handler
-            .tell_current()
-            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
-    }
-
-    /// Returns last frame number and time in trajectory.
-    ///
-    /// Currently only works for XTC format.
-    ///
-    /// # Errors
-    /// Returns [FileIoError] if format doesn't support random access
-    pub fn tell_last(&mut self) -> Result<(usize, f32), FileIoError> {
-        Ok(self
-            .format_handler
-            .tell_last()
+            .seek_last()
             .map_err(|e| FileIoError(self.file_path.to_owned(), e))?)
     }
 
@@ -690,18 +653,26 @@ mod tests {
     }
 
     #[test]
-    fn test_traj() -> Result<()> {
+    fn test_seek_frame() -> Result<()> {
         let mut r = FileHandler::open("tests/protein.xtc")?;
-        let (max_fr, max_t) = r.tell_last()?;
-        println!("max: {max_fr}:{max_t}");
+        r.seek_frame(2)?;
+        let st = r.read_state()?;
+        println!("{} {}",r.stats.frames_processed, st.time);
+        r.seek_frame(1)?;
+        let st = r.read_state()?;
+        println!("{} {}",r.stats.frames_processed, st.time);
+        r.seek_frame(3)?;
+        let st = r.read_state()?;
+        println!("{} {}",r.stats.frames_processed, st.time);
+        Ok(())
+    }
 
-        let (cur_fr, cur_t) = r.tell_current()?;
-        println!("cur: {cur_fr}:{cur_t}");
-
-        let fr = 1000;
-        r.seek_frame(fr)?;
-        let (cur_fr, cur_t) = r.tell_current()?;
-        println!("cur after seek to fr {fr}: {cur_fr}:{cur_t}");
+    #[test]
+    fn test_seek_time() -> Result<()> {
+        let mut r = FileHandler::open("tests/protein.xtc")?;
+        r.seek_time(200_001.0)?;
+        let st = r.read_state()?;
+        println!("{} {}",r.stats.frames_processed, st.time);
         Ok(())
     }
 
