@@ -101,21 +101,15 @@ impl FileFormatHandler for ItpFileHandler {
 
 #[derive(Debug, Error)]
 pub enum ItpHandlerError {
-    //#[error("unxpected io error")]
-    //Io(#[from] std::io::Error),
     #[error("can't open itp file for reading")]
     OpenRead(#[source] std::io::Error),
 
     #[error("no moleculetype found")]
     NoMoleculetype,
 
-    // #[error("invalid atom entry")]
-    // InvalidAtomEntry(String),
     #[error("no atoms found")]
     NoAtoms,
 
-    // #[error("no resname found")]
-    // NoResname,
     #[error(transparent)]
     Regex(#[from] regex::Error),
 

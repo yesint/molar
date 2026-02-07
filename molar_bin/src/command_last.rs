@@ -32,33 +32,21 @@ pub(super) fn command_last(files: &Vec<String>, outfile: &str) -> Result<()> {
     };
 
     let mut slow_forward = false;
-    let mut last_fr = 0;
 
-    match trj.tell_last() {
-        Ok((fr, t)) => {
-            info!("Fast-forward to last frame {last_fr}, time {t}...");
-            if let Err(_) = trj.seek_frame(fr) {
-                slow_forward = true;
-            } else {
-                last_fr = fr;
-            }
-        }
-        Err(_) => {
-            slow_forward = true;
-        }
-    }
+    if let Err(_) = trj.seek_last() {slow_forward = true};
 
     let st = if slow_forward {
         info!("Fast-forward is not possible, reading the whole trajectory...");
         trj.into_iter().last()
     } else {
+        info!("Fast-forward to the last frame...");
         Some(trj.read_state()?)
     }
     .ok_or_else(|| anyhow!("Last frame can't be read"))?;
 
     info!(
-        "Writing last frame #{last_fr}, time {} to '{outfile}'...",
-        st.get_time()
+        "Writing last frame time={} to '{}'...",
+        st.get_time(), outfile
     );
     let mut out = FileHandler::create(&outfile)?;
     out.write(&System::new(top, st)?)?;

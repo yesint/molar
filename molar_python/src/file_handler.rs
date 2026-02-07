@@ -173,30 +173,6 @@ impl FileHandlerPy {
         Ok(())
     }
 
-    fn tell_first(&mut self) -> PyResult<(usize, f32)> {
-        let h = self
-            .0
-            .as_mut()
-            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
-        Ok(h.tell_first().map_err(to_py_io_err)?)
-    }
-
-    fn tell_current(&mut self) -> PyResult<(usize, f32)> {
-        let h = self
-            .0
-            .as_mut()
-            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
-        Ok(h.tell_current().map_err(to_py_io_err)?)
-    }
-
-    fn tell_last(&mut self) -> PyResult<(usize, f32)> {
-        let h = self
-            .0
-            .as_mut()
-            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
-        Ok(h.tell_last().map_err(to_py_io_err)?)
-    }
-
     #[getter]
     fn stats(&self) -> PyResult<FileStatsPy> {
         let h = self

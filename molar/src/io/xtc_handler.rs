@@ -63,9 +63,11 @@ impl XtcReader {
         }
     }
 
-    // Jumps to the beginng of next frame after given one
-    // Assumes that we have just read the header
-    fn seek_next_frame_after_header(&mut self, header: &molly::Header) -> io::Result<u64> {
+    /// Skip positions of the current frame and jump to the beginning of the next one
+    /// Assumes that we have just read the header of the current frame and it is passed
+    /// as an argument.
+    /// Returns the file offset of the beginning of new frame.
+    fn skip_positions(&mut self, header: &molly::Header) -> io::Result<u64> {
         let skip = if header.natoms <= 9 {
             // Know how many bytes are in this frame until the next header since the positions
             // are uncompressed.
@@ -89,7 +91,7 @@ impl XtcReader {
         let initial_pos = self.reader.file.stream_position()?;
         // Read current header
         let mut header = self.reader.read_header()?;
-        let frame_offset = self.seek_next_frame_after_header(&header)?;
+        let frame_offset = self.skip_positions(&header)?;
         // Read next header. This may fail and in this case we should
         // restore initial file position
         header = self.reader.read_header().or_else(|e| {
@@ -234,7 +236,7 @@ impl FileFormatHandler for XtcFileHandler {
                         r.reader.file.seek(SeekFrom::Start(pos))?;
                         break;
                     }
-                    r.seek_next_frame_after_header(&header)
+                    r.skip_positions(&header)
                         .map_err(|e| XtcHandlerError::SeekTime(t, e))?;
                 }
             }
