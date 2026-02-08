@@ -377,35 +377,19 @@ impl<T: AtomPosAnalysisMut> RandomAtomMutProvider for T {
 
 impl<T: AtomPosAnalysisMut> AtomIterMutProvider for T {
     fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
-        let mut i = 0;
-        let func = move || {
-            if i < self.len() {
-                let ind = unsafe { self.get_index_unchecked(i) };
-                let res = unsafe { &mut *self.atoms_ptr_mut().add(ind) };
-                i += 1;
-                Some(res)
-            } else {
-                None
-            }
-        };
-        std::iter::from_fn(func)
+        (0..self.len()).map(|i| {
+            let ind = unsafe { self.get_index_unchecked(i) };
+            unsafe { &mut *self.atoms_ptr_mut().add(ind) }
+        })
     }
 }
 
 impl<T: AtomPosAnalysisMut> PosIterMutProvider for T {
     fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
-        let mut i = 0;
-        let func = move || {
-            if i < self.len() {
-                let ind = unsafe { self.get_index_unchecked(i) };
-                let res = unsafe { &mut *self.coords_ptr_mut().add(ind) };
-                i += 1;
-                Some(res)
-            } else {
-                None
-            }
-        };
-        std::iter::from_fn(func)
+        (0..self.len()).map(|i| {
+            let ind = unsafe { self.get_index_unchecked(i) };
+            unsafe { &mut *self.coords_ptr_mut().add(ind) }
+        })
     }
 }
 
