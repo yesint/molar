@@ -8,9 +8,11 @@ use pyo3::{
     exceptions::{PyAttributeError, PyTypeError},
     prelude::*,
 };
+/// Coordinate frame with simulation time and periodic box.
+///
+/// Stores coordinates, optional periodic box, and time for one frame.
 
 #[pyclass(name = "State", frozen)]
-/// Coordinate frame with simulation time and periodic box.
 pub struct StatePy(pub(crate) UnsafeCell<State>);
 
 unsafe impl Send for StatePy {}
@@ -39,10 +41,17 @@ impl StatePy {
 #[pymethods]
 impl StatePy {
     /// Number of coordinates in this state.
+    ///
+    /// :returns: Number of atoms/coordinates.
+    /// :rtype: int
     fn __len__(&self) -> usize {
         self.inner().len()
     }
 
+    /// Periodic box of this state.
+    ///
+    /// :returns: Periodic box.
+    /// :rtype: PeriodicBox
     #[getter]
     fn get_box(&self) -> PyResult<PeriodicBoxPy> {
         Ok(PeriodicBoxPy(
@@ -54,6 +63,11 @@ impl StatePy {
         ))
     }
 
+    /// Set periodic box of this state.
+    ///
+    /// :param val: New periodic box.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter]
     fn set_box(&self, val: Bound<'_, PeriodicBoxPy>) -> PyResult<()> {
         let b = self
@@ -65,17 +79,30 @@ impl StatePy {
         Ok(())
     }
 
+    /// Simulation time value.
+    ///
+    /// :returns: Frame time.
+    /// :rtype: float
     #[getter]
     fn get_time(&self) -> f32 {
         self.inner().time
     }
 
+    /// Set simulation time value.
+    ///
+    /// :param t: New frame time.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter]
     fn set_time(&self, t: f32) {
         self.inner_mut().time = t;
     }
 
-    /// Copy periodic box from a `System` or `Sel`.
+    /// Copy periodic box from a ``System`` or ``Sel``.
+    ///
+    /// :param arg: Source object (``System`` or ``Sel``).
+    /// :returns: ``None``.
+    /// :rtype: None
     fn set_box_from(&self, arg: Bound<'_, PyAny>) -> PyResult<()> {
         let st_ref = if let Ok(sys) = arg.cast::<SystemPy>() {
             sys.get().r_st()
@@ -123,9 +150,9 @@ impl RandomPosProvider for StatePy {
 }
 
 //----------------------------------------------------------------
+/// Molecular topology container (atoms and connectivity).
 
 #[pyclass(name = "Topology", frozen)]
-/// Molecular topology container (atoms and connectivity).
 pub struct TopologyPy(pub(crate) UnsafeCell<Topology>);
 
 unsafe impl Send for TopologyPy {}

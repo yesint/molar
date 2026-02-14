@@ -1,0 +1,63 @@
+name: Python API Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install docs/build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin sphinx python-docs-theme
+
+      - name: Build pymolar wheel
+        run: |
+          maturin build -m molar_python/Cargo.toml
+
+      - name: Install built wheel
+        run: |
+          python -m pip install target/wheels/pymolar-*.whl --force-reinstall
+
+      - name: Generate docs
+        run: |
+          python molar_python/scripts/generate_sphinx_docs.py --skip-install
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/pymolar-docs/html
+
+  deploy-docs:
+    needs: build-docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

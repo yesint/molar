@@ -24,7 +24,15 @@ def _process_suffix(s):
 
 
 class AnalysisTask:
+    """Base class for trajectory processing tasks.
+
+    Subclass and implement `register_args`, `pre_process`, `process_frame`,
+    and `post_process`. The constructor parses CLI arguments, streams trajectory
+    frames, and calls the hooks in processing order.
+    """
+
     def __init__(self):
+        """Run the full analysis pipeline from command-line arguments."""
         greeting()
         FORMAT = '[%(levelname)s] (%(name)s) %(message)s'
         logging.basicConfig(format=FORMAT)
@@ -108,6 +116,7 @@ class AnalysisTask:
 
 
     def __log_time(self):
+        """Log current frame/time progress in ps/ns/us units."""
         if self.state.time < 1000.0:
             t = f"{self.state.time} ps"
         elif self.state.time < 1000_000.0:
@@ -118,16 +127,20 @@ class AnalysisTask:
 
 
     def register_args(self,parser):
+        """Register task-specific CLI arguments on the provided parser."""
         pass
 
 
     def pre_process(self):
+        """Hook called once before the first processed frame."""
         pass
 
 
     def process_frame(self):
+        """Hook called for each processed frame."""
         pass
 
 
     def post_process(self):
+        """Hook called once after all frames are processed."""
         pass

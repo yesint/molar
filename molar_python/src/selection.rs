@@ -15,9 +15,19 @@ use crate::system::SystemPy;
 use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
 use crate::{ParticleIterator, ParticlePy};
+/// Atom selection view with analysis and editing utilities.
+///
+/// Provides selection algebra, coordinate editing, and common analysis metrics.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    sel = system("name CA")
+///    com = sel.com()
+///    rg = sel.gyration()
 
 #[pyclass(name = "Sel", frozen)]
-/// Atom selection view with analysis and editing utilities.
 pub struct SelPy {
     top: UnsafeCell<Py<TopologyPy>>,
     st: UnsafeCell<Py<StatePy>>,
@@ -196,9 +206,9 @@ impl AtomPosAnalysis for TmpSel<'_> {
 impl AtomPosAnalysisMut for TmpSel<'_> {}
 
 //-----------------------------------------
+/// Iterator over selected atom positions.
 
 #[pyclass(frozen)]
-/// Iterator over selected atom positions.
 pub struct SelPosIterator {
     pub(crate) sel: Py<SelPy>,
     pub(crate) cur: AtomicUsize,
@@ -223,9 +233,9 @@ impl SelPosIterator {
         unsafe { Some(map_pyarray_to_pos(sel.py_st().bind(slf.py()), idx)) }
     }
 }
+/// Iterator over selected atoms.
 
 #[pyclass(frozen)]
-/// Iterator over selected atoms.
 pub struct SelAtomIterator {
     pub(crate) sel: Py<SelPy>,
     pub(crate) cur: AtomicUsize,
@@ -254,11 +264,19 @@ impl SelAtomIterator {
 
 #[pymethods]
 impl SelPy {
+    /// Number of atoms in this selection.
+    ///
+    /// :returns: Selection size.
+    /// :rtype: int
     fn __len__(&self) -> usize {
         self.index.len()
     }
 
     /// Build sub-selection from query string, range, or explicit indices.
+    ///
+    /// :param arg: Selection expression, range tuple, or index list.
+    /// :returns: Derived selection.
+    /// :rtype: Sel
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<SelPy> {
         // Construct temp system
         let sys = SystemPy::new(
@@ -285,6 +303,10 @@ impl SelPy {
     }
 
     /// Return one particle from the selection by index (supports negative indexing).
+    ///
+    /// :param i: Index within selection.
+    /// :returns: Particle view.
+    /// :rtype: Particle
     pub(crate) fn __getitem__(&self, i: isize) -> PyResult<ParticlePy> {
         let n = self.len();
 
@@ -317,6 +339,9 @@ impl SelPy {
     }
 
     /// Iterate over particles in this selection.
+    ///
+    /// :returns: Particle iterator.
+    /// :rtype: Iterator[Particle]
     fn __iter__(slf: Bound<'_, Self>) -> Bound<'_, ParticleIterator> {
         Bound::new(
             slf.py(),
@@ -328,11 +353,19 @@ impl SelPy {
         .unwrap()
     }
 
+    /// Global atom indices of this selection.
+    ///
+    /// :returns: Index array.
+    /// :rtype: numpy.ndarray
     #[getter("index")]
     fn get_index<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<usize>> {
         numpy::PyArray1::from_iter(py, self.index.iter_index())
     }
 
+    /// Coordinates of selected atoms as an array of shape ``[3, n_atoms]``.
+    ///
+    /// :returns: Coordinate array.
+    /// :rtype: numpy.ndarray
     #[getter("coords")]
     fn get_coords<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
         let coord_ptr = self.coords_ptr() as *const f32;
@@ -347,6 +380,10 @@ impl SelPy {
         }
     }
 
+    /// A ``System`` sharing this selection's topology and state.
+    ///
+    /// :returns: System view.
+    /// :rtype: System
     #[getter("system")]
     fn get_system<'py>(slf: Bound<'py, Self>) -> Bound<'py, SystemPy> {
         Bound::new(
@@ -359,6 +396,11 @@ impl SelPy {
         .unwrap()
     }
 
+    /// Replace backing topology and state from another system.
+    ///
+    /// :param sys: Source system.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter("system")]
     fn set_system(&self, sys: &Bound<SystemPy>) -> PyResult<()> {
         let py = sys.py();
@@ -367,6 +409,11 @@ impl SelPy {
         Ok(())
     }
 
+    /// Set coordinates from an array of shape ``[3, n_atoms]``.
+    ///
+    /// :param arr: Coordinate array.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter("coords")]
     fn set_coords(&self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
         if arr.shape() != [3, self.__len__()] {
@@ -388,11 +435,20 @@ impl SelPy {
         Ok(())
     }
 
+    /// Backing state object.
+    ///
+    /// :returns: Backing state.
+    /// :rtype: State
     #[getter("state")]
     fn get_state(slf: Bound<Self>) -> Bound<StatePy> {
         slf.get().py_st().bind(slf.py()).clone()
     }
 
+    /// Replace backing state with a compatible state.
+    ///
+    /// :param st: New state.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter("state")]
     fn set_state(&self, st: &Bound<StatePy>) -> PyResult<()> {
         if self.r_st().interchangeable(st.get().inner()) {
@@ -403,11 +459,20 @@ impl SelPy {
         }
     }
 
+    /// Backing topology object.
+    ///
+    /// :returns: Backing topology.
+    /// :rtype: Topology
     #[getter("topology")]
     fn get_topology(slf: Bound<Self>) -> Bound<TopologyPy> {
         slf.get().py_top().bind(slf.py()).clone()
     }
 
+    /// Replace backing topology with a compatible topology.
+    ///
+    /// :param top: New topology.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter("topology")]
     fn set_topology(&self, top: &Bound<TopologyPy>) -> PyResult<()> {
         if self.r_top().interchangeable(top.get().inner()) {
@@ -419,6 +484,10 @@ impl SelPy {
     }
 
     /// Replace state data in-place by swapping with a compatible state.
+    ///
+    /// :param st: Compatible state object.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn replace_state_deep(&self, st: &Bound<StatePy>) -> PyResult<()> {
         if self.r_st().interchangeable(st.get().inner()) {
             unsafe { std::ptr::swap(self.r_st_mut(), st.get().inner_mut()) };
@@ -497,40 +566,68 @@ impl SelPy {
         AtomIterMutProvider::set_same_bfactor(self.r_top_mut(), val)
     }
 
+    /// Selection time value (proxied to backing state).
+    ///
+    /// :returns: Time value.
+    /// :rtype: float
     #[getter]
     fn get_time(&self) -> f32 {
         TimeProvider::get_time(self)
     }
 
+    /// Set selection time value (proxied to backing state).
+    ///
+    /// :param t: New time value.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter]
     fn set_time(&self, t: f32) {
         self.r_st_mut().time = t;
     }
 
+    /// Periodic box (proxied to backing state).
+    ///
+    /// :returns: Periodic box.
+    /// :rtype: PeriodicBox
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
         PeriodicBoxPy(self.r_st().require_box().unwrap().clone())
     }
 
+    /// Set periodic box (proxied to backing state).
+    ///
+    /// :param b: New periodic box.
+    /// :returns: ``None``.
+    /// :rtype: None
     #[setter]
     fn set_box(&self, b: &PeriodicBoxPy) {
         self.r_st_mut().pbox = Some(b.0.clone());
     }
 
     /// Copy periodic box from a system.
+    ///
+    /// :param sys: Source system.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn set_box_from(&self, sys: Bound<'_, SystemPy>) {
         self.r_st_mut().pbox = Some(sys.get().r_st().require_box().unwrap().clone());
     }
 
     // Analysis functions
 
-    #[pyo3(signature = (dims=[false,false,false]))]
+    #[pyo3(signature = (dims=None))]
+    #[pyo3(text_signature = "($self, dims=None)")]
     /// Center of mass, optionally using periodic dimensions.
+    ///
+    /// :param dims: Periodic dimensions ``[x, y, z]``.
+    /// :returns: Center-of-mass vector.
+    /// :rtype: numpy.ndarray
     fn com<'py>(
         &self,
         py: Python<'py>,
-        dims: [bool; 3],
+        dims: Option<[bool; 3]>,
     ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+        let dims = dims.unwrap_or([false, false, false]);
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
             &MeasurePeriodic::center_of_mass_pbc_dims(self, pbc_dims)
@@ -540,13 +637,19 @@ impl SelPy {
         ))
     }
 
-    #[pyo3(signature = (dims=[false,false,false]))]
+    #[pyo3(signature = (dims=None))]
+    #[pyo3(text_signature = "($self, dims=None)")]
     /// Center of geometry, optionally using periodic dimensions.
+    ///
+    /// :param dims: Periodic dimensions ``[x, y, z]``.
+    /// :returns: Center-of-geometry vector.
+    /// :rtype: numpy.ndarray
     fn cog<'py>(
         &self,
         py: Python<'py>,
-        dims: [bool; 3],
+        dims: Option<[bool; 3]>,
     ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+        let dims = dims.unwrap_or([false, false, false]);
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
             &MeasurePeriodic::center_of_geometry_pbc_dims(self, pbc_dims)
@@ -557,18 +660,28 @@ impl SelPy {
     }
 
     /// Principal-axes alignment transform (non-periodic).
+    ///
+    /// :returns: Rigid transform.
+    /// :rtype: IsometryTransform
     fn principal_transform(&self) -> PyResult<crate::IsometryTransform> {
         let tr = MeasureMasses::principal_transform(self).map_err(to_py_runtime_err)?;
         Ok(crate::IsometryTransform(tr))
     }
 
     /// Principal-axes alignment transform with periodic handling.
+    ///
+    /// :returns: Rigid transform.
+    /// :rtype: IsometryTransform
     fn principal_transform_pbc(&self) -> PyResult<crate::IsometryTransform> {
         let tr = MeasurePeriodic::principal_transform_pbc(self).map_err(to_py_runtime_err)?;
         Ok(crate::IsometryTransform(tr))
     }
 
     /// Apply rigid transform to selected coordinates.
+    ///
+    /// :param tr: Transform to apply.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn apply_transform(&self, tr: &crate::IsometryTransform) {
         TmpSel {
             top: self.r_top(),
@@ -579,16 +692,25 @@ impl SelPy {
     }
 
     /// Radius of gyration (non-periodic).
+    ///
+    /// :returns: Radius of gyration.
+    /// :rtype: float
     fn gyration(&self) -> PyResult<f32> {
         Ok(MeasureMasses::gyration(self).map_err(to_py_runtime_err)?)
     }
 
     /// Radius of gyration with periodic handling.
+    ///
+    /// :returns: Radius of gyration.
+    /// :rtype: float
     fn gyration_pbc(&self) -> PyResult<f32> {
         Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
     }
 
     /// Axis-aligned min/max coordinates.
+    ///
+    /// :returns: Tuple ``(min_xyz, max_xyz)``.
+    /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
     fn min_max<'py>(
         &self,
         py: Python<'py>,
@@ -600,6 +722,9 @@ impl SelPy {
     }
 
     /// Principal moments and axes of inertia tensor.
+    ///
+    /// :returns: Tuple ``(moments, axes)``.
+    /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
     fn inertia<'py>(
         &self,
         py: Python<'py>,
@@ -614,6 +739,9 @@ impl SelPy {
     }
 
     /// Principal moments and axes of inertia tensor with periodic handling.
+    ///
+    /// :returns: Tuple ``(moments, axes)``.
+    /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
     fn inertia_pbc<'py>(
         &self,
         py: Python<'py>,
@@ -628,11 +756,19 @@ impl SelPy {
     }
 
     /// Save topology and selected state coordinates to file.
+    ///
+    /// :param fname: Output file path.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn save(&self, fname: &str) -> PyResult<()> {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_runtime_err)?)
     }
 
     /// Translate selected coordinates by vector.
+    ///
+    /// :param arg: Translation vector.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> PyResult<()> {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
@@ -647,6 +783,9 @@ impl SelPy {
     }
 
     /// Split selection into sub-selections by residue index.
+    ///
+    /// :returns: List of selections.
+    /// :rtype: list[Sel]
     fn split_resindex(&self) -> Vec<SelPy> {
         Python::attach(|py| {
             AtomPosAnalysis::split_resindex(self)
@@ -660,6 +799,9 @@ impl SelPy {
     }
 
     /// Split selection into sub-selections by chain ID.
+    ///
+    /// :returns: List of selections.
+    /// :rtype: list[Sel]
     fn split_chain(&self) -> Vec<SelPy> {
         Python::attach(|py| {
             self.split(|p| Some(p.atom.chain))
@@ -673,6 +815,9 @@ impl SelPy {
     }
 
     /// Split selection into molecular connected components.
+    ///
+    /// :returns: List of selections.
+    /// :rtype: list[Sel]
     fn split_molecule(&self) -> Vec<SelPy> {
         Python::attach(|py| {
             self.split_mol_iter()
@@ -686,11 +831,18 @@ impl SelPy {
     }
 
     /// Export selection indices in GROMACS NDX group format.
+    ///
+    /// :param name: NDX group name.
+    /// :returns: NDX formatted group block.
+    /// :rtype: str
     fn to_gromacs_ndx(&self, name: &str) -> String {
         self.index.as_gromacs_ndx_str(name)
     }
 
     /// Iterate over selected positions.
+    ///
+    /// :returns: Position iterator.
+    /// :rtype: SelPosIterator
     fn iter_pos(slf: Bound<'_, Self>) -> Bound<'_, SelPosIterator> {
         Bound::new(
             slf.py(),
@@ -703,6 +855,9 @@ impl SelPy {
     }
 
     /// Iterate over selected atoms.
+    ///
+    /// :returns: Atom iterator.
+    /// :rtype: SelAtomIterator
     fn iter_atoms(slf: Bound<'_, Self>) -> Bound<'_, SelAtomIterator> {
         Bound::new(
             slf.py(),

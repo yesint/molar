@@ -1,8 +1,8 @@
 use molar::prelude::Atom;
 use pyo3::prelude::*;
+/// Mutable atom container.
 
 #[pyclass(name = "Atom")]
-/// Mutable atom container.
 pub(crate) struct AtomPy(pub(crate) Atom);
 
 #[pymethods]
@@ -15,6 +15,7 @@ impl AtomPy {
         }
     }
 
+    /// Atom name.
     #[getter(name)]
     fn get_name(&self) -> &str {
         self.0.name.as_str()
@@ -26,6 +27,7 @@ impl AtomPy {
     }
 
     // resname
+    /// Residue name.
     #[getter(resname)]
     fn get_resname(&self) -> &str {
         self.0.resname.as_str()
@@ -37,6 +39,7 @@ impl AtomPy {
     }
 
     // resid
+    /// Residue identifier.
     #[getter(resid)]
     fn get_resid(&self) -> i32 {
         self.0.resid
@@ -48,6 +51,7 @@ impl AtomPy {
     }
 
     // atomic_number
+    /// Atomic number.
     #[getter(atomic_number)]
     fn get_atomic_number(&self) -> u8 {
         self.0.atomic_number
@@ -59,6 +63,7 @@ impl AtomPy {
     }
 
     // mass
+    /// Atomic mass.
     #[getter(mass)]
     fn get_mass(&self) -> f32 {
         self.0.mass
@@ -70,6 +75,7 @@ impl AtomPy {
     }
 
     // charge
+    /// Atom charge.
     #[getter(charge)]
     fn get_charge(&self) -> f32 {
         self.0.charge
@@ -81,6 +87,7 @@ impl AtomPy {
     }
 
     // type_name
+    /// Force-field atom type name.
     #[getter(type_name)]
     fn get_type_name(&self) -> &str {
         self.0.type_name.as_str()
@@ -92,6 +99,7 @@ impl AtomPy {
     }
 
     // type_id
+    /// Force-field atom type identifier.
     #[getter(type_id)]
     fn get_type_id(&self) -> u32 {
         self.0.type_id
@@ -103,6 +111,7 @@ impl AtomPy {
     }
 
     // chain
+    /// Chain identifier.
     #[getter(chain)]
     fn get_chain(&self) -> char {
         self.0.chain
@@ -114,6 +123,7 @@ impl AtomPy {
     }
 
     // bfactor
+    /// Temperature factor (B-factor).
     #[getter(bfactor)]
     fn get_bfactor(&self) -> f32 {
         self.0.bfactor
@@ -125,6 +135,7 @@ impl AtomPy {
     }
 
     // occupancy
+    /// Occupancy value.
     #[getter(occupancy)]
     fn get_occupancy(&self) -> f32 {
         self.0.occupancy

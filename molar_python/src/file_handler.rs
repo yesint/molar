@@ -9,9 +9,18 @@ use crate::topology_state::{TopologyPy, StatePy};
 use crate::{SystemPy, SelPy};
 
 const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state iterator";
+/// Reader/writer for topology and trajectory files.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar as molar
+///    fh = molar.FileHandler("traj.xtc", "r")
+///    for st in fh:
+///        print(st.time)
 
 #[pyclass(name = "FileHandler")]
-/// Reader/writer for topology and trajectory files.
 pub struct FileHandlerPy(pub Option<FileHandler>, pub Option<IoStateIterator>);
 
 unsafe impl Send for FileHandlerPy {}
@@ -20,7 +29,12 @@ unsafe impl Sync for FileHandlerPy {}
 #[pymethods]
 impl FileHandlerPy {
     #[new]
-    /// Open file in read (`\"r\"`) or write (`\"w\"`) mode.
+    /// Open file in read (``"r"``) or write (``"w"``) mode.
+    ///
+    /// :param fname: Input/output file path.
+    /// :param mode: Open mode (``"r"`` or ``"w"``).
+    /// :returns: Initialized file handler.
+    /// :rtype: FileHandler
     fn new(fname: &str, mode: &str) -> PyResult<Self> {
         match mode {
             "r" => Ok(FileHandlerPy(
@@ -36,6 +50,9 @@ impl FileHandlerPy {
     }
 
     /// Read topology and the next state frame.
+    ///
+    /// :returns: ``(topology, state)``.
+    /// :rtype: tuple[Topology, State]
     fn read(&mut self) -> PyResult<(TopologyPy, StatePy)> {
         let h = self
             .0
@@ -47,6 +64,9 @@ impl FileHandlerPy {
     }
 
     /// Read topology only.
+    ///
+    /// :returns: Parsed topology.
+    /// :rtype: Topology
     fn read_topology(&mut self) -> PyResult<TopologyPy> {
         let h = self
             .0
@@ -57,6 +77,9 @@ impl FileHandlerPy {
     }
 
     /// Read next state frame only.
+    ///
+    /// :returns: Next state frame.
+    /// :rtype: State
     fn read_state(&mut self) -> PyResult<StatePy> {
         let h = self
             .0
@@ -66,7 +89,11 @@ impl FileHandlerPy {
         Ok(st.into())
     }
 
-    /// Write a `System`, `Sel`, or `(Topology, State)` tuple.
+    /// Write a ``System``, ``Sel``, or ``(Topology, State)`` tuple.
+    ///
+    /// :param data: Data object to write.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn write(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
@@ -98,7 +125,11 @@ impl FileHandlerPy {
         Ok(())
     }
 
-    /// Write topology from `System`, `Sel`, or `Topology`.
+    /// Write topology from ``System``, ``Sel``, or ``Topology``.
+    ///
+    /// :param data: Source object containing topology.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn write_topology(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
@@ -120,7 +151,11 @@ impl FileHandlerPy {
         Ok(())
     }
 
-    /// Write state from `System`, `Sel`, or `State`.
+    /// Write state from ``System``, ``Sel``, or ``State``.
+    ///
+    /// :param data: Source object containing state.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn write_state(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
@@ -142,6 +177,9 @@ impl FileHandlerPy {
     }
 
     /// Enable frame iteration over states.
+    ///
+    /// :returns: Iterator object.
+    /// :rtype: FileHandler
     fn __iter__(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         if slf.1.is_none() {
             let h = slf.0.take().unwrap();
@@ -151,6 +189,9 @@ impl FileHandlerPy {
     }
 
     /// Return next state when iterating a trajectory file.
+    ///
+    /// :returns: Next state or ``None``.
+    /// :rtype: State | None
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
         let st = slf
             .1
@@ -166,6 +207,10 @@ impl FileHandlerPy {
     }
 
     /// Seek reader to frame index.
+    ///
+    /// :param fr: Target frame index.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn skip_to_frame(&mut self, fr: usize) -> PyResult<()> {
         let h = self
             .0
@@ -176,6 +221,10 @@ impl FileHandlerPy {
     }
 
     /// Seek reader to simulation time.
+    ///
+    /// :param t: Target simulation time.
+    /// :returns: ``None``.
+    /// :rtype: None
     fn skip_to_time(&mut self, t: f32) -> PyResult<()> {
         let h = self
             .0
@@ -185,6 +234,10 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    /// Runtime IO statistics for this handler.
+    ///
+    /// :returns: Statistics snapshot.
+    /// :rtype: FileStats
     #[getter]
     fn stats(&self) -> PyResult<FileStatsPy> {
         let h = self
@@ -194,6 +247,10 @@ impl FileHandlerPy {
         Ok(FileStatsPy(h.stats.clone()))
     }
 
+    /// File path associated with this handler.
+    ///
+    /// :returns: File path.
+    /// :rtype: str
     #[getter]
     fn file_name(&self) -> PyResult<PathBuf> {
         let h = self
@@ -203,32 +260,52 @@ impl FileHandlerPy {
         Ok(h.file_path.clone())
     }
 }
+/// Runtime IO statistics collected by ``FileHandler``.
 
 #[pyclass(name = "FileStats")]
-/// Runtime IO statistics collected by `FileHandler`.
 pub struct FileStatsPy(pub FileStats);
 
 #[pymethods]
 impl FileStatsPy {
+    /// Total wall-clock time spent in IO.
+    ///
+    /// :returns: Elapsed duration.
+    /// :rtype: datetime.timedelta
     #[getter]
     fn elapsed_time(&self) -> std::time::Duration {
         self.0.elapsed_time
     }
 
+    /// Number of processed frames.
+    ///
+    /// :returns: Number of processed frames.
+    /// :rtype: int
     #[getter]
     fn frames_processed(&self) -> usize {
         self.0.frames_processed
     }
 
+    /// Time value of the current frame.
+    ///
+    /// :returns: Current frame time.
+    /// :rtype: float
     #[getter]
     fn cur_t(&self) -> f32 {
         self.0.cur_t
     }
 
+    /// Debug representation of file statistics.
+    ///
+    /// :returns: Representation string.
+    /// :rtype: str
     fn __repr__(&self) -> String {
         format!("{}", self.0)
     }
 
+    /// Human-readable representation of file statistics.
+    ///
+    /// :returns: Representation string.
+    /// :rtype: str
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }

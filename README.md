@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/molar.svg)](https://crates.io/crates/molar)
 [![Documentation](https://docs.rs/molar/badge.svg)](https://docs.rs/molar)
+[![Python API Docs](https://img.shields.io/badge/python--api-docs-blue)](https://yesint.github.io/molar/)
 [![Rust Version](https://img.shields.io/badge/rust-1.83+-blue.svg)](https://www.rust-lang.org/)
 [![Crates.io Downloads](https://img.shields.io/crates/d/molar.svg)](https://crates.io/crates/molar)
 

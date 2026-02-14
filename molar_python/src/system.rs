@@ -11,9 +11,9 @@ use crate::periodic_box::PeriodicBoxPy;
 use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
 use crate::SelPy;
+/// Coupled topology + state object used as the primary analysis source.
 
 #[pyclass(name = "System", frozen)]
-/// Coupled topology + state object used as the primary analysis source.
 pub struct SystemPy {
     // Since we have to replace top and st we need to wrap them into UnsafeCell
     top: UnsafeCell<Py<TopologyPy>>,
@@ -411,9 +411,9 @@ impl SystemPy {
         .borrow()
     }
 }
+/// Iterator over system positions.
 
 #[pyclass]
-/// Iterator over system positions.
 pub struct SysPosIterator {
     pub(crate) st: Py<StatePy>,
     pub(crate) cur: usize,
@@ -436,9 +436,9 @@ impl SysPosIterator {
         unsafe { Some(map_pyarray_to_pos(&s.st.bind(slf.py()), s.cur)) }
     }
 }
+/// Iterator over system atoms.
 
 #[pyclass]
-/// Iterator over system atoms.
 pub struct SysAtomIterator {
     pub(crate) top: Py<TopologyPy>,
     pub(crate) cur: usize,

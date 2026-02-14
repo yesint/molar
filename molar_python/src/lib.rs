@@ -43,9 +43,9 @@ use crate::{
     system::{SysAtomIterator, SysPosIterator},
 };
 //-------------------------------------------
+/// Solvent-accessible surface area and volume measurements for a selection.
 
 #[pyclass(unsendable, name = "SasaResults")]
-/// Solvent-accessible surface area and volume measurements for a selection.
 struct SasaResultsPy(SasaResults);
 
 #[pymethods]
@@ -79,16 +79,16 @@ impl SasaResultsPy {
 struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 
 // Free functions
+/// Compute rigid transform that best aligns `sel1` onto `sel2`.
 
 #[pyfunction(name = "fit_transform")]
-/// Compute rigid transform that best aligns `sel1` onto `sel2`.
 fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
     let tr = molar::prelude::fit_transform(sel1, sel2).map_err(to_py_runtime_err)?;
     Ok(IsometryTransform(tr))
 }
+/// Align selections by matching atom names before fitting.
 
 #[pyfunction(name = "fit_transform_matching")]
-/// Align selections by matching atom names before fitting.
 fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
 
@@ -114,15 +114,15 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
     let tr = fit_transform(&sub_sel1, &sub_sel2).map_err(to_py_runtime_err)?;
     Ok(IsometryTransform(tr))
 }
+/// Compute RMSD between two selections.
 
 #[pyfunction]
-/// Compute RMSD between two selections.
 fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
     Ok(rmsd(sel1, sel2).map_err(to_py_runtime_err)?)
 }
+/// Compute mass-weighted RMSD between two selections.
 
 #[pyfunction(name = "rmsd_mw")]
-/// Compute mass-weighted RMSD between two selections.
 fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
     Ok(rmsd_mw(sel1, sel2).map_err(to_py_runtime_err)?)
 }
@@ -147,7 +147,8 @@ impl ParticleIterator {
 }
 
 #[pyfunction]
-#[pyo3(signature = (cutoff,data1,data2=None,dims=[false,false,false]))]
+#[pyo3(signature = (cutoff,data1,data2=None,dims=None))]
+#[pyo3(text_signature = "(cutoff, data1, data2=None, dims=None)")]
 /// Find atom pairs within cutoff distance between one or two selections.
 ///
 /// `cutoff` may be a float distance or the string `"vdw"` for van der Waals cutoff.
@@ -156,9 +157,10 @@ fn distance_search<'py>(
     cutoff: &Bound<'py, PyAny>,
     data1: &Bound<'py, SelPy>,
     data2: Option<&Bound<'py, SelPy>>,
-    dims: [bool; 3],
+    dims: Option<[bool; 3]>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let mut res: Vec<(usize, usize, f32)>;
+    let dims = dims.unwrap_or([false, false, false]);
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
     let sel1 = data1.borrow();
 
@@ -273,20 +275,36 @@ fn distance_search<'py>(
         Ok((pairs_arr, dist_arr).into_bound_py_any(py)?)
     }
 }
+/// Reader for GROMACS NDX index files.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    ndx = pymolar.NdxFile("index.ndx")
+///    sel = ndx.get_group_as_sel("Protein", system)
 
 #[pyclass(name = "NdxFile")]
-/// Reader for GROMACS NDX index files.
 struct NdxFilePy(NdxFile);
 
 #[pymethods]
 impl NdxFilePy {
     #[new]
     /// Open an NDX file from disk.
+    ///
+    /// :param fname: Path to ``.ndx`` file.
+    /// :returns: Parsed NDX file object.
+    /// :rtype: NdxFile
     fn new(fname: &str) -> PyResult<Self> {
         Ok(NdxFilePy(NdxFile::new(fname).map_err(to_py_value_err)?))
     }
 
-    /// Build a selection from a named NDX group using the provided system.
+    /// Build a selection from named NDX group.
+    ///
+    /// :param gr_name: Group name in the NDX file.
+    /// :param sys: System providing topology/state context.
+    /// :returns: Selection with indices from the group.
+    /// :rtype: Sel
     fn get_group_as_sel(&self, gr_name: &str, sys: &SystemPy) -> PyResult<SelPy> {
         Python::attach(|py| {
             Ok(SelPy::new(
@@ -302,8 +320,8 @@ impl NdxFilePy {
 }
 
 //====================================
-#[pyfunction]
 /// Print library greeting and version banner.
+#[pyfunction]
 fn greeting() {
     molar::greeting("molar_python");
 }
