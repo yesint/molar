@@ -201,7 +201,7 @@ within 5.0 of com of protein           # Within 5 Å of protein COM
 within 3.0 pbc of cog of chain A       # Within 3 Å of chain A COG
 within 2.0 of com pbc yyn of water     # PBC only in X and Y
 within 2.0 of com pbc 110 of water     # PBC only in X and Y
-``` 
+```  
  
 ### PBC options
 
