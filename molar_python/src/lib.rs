@@ -45,25 +45,30 @@ use crate::{
 //-------------------------------------------
 
 #[pyclass(unsendable, name = "SasaResults")]
+/// Solvent-accessible surface area and volume measurements for a selection.
 struct SasaResultsPy(SasaResults);
 
 #[pymethods]
 impl SasaResultsPy {
+    /// Per-atom solvent-accessible areas.
     #[getter]
     fn areas(&self) -> &[f32] {
         self.0.areas()
     }
 
+    /// Per-atom solvent-excluded volumes.
     #[getter]
     fn volumes(&self) -> &[f32] {
         self.0.volumes()
     }
 
+    /// Total solvent-accessible area.
     #[getter]
     fn total_area(&self) -> f32 {
         self.0.total_area()
     }
 
+    /// Total solvent-excluded volume.
     #[getter]
     fn total_volume(&self) -> f32 {
         self.0.total_volume()
@@ -76,12 +81,14 @@ struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 // Free functions
 
 #[pyfunction(name = "fit_transform")]
+/// Compute rigid transform that best aligns `sel1` onto `sel2`.
 fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
     let tr = molar::prelude::fit_transform(sel1, sel2).map_err(to_py_runtime_err)?;
     Ok(IsometryTransform(tr))
 }
 
 #[pyfunction(name = "fit_transform_matching")]
+/// Align selections by matching atom names before fitting.
 fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
 
@@ -109,11 +116,13 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
 }
 
 #[pyfunction]
+/// Compute RMSD between two selections.
 fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
     Ok(rmsd(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 
 #[pyfunction(name = "rmsd_mw")]
+/// Compute mass-weighted RMSD between two selections.
 fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
     Ok(rmsd_mw(sel1, sel2).map_err(to_py_runtime_err)?)
 }
@@ -139,6 +148,9 @@ impl ParticleIterator {
 
 #[pyfunction]
 #[pyo3(signature = (cutoff,data1,data2=None,dims=[false,false,false]))]
+/// Find atom pairs within cutoff distance between one or two selections.
+///
+/// `cutoff` may be a float distance or the string `"vdw"` for van der Waals cutoff.
 fn distance_search<'py>(
     py: Python<'py>,
     cutoff: &Bound<'py, PyAny>,
@@ -263,15 +275,18 @@ fn distance_search<'py>(
 }
 
 #[pyclass(name = "NdxFile")]
+/// Reader for GROMACS NDX index files.
 struct NdxFilePy(NdxFile);
 
 #[pymethods]
 impl NdxFilePy {
     #[new]
+    /// Open an NDX file from disk.
     fn new(fname: &str) -> PyResult<Self> {
         Ok(NdxFilePy(NdxFile::new(fname).map_err(to_py_value_err)?))
     }
 
+    /// Build a selection from a named NDX group using the provided system.
     fn get_group_as_sel(&self, gr_name: &str, sys: &SystemPy) -> PyResult<SelPy> {
         Python::attach(|py| {
             Ok(SelPy::new(
@@ -288,6 +303,7 @@ impl NdxFilePy {
 
 //====================================
 #[pyfunction]
+/// Print library greeting and version banner.
 fn greeting() {
     molar::greeting("molar_python");
 }

@@ -13,6 +13,7 @@ use crate::utils::*;
 use crate::SelPy;
 
 #[pyclass(name = "System", frozen)]
+/// Coupled topology + state object used as the primary analysis source.
 pub struct SystemPy {
     // Since we have to replace top and st we need to wrap them into UnsafeCell
     top: UnsafeCell<Py<TopologyPy>>,
@@ -127,6 +128,7 @@ impl SaveTopologyState for SystemPy {}
 impl SystemPy {
     #[new]
     #[pyo3(signature = (*py_args))]
+    /// Create system from file path, `(Topology, State)`, or empty constructor.
     fn new_py(py_args: &Bound<'_, PyTuple>) -> PyResult<Self> {
         if py_args.len() == 1 {
             // From file
@@ -166,6 +168,7 @@ impl SystemPy {
     }
 
     #[pyo3(signature = (arg=None))]
+    /// Create a selection from query string, range, indices, or all atoms.
     fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> PyResult<SelPy> {
         let sys = slf.get();
 
@@ -203,6 +206,7 @@ impl SystemPy {
         ))
     }
 
+    /// Swap internal state data with `st` when layouts are compatible.
     fn replace_state_deep(&self, st: &Bound<StatePy>) -> PyResult<()> {
         if self.r_st().interchangeable(st.get().inner()) {
             unsafe { std::ptr::swap(self.r_st_mut(), st.get().inner_mut()) };
@@ -276,10 +280,12 @@ impl SystemPy {
         }
     }
 
+    /// Save topology and current state to file.
     fn save(&self, fname: &str) -> PyResult<()> {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_io_err)?)
     }
 
+    /// Remove atoms selected by argument (`Sel`, query, range, or indices).
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> PyResult<()> {
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
@@ -304,6 +310,7 @@ impl SystemPy {
     }
 
     #[pyo3(signature = (*args))]
+    /// Append atoms from selection-like input or from `(Atom, position)`.
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> PyResult<()> {
         let slf_b = slf.get();
 
@@ -362,6 +369,7 @@ impl SystemPy {
         self.r_st_mut().time = t;
     }
 
+    /// Copy periodic box from another `System` or `Sel`.
     fn set_box_from(&self, src: Bound<'_, PyAny>) -> PyResult<()> {
         let st_ref = if let Ok(sys) = src.cast::<SystemPy>() {
             sys.get().r_st()
@@ -377,6 +385,7 @@ impl SystemPy {
         Ok(())
     }
 
+    /// Iterate over atom positions.
     fn iter_pos(slf: PyRef<'_, Self>) -> PyRef<'_, SysPosIterator> {
         Bound::new(
             slf.py(),
@@ -389,6 +398,7 @@ impl SystemPy {
         .borrow()
     }
 
+    /// Iterate over atoms.
     fn iter_atoms(slf: PyRef<'_, Self>) -> PyRef<'_, SysAtomIterator> {
         Bound::new(
             slf.py(),
@@ -403,6 +413,7 @@ impl SystemPy {
 }
 
 #[pyclass]
+/// Iterator over system positions.
 pub struct SysPosIterator {
     pub(crate) st: Py<StatePy>,
     pub(crate) cur: usize,
@@ -410,10 +421,12 @@ pub struct SysPosIterator {
 
 #[pymethods]
 impl SysPosIterator {
+    /// Return iterator object.
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
+    /// Return next position as a NumPy array view.
     fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
         let mut s = slf.borrow_mut();
         if s.cur >= s.st.get().len() {
@@ -425,6 +438,7 @@ impl SysPosIterator {
 }
 
 #[pyclass]
+/// Iterator over system atoms.
 pub struct SysAtomIterator {
     pub(crate) top: Py<TopologyPy>,
     pub(crate) cur: usize,
@@ -432,10 +446,12 @@ pub struct SysAtomIterator {
 
 #[pymethods]
 impl SysAtomIterator {
+    /// Return iterator object.
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
+    /// Return next atom view.
     fn __next__(&mut self) -> Option<AtomView> {
         if self.cur >= self.top.get().len() {
             return None;

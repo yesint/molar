@@ -11,6 +11,7 @@ use crate::{SystemPy, SelPy};
 const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state iterator";
 
 #[pyclass(name = "FileHandler")]
+/// Reader/writer for topology and trajectory files.
 pub struct FileHandlerPy(pub Option<FileHandler>, pub Option<IoStateIterator>);
 
 unsafe impl Send for FileHandlerPy {}
@@ -19,6 +20,7 @@ unsafe impl Sync for FileHandlerPy {}
 #[pymethods]
 impl FileHandlerPy {
     #[new]
+    /// Open file in read (`\"r\"`) or write (`\"w\"`) mode.
     fn new(fname: &str, mode: &str) -> PyResult<Self> {
         match mode {
             "r" => Ok(FileHandlerPy(
@@ -33,6 +35,7 @@ impl FileHandlerPy {
         }
     }
 
+    /// Read topology and the next state frame.
     fn read(&mut self) -> PyResult<(TopologyPy, StatePy)> {
         let h = self
             .0
@@ -43,6 +46,7 @@ impl FileHandlerPy {
         Ok((top.into(), st.into()))
     }
 
+    /// Read topology only.
     fn read_topology(&mut self) -> PyResult<TopologyPy> {
         let h = self
             .0
@@ -52,6 +56,7 @@ impl FileHandlerPy {
         Ok(top.into())
     }
 
+    /// Read next state frame only.
     fn read_state(&mut self) -> PyResult<StatePy> {
         let h = self
             .0
@@ -61,6 +66,7 @@ impl FileHandlerPy {
         Ok(st.into())
     }
 
+    /// Write a `System`, `Sel`, or `(Topology, State)` tuple.
     fn write(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
@@ -92,6 +98,7 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    /// Write topology from `System`, `Sel`, or `Topology`.
     fn write_topology(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
@@ -113,6 +120,7 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    /// Write state from `System`, `Sel`, or `State`.
     fn write_state(&mut self, data: Bound<'_, PyAny>) -> PyResult<()> {
         let h = self
             .0
@@ -133,6 +141,7 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    /// Enable frame iteration over states.
     fn __iter__(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         if slf.1.is_none() {
             let h = slf.0.take().unwrap();
@@ -141,6 +150,7 @@ impl FileHandlerPy {
         slf
     }
 
+    /// Return next state when iterating a trajectory file.
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Py<PyAny>> {
         let st = slf
             .1
@@ -155,6 +165,7 @@ impl FileHandlerPy {
         }
     }
 
+    /// Seek reader to frame index.
     fn skip_to_frame(&mut self, fr: usize) -> PyResult<()> {
         let h = self
             .0
@@ -164,6 +175,7 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    /// Seek reader to simulation time.
     fn skip_to_time(&mut self, t: f32) -> PyResult<()> {
         let h = self
             .0
@@ -193,6 +205,7 @@ impl FileHandlerPy {
 }
 
 #[pyclass(name = "FileStats")]
+/// Runtime IO statistics collected by `FileHandler`.
 pub struct FileStatsPy(pub FileStats);
 
 #[pymethods]

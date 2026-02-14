@@ -11,12 +11,14 @@ use pyo3::{
 };
 
 #[pyclass(name = "PeriodicBox")]
+/// Periodic simulation box geometry and PBC distance utilities.
 pub(super) struct PeriodicBoxPy(pub(super) PeriodicBox);
 
 #[pymethods]
 impl PeriodicBoxPy {
     #[new]
     #[pyo3(signature = (*py_args))]
+    /// Create box from a 3x3 matrix or from `(vectors, angles)`.
     fn new<'py>(py_args: &Bound<'py, PyTuple>) -> PyResult<Self> {
         match py_args.len() {
             1 => {
@@ -59,6 +61,7 @@ impl PeriodicBoxPy {
         }
     }
 
+    /// Return `(box_vectors, box_angles)` representation.
     fn to_vectors_angles<'py>(
         slf: Bound<'py, Self>,
     ) -> (Bound<'py, PyArray1<f32>>, Bound<'py, PyArray1<f32>>) {
@@ -69,6 +72,7 @@ impl PeriodicBoxPy {
     }
 
     #[pyo3(signature = (arr, dims=[true,true,true]))]
+    /// Return minimum-image displacement vector.
     fn shortest_vector<'py>(
         &self,
         py: Python<'py>,
@@ -85,6 +89,7 @@ impl PeriodicBoxPy {
     }
 
     #[pyo3(signature = (point, target, dims=[true,true,true]))]
+    /// Return periodic image of `point` closest to `target`.
     fn closest_image<'py>(
         &self,
         py: Python<'py>,
@@ -104,10 +109,12 @@ impl PeriodicBoxPy {
         Ok(clone_vec_to_pyarray1(&out, py))
     }
 
+    /// Return 3x3 box matrix.
     fn get_matrix<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
         self.0.get_matrix().to_pyarray(py)
     }
 
+    /// Convert Cartesian coordinates to box coordinates.
     fn to_box_coords<'py>(
         &self,
         py: Python<'py>,
@@ -120,6 +127,7 @@ impl PeriodicBoxPy {
         Ok(clone_vec_to_pyarray1(&v, py))
     }
 
+    /// Convert box coordinates to Cartesian coordinates.
     fn to_lab_coords<'py>(
         &self,
         py: Python<'py>,
@@ -132,18 +140,22 @@ impl PeriodicBoxPy {
         Ok(clone_vec_to_pyarray1(&v, py))
     }
 
+    /// Return box extents in box basis.
     fn get_box_extents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
         clone_vec_to_pyarray1(&self.0.get_box_extents(), py)
     }
 
+    /// Return box extents in lab basis.
     fn get_lab_extents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
         clone_vec_to_pyarray1(&self.0.get_box_extents(), py)
     }
 
+    /// Whether the box is triclinic.
     fn is_triclinic(&self) -> bool {
         self.0.is_triclinic()
     }
 
+    /// Squared distance between points using selected periodic dimensions.
     fn distance_squared<'py>(
         &self,
         p1: PyArrayLike1<'py, f32, AllowTypeChange>,
@@ -161,6 +173,7 @@ impl PeriodicBoxPy {
         Ok(self.0.shortest_vector_dims(&(p2 - p1), pbc).norm_squared())
     }
 
+    /// Distance between points using selected periodic dimensions.
     fn distance<'py>(
         &self,
         p1: PyArrayLike1<'py, f32, AllowTypeChange>,
@@ -170,6 +183,7 @@ impl PeriodicBoxPy {
         Ok(self.distance_squared(p1, p2, dims)?.sqrt())
     }
 
+    /// Wrap a point into the primary unit cell.
     fn wrap_point<'py>(
         &self,
         py: Python<'py>,

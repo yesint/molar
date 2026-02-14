@@ -8,6 +8,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
 #[pyclass(name = "Particle", frozen)]
+/// View over one atom and its coordinates inside a system/selection.
 pub(crate) struct ParticlePy {
     pub(crate) top: Py<TopologyPy>,
     pub(crate) st: Py<StatePy>,
@@ -36,6 +37,7 @@ impl ParticlePy {
 
 #[pymethods]
 impl ParticlePy {
+    /// Return atom position as a length-3 NumPy array view.
     #[getter(pos)]
     fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<f32>> {
         let s = slf.get();
@@ -44,6 +46,7 @@ impl ParticlePy {
         }
     }
 
+    /// Set atom position from a length-3 vector.
     #[setter(pos)]
     fn set_pos(&self, pos: PyArrayLike1<f32>) -> PyResult<()> {
         if pos.len() != 3 {
@@ -90,11 +93,13 @@ impl ParticlePy {
     }
 
     //atom
+    /// Get mutable atom view.
     #[getter(atom)]
     fn get_atom(&self) -> AtomView {
         unsafe { AtomView(self.top_mut().get_atom_mut_unchecked(self.id)) }
     }
 
+    /// Replace atom from `Atom` or `AtomView`.
     #[setter(atom)]
     fn set_atom(&self, arg: &Bound<'_, PyAny>) -> PyResult<()> {
         let at = if let Ok(at) = arg.cast::<AtomPy>() {

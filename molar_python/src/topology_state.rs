@@ -10,6 +10,7 @@ use pyo3::{
 };
 
 #[pyclass(name = "State", frozen)]
+/// Coordinate frame with simulation time and periodic box.
 pub struct StatePy(pub(crate) UnsafeCell<State>);
 
 unsafe impl Send for StatePy {}
@@ -37,6 +38,7 @@ impl StatePy {
 
 #[pymethods]
 impl StatePy {
+    /// Number of coordinates in this state.
     fn __len__(&self) -> usize {
         self.inner().len()
     }
@@ -73,6 +75,7 @@ impl StatePy {
         self.inner_mut().time = t;
     }
 
+    /// Copy periodic box from a `System` or `Sel`.
     fn set_box_from(&self, arg: Bound<'_, PyAny>) -> PyResult<()> {
         let st_ref = if let Ok(sys) = arg.cast::<SystemPy>() {
             sys.get().r_st()
@@ -122,6 +125,7 @@ impl RandomPosProvider for StatePy {
 //----------------------------------------------------------------
 
 #[pyclass(name = "Topology", frozen)]
+/// Molecular topology container (atoms and connectivity).
 pub struct TopologyPy(pub(crate) UnsafeCell<Topology>);
 
 unsafe impl Send for TopologyPy {}
@@ -156,6 +160,7 @@ impl LenProvider for TopologyPy {
 
 #[pymethods]
 impl TopologyPy {
+    /// Number of atoms in this topology.
     fn __len__(&self) -> usize {
         self.inner().len()
     }

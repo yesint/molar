@@ -2,11 +2,13 @@ use molar::prelude::Atom;
 use pyo3::prelude::*;
 
 #[pyclass(name = "Atom")]
+/// Mutable atom container.
 pub(crate) struct AtomPy(pub(crate) Atom);
 
 #[pymethods]
 impl AtomPy {
     #[new]
+    /// Create an atom with default fields.
     fn new() -> Self {
         Self {
             0: Default::default(),
