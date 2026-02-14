@@ -1,5 +1,5 @@
 # **MolAR** - a **Mol**ecular **A**nalysis and modeling library for **R**ust.
-
+ 
 [![Crates.io](https://img.shields.io/crates/v/molar.svg)](https://crates.io/crates/molar)
 [![Documentation](https://docs.rs/molar/badge.svg)](https://docs.rs/molar)
 [![Python API Docs](https://img.shields.io/badge/python--api-docs-blue)](https://yesint.github.io/molar/)
