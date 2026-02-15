@@ -216,19 +216,22 @@ mod internal_tpr_enabled {
 
 #[cfg(not(gromacs))]
 mod internal_tpr_disabled {
-    use crate::core::{State, Topology};
+    use crate::{FileFormatHandler, State, Topology};
     use std::path::Path;
     use thiserror::Error;
 
     pub struct TprFileHandler {}
 
-    impl TprFileHandler {
-        pub fn open(_fname: impl AsRef<Path>) -> Result<Self, TprHandlerError> {
-            Err(TprHandlerError::GromacsDisabled)
+    impl FileFormatHandler for TprFileHandler {
+        fn open(_fname: impl AsRef<Path>) -> Result<Self, crate::FileFormatError>
+            where
+                Self: Sized, 
+        {
+            Err(crate::FileFormatError::Tpr(TprHandlerError::GromacsDisabled))
         }
 
-        pub fn read(&mut self) -> Result<(Topology, State), TprHandlerError> {
-            Err(TprHandlerError::GromacsDisabled)
+        fn read(&mut self) -> Result<(Topology, State), crate::FileFormatError> {
+            Err(crate::FileFormatError::Tpr(TprHandlerError::GromacsDisabled))
         }
     }
 
