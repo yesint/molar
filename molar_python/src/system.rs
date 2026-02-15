@@ -309,8 +309,8 @@ impl SystemPy {
         }
     }
 
-    #[pyo3(signature = (*args))]
     /// Append atoms from selection-like input or from `(Atom, position)`.
+    #[pyo3(signature = (*args))]
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> PyResult<()> {
         let slf_b = slf.get();
 
@@ -331,11 +331,18 @@ impl SystemPy {
 
             Ok(())
         } else if args.len() == 2 {
+            // This can be Atom or AtomView
             let arg1 = args.get_item(0)?;
-            let ab = arg1.cast::<crate::atom::AtomPy>()?.borrow();
+            let ab = if let Ok(ab) = arg1.cast::<crate::atom::AtomPy>() {
+                &ab.borrow().0
+            } else {
+                unsafe{&*arg1.cast::<crate::atom::AtomView>()?.borrow().0}
+            };
+            
             let pos = args.get_item(1)?.extract::<PyArrayLike1<f32>>()?;
             let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
-            slf_b.r_top_mut().add_atoms(std::iter::once(&ab.0).cloned());
+            
+            slf_b.r_top_mut().add_atoms(std::iter::once(ab).cloned());
             slf_b
                 .r_st_mut()
                 .add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
