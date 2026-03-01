@@ -1,7 +1,9 @@
 use crate::prelude::*;
+use crate::sasa::Sasa;
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
 use num_traits::Bounded;
+use powersasa::SasaError;
 use serde::Deserialize;
 use std::f32::consts::PI;
 use std::iter::zip;
@@ -653,6 +655,22 @@ pub enum LipidOrderError {
     TailTooShort(usize),
 }
 
+/// Trait for analysis requiring both atom properties and positions.
+///
+/// The returned [`Sasa`] is both a result holder and a persistent calculator:
+/// call [`Sasa::update`] on subsequent frames to reuse the power diagram.
+pub trait MeasureAtomPos: AtomIterProvider + PosIterProvider + LenProvider {
+    /// Compute SASA (areas only).
+    fn sasa(&self) -> Result<Sasa, MeasureError> {
+        Sasa::new(self)
+    }
+
+    /// Compute SASA with per-atom volumes enabled.
+    fn sasa_vol(&self) -> Result<Sasa, MeasureError> {
+        Sasa::new_with_volume(self)
+    }
+}
+
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
 pub enum MeasureError {
@@ -681,6 +699,9 @@ pub enum MeasureError {
 
     #[error("selection error")]
     Sel,
+
+    #[error("sasa error")]
+    Sasa(#[from] SasaError),
 }
 
 #[cfg(test)]

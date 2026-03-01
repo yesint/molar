@@ -220,6 +220,15 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    fn skip_to_last(&mut self) -> PyResult<()> {
+        let h = self
+            .0
+            .as_mut()
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        h.seek_last().map_err(to_py_io_err)?;
+        Ok(())
+    }
+
     /// Seek reader to simulation time.
     ///
     /// :param t: Target simulation time.

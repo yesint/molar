@@ -16,7 +16,6 @@ readme = "../README.md"
 [dependencies]
 # Workspace member crates
 molar_molfile = { path = "../molar_molfile", version = "0.9.0" }
-molar_powersasa = { path = "../molar_powersasa", version = "0.9.0" }
 molar_gromacs = { path = "../molar_gromacs", version = "1.0.0" }
 
 # Normal dependencies
@@ -30,7 +29,6 @@ comfy-table.workspace = true
 num-traits = "0.2.16"
 itertools = "0.14.0"
 rustc-hash = "2.1.0"
-sync-unsafe-cell = "0.1.1"
 triomphe = { version = "0.1.14", default-features = false, features = ["std"] }
 sorted-vec.workspace = true
 anyhow.workspace = true
@@ -39,6 +37,7 @@ serde.workspace = true
 rayon.workspace = true
 compact_str.workspace = true
 molly = {git = "https://github.com/ma3ke/molly.git"}
+powersasa = {git = "https://github.com/yesint/powersasa-llm.git"}
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -44,31 +44,34 @@ use crate::{
 };
 //-------------------------------------------
 /// Solvent-accessible surface area and volume measurements for a selection.
+///
+/// Both a result holder and a persistent calculator: call :meth:`update` on subsequent
+/// frames to reuse the power diagram without full reconstruction.
 
-#[pyclass(unsendable, name = "SasaResults")]
-struct SasaResultsPy(SasaResults);
+#[pyclass(unsendable, name = "Sasa")]
+struct SasaPy(Sasa);
 
 #[pymethods]
-impl SasaResultsPy {
-    /// Per-atom solvent-accessible areas.
+impl SasaPy {
+    /// Per-atom solvent-accessible areas (nm²).
     #[getter]
     fn areas(&self) -> &[f32] {
         self.0.areas()
     }
 
-    /// Per-atom solvent-excluded volumes.
+    /// Per-atom solvent-excluded volumes (only meaningful when built with ``sasa_vol``).
     #[getter]
     fn volumes(&self) -> &[f32] {
         self.0.volumes()
     }
 
-    /// Total solvent-accessible area.
+    /// Total solvent-accessible area (nm²).
     #[getter]
     fn total_area(&self) -> f32 {
         self.0.total_area()
     }
 
-    /// Total solvent-excluded volume.
+    /// Total solvent-excluded volume (only meaningful when built with ``sasa_vol``).
     #[getter]
     fn total_volume(&self) -> f32 {
         self.0.total_volume()
@@ -340,7 +343,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FileStatsPy>()?;
     m.add_class::<SystemPy>()?;
     m.add_class::<SelPy>()?;
-    m.add_class::<SasaResultsPy>()?;
+    m.add_class::<SasaPy>()?;
     m.add_class::<NdxFilePy>()?;
     m.add_class::<SysPosIterator>()?;
     m.add_class::<SysAtomIterator>()?;

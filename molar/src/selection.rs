@@ -25,7 +25,6 @@ pub use traits::*;
 mod par_split;
 pub use par_split::*;
 
-pub use molar_powersasa::SasaResults;
 
 //############################################################
 //#  Tests
@@ -118,7 +117,8 @@ mod tests {
     fn test_write_to_file() -> anyhow::Result<()> {
         let sys = System::from_file("tests/protein.pdb")?;
         let sel = sys.select("name CA")?;
-        sys.try_bind(&sel)?.save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
+        sys.try_bind(&sel)?
+            .save(concat!(env!("OUT_DIR"), "/f.pdb"))?;
 
         // let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/f.pdb"))?;
         // h.write(&sel)?;
@@ -133,7 +133,8 @@ mod tests {
     #[test]
     fn test_unwrap_connectivity_1() -> anyhow::Result<()> {
         let (mut sys, ind) = make_sel_prot()?;
-        sys.try_bind_mut(&ind)?.unwrap_connectivity_dim(0.2, PBC_FULL)?;
+        sys.try_bind_mut(&ind)?
+            .unwrap_connectivity_dim(0.2, PBC_FULL)?;
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
         let sel = sys.select_bound(ind)?;
@@ -171,12 +172,16 @@ mod tests {
     #[test]
     fn sasa_test() -> anyhow::Result<()> {
         let (sys, ind) = make_sel_all()?;
-        let res = sys.select_bound(ind)?.sasa();
-        println!(
-            "Sasa: {a}, Volume: {v}",
-            a = res.total_area(),
-            v = res.total_volume()
-        );
+        let sel = sys.select_bound(ind)?;
+        let s = sel.sasa()?;
+        assert!(s.total_area() > 0.0);
+        assert_eq!(s.areas().len(), sel.len());
+        println!("Sasa area: {}", s.total_area());
+
+        let sv = sel.sasa_vol()?;
+        assert!(sv.total_volume() > 0.0);
+        assert_eq!(sv.areas().len(), sel.len());
+        println!("Sasa area: {}, volume: {}", sv.total_area(), sv.total_volume());
         Ok(())
     }
 

@@ -150,18 +150,6 @@ pub trait AtomPosAnalysis: LenProvider + IndexProvider + Sized {
         self.whole_attr(|at| &at.chain)
     }
 
-    /// Computes the Solvet Accessible Surface Area (SASA).
-    fn sasa(&self) -> SasaResults {
-        molar_powersasa::compute_sasa(
-            self.len(),
-            0.14,
-            |i| unsafe {
-                let ind = self.get_index_unchecked(i);
-                self.coords_ptr().add(ind) as *mut f32
-            },
-            |i: usize| self.get_particle(i).unwrap().atom.vdw(),
-        )
-    }
 }
 
 //============================================================
@@ -451,6 +439,7 @@ impl<T: AtomPosAnalysis> MeasurePos for T {}
 impl<T: AtomPosAnalysis + NonAtomPosAnalysis> MeasurePeriodic for T {}
 impl<T: AtomPosAnalysis> MeasureMasses for T {}
 impl<T: AtomPosAnalysis> MeasureRandomAccess for T {}
+impl<T: AtomPosAnalysis> MeasureAtomPos for T {}
 
 //██████  Modify traits
 

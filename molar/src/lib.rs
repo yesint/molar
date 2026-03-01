@@ -14,6 +14,7 @@ mod particle;
 mod periodic_box;
 mod periodic_table;
 mod providers;
+mod sasa;
 mod selection;
 mod state;
 mod topology;
@@ -27,15 +28,15 @@ pub mod prelude {
     pub use crate::{
         aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, io::*,
         measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
-        selection::*, state::*, topology::*,
+        sasa::*, selection::*, state::*, topology::*,
     };
     pub use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 }
 
 pub use crate::{
     aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, io::*, measure::*,
-    modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, selection::*, state::*,
-    topology::*,
+    modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, sasa::*, selection::*,
+    state::*, topology::*,
 };
 
 /// Prints a welcome message for MolAR with package information and the specified tool name
