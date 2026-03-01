@@ -3,7 +3,6 @@ members = [
 "molar",
 "molar_molfile",
 "molar_gromacs",
-"molar_powersasa",
 "molar_bin", 
 "molar_python", 
 "molar_membrane"
