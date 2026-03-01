@@ -25,7 +25,6 @@ nalgebra.workspace = true
 peg.workspace = true
 regex.workspace = true
 log.workspace = true
-comfy-table.workspace = true
 num-traits = "0.2.16"
 itertools = "0.14.0"
 rustc-hash = "2.1.0"

@@ -39,6 +39,9 @@ pub use crate::{
     state::*, topology::*,
 };
 
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
+
 /// Prints a welcome message for MolAR with package information and the specified tool name
 /// # Example
 /// ```
@@ -46,28 +49,30 @@ pub use crate::{
 /// greeting("analysis");
 /// ```
 pub fn greeting(tool: impl AsRef<str>) {
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
-    use comfy_table::presets::UTF8_FULL;
-    use comfy_table::{Attribute, Cell, Table};
+    const TITLE: &str = "MolAR - Molecular Analysis for Rust";
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .add_row(vec![
-            Cell::new("MolAR - Molecular Analysis for Rust").add_attributes(vec![Attribute::Bold])
-        ])
-        .add_row(vec![format!(
-            "{}\n{}",
-            env!("CARGO_PKG_HOMEPAGE"),
-            env!("CARGO_PKG_AUTHORS")
-        )])
-        .add_row(vec![format!(
-            "MolAR version: {}",
-            env!("CARGO_PKG_VERSION")
-        )])
-        .add_row(vec![format!("Tool: {}", tool.as_ref())]);
-    println!("{table}");
+    let version = format!("MolAR version: {}", env!("CARGO_PKG_VERSION"));
+    let tool    = format!("Tool: {}", tool.as_ref());
+
+    // Content width = widest row; bar = content + one space of padding on each side
+    let w = [env!("CARGO_PKG_HOMEPAGE"), env!("CARGO_PKG_AUTHORS"), &version, &tool]
+        .iter()
+        .map(|s| s.len())
+        .max()
+        .unwrap_or(0)
+        .max(TITLE.len());
+    let bar = "─".repeat(w + 2);
+
+    println!("╭{bar}╮");
+    println!("│ {BOLD}{TITLE:<w$}{RESET} │");
+    println!("├{bar}┤");
+    println!("│ {:<w$} │", env!("CARGO_PKG_HOMEPAGE"));
+    println!("│ {:<w$} │", env!("CARGO_PKG_AUTHORS"));
+    println!("├{bar}┤");
+    println!("│ {version:<w$} │");
+    println!("├{bar}┤");
+    println!("│ {tool:<w$} │");
+    println!("╰{bar}╯");
 }
 
 // Test code in README

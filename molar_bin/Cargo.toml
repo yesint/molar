@@ -18,7 +18,6 @@ molar = {version = "1.0.0", path = "../molar"}
 clap = {version = "4.5", features=["derive"]}
 env_logger = "0.11"
 log.workspace = true
-comfy-table.workspace = true
 nalgebra.workspace = true
 anyhow.workspace = true
 

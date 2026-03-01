@@ -20,7 +20,6 @@ clap.workspace = true
 triomphe.workspace = true
 env_logger = "0.11"
 log.workspace = true
-comfy-table.workspace = true
 nalgebra = {workspace = true, features = ["serde-serialize"]}
 sorted-vec.workspace = true
 serde.workspace = true
