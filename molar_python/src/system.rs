@@ -334,15 +334,15 @@ impl SystemPy {
             // This can be Atom or AtomView
             let arg1 = args.get_item(0)?;
             let ab = if let Ok(ab) = arg1.cast::<crate::atom::AtomPy>() {
-                &ab.borrow().0
+                ab.borrow().0.clone()
             } else {
-                unsafe{&*arg1.cast::<crate::atom::AtomView>()?.borrow().0}
+                arg1.cast::<crate::atom::AtomView>()?.borrow().atom()?.clone()
             };
             
             let pos = args.get_item(1)?.extract::<PyArrayLike1<f32>>()?;
             let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
             
-            slf_b.r_top_mut().add_atoms(std::iter::once(ab).cloned());
+            slf_b.r_top_mut().add_atoms(std::iter::once(&ab).cloned());
             slf_b
                 .r_st_mut()
                 .add_coords(std::iter::once(Pos::new(v.x, v.y, v.z)));
@@ -459,12 +459,13 @@ impl SysAtomIterator {
     }
 
     /// Return next atom view.
-    fn __next__(&mut self) -> Option<AtomView> {
-        if self.cur >= self.top.get().len() {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<AtomView> {
+        if slf.cur >= slf.top.get().len() {
             return None;
         }
-        let atom_ptr = unsafe { self.top.get().inner().atoms.as_ptr().add(self.cur) as *mut Atom };
-        self.cur += 1;
-        Some(AtomView(atom_ptr))
+        let index = slf.cur;
+        slf.cur += 1;
+        let top = slf.top.clone_ref(slf.py());
+        Some(AtomView { top, index })
     }
 }

@@ -1,5 +1,6 @@
+use crate::topology_state::TopologyPy;
 use molar::prelude::{Atom, AtomLike};
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyIndexError, prelude::*};
 /// Mutable atom container.
 
 #[pyclass(name = "Atom")]
@@ -149,128 +150,168 @@ impl AtomPy {
 
 //----------------------------------------
 
+/// View into an atom stored inside a System or Sel.
+///
+/// Holds a reference-counted handle to the topology and the atom's index,
+/// so it remains safe even if the originating System is reallocated by
+/// `append()`. After `remove()` the index may address a different atom
+/// (by design), but will raise `IndexError` if out of range.
 #[pyclass(name = "AtomView", unsendable)]
-pub(crate) struct AtomView(pub(crate) *mut Atom);
+pub(crate) struct AtomView {
+    pub(crate) top: Py<TopologyPy>,
+    pub(crate) index: usize,
+}
+
+impl AtomView {
+    pub(crate) fn atom(&self) -> PyResult<&Atom> {
+        self.top
+            .get()
+            .inner()
+            .atoms
+            .get(self.index)
+            .ok_or_else(|| PyIndexError::new_err(format!("atom index {} out of range", self.index)))
+    }
+
+    fn atom_mut(&self) -> PyResult<&mut Atom> {
+        self.top
+            .get()
+            .inner_mut()
+            .atoms
+            .get_mut(self.index)
+            .ok_or_else(|| PyIndexError::new_err(format!("atom index {} out of range", self.index)))
+    }
+}
 
 #[pymethods]
 impl AtomView {
     #[getter(name)]
-    fn get_name(&self) -> &str {
-        unsafe { &*self.0 }.name.as_str()
+    fn get_name(&self) -> PyResult<&str> {
+        Ok(self.atom()?.name.as_str())
     }
 
     #[setter(name)]
-    fn set_name(&mut self, value: &str) {
-        unsafe { &mut *self.0 }.set_name(value);
+    fn set_name(&self, value: &str) -> PyResult<()> {
+        self.atom_mut()?.set_name(value);
+        Ok(())
     }
 
     // resname
     #[getter(resname)]
-    fn get_resname(&self) -> &str {
-        unsafe { &*self.0 }.resname.as_str()
+    fn get_resname(&self) -> PyResult<&str> {
+        Ok(self.atom()?.resname.as_str())
     }
 
     #[setter(resname)]
-    fn set_resname(&mut self, value: &str) {
-        unsafe { &mut *self.0 }.set_resname(value);
+    fn set_resname(&self, value: &str) -> PyResult<()> {
+        self.atom_mut()?.set_resname(value);
+        Ok(())
     }
 
     // resid
     #[getter(resid)]
-    fn get_resid(&self) -> i32 {
-        unsafe { &*self.0 }.resid
+    fn get_resid(&self) -> PyResult<i32> {
+        Ok(self.atom()?.resid)
     }
 
     #[setter(resid)]
-    fn set_resid(&mut self, value: i32) {
-        unsafe { &mut *self.0 }.resid = value;
+    fn set_resid(&self, value: i32) -> PyResult<()> {
+        self.atom_mut()?.resid = value;
+        Ok(())
     }
 
     // atomic_number
     #[getter(atomic_number)]
-    fn get_atomic_number(&self) -> u8 {
-        unsafe { &*self.0 }.atomic_number
+    fn get_atomic_number(&self) -> PyResult<u8> {
+        Ok(self.atom()?.atomic_number)
     }
 
     #[setter(atomic_number)]
-    fn set_atomic_number(&mut self, value: u8) {
-        unsafe { &mut *self.0 }.atomic_number = value;
+    fn set_atomic_number(&self, value: u8) -> PyResult<()> {
+        self.atom_mut()?.atomic_number = value;
+        Ok(())
     }
 
     // mass
     #[getter(mass)]
-    fn get_mass(&self) -> f32 {
-        unsafe { &*self.0 }.mass
+    fn get_mass(&self) -> PyResult<f32> {
+        Ok(self.atom()?.mass)
     }
 
     #[setter(mass)]
-    fn set_mass(&mut self, value: f32) {
-        unsafe { &mut *self.0 }.mass = value;
+    fn set_mass(&self, value: f32) -> PyResult<()> {
+        self.atom_mut()?.mass = value;
+        Ok(())
     }
 
     // charge
     #[getter(charge)]
-    fn get_charge(&self) -> f32 {
-        unsafe { &*self.0 }.charge
+    fn get_charge(&self) -> PyResult<f32> {
+        Ok(self.atom()?.charge)
     }
 
     #[setter(charge)]
-    fn set_charge(&mut self, value: f32) {
-        unsafe { &mut *self.0 }.charge = value;
+    fn set_charge(&self, value: f32) -> PyResult<()> {
+        self.atom_mut()?.charge = value;
+        Ok(())
     }
 
     // type_name
     #[getter(type_name)]
-    fn get_type_name(&self) -> &str {
-        unsafe { &*self.0 }.type_name.as_str()
+    fn get_type_name(&self) -> PyResult<&str> {
+        Ok(self.atom()?.type_name.as_str())
     }
 
     #[setter(type_name)]
-    fn set_type_name(&mut self, value: &str) {
-        unsafe { &mut *self.0 }.set_type_name(value);
+    fn set_type_name(&self, value: &str) -> PyResult<()> {
+        self.atom_mut()?.set_type_name(value);
+        Ok(())
     }
 
     // type_id
     #[getter(type_id)]
-    fn get_type_id(&self) -> u32 {
-        unsafe { &*self.0 }.type_id
+    fn get_type_id(&self) -> PyResult<u32> {
+        Ok(self.atom()?.type_id)
     }
 
     #[setter(type_id)]
-    fn set_type_id(&mut self, value: u32) {
-        unsafe { &mut *self.0 }.type_id = value;
+    fn set_type_id(&self, value: u32) -> PyResult<()> {
+        self.atom_mut()?.type_id = value;
+        Ok(())
     }
 
     // chain
     #[getter(chain)]
-    fn get_chain(&self) -> char {
-        unsafe { &*self.0 }.chain
+    fn get_chain(&self) -> PyResult<char> {
+        Ok(self.atom()?.chain)
     }
 
     #[setter(chain)]
-    fn set_chain(&mut self, value: char) {
-        unsafe { &mut *self.0 }.chain = value;
+    fn set_chain(&self, value: char) -> PyResult<()> {
+        self.atom_mut()?.chain = value;
+        Ok(())
     }
 
     // bfactor
     #[getter(bfactor)]
-    fn get_bfactor(&self) -> f32 {
-        unsafe { &*self.0 }.bfactor
+    fn get_bfactor(&self) -> PyResult<f32> {
+        Ok(self.atom()?.bfactor)
     }
 
     #[setter(bfactor)]
-    fn set_bfactor(&mut self, value: f32) {
-        unsafe { &mut *self.0 }.bfactor = value;
+    fn set_bfactor(&self, value: f32) -> PyResult<()> {
+        self.atom_mut()?.bfactor = value;
+        Ok(())
     }
 
     // occupancy
     #[getter(occupancy)]
-    fn get_occupancy(&self) -> f32 {
-        unsafe { &*self.0 }.occupancy
+    fn get_occupancy(&self) -> PyResult<f32> {
+        Ok(self.atom()?.occupancy)
     }
 
     #[setter(occupancy)]
-    fn set_occupancy(&mut self, value: f32) {
-        unsafe { &mut *self.0 }.occupancy = value;
+    fn set_occupancy(&self, value: f32) -> PyResult<()> {
+        self.atom_mut()?.occupancy = value;
+        Ok(())
     }
 }

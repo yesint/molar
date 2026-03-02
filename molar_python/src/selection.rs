@@ -257,8 +257,7 @@ impl SelAtomIterator {
         }
         let idx = unsafe { sel.index.get_index_unchecked(s.cur.load(Ordering::Relaxed)) };
         s.cur.fetch_add(1, Ordering::Relaxed);
-        let atom_ptr = unsafe { sel.atoms_ptr().add(idx) as *mut Atom };
-        Some(AtomView(atom_ptr))
+        Some(AtomView { top: sel.py_top().clone_ref(slf.py()), index: idx })
     }
 }
 

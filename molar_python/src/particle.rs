@@ -134,8 +134,9 @@ impl ParticlePy {
     /// :returns: Mutable atom view.
     /// :rtype: Atom
     #[getter(atom)]
-    fn get_atom(&self) -> AtomView {
-        unsafe { AtomView(self.top_mut().get_atom_mut_unchecked(self.id)) }
+    fn get_atom(slf: &Bound<'_, Self>) -> AtomView {
+        let s = slf.get();
+        AtomView { top: s.top.clone_ref(slf.py()), index: s.id }
     }
 
     /// Replace atom from ``Atom`` or ``AtomView``.
@@ -148,7 +149,7 @@ impl ParticlePy {
         let at = if let Ok(at) = arg.cast::<AtomPy>() {
             at.borrow().0.clone()
         } else if let Ok(v) = arg.cast::<AtomView>() {
-            unsafe { (*v.borrow().0).clone() }
+            v.borrow().atom()?.clone()
         } else {
             let ty_name = arg.get_type().name()?.to_string();
             return Err(PyTypeError::new_err(format!(
