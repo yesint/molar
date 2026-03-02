@@ -40,7 +40,7 @@ use topology_state::*;
 
 use crate::{
     selection::{SelAtomIterator, SelPosIterator, TmpSel},
-    system::{SysAtomIterator, SysPosIterator},
+    system::{SysAtomIterator, SysParticleIterator, SysPosIterator},
 };
 //-------------------------------------------
 /// Solvent-accessible surface area and volume measurements for a selection.
@@ -76,10 +76,30 @@ impl SasaPy {
     fn total_volume(&self) -> f32 {
         self.0.total_volume()
     }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Sasa(n={}, total_area={:.3}, total_volume={:.3})",
+            self.0.areas().len(),
+            self.0.total_area(),
+            self.0.total_volume()
+        )
+    }
 }
 
 #[pyclass]
 struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
+
+#[pymethods]
+impl IsometryTransform {
+    fn __repr__(&self) -> String {
+        let t = &self.0.translation.vector;
+        format!(
+            "IsometryTransform(trans=[{:.3}, {:.3}, {:.3}])",
+            t[0], t[1], t[2]
+        )
+    }
+}
 
 // Free functions
 /// Compute rigid transform that best aligns `sel1` onto `sel2`.
@@ -347,6 +367,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NdxFilePy>()?;
     m.add_class::<SysPosIterator>()?;
     m.add_class::<SysAtomIterator>()?;
+    m.add_class::<SysParticleIterator>()?;
     m.add_class::<SelPosIterator>()?;
     m.add_class::<SelAtomIterator>()?;
     m.add_function(wrap_pyfunction!(greeting, m)?)?;

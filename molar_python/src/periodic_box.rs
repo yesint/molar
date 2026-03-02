@@ -223,6 +223,14 @@ impl PeriodicBoxPy {
         self.0.is_triclinic()
     }
 
+    fn __repr__(&self) -> String {
+        let (v, a) = self.0.to_vectors_angles();
+        format!(
+            "PeriodicBox([{:.3}, {:.3}, {:.3}] nm, [{:.1}, {:.1}, {:.1}]°)",
+            v[0], v[1], v[2], a[0], a[1], a[2]
+        )
+    }
+
     /// Compute squared distance with optional periodic dimensions.
     ///
     /// :param p1: First point (length 3).

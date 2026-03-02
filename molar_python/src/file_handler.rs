@@ -268,6 +268,23 @@ impl FileHandlerPy {
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
         Ok(h.file_path.clone())
     }
+
+    /// Support ``with`` statement — returns the handler itself.
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    /// Support ``with`` statement exit — does nothing (Rust Drop closes the file).
+    ///
+    /// Returns ``false`` so exceptions are not suppressed.
+    fn __exit__(
+        &self,
+        _exc_type: &Bound<'_, PyAny>,
+        _exc_val: &Bound<'_, PyAny>,
+        _exc_tb: &Bound<'_, PyAny>,
+    ) -> bool {
+        false
+    }
 }
 /// Runtime IO statistics collected by ``FileHandler``.
 

@@ -146,6 +146,13 @@ impl AtomPy {
     fn set_occupancy(&mut self, value: f32) {
         self.0.occupancy = value;
     }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Atom(name='{}', resname='{}', resid={}, chain='{}')",
+            self.0.name, self.0.resname, self.0.resid, self.0.chain
+        )
+    }
 }
 
 //----------------------------------------
@@ -313,5 +320,15 @@ impl AtomView {
     fn set_occupancy(&self, value: f32) -> PyResult<()> {
         self.atom_mut()?.occupancy = value;
         Ok(())
+    }
+
+    fn __repr__(&self) -> String {
+        match self.atom() {
+            Ok(a) => format!(
+                "AtomView(name='{}', resname='{}', resid={}, chain='{}', index={})",
+                a.name, a.resname, a.resid, a.chain, self.index
+            ),
+            Err(_) => format!("AtomView(<index {} out of range>)", self.index),
+        }
     }
 }

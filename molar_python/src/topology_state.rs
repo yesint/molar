@@ -48,6 +48,10 @@ impl StatePy {
         self.inner().len()
     }
 
+    fn __repr__(&self) -> String {
+        format!("State(n={}, t={:.2})", self.inner().len(), self.inner().time)
+    }
+
     /// Periodic box of this state.
     ///
     /// :returns: Periodic box.
@@ -190,6 +194,10 @@ impl TopologyPy {
     /// Number of atoms in this topology.
     fn __len__(&self) -> usize {
         self.inner().len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Topology(n={} atoms)", self.inner().len())
     }
 }
 

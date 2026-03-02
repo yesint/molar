@@ -1,12 +1,14 @@
 use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
 use numpy::nalgebra::{Const, VectorView};
 use numpy::{PyArray1, PyArrayLike1};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::{exceptions::PyTypeError, prelude::*, types::PyTuple};
 
 use crate::atom::AtomView;
+use crate::particle::ParticlePy;
 use crate::periodic_box::PeriodicBoxPy;
 use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
@@ -165,6 +167,10 @@ impl SystemPy {
 
     fn __len__(&self) -> usize {
         self.r_top().len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("System(n={} atoms)", self.r_top().len())
     }
 
     #[pyo3(signature = (arg=None))]
@@ -393,37 +399,63 @@ impl SystemPy {
     }
 
     /// Iterate over atom positions.
-    fn iter_pos(slf: PyRef<'_, Self>) -> PyRef<'_, SysPosIterator> {
-        Bound::new(
-            slf.py(),
-            SysPosIterator {
-                st: slf.py_st().clone_ref(slf.py()),
-                cur: 0,
-            },
-        )
-        .unwrap()
-        .borrow()
+    fn iter_pos(slf: Bound<'_, Self>) -> Bound<'_, SysPosIterator> {
+        Bound::new(slf.py(), SysPosIterator {
+            st: slf.get().py_st().clone_ref(slf.py()),
+            cur: AtomicUsize::new(0),
+        }).unwrap()
     }
 
     /// Iterate over atoms.
-    fn iter_atoms(slf: PyRef<'_, Self>) -> PyRef<'_, SysAtomIterator> {
-        Bound::new(
-            slf.py(),
-            SysAtomIterator {
-                top: slf.py_top().clone_ref(slf.py()),
-                cur: 0,
-            },
-        )
-        .unwrap()
-        .borrow()
+    fn iter_atoms(slf: Bound<'_, Self>) -> Bound<'_, SysAtomIterator> {
+        Bound::new(slf.py(), SysAtomIterator {
+            top: slf.get().py_top().clone_ref(slf.py()),
+            cur: AtomicUsize::new(0),
+        }).unwrap()
+    }
+
+    /// Iterate over particles (atom + position pairs).
+    fn __iter__(slf: &Bound<'_, Self>) -> SysParticleIterator {
+        let s = slf.get();
+        SysParticleIterator {
+            top: s.py_top().clone_ref(slf.py()),
+            st: s.py_st().clone_ref(slf.py()),
+            cur: AtomicUsize::new(0),
+        }
+    }
+
+    /// Get particle by index (supports negative indexing).
+    fn __getitem__(slf: &Bound<'_, Self>, i: isize) -> PyResult<ParticlePy> {
+        let n = slf.get().r_top().len();
+        let ind = if i < 0 {
+            let abs = i.unsigned_abs();
+            if abs > n {
+                return Err(PyIndexError::new_err(format!(
+                    "Negative index {i} is out of bounds {}:-1", -(n as isize)
+                )));
+            }
+            n - abs
+        } else if i >= n as isize {
+            return Err(PyIndexError::new_err(format!(
+                "Index {i} is out of bounds 0:{n}"
+            )));
+        } else {
+            i as usize
+        };
+        let s = slf.get();
+        Ok(ParticlePy {
+            top: s.py_top().clone_ref(slf.py()),
+            st: s.py_st().clone_ref(slf.py()),
+            id: ind,
+        })
     }
 }
 /// Iterator over system positions.
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct SysPosIterator {
     pub(crate) st: Py<StatePy>,
-    pub(crate) cur: usize,
+    pub(crate) cur: AtomicUsize,
 }
 
 #[pymethods]
@@ -435,20 +467,20 @@ impl SysPosIterator {
 
     /// Return next position as a NumPy array view.
     fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
-        let mut s = slf.borrow_mut();
-        if s.cur >= s.st.get().len() {
+        let s = slf.get();
+        let idx = s.cur.fetch_add(1, Ordering::Relaxed);
+        if idx >= s.st.get().len() {
             return None;
         }
-        s.cur += 1;
-        unsafe { Some(map_pyarray_to_pos(&s.st.bind(slf.py()), s.cur)) }
+        unsafe { Some(map_pyarray_to_pos(&s.st.bind(slf.py()), idx)) }
     }
 }
 /// Iterator over system atoms.
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct SysAtomIterator {
     pub(crate) top: Py<TopologyPy>,
-    pub(crate) cur: usize,
+    pub(crate) cur: AtomicUsize,
 }
 
 #[pymethods]
@@ -459,13 +491,41 @@ impl SysAtomIterator {
     }
 
     /// Return next atom view.
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<AtomView> {
-        if slf.cur >= slf.top.get().len() {
+    fn __next__(slf: &Bound<'_, Self>) -> Option<AtomView> {
+        let s = slf.get();
+        let idx = s.cur.fetch_add(1, Ordering::Relaxed);
+        if idx >= s.top.get().len() {
             return None;
         }
-        let index = slf.cur;
-        slf.cur += 1;
-        let top = slf.top.clone_ref(slf.py());
-        Some(AtomView { top, index })
+        Some(AtomView { top: s.top.clone_ref(slf.py()), index: idx })
+    }
+}
+
+/// Iterator over system particles (atom + position pairs).
+
+#[pyclass(frozen)]
+pub struct SysParticleIterator {
+    top: Py<TopologyPy>,
+    st: Py<StatePy>,
+    cur: AtomicUsize,
+}
+
+#[pymethods]
+impl SysParticleIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(slf: &Bound<'_, Self>) -> Option<ParticlePy> {
+        let s = slf.get();
+        let idx = s.cur.fetch_add(1, Ordering::Relaxed);
+        if idx >= s.top.get().len() {
+            return None;
+        }
+        Some(ParticlePy {
+            top: s.top.clone_ref(slf.py()),
+            st: s.st.clone_ref(slf.py()),
+            id: idx,
+        })
     }
 }

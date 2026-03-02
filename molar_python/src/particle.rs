@@ -128,6 +128,15 @@ impl ParticlePy {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).z = value }
     }
 
+    fn __repr__(&self) -> String {
+        let pos = unsafe { self.st().coords.get_unchecked(self.id) };
+        let a = unsafe { self.top().atoms.get_unchecked(self.id) };
+        format!(
+            "Particle(id={}, name='{}', resname='{}', resid={}, pos=[{:.3}, {:.3}, {:.3}])",
+            self.id, a.name, a.resname, a.resid, pos.x, pos.y, pos.z
+        )
+    }
+
     //atom
     /// Get mutable atom view.
     ///

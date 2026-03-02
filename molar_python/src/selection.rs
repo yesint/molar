@@ -261,6 +261,11 @@ impl SelAtomIterator {
     }
 }
 
+/// Returns `true` if both selections share the same underlying topology Python object.
+fn same_top(a: &SelPy, b: &SelPy) -> bool {
+    a.py_top().as_ptr() == b.py_top().as_ptr()
+}
+
 #[pymethods]
 impl SelPy {
     /// Number of atoms in this selection.
@@ -269,6 +274,10 @@ impl SelPy {
     /// :rtype: int
     fn __len__(&self) -> usize {
         self.index.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Sel(n={} atoms)", self.index.len())
     }
 
     /// Build sub-selection from query string, range, or explicit indices.
@@ -866,5 +875,111 @@ impl SelPy {
             },
         )
         .unwrap()
+    }
+
+    /// Test whether a global atom index is in this selection.
+    fn __contains__(&self, idx: usize) -> bool {
+        self.index.contains(&idx)
+    }
+
+    /// Union of two selections (``sel1 | sel2``); both must belong to the same system.
+    fn __or__(slf: &Bound<'_, Self>, other: &SelPy) -> PyResult<SelPy> {
+        let s = slf.get();
+        if !same_top(s, other) {
+            return Err(PyValueError::new_err("selections must belong to the same system"));
+        }
+        let a = s.index();
+        let b = other.index();
+        let mut result: Vec<usize> = Vec::with_capacity(a.len() + b.len());
+        let (mut i, mut j) = (0, 0);
+        while i < a.len() && j < b.len() {
+            if a[i] < b[j]      { result.push(a[i]); i += 1; }
+            else if a[i] > b[j] { result.push(b[j]); j += 1; }
+            else                { result.push(a[i]); i += 1; j += 1; }
+        }
+        result.extend_from_slice(&a[i..]);
+        result.extend_from_slice(&b[j..]);
+        let index: SVec = result.into_iter().collect();
+        Ok(SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index))
+    }
+
+    /// Intersection of two selections (``sel1 & sel2``); raises ``ValueError`` if empty.
+    fn __and__(slf: &Bound<'_, Self>, other: &SelPy) -> PyResult<SelPy> {
+        let s = slf.get();
+        if !same_top(s, other) {
+            return Err(PyValueError::new_err("selections must belong to the same system"));
+        }
+        let a = s.index();
+        let b = other.index();
+        let mut result: Vec<usize> = Vec::new();
+        let (mut i, mut j) = (0, 0);
+        while i < a.len() && j < b.len() {
+            if a[i] < b[j]      { i += 1; }
+            else if a[i] > b[j] { j += 1; }
+            else                { result.push(a[i]); i += 1; j += 1; }
+        }
+        if result.is_empty() {
+            return Err(PyValueError::new_err("empty intersection"));
+        }
+        let index: SVec = result.into_iter().collect();
+        Ok(SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index))
+    }
+
+    /// Set difference (``sel1 - sel2``, atoms in sel1 not in sel2); raises ``ValueError`` if empty.
+    fn __sub__(slf: &Bound<'_, Self>, other: &SelPy) -> PyResult<SelPy> {
+        let s = slf.get();
+        if !same_top(s, other) {
+            return Err(PyValueError::new_err("selections must belong to the same system"));
+        }
+        let a = s.index();
+        let b = other.index();
+        let mut result: Vec<usize> = Vec::new();
+        let (mut i, mut j) = (0, 0);
+        while i < a.len() {
+            if j >= b.len() || a[i] < b[j] { result.push(a[i]); i += 1; }
+            else if a[i] > b[j]            { j += 1; }
+            else                           { i += 1; j += 1; }
+        }
+        if result.is_empty() {
+            return Err(PyValueError::new_err("empty difference"));
+        }
+        let index: SVec = result.into_iter().collect();
+        Ok(SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index))
+    }
+
+    /// Complement: all system atoms NOT in this selection (``~sel``); raises ``ValueError`` if empty.
+    fn __invert__(slf: &Bound<'_, Self>) -> PyResult<SelPy> {
+        let s = slf.get();
+        let n = s.r_top().len();
+        let sel_idx = s.index();
+        let mut result: Vec<usize> = Vec::with_capacity(n.saturating_sub(sel_idx.len()));
+        let mut j = 0usize;
+        for i in 0..n {
+            if j < sel_idx.len() && sel_idx[j] == i { j += 1; }
+            else { result.push(i); }
+        }
+        if result.is_empty() {
+            return Err(PyValueError::new_err(
+                "empty complement (selection covers all atoms)",
+            ));
+        }
+        let index: SVec = result.into_iter().collect();
+        Ok(SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index))
+    }
+
+    /// Expand selection to include all atoms in the same residues as any selected atom.
+    fn whole_residues(slf: &Bound<'_, Self>) -> SelPy {
+        let s = slf.get();
+        let sel = AtomPosAnalysis::whole_residues(s);
+        let index: SVec = sel.iter_index().collect();
+        SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index)
+    }
+
+    /// Expand selection to include all atoms in the same chains as any selected atom.
+    fn whole_chains(slf: &Bound<'_, Self>) -> SelPy {
+        let s = slf.get();
+        let sel = AtomPosAnalysis::whole_chains(s);
+        let index: SVec = sel.iter_index().collect();
+        SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index)
     }
 }
