@@ -1,3 +1,4 @@
+use crate::atom::{ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
 use crate::prelude::*;
 use std::{
     fs::File,
@@ -168,18 +169,20 @@ impl FileFormatHandler for GroFileHandler {
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
                     .trim()
                     .parse::<i32>().map_err(GroHandlerError::ParseInt)?,
-                resname: line
-                    .get(5..10)
-                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
-                    .trim()
-                    .into(),
-                name: line
-                    .get(10..15)
-                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
-                    .trim()
-                    .into(),
+                resname: AtomStr::from_bytes(
+                    line.get(5..10)
+                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
+                        .trim()
+                        .as_bytes(),
+                ).expect(ATOM_RESNAME_EXPECT),
+                name: AtomStr::from_bytes(
+                    line.get(10..15)
+                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
+                        .trim()
+                        .as_bytes(),
+                ).expect(ATOM_NAME_EXPECT),
                 chain: ' ',
-                type_name: "".into(),
+                type_name: AtomStr::from_bytes(b"").unwrap(),
                 ..Default::default()
             };
 

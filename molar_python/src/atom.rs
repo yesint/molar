@@ -1,4 +1,4 @@
-use molar::prelude::Atom;
+use molar::prelude::{Atom, AtomLike};
 use pyo3::prelude::*;
 /// Mutable atom container.
 
@@ -23,7 +23,7 @@ impl AtomPy {
 
     #[setter(name)]
     fn set_name(&mut self, value: &str) {
-        self.0.name = value.into();
+        self.0.set_name(value);
     }
 
     // resname
@@ -35,7 +35,7 @@ impl AtomPy {
 
     #[setter(resname)]
     fn set_resname(&mut self, value: &str) {
-        self.0.resname = value.into();
+        self.0.set_resname(value);
     }
 
     // resid
@@ -95,7 +95,7 @@ impl AtomPy {
 
     #[setter(type_name)]
     fn set_type_name(&mut self, value: &str) {
-        self.0.type_name = value.into();
+        self.0.set_type_name(value);
     }
 
     // type_id
@@ -161,7 +161,7 @@ impl AtomView {
 
     #[setter(name)]
     fn set_name(&mut self, value: &str) {
-        unsafe { &mut *self.0 }.name = value.into();
+        unsafe { &mut *self.0 }.set_name(value);
     }
 
     // resname
@@ -172,7 +172,7 @@ impl AtomView {
 
     #[setter(resname)]
     fn set_resname(&mut self, value: &str) {
-        unsafe { &mut *self.0 }.resname = value.into();
+        unsafe { &mut *self.0 }.set_resname(value);
     }
 
     // resid
@@ -227,7 +227,7 @@ impl AtomView {
 
     #[setter(type_name)]
     fn set_type_name(&mut self, value: &str) {
-        unsafe { &mut *self.0 }.type_name = value.into();
+        unsafe { &mut *self.0 }.set_type_name(value);
     }
 
     // type_id

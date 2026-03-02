@@ -1,4 +1,4 @@
-use crate::{atom::Atom, io::FileFormatHandler};
+use crate::{atom::{Atom, AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME_EXPECT}, io::FileFormatHandler};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -81,9 +81,9 @@ impl FileFormatHandler for ItpFileHandler {
                 break;
             }
             let mut at = Atom {
-                name: fields[4].into(),
-                resname: fields[3].into(),
-                type_name: fields[1].into(),
+                name: AtomStr::from_bytes(fields[4].as_bytes()).expect(ATOM_NAME_EXPECT),
+                resname: AtomStr::from_bytes(fields[3].as_bytes()).expect(ATOM_RESNAME_EXPECT),
+                type_name: AtomStr::from_bytes(fields[1].as_bytes()).expect(ATOM_TYPE_NAME_EXPECT),
                 resid: fields[2].parse().map_err(ItpHandlerError::ParseInt)?,
                 charge: fields[6].parse().map_err(ItpHandlerError::ParseFloat)?,
                 mass: fields[7].parse().map_err(ItpHandlerError::ParseFloat)?,

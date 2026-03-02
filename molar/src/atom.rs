@@ -1,5 +1,12 @@
 use super::periodic_table::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEMENT_VDW};
-use compact_str::CompactString;
+use tinystr::TinyAsciiStr;
+
+/// Stack-allocated ASCII atom string (max 8 bytes, no heap allocation).
+pub type AtomStr = TinyAsciiStr<8>;
+
+pub(crate) const ATOM_NAME_EXPECT:      &str = "atom name fits in 8 bytes";
+pub(crate) const ATOM_RESNAME_EXPECT:   &str = "residue name fits in 8 bytes";
+pub(crate) const ATOM_TYPE_NAME_EXPECT: &str = "atom type name fits in 8 bytes";
 
 pub trait AtomLike {
     /// Atom name.
@@ -54,12 +61,12 @@ pub trait AtomLike {
 
 /// Information about the atom except its coordinates.
 #[allow(dead_code)]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Atom {
     /// Atom name.
-    pub name: CompactString,
+    pub name: AtomStr,
     /// Residue name.
-    pub resname: CompactString,
+    pub resname: AtomStr,
     /// Residue id (aka residue number). This could be negative!
     pub resid: i32, // Could be negative.
     /// Residue index. Assigned when reading the [topology](super::Topology).
@@ -72,7 +79,7 @@ pub struct Atom {
     /// Charge in electroc charges.
     pub charge: f32,
     /// Name of the atom type.
-    pub type_name: CompactString,
+    pub type_name: AtomStr,
     /// Unique id of the atom type.
     pub type_id: u32,
     // PDB chain identifier.
@@ -81,6 +88,26 @@ pub struct Atom {
     pub bfactor: f32,
     /// PDB occupancy.
     pub occupancy: f32,
+}
+
+impl Default for Atom {
+    fn default() -> Self {
+        let empty = AtomStr::from_bytes(b"").unwrap();
+        Atom {
+            name: empty,
+            resname: empty,
+            type_name: empty,
+            resid: 0,
+            resindex: 0,
+            atomic_number: 0,
+            mass: 0.0,
+            charge: 0.0,
+            type_id: 0,
+            chain: '\0',
+            bfactor: 0.0,
+            occupancy: 0.0,
+        }
+    }
 }
 
 impl Atom {
@@ -178,7 +205,7 @@ impl AtomLike for Atom {
         self.name.as_str()
     }
     fn set_name(&mut self, name: &str) {
-        self.name = name.into();
+        self.name = AtomStr::from_bytes(name.as_bytes()).expect(ATOM_NAME_EXPECT);
     }
 
     // Residue name
@@ -186,7 +213,7 @@ impl AtomLike for Atom {
         self.resname.as_str()
     }
     fn set_resname(&mut self, resname: &str) {
-        self.resname = resname.into();
+        self.resname = AtomStr::from_bytes(resname.as_bytes()).expect(ATOM_RESNAME_EXPECT);
     }
 
     // Residue id
@@ -234,7 +261,7 @@ impl AtomLike for Atom {
         self.type_name.as_str()
     }
     fn set_type_name(&mut self, type_name: &str) {
-        self.type_name = type_name.into();
+        self.type_name = AtomStr::from_bytes(type_name.as_bytes()).expect(ATOM_TYPE_NAME_EXPECT);
     }
 
     // Type id

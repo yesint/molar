@@ -5,8 +5,8 @@ pub use internal_tpr_enabled::*;
 
 #[cfg(gromacs)]
 mod internal_tpr_enabled {
+    use crate::atom::{AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME_EXPECT};
     use crate::prelude::*;
-    use compact_str::CompactString;
     use molar_gromacs::gromacs_bindings::*;
     use nalgebra::Matrix3;
     use std::{
@@ -87,14 +87,14 @@ mod internal_tpr_enabled {
 
             unsafe {
                 for i in 0..natoms {
-                    let name = c_ptr_to_comp_str(*gmx_atomnames[i])?;
+                    let name = c_ptr_to_atom_str(*gmx_atomnames[i], ATOM_NAME_EXPECT)?;
                     let resi = gmx_atoms[i].resind as usize;
-                    let resname = c_ptr_to_comp_str(*gmx_resinfo[resi].name)?;
+                    let resname = c_ptr_to_atom_str(*gmx_resinfo[resi].name, ATOM_RESNAME_EXPECT)?;
                     let mut chain = gmx_resinfo[resi].chainid as u8 as char;
                     if chain == '\0' {
                         chain = ' ';
                     }
-                    let type_name = c_ptr_to_comp_str(*gmx_atomtypes[i])?;
+                    let type_name = c_ptr_to_atom_str(*gmx_atomtypes[i], ATOM_TYPE_NAME_EXPECT)?;
 
                     let new_atom = Atom {
                         name,
@@ -184,11 +184,9 @@ mod internal_tpr_enabled {
         }
     }
 
-    unsafe fn c_ptr_to_comp_str(ptr: *const i8) -> Result<CompactString, TprHandlerError> {
-        Ok(CStr::from_ptr(ptr)
-            .to_str()
-            .map_err(|e| TprHandlerError::CStringUtf8(e))?
-            .into())
+    unsafe fn c_ptr_to_atom_str(ptr: *const i8, expect: &str) -> Result<AtomStr, TprHandlerError> {
+        let s = CStr::from_ptr(ptr).to_str().map_err(TprHandlerError::CStringUtf8)?;
+        Ok(AtomStr::from_bytes(s.as_bytes()).expect(expect))
     }
 
     fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {

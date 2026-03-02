@@ -2,7 +2,7 @@ use super::topology_state::TopologyPy;
 use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
 use crate::{atom::AtomPy, topology_state::StatePy};
-use molar::{RandomAtomMutProvider, State, Topology};
+use molar::{AtomLike, RandomAtomMutProvider, State, Topology};
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -183,7 +183,7 @@ impl ParticlePy {
     #[setter(name)]
     fn set_name(&self, value: &str) {
         unsafe {
-            self.top_mut().atoms.get_unchecked_mut(self.id).name = value.to_owned().into()
+            self.top_mut().atoms.get_unchecked_mut(self.id).set_name(value)
         }
     }
     // resname
@@ -211,7 +211,7 @@ impl ParticlePy {
     #[setter(resname)]
     fn set_resname(&self, value: &str) {
         unsafe {
-            self.top_mut().atoms.get_unchecked_mut(self.id).resname = value.to_owned().into()
+            self.top_mut().atoms.get_unchecked_mut(self.id).set_resname(value)
         }
     }
 
@@ -348,7 +348,7 @@ impl ParticlePy {
             self.top_mut()
                 .atoms
                 .get_unchecked_mut(self.id)
-                .type_name = value.to_owned().into()
+                .set_type_name(value)
         }
     }
 

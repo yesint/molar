@@ -34,7 +34,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 rayon.workspace = true
-compact_str.workspace = true
+tinystr.workspace = true
 molly = {git = "https://github.com/ma3ke/molly.git"}
 powersasa = {git = "https://github.com/yesint/powersasa-llm.git"}
 

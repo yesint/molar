@@ -1,5 +1,6 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 
+use crate::atom::{ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
 use crate::prelude::*;
 
 //--------------------------------------------------------------
@@ -344,7 +345,7 @@ pub trait AtomIterMutProvider {
         Self: Sized,
     {
         for a in self.iter_atoms_mut() {
-            a.name = val.into();
+            a.name = AtomStr::from_bytes(val.as_bytes()).expect(ATOM_NAME_EXPECT);
         }
     }
 
@@ -354,7 +355,7 @@ pub trait AtomIterMutProvider {
         Self: Sized,
     {
         for a in self.iter_atoms_mut() {
-            a.resname = val.into();
+            a.resname = AtomStr::from_bytes(val.as_bytes()).expect(ATOM_RESNAME_EXPECT);
         }
     }
 
