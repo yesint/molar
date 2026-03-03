@@ -9,12 +9,24 @@ use pyo3::prelude::*;
 /// View over one atom and its coordinates inside a system/selection.
 ///
 /// Exposes both coordinate fields and atom descriptors as mutable properties.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    p = sys[0]
+///    print(p.name, p.resid, p.pos)    # "CA", 1, [x, y, z]
+///    p.x = 1.5    # move to 1.5 nm on x axis
+///    p.mass = 12.0
 
 #[pyclass(name = "Particle", frozen)]
 pub(crate) struct ParticlePy {
     pub(crate) top: Py<TopologyPy>,
     pub(crate) st: Py<StatePy>,
-    // id is readonly
+    /// Global atom index within the parent system/selection (read-only).
+    ///
+    /// :returns: Global atom index.
+    /// :rtype: int
     #[pyo3(get)]
     pub(crate) id: usize,
 }

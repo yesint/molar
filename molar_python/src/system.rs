@@ -14,6 +14,17 @@ use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
 use crate::SelPy;
 /// Coupled topology + state object used as the primary analysis source.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    sys = pymolar.System("protein.pdb")
+///    sel = sys("protein and name CA")
+///    for particle in sys:
+///        print(particle.name, particle.pos)
+///    sys.save("out.pdb")
 
 #[pyclass(name = "System", frozen)]
 pub struct SystemPy {
@@ -175,6 +186,20 @@ impl SystemPy {
 
     #[pyo3(signature = (arg=None))]
     /// Create a selection from query string, range, indices, or all atoms.
+    ///
+    /// :param arg: Selection expression (str), range tuple ``(start, end)``, index list, or
+    ///     ``None`` to select all atoms.
+    /// :returns: New selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot  = sys("protein")      # text query
+    ///    first = sys((0, 100))       # range [0, 100)
+    ///    pick  = sys([0, 5, 10])     # explicit indices
+    ///    all_  = sys()               # all atoms
     fn __call__(slf: &Bound<Self>, arg: Option<&Bound<'_, PyAny>>) -> PyResult<SelPy> {
         let sys = slf.get();
 
@@ -256,11 +281,18 @@ impl SystemPy {
     //     }
     // }
 
+    /// Backing ``State`` object (coordinates + time + box).
+    ///
+    /// :returns: State object.
+    /// :rtype: State
     #[getter("state")]
     fn get_state(slf: Bound<Self>) -> Bound<StatePy> {
         slf.get().py_st().bind(slf.py()).clone()
     }
 
+    /// Set backing ``State`` object; must be layout-compatible.
+    ///
+    /// :param st: New state.
     #[setter("state")]
     fn set_state(&self, st: &Bound<StatePy>) -> PyResult<()> {
         if self.r_st().interchangeable(st.get().inner()) {
@@ -271,11 +303,18 @@ impl SystemPy {
         }
     }
 
+    /// Backing ``Topology`` object (atoms + connectivity).
+    ///
+    /// :returns: Topology object.
+    /// :rtype: Topology
     #[getter("topology")]
     fn get_topology(slf: Bound<Self>) -> Bound<TopologyPy> {
         slf.get().py_top().bind(slf.py()).clone()
     }
 
+    /// Set backing ``Topology`` object; must be layout-compatible.
+    ///
+    /// :param top: New topology.
     #[setter("topology")]
     fn set_topology(&self, top: &Bound<TopologyPy>) -> PyResult<()> {
         if self.r_top().interchangeable(top.get().inner()) {
@@ -291,7 +330,17 @@ impl SystemPy {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_io_err)?)
     }
 
-    /// Remove atoms selected by argument (`Sel`, query, range, or indices).
+    /// Remove atoms selected by argument (``Sel``, query string, range, or indices).
+    ///
+    /// :param arg: Selection expression, ``Sel``, range tuple, or index list.
+    /// :returns: ``None``.
+    /// :rtype: None
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sys.remove("resname HOH")
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> PyResult<()> {
         if let Ok(sel) = arg.cast::<SelPy>() {
             // Selection provided
@@ -315,7 +364,19 @@ impl SystemPy {
         }
     }
 
-    /// Append atoms from selection-like input or from `(Atom, position)`.
+    /// Append atoms from a ``Sel``, selection expression, or ``(Atom, position)`` pair.
+    ///
+    /// :param args: Either one selection-like argument or ``(Atom, [x, y, z])``.
+    /// :returns: ``None``.
+    /// :rtype: None
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    import numpy as np
+    ///    sys.append(other_sel)                                    # append a Sel
+    ///    sys.append(pymolar.Atom(), np.array([1.0, 2.0, 3.0], dtype=np.float32))
     #[pyo3(signature = (*args))]
     fn append<'py>(slf: &Bound<'py, Self>, args: &Bound<'py, PyTuple>) -> PyResult<()> {
         let slf_b = slf.get();
@@ -358,11 +419,19 @@ impl SystemPy {
         }
     }
 
+    /// Simulation time of the current frame in picoseconds.
+    ///
+    /// :returns: Frame time in ps.
+    /// :rtype: float
     #[getter]
     fn get_time(&self) -> f32 {
         TimeProvider::get_time(self)
     }
 
+    /// Periodic box of the current frame; raises if box is absent.
+    ///
+    /// :returns: Periodic box.
+    /// :rtype: PeriodicBox
     #[getter]
     fn get_box(&self) -> PeriodicBoxPy {
         self.r_st()
@@ -372,11 +441,17 @@ impl SystemPy {
             .unwrap()
     }
 
+    /// Set periodic box.
+    ///
+    /// :param b: New periodic box.
     #[setter]
     fn set_box(&self, b: &PeriodicBoxPy) {
         *self.r_st_mut().pbox.as_mut().unwrap() = b.0.clone();
     }
 
+    /// Set simulation time in picoseconds.
+    ///
+    /// :param t: New frame time.
     #[setter]
     fn set_time(&self, t: f32) {
         self.r_st_mut().time = t;
@@ -425,6 +500,17 @@ impl SystemPy {
     }
 
     /// Get particle by index (supports negative indexing).
+    ///
+    /// :param i: Atom index (negative counts from end).
+    /// :returns: Particle view.
+    /// :rtype: Particle
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    p = sys[0]    # first atom
+    ///    p = sys[-1]   # last atom
     fn __getitem__(slf: &Bound<'_, Self>, i: isize) -> PyResult<ParticlePy> {
         let n = slf.get().r_top().len();
         let ind = if i < 0 {
@@ -450,7 +536,7 @@ impl SystemPy {
         })
     }
 }
-/// Iterator over system positions.
+/// Iterator over system atom positions.
 
 #[pyclass(frozen)]
 pub struct SysPosIterator {

@@ -11,6 +11,17 @@ use pyo3::{
 /// Coordinate frame with simulation time and periodic box.
 ///
 /// Stores coordinates, optional periodic box, and time for one frame.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    fh = pymolar.FileHandler("traj.xtc", "r")
+///    st = fh.read_state()
+///    print(st.time)    # simulation time in ps
+///    print(st.box)     # PeriodicBox
+///    sys.state = st    # hot-swap coordinates into system
 
 #[pyclass(name = "State", frozen)]
 pub struct StatePy(pub(crate) UnsafeCell<State>);
@@ -155,6 +166,13 @@ impl RandomPosProvider for StatePy {
 
 //----------------------------------------------------------------
 /// Molecular topology container (atoms and connectivity).
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    top = sys.topology
+///    print(len(top))    # number of atoms
 
 #[pyclass(name = "Topology", frozen)]
 pub struct TopologyPy(pub(crate) UnsafeCell<Topology>);

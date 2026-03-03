@@ -544,32 +544,56 @@ impl SelPy {
     //     }
     // }
 
-    /// Set chain ID for all selected atoms.
+    /// Set chain ID for all selected atoms in-place.
+    ///
+    /// :param val: New chain character.
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sel.set_same_chain('A')
     pub fn set_same_chain(&self, val: char) {
         AtomIterMutProvider::set_same_chain(self.r_top_mut(), val)
     }
 
-    /// Set residue name for all selected atoms.
+    /// Set residue name for all selected atoms in-place.
+    ///
+    /// :param val: New residue name.
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sel.set_same_resname('ALA')
     pub fn set_same_resname(&self, val: &str) {
         AtomIterMutProvider::set_same_resname(self.r_top_mut(), val)
     }
 
-    /// Set residue ID for all selected atoms.
+    /// Set residue ID for all selected atoms in-place.
+    ///
+    /// :param val: New residue ID.
     pub fn set_same_resid(&self, val: i32) {
         AtomIterMutProvider::set_same_resid(self.r_top_mut(), val)
     }
 
-    /// Set atom name for all selected atoms.
+    /// Set atom name for all selected atoms in-place.
+    ///
+    /// :param val: New atom name.
     pub fn set_same_name(&self, val: &str) {
         AtomIterMutProvider::set_same_name(self.r_top_mut(), val)
     }
 
-    /// Set atomic mass for all selected atoms.
+    /// Set atomic mass for all selected atoms in-place.
+    ///
+    /// :param val: New mass in Da.
     pub fn set_same_mass(&self, val: f32) {
         AtomIterMutProvider::set_same_mass(self.r_top_mut(), val)
     }
 
-    /// Set B-factor for all selected atoms.
+    /// Set B-factor for all selected atoms in-place.
+    ///
+    /// :param val: New B-factor value.
     pub fn set_same_bfactor(&self, val: f32) {
         AtomIterMutProvider::set_same_bfactor(self.r_top_mut(), val)
     }
@@ -627,9 +651,16 @@ impl SelPy {
     #[pyo3(text_signature = "($self, dims=None)")]
     /// Center of mass, optionally using periodic dimensions.
     ///
-    /// :param dims: Periodic dimensions ``[x, y, z]``.
-    /// :returns: Center-of-mass vector.
+    /// :param dims: Periodic dimensions ``[x, y, z]`` booleans.
+    /// :returns: Center-of-mass vector ``[x, y, z]`` in nm.
     /// :rtype: numpy.ndarray
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    center = sel.com()                           # [x, y, z] in nm
+    ///    center = sel.com(dims=[True, True, True])    # with PBC
     fn com<'py>(
         &self,
         py: Python<'py>,
@@ -649,9 +680,16 @@ impl SelPy {
     #[pyo3(text_signature = "($self, dims=None)")]
     /// Center of geometry, optionally using periodic dimensions.
     ///
-    /// :param dims: Periodic dimensions ``[x, y, z]``.
-    /// :returns: Center-of-geometry vector.
+    /// :param dims: Periodic dimensions ``[x, y, z]`` booleans.
+    /// :returns: Center-of-geometry vector ``[x, y, z]`` in nm.
     /// :rtype: numpy.ndarray
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    center = sel.cog()                           # [x, y, z] in nm
+    ///    center = sel.cog(dims=[True, True, True])    # with PBC
     fn cog<'py>(
         &self,
         py: Python<'py>,
@@ -690,6 +728,14 @@ impl SelPy {
     /// :param tr: Transform to apply.
     /// :returns: ``None``.
     /// :rtype: None
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    import pymolar
+    ///    tr = pymolar.fit_transform(mobile, ref)
+    ///    mobile.apply_transform(tr)
     fn apply_transform(&self, tr: &crate::IsometryTransform) {
         TmpSel {
             top: self.r_top(),
@@ -701,8 +747,14 @@ impl SelPy {
 
     /// Radius of gyration (non-periodic).
     ///
-    /// :returns: Radius of gyration.
+    /// :returns: Radius of gyration in nm.
     /// :rtype: float
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    rg = sel.gyration()    # radius of gyration in nm
     fn gyration(&self) -> PyResult<f32> {
         Ok(MeasureMasses::gyration(self).map_err(to_py_runtime_err)?)
     }
@@ -715,10 +767,16 @@ impl SelPy {
         Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
     }
 
-    /// Axis-aligned min/max coordinates.
+    /// Axis-aligned bounding-box min and max coordinates.
     ///
-    /// :returns: Tuple ``(min_xyz, max_xyz)``.
+    /// :returns: Tuple ``(min_xyz, max_xyz)`` as NumPy arrays.
     /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    lo, hi = sel.min_max()    # two [x, y, z] arrays in nm
     fn min_max<'py>(
         &self,
         py: Python<'py>,
@@ -731,8 +789,14 @@ impl SelPy {
 
     /// Principal moments and axes of inertia tensor.
     ///
-    /// :returns: Tuple ``(moments, axes)``.
+    /// :returns: Tuple ``(moments, axes)`` where moments is length-3 and axes is 3×3.
     /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    moments, axes = sel.inertia()
     fn inertia<'py>(
         &self,
         py: Python<'py>,
@@ -768,15 +832,28 @@ impl SelPy {
     /// :param fname: Output file path.
     /// :returns: ``None``.
     /// :rtype: None
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sel.save("subset.pdb")
     fn save(&self, fname: &str) -> PyResult<()> {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_runtime_err)?)
     }
 
     /// Translate selected coordinates by vector.
     ///
-    /// :param arg: Translation vector.
+    /// :param arg: Translation vector ``[x, y, z]`` in nm.
     /// :returns: ``None``.
     /// :rtype: None
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    import numpy as np
+    ///    sel.translate(np.array([0.5, 0.0, 0.0], dtype=np.float32))  # shift 0.5 nm along x
     fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> PyResult<()> {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
@@ -792,8 +869,14 @@ impl SelPy {
 
     /// Split selection into sub-selections by residue index.
     ///
-    /// :returns: List of selections.
+    /// :returns: List of per-residue selections.
     /// :rtype: list[Sel]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    residues = sel.split_resindex()    # list of Sel, one per residue
     fn split_resindex(&self) -> Vec<SelPy> {
         Python::attach(|py| {
             AtomPosAnalysis::split_resindex(self)
@@ -808,8 +891,14 @@ impl SelPy {
 
     /// Split selection into sub-selections by chain ID.
     ///
-    /// :returns: List of selections.
+    /// :returns: List of per-chain selections.
     /// :rtype: list[Sel]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    chains = sel.split_chain()    # list of Sel, one per chain
     fn split_chain(&self) -> Vec<SelPy> {
         Python::attach(|py| {
             self.split(|p| Some(p.atom.chain))
@@ -824,8 +913,14 @@ impl SelPy {
 
     /// Split selection into molecular connected components.
     ///
-    /// :returns: List of selections.
+    /// :returns: List of per-molecule selections.
     /// :rtype: list[Sel]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    mols = sel.split_molecule()    # list of Sel, one per molecule
     fn split_molecule(&self) -> Vec<SelPy> {
         Python::attach(|py| {
             self.split_mol_iter()
@@ -843,6 +938,12 @@ impl SelPy {
     /// :param name: NDX group name.
     /// :returns: NDX formatted group block.
     /// :rtype: str
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    ndx_str = sel.to_gromacs_ndx("Protein")
     fn to_gromacs_ndx(&self, name: &str) -> String {
         self.index.as_gromacs_ndx_str(name)
     }
@@ -878,11 +979,34 @@ impl SelPy {
     }
 
     /// Test whether a global atom index is in this selection.
+    ///
+    /// :param idx: Global atom index.
+    /// :returns: ``True`` if the index belongs to this selection.
+    /// :rtype: bool
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot = sys("protein")
+    ///    print(42 in prot)    # True or False
     fn __contains__(&self, idx: usize) -> bool {
         self.index.contains(&idx)
     }
 
     /// Union of two selections (``sel1 | sel2``); both must belong to the same system.
+    ///
+    /// :param other: Second selection.
+    /// :returns: Union selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot  = sys("protein")
+    ///    bb    = sys("backbone")
+    ///    union = prot | bb    # all protein + backbone atoms
     fn __or__(slf: &Bound<'_, Self>, other: &SelPy) -> PyResult<SelPy> {
         let s = slf.get();
         if !same_top(s, other) {
@@ -904,6 +1028,18 @@ impl SelPy {
     }
 
     /// Intersection of two selections (``sel1 & sel2``); raises ``ValueError`` if empty.
+    ///
+    /// :param other: Second selection.
+    /// :returns: Intersection selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot  = sys("protein")
+    ///    bb    = sys("backbone")
+    ///    inter = prot & bb    # backbone atoms only
     fn __and__(slf: &Bound<'_, Self>, other: &SelPy) -> PyResult<SelPy> {
         let s = slf.get();
         if !same_top(s, other) {
@@ -926,6 +1062,18 @@ impl SelPy {
     }
 
     /// Set difference (``sel1 - sel2``, atoms in sel1 not in sel2); raises ``ValueError`` if empty.
+    ///
+    /// :param other: Second selection.
+    /// :returns: Difference selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot  = sys("protein")
+    ///    bb    = sys("backbone")
+    ///    diff  = prot - bb    # sidechain atoms
     fn __sub__(slf: &Bound<'_, Self>, other: &SelPy) -> PyResult<SelPy> {
         let s = slf.get();
         if !same_top(s, other) {
@@ -948,6 +1096,16 @@ impl SelPy {
     }
 
     /// Complement: all system atoms NOT in this selection (``~sel``); raises ``ValueError`` if empty.
+    ///
+    /// :returns: Complement selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    bb     = sys("backbone")
+    ///    compl  = ~bb    # non-backbone atoms
     fn __invert__(slf: &Bound<'_, Self>) -> PyResult<SelPy> {
         let s = slf.get();
         let n = s.r_top().len();
@@ -968,6 +1126,16 @@ impl SelPy {
     }
 
     /// Expand selection to include all atoms in the same residues as any selected atom.
+    ///
+    /// :returns: Expanded selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    ca  = sys("name CA")
+    ///    res = ca.whole_residues()    # all atoms in CA-containing residues
     fn whole_residues(slf: &Bound<'_, Self>) -> SelPy {
         let s = slf.get();
         let sel = AtomPosAnalysis::whole_residues(s);
@@ -976,6 +1144,16 @@ impl SelPy {
     }
 
     /// Expand selection to include all atoms in the same chains as any selected atom.
+    ///
+    /// :returns: Expanded selection.
+    /// :rtype: Sel
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    ca    = sys("name CA")
+    ///    chain = ca.whole_chains()    # all atoms in those chains
     fn whole_chains(slf: &Bound<'_, Self>) -> SelPy {
         let s = slf.get();
         let sel = AtomPosAnalysis::whole_chains(s);

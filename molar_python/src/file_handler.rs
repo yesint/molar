@@ -220,6 +220,10 @@ impl FileHandlerPy {
         Ok(())
     }
 
+    /// Seek the reader to the last frame.
+    ///
+    /// :returns: ``None``.
+    /// :rtype: None
     fn skip_to_last(&mut self) -> PyResult<()> {
         let h = self
             .0
@@ -287,6 +291,15 @@ impl FileHandlerPy {
     }
 }
 /// Runtime IO statistics collected by ``FileHandler``.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    fh    = pymolar.FileHandler("traj.xtc", "r")
+///    stats = fh.stats
+///    print(stats.frames_processed, stats.cur_t)
 
 #[pyclass(name = "FileStats")]
 pub struct FileStatsPy(pub FileStats);

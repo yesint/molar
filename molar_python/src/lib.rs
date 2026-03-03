@@ -47,6 +47,14 @@ use crate::{
 ///
 /// Both a result holder and a persistent calculator: call :meth:`update` on subsequent
 /// frames to reuse the power diagram without full reconstruction.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    sasa = sel.sasa()
+///    print(sasa.total_area)    # total SASA in nm²
+///    print(sasa.areas[:5])     # per-atom areas
 
 #[pyclass(unsendable, name = "Sasa")]
 struct SasaPy(Sasa);
@@ -87,6 +95,9 @@ impl SasaPy {
     }
 }
 
+/// Rigid-body isometry (rotation + translation) returned by ``fit_transform``.
+///
+/// No public constructor; obtained from :func:`pymolar.fit_transform`.
 #[pyclass]
 struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
 
@@ -102,7 +113,20 @@ impl IsometryTransform {
 }
 
 // Free functions
-/// Compute rigid transform that best aligns `sel1` onto `sel2`.
+/// Compute rigid transform that best aligns ``sel1`` onto ``sel2``.
+///
+/// :param sel1: Mobile selection.
+/// :param sel2: Reference selection.
+/// :returns: Rigid transform.
+/// :rtype: IsometryTransform
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    tr = pymolar.fit_transform(mobile_sel, ref_sel)
+///    mobile_sel.apply_transform(tr)
 
 #[pyfunction(name = "fit_transform")]
 fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
@@ -110,6 +134,19 @@ fn fit_transform_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
     Ok(IsometryTransform(tr))
 }
 /// Align selections by matching atom names before fitting.
+///
+/// :param sel1: Mobile selection.
+/// :param sel2: Reference selection.
+/// :returns: Rigid transform computed on matched atoms.
+/// :rtype: IsometryTransform
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    tr = pymolar.fit_transform_matching(mobile_sel, ref_sel)
+///    mobile_sel.apply_transform(tr)
 
 #[pyfunction(name = "fit_transform_matching")]
 fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTransform> {
@@ -138,12 +175,36 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
     Ok(IsometryTransform(tr))
 }
 /// Compute RMSD between two selections.
+///
+/// :param sel1: First selection.
+/// :param sel2: Second selection.
+/// :returns: RMSD in nm.
+/// :rtype: float
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    r = pymolar.rmsd(sel1, sel2)
 
 #[pyfunction]
 fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
     Ok(rmsd(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 /// Compute mass-weighted RMSD between two selections.
+///
+/// :param sel1: First selection.
+/// :param sel2: Second selection.
+/// :returns: Mass-weighted RMSD in nm.
+/// :rtype: float
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    rw = pymolar.rmsd_mw(sel1, sel2)
 
 #[pyfunction(name = "rmsd_mw")]
 fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
@@ -174,7 +235,21 @@ impl ParticleIterator {
 #[pyo3(text_signature = "(cutoff, data1, data2=None, dims=None)")]
 /// Find atom pairs within cutoff distance between one or two selections.
 ///
-/// `cutoff` may be a float distance or the string `"vdw"` for van der Waals cutoff.
+/// :param cutoff: Distance cutoff in nm, or ``"vdw"`` for van der Waals radii sum.
+/// :param data1: First selection.
+/// :param data2: Second selection (optional; self-search if omitted).
+/// :param dims: Periodic dimensions ``[x, y, z]`` booleans.
+/// :returns: Tuple ``(pairs, distances)`` — ``pairs`` is ``[N, 2]`` index array,
+///     ``distances`` is length-N float array.
+/// :rtype: tuple[numpy.ndarray, numpy.ndarray]
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    pairs, dists = pymolar.distance_search(0.35, sel1, sel2)
+///    pairs, dists = pymolar.distance_search(0.35, sel1, dims=[True, True, True])
 fn distance_search<'py>(
     py: Python<'py>,
     cutoff: &Bound<'py, PyAny>,

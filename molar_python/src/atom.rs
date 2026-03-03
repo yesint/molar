@@ -2,6 +2,18 @@ use crate::topology_state::TopologyPy;
 use molar::prelude::{Atom, AtomLike};
 use pyo3::{exceptions::PyIndexError, prelude::*};
 /// Mutable atom container.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    import pymolar
+///    a = pymolar.Atom()
+///    a.name    = "CA"
+///    a.resname = "ALA"
+///    a.resid   = 1
+///    a.chain   = 'A'
+///    a.mass    = 12.011
 
 #[pyclass(name = "Atom")]
 pub(crate) struct AtomPy(pub(crate) Atom);
@@ -161,8 +173,15 @@ impl AtomPy {
 ///
 /// Holds a reference-counted handle to the topology and the atom's index,
 /// so it remains safe even if the originating System is reallocated by
-/// `append()`. After `remove()` the index may address a different atom
-/// (by design), but will raise `IndexError` if out of range.
+/// ``append()``. After ``remove()`` the index may address a different atom
+/// (by design), but will raise ``IndexError`` if out of range.
+///
+/// **Example**
+///
+/// .. code-block:: python
+///
+///    for atom_view in sys.iter_atoms():
+///        print(atom_view.name, atom_view.resid)
 #[pyclass(name = "AtomView", unsendable)]
 pub(crate) struct AtomView {
     pub(crate) top: Py<TopologyPy>,
@@ -191,131 +210,198 @@ impl AtomView {
 
 #[pymethods]
 impl AtomView {
+    /// Atom name (e.g. ``'CA'``).
+    ///
+    /// :returns: Atom name.
+    /// :rtype: str
     #[getter(name)]
     fn get_name(&self) -> PyResult<&str> {
         Ok(self.atom()?.name.as_str())
     }
 
+    /// Set atom name.
+    ///
+    /// :param value: New atom name.
     #[setter(name)]
     fn set_name(&self, value: &str) -> PyResult<()> {
         self.atom_mut()?.set_name(value);
         Ok(())
     }
 
-    // resname
+    /// Residue name (e.g. ``'ALA'``).
+    ///
+    /// :returns: Residue name.
+    /// :rtype: str
     #[getter(resname)]
     fn get_resname(&self) -> PyResult<&str> {
         Ok(self.atom()?.resname.as_str())
     }
 
+    /// Set residue name.
+    ///
+    /// :param value: New residue name.
     #[setter(resname)]
     fn set_resname(&self, value: &str) -> PyResult<()> {
         self.atom_mut()?.set_resname(value);
         Ok(())
     }
 
-    // resid
+    /// Residue sequence number.
+    ///
+    /// :returns: Residue ID.
+    /// :rtype: int
     #[getter(resid)]
     fn get_resid(&self) -> PyResult<i32> {
         Ok(self.atom()?.resid)
     }
 
+    /// Set residue sequence number.
+    ///
+    /// :param value: New residue ID.
     #[setter(resid)]
     fn set_resid(&self, value: i32) -> PyResult<()> {
         self.atom_mut()?.resid = value;
         Ok(())
     }
 
-    // atomic_number
+    /// Atomic number (e.g. 6 for carbon).
+    ///
+    /// :returns: Atomic number.
+    /// :rtype: int
     #[getter(atomic_number)]
     fn get_atomic_number(&self) -> PyResult<u8> {
         Ok(self.atom()?.atomic_number)
     }
 
+    /// Set atomic number.
+    ///
+    /// :param value: New atomic number.
     #[setter(atomic_number)]
     fn set_atomic_number(&self, value: u8) -> PyResult<()> {
         self.atom_mut()?.atomic_number = value;
         Ok(())
     }
 
-    // mass
+    /// Atomic mass in Da.
+    ///
+    /// :returns: Atomic mass.
+    /// :rtype: float
     #[getter(mass)]
     fn get_mass(&self) -> PyResult<f32> {
         Ok(self.atom()?.mass)
     }
 
+    /// Set atomic mass in Da.
+    ///
+    /// :param value: New atomic mass.
     #[setter(mass)]
     fn set_mass(&self, value: f32) -> PyResult<()> {
         self.atom_mut()?.mass = value;
         Ok(())
     }
 
-    // charge
+    /// Partial charge in elementary charge units.
+    ///
+    /// :returns: Partial charge.
+    /// :rtype: float
     #[getter(charge)]
     fn get_charge(&self) -> PyResult<f32> {
         Ok(self.atom()?.charge)
     }
 
+    /// Set partial charge in elementary charge units.
+    ///
+    /// :param value: New partial charge.
     #[setter(charge)]
     fn set_charge(&self, value: f32) -> PyResult<()> {
         self.atom_mut()?.charge = value;
         Ok(())
     }
 
-    // type_name
+    /// Force-field atom type name.
+    ///
+    /// :returns: Type name.
+    /// :rtype: str
     #[getter(type_name)]
     fn get_type_name(&self) -> PyResult<&str> {
         Ok(self.atom()?.type_name.as_str())
     }
 
+    /// Set force-field atom type name.
+    ///
+    /// :param value: New type name.
     #[setter(type_name)]
     fn set_type_name(&self, value: &str) -> PyResult<()> {
         self.atom_mut()?.set_type_name(value);
         Ok(())
     }
 
-    // type_id
+    /// Force-field atom type integer ID.
+    ///
+    /// :returns: Type ID.
+    /// :rtype: int
     #[getter(type_id)]
     fn get_type_id(&self) -> PyResult<u32> {
         Ok(self.atom()?.type_id)
     }
 
+    /// Set force-field atom type integer ID.
+    ///
+    /// :param value: New type ID.
     #[setter(type_id)]
     fn set_type_id(&self, value: u32) -> PyResult<()> {
         self.atom_mut()?.type_id = value;
         Ok(())
     }
 
-    // chain
+    /// Single-character chain identifier.
+    ///
+    /// :returns: Chain character.
+    /// :rtype: str
     #[getter(chain)]
     fn get_chain(&self) -> PyResult<char> {
         Ok(self.atom()?.chain)
     }
 
+    /// Set chain identifier.
+    ///
+    /// :param value: New chain character.
     #[setter(chain)]
     fn set_chain(&self, value: char) -> PyResult<()> {
         self.atom_mut()?.chain = value;
         Ok(())
     }
 
-    // bfactor
+    /// B-factor (temperature factor).
+    ///
+    /// :returns: B-factor value.
+    /// :rtype: float
     #[getter(bfactor)]
     fn get_bfactor(&self) -> PyResult<f32> {
         Ok(self.atom()?.bfactor)
     }
 
+    /// Set B-factor (temperature factor).
+    ///
+    /// :param value: New B-factor.
     #[setter(bfactor)]
     fn set_bfactor(&self, value: f32) -> PyResult<()> {
         self.atom_mut()?.bfactor = value;
         Ok(())
     }
 
-    // occupancy
+    /// Crystallographic occupancy [0, 1].
+    ///
+    /// :returns: Occupancy value.
+    /// :rtype: float
     #[getter(occupancy)]
     fn get_occupancy(&self) -> PyResult<f32> {
         Ok(self.atom()?.occupancy)
     }
 
+    /// Set crystallographic occupancy [0, 1].
+    ///
+    /// :param value: New occupancy.
     #[setter(occupancy)]
     fn set_occupancy(&self, value: f32) -> PyResult<()> {
         self.atom_mut()?.occupancy = value;

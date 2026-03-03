@@ -109,6 +109,12 @@ impl PeriodicBoxPy {
     /// :returns: Minimum-image displacement vector.
     /// :rtype: numpy.ndarray
     /// :raises ValueError: If vector conversion fails.
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    v = box.shortest_vector([1.0, 0.0, 0.0])
     fn shortest_vector<'py>(
         &self,
         py: Python<'py>,
@@ -261,8 +267,14 @@ impl PeriodicBoxPy {
     /// :param p1: First point (length 3).
     /// :param p2: Second point (length 3).
     /// :param dims: Periodic dimensions as ``[x, y, z]`` booleans.
-    /// :returns: Minimum-image distance.
+    /// :returns: Minimum-image distance in nm.
     /// :rtype: float
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    d = box.distance([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [True, True, True])
     fn distance<'py>(
         &self,
         p1: PyArrayLike1<'py, f32, AllowTypeChange>,
@@ -278,6 +290,12 @@ impl PeriodicBoxPy {
     /// :returns: Wrapped point.
     /// :rtype: numpy.ndarray
     /// :raises ValueError: If vector conversion fails.
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    wrapped = box.wrap_point([5.0, 5.0, 5.0])    # back into unit cell
     fn wrap_point<'py>(
         &self,
         py: Python<'py>,
