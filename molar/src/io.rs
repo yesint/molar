@@ -263,6 +263,7 @@ impl FileHandler {
     /// - xyz: XYZ format
     /// - xtc: GROMACS compressed trajectory format
     /// - gro: GROMACS structure format
+    /// - nc, ncdf: AMBER NetCDF trajectory format (requires `netcdf` feature)
     ///
     /// # Errors
     /// Returns [FileIoError] if:
@@ -284,6 +285,10 @@ impl FileHandler {
             ),
             "itp" => Box::new(
                 ItpFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "nc" | "ncdf" => Box::new(
+                NetCdfFileHandler::create(fname)
+                    .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             _ => Err(FileFormatError::NotRecognized)
                 .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
