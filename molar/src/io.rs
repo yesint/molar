@@ -10,12 +10,14 @@ use thiserror::Error;
 
 mod gro_handler;
 mod itp_handler;
+mod netcdf_handler;
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
 
 use gro_handler::{GroFileHandler, GroHandlerError};
 use itp_handler::{ItpFileHandler, ItpHandlerError};
+use netcdf_handler::{NetCdfFileHandler, NetCdfHandlerError};
 use tpr_handler::{TprFileHandler, TprHandlerError};
 use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
 use xtc_handler::{XtcFileHandler, XtcHandlerError};
@@ -215,6 +217,7 @@ impl FileHandler {
     /// - gro: GROMACS structure format
     /// - itp: GROMACS topology format (read-only)
     /// - tpr: GROMACS run input format (read-only)
+    /// - nc, ncdf: AMBER NetCDF trajectory format (requires `netcdf` feature)
     ///
     /// # Errors
     /// Returns [FileIoError] if:
@@ -238,6 +241,9 @@ impl FileHandler {
             ),
             "tpr" => Box::new(
                 TprFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "nc" | "ncdf" => Box::new(
+                NetCdfFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             _ => Err(FileFormatError::NotRecognized)
                 .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -586,6 +592,10 @@ pub(crate) enum FileFormatError {
     /// ITP format handler error
     #[error("in itp format handler")]
     Itp(#[from] ItpHandlerError),
+
+    /// NetCDF format handler error
+    #[error("in netcdf format handler")]
+    NetCdf(#[from] NetCdfHandlerError),
 
     #[error("file has no extension")]
     NoExtension,

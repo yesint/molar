@@ -26,7 +26,7 @@ Molar is designed to simplify the analysis of molecular dynamics trajectories an
 MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies.
 
 # Features
-* Reading and writing PDB, GRO, XYZ, XTC, TPR files
+* Reading and writing PDB, GRO, XYZ, XTC, TPR, and AMBER NetCDF (.nc) files
     * Reading and writing Gromacs XTC format with random access.
     * Reading Gromacs TPR files (if Gromacs is installed).
     * Recognizes any VMD molfile plugins. 
@@ -68,6 +68,38 @@ GROMACS_BUILD_DIR = "<path-to-gromacs-source>/gromacs/build"
 GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
 ```
 You may use a template: `mv config.toml.template config.toml`.
+
+## AMBER NetCDF trajectories
+
+MolAR can read AMBER NetCDF (`.nc` / `.ncdf`) trajectory files. This requires the NetCDF and HDF5 C libraries to be installed on your system.
+
+**Linux (Fedora/RHEL):**
+```sh
+sudo dnf install hdf5-devel netcdf-devel
+```
+
+**Linux (Ubuntu/Debian):**
+```sh
+sudo apt install libhdf5-dev libnetcdf-dev
+```
+
+**macOS:**
+```sh
+brew install netcdf
+```
+
+Once the libraries are installed, enable the feature when adding molar to your project:
+
+```toml
+# Cargo.toml
+[dependencies]
+molar = { version = "1", features = ["netcdf"] }
+```
+
+Or when building/testing from the command line:
+```sh
+cargo build --features molar/netcdf
+```
 
 # Selection syntax
 
