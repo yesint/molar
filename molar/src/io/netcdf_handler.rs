@@ -339,5 +339,44 @@ mod enabled {
                 Self::Writer(_) => Err(FileFormatError::NotRandomAccessFormat),
             }
         }
+
+        fn seek_time(&mut self, t: f32) -> Result<(), FileFormatError> {
+            match self {
+                Self::Reader(r) => {
+                    if !r.has_time {
+                        return Err(FileFormatError::NotRandomAccessFormat);
+                    }
+                    // Read all time stamps at once — cheap since it's a 1-D variable.
+                    let times: Vec<f32> = r
+                        .file
+                        .variable("time")
+                        .unwrap()
+                        .get_values(..)
+                        .map_err(NetCdfHandlerError::Nc)?;
+                    // Find the last frame whose time is strictly less than `t`,
+                    // matching the serial-read fallback semantics in FileHandler.
+                    let fr = times.partition_point(|&ts| ts < t);
+                    if fr >= r.n_frames {
+                        return Err(FileFormatError::SeekTime(t));
+                    }
+                    r.cur_frame = fr;
+                    Ok(())
+                }
+                Self::Writer(_) => Err(FileFormatError::NotRandomAccessFormat),
+            }
+        }
+
+        fn seek_last(&mut self) -> Result<(), FileFormatError> {
+            match self {
+                Self::Reader(r) => {
+                    if r.n_frames == 0 {
+                        return Err(FileFormatError::Eof);
+                    }
+                    r.cur_frame = r.n_frames - 1;
+                    Ok(())
+                }
+                Self::Writer(_) => Err(FileFormatError::NotRandomAccessFormat),
+            }
+        }
     }
 }
