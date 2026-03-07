@@ -344,8 +344,9 @@ pub trait AtomIterMutProvider {
     where
         Self: Sized,
     {
+        let s = AtomStr::try_from_str(val).expect(ATOM_NAME_EXPECT);
         for a in self.iter_atoms_mut() {
-            a.name = AtomStr::from_bytes(val.as_bytes()).expect(ATOM_NAME_EXPECT);
+            a.name = s;
         }
     }
 
@@ -354,8 +355,9 @@ pub trait AtomIterMutProvider {
     where
         Self: Sized,
     {
+        let s = AtomStr::try_from_str(val).expect(ATOM_RESNAME_EXPECT);
         for a in self.iter_atoms_mut() {
-            a.resname = AtomStr::from_bytes(val.as_bytes()).expect(ATOM_RESNAME_EXPECT);
+            a.resname = s;
         }
     }
 

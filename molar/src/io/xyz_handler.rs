@@ -11,9 +11,8 @@ use thiserror::Error;
 pub struct XyzFileHandler {
     // Reading
     reader: Option<BufReader<File>>,
-    topology: Option<Topology>, // permanently stored after first parse
-    stored_state: Option<State>,
-    topo_built: bool,
+    stored_topology: Option<Topology>, // cached topology; consumed by read_topology()
+    stored_state: Option<State>,       // cached state; consumed by read_state()
     exhausted: bool,
     // Writing
     writer: Option<BufWriter<File>>,
@@ -48,9 +47,8 @@ pub enum XyzHandlerError {
 
 impl XyzFileHandler {
     /// Stream-parse one XYZ frame (natoms / comment / atom lines).
-    /// - On first call: also builds `self.topology` from element symbols.
-    /// - Subsequent calls: only parse coordinates.
-    /// - Returns `Ok(None)` at EOF.
+    /// Topology is built and stored into `self.stored_topology` only when it is `None`.
+    /// Returns `Ok(None)` at EOF.
     fn parse_next_frame(&mut self) -> Result<Option<State>, XyzHandlerError> {
         let reader = match self.reader.as_mut() {
             Some(r) => r,
@@ -70,12 +68,8 @@ impl XyzFileHandler {
         line.clear();
         reader.read_line(&mut line)?;
 
-        let building_topo = !self.topo_built;
-        let mut pending_atoms: Vec<Atom> = if building_topo {
-            Vec::with_capacity(natoms)
-        } else {
-            Vec::new()
-        };
+        let build_topo = self.stored_topology.is_none();
+        let mut atoms: Vec<Atom> = Vec::with_capacity(if build_topo { natoms } else { 0 });
         let mut coords: Vec<Pos> = Vec::with_capacity(natoms);
 
         for i in 0..natoms {
@@ -102,7 +96,7 @@ impl XyzFileHandler {
 
             coords.push(Pos::new(x * 0.1, y * 0.1, z * 0.1));
 
-            if building_topo {
+            if build_topo {
                 let mut at = Atom {
                     name: AtomStr::from_bytes(elem.as_bytes()).expect(ATOM_NAME_EXPECT),
                     resname: AtomStr::from_bytes(b"MOL").unwrap(),
@@ -113,16 +107,15 @@ impl XyzFileHandler {
                     ..Default::default()
                 };
                 at.guess_element_and_mass_from_name();
-                pending_atoms.push(at);
+                atoms.push(at);
             }
         }
 
-        if building_topo {
+        if build_topo {
             let mut top = Topology::default();
-            top.atoms = pending_atoms;
+            top.atoms = atoms;
             top.assign_resindex();
-            self.topology = Some(top);
-            self.topo_built = true;
+            self.stored_topology = Some(top);
         }
 
         Ok(Some(State {
@@ -145,9 +138,8 @@ impl FileFormatHandler for XyzFileHandler {
                 File::open(fname).map_err(XyzHandlerError::OpenRead)?,
             )),
             writer: None,
-            topology: None,
+            stored_topology: None,
             stored_state: None,
-            topo_built: false,
             exhausted: false,
             write_topo: None,
         })
@@ -162,36 +154,35 @@ impl FileFormatHandler for XyzFileHandler {
             writer: Some(BufWriter::new(
                 File::create(fname).map_err(XyzHandlerError::OpenWrite)?,
             )),
-            topology: None,
+            stored_topology: None,
             stored_state: None,
-            topo_built: false,
             exhausted: false,
             write_topo: None,
         })
     }
 
     fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
-        let state = self.parse_next_frame()?.ok_or(XyzHandlerError::Empty)?;
-        let top = self.topology.clone().unwrap();
-        Ok((top, state))
+        self.stored_topology = None; // force topology rebuild
+        let st = self.parse_next_frame()?.ok_or(XyzHandlerError::Empty)?;
+        let top = self.stored_topology.take().unwrap();
+        Ok((top, st))
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
-        if !self.topo_built {
-            let state = self.parse_next_frame()?.ok_or(XyzHandlerError::Empty)?;
-            self.stored_state.get_or_insert(state);
+        if self.stored_topology.is_some() {
+            return Ok(self.stored_topology.take().unwrap());
         }
-        Ok(self.topology.clone().unwrap())
+        let st = self.parse_next_frame()?.ok_or(XyzHandlerError::Empty)?;
+        self.stored_state.get_or_insert(st);
+        Ok(self.stored_topology.take().unwrap())
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
-        if let Some(s) = self.stored_state.take() {
-            return Ok(s);
+        if self.stored_state.is_some() {
+            return Ok(self.stored_state.take().unwrap());
         }
-        if self.exhausted {
-            return Err(FileFormatError::Eof);
-        }
-        self.parse_next_frame()?.ok_or(FileFormatError::Eof)
+        let st = self.parse_next_frame()?.ok_or(FileFormatError::Eof)?;
+        Ok(st)
     }
 
     fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {

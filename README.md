@@ -71,7 +71,7 @@ You may use a template: `mv config.toml.template config.toml`.
 
 ## AMBER NetCDF trajectories
 
-MolAR can read AMBER NetCDF (`.nc` / `.ncdf`) trajectory files. This requires the NetCDF and HDF5 C libraries to be installed on your system.
+MolAR can read and write AMBER NetCDF (`.nc` / `.ncdf`) trajectory files. This requires the NetCDF and HDF5 C libraries to be installed on your system.
 
 **Linux (Fedora/RHEL):**
 ```sh

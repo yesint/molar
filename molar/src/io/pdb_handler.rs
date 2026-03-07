@@ -11,14 +11,13 @@ use thiserror::Error;
 pub struct PdbFileHandler {
     // Reading
     reader: Option<BufReader<File>>,
-    bonds: Vec<[usize; 2]>,   // 0-indexed, collected inline when CONECT is encountered
-    topology: Option<Topology>, // permanently stored after first parse; only cloned, not consumed
-    stored_state: Option<State>, // cached state; consumed by read_state()
-    topo_built: bool,
+    bonds: Vec<[usize; 2]>,       // 0-indexed, collected inline when CONECT is encountered
+    stored_topology: Option<Topology>, // cached topology; consumed by read_topology()
+    stored_state: Option<State>,       // cached state; consumed by read_state()
     exhausted: bool,
     // Writing
     writer: Option<BufWriter<File>>,
-    serial: usize,              // running atom serial counter for write
+    serial: usize,                // running atom serial counter for write
     write_topo: Option<Vec<Atom>>, // buffered by write_topology() for use in write_state()
 }
 
@@ -89,18 +88,17 @@ fn format_atom_name(name: &str) -> String {
 impl PdbFileHandler {
     /// Stream-parse one MODEL block (or the whole file if no MODEL records).
     ///
-    /// - On the first call (`!self.topo_built`): also builds `self.topology`.
-    /// - Subsequent calls: only parse coordinates.
-    /// - CONECT lines push bonds to `self.bonds`; they are applied to topology during the first call.
-    /// - Returns `Ok(None)` when no ATOM/HETATM records were found (EOF or empty model).
+    /// Topology is built and stored into `self.stored_topology` only when it is `None`.
+    /// CONECT lines are accumulated in `self.bonds` and applied during topology build.
+    /// Returns `Ok(None)` when no ATOM/HETATM records were found (EOF or empty model).
     fn parse_next_model(&mut self) -> Result<Option<State>, PdbHandlerError> {
         let reader = match self.reader.as_mut() {
             Some(r) => r,
             None => return Ok(None),
         };
 
-        let building_topo = !self.topo_built;
-        let mut pending_atoms: Vec<Atom> = Vec::new();
+        let build_topo = self.stored_topology.is_none();
+        let mut atoms: Vec<Atom> = Vec::new();
         let mut coords: Vec<Pos> = Vec::new();
         let mut current_box: Option<PeriodicBox> = None;
         let mut has_atoms = false;
@@ -110,7 +108,6 @@ impl PdbFileHandler {
             line.clear();
             let n = reader.read_line(&mut line)?;
             if n == 0 {
-                // True EOF
                 self.exhausted = true;
                 break;
             }
@@ -122,7 +119,7 @@ impl PdbFileHandler {
                 let z = parse_f32(&line, 46, 54).unwrap_or(0.0);
                 coords.push(Pos::new(x * 0.1, y * 0.1, z * 0.1));
 
-                if building_topo {
+                if build_topo {
                     let name = line.get(12..16).unwrap_or("").trim();
                     let resname = line.get(17..20).unwrap_or("").trim();
                     let chain = line
@@ -145,7 +142,7 @@ impl PdbFileHandler {
                         ..Default::default()
                     };
                     at.guess_element_and_mass_from_name();
-                    pending_atoms.push(at);
+                    atoms.push(at);
                 }
             } else if line.starts_with("CRYST1") {
                 let a = parse_f32(&line, 6, 15).unwrap_or(0.0);
@@ -168,18 +165,18 @@ impl PdbFileHandler {
                     // New model starts — previous model is complete (ENDMDL absent)
                     break;
                 }
-                // else: opening MODEL record before any atoms; keep going
             } else if line.starts_with("ENDMDL") {
                 break;
             } else if line.starts_with("CONECT") {
-                // Parse bond pairs: atom at [6..11] bonded to partners at [11..16],[16..21],[21..26],[26..31]
-                if let Some(a) = parse_serial_opt(&line, 6, 11) {
-                    for (s, e) in [(11usize, 16usize), (16, 21), (21, 26), (26, 31)] {
-                        if let Some(b) = parse_serial_opt(&line, s, e) {
-                            if a != b {
-                                let mut pair = [a, b];
-                                pair.sort();
-                                self.bonds.push(pair);
+                if build_topo {
+                    if let Some(a) = parse_serial_opt(&line, 6, 11) {
+                        for (s, e) in [(11usize, 16usize), (16, 21), (21, 26), (26, 31)] {
+                            if let Some(b) = parse_serial_opt(&line, s, e) {
+                                if a != b {
+                                    let mut pair = [a, b];
+                                    pair.sort();
+                                    self.bonds.push(pair);
+                                }
                             }
                         }
                     }
@@ -194,16 +191,14 @@ impl PdbFileHandler {
             return Ok(None);
         }
 
-        if building_topo {
-            let mut top = Topology::default();
-            top.atoms = pending_atoms;
-            // Deduplicate and apply CONECT bonds
+        if build_topo {
             self.bonds.sort();
             self.bonds.dedup();
+            let mut top = Topology::default();
+            top.atoms = atoms;
             top.bonds = self.bonds.clone();
             top.assign_resindex();
-            self.topology = Some(top);
-            self.topo_built = true;
+            self.stored_topology = Some(top);
         }
 
         Ok(Some(State {
@@ -227,9 +222,8 @@ impl FileFormatHandler for PdbFileHandler {
             )),
             writer: None,
             bonds: Vec::new(),
-            topology: None,
+            stored_topology: None,
             stored_state: None,
-            topo_built: false,
             exhausted: false,
             serial: 0,
             write_topo: None,
@@ -246,9 +240,8 @@ impl FileFormatHandler for PdbFileHandler {
                 File::create(fname).map_err(PdbHandlerError::OpenWrite)?,
             )),
             bonds: Vec::new(),
-            topology: None,
+            stored_topology: None,
             stored_state: None,
-            topo_built: false,
             exhausted: false,
             serial: 0,
             write_topo: None,
@@ -256,31 +249,27 @@ impl FileFormatHandler for PdbFileHandler {
     }
 
     fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
-        let state = self
-            .parse_next_model()?
-            .ok_or(PdbHandlerError::Empty)?;
-        let top = self.topology.clone().unwrap();
-        Ok((top, state))
+        self.stored_topology = None; // force topology rebuild
+        let st = self.parse_next_model()?.ok_or(PdbHandlerError::Empty)?;
+        let top = self.stored_topology.take().unwrap();
+        Ok((top, st))
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
-        if !self.topo_built {
-            let state = self
-                .parse_next_model()?
-                .ok_or(PdbHandlerError::Empty)?;
-            self.stored_state.get_or_insert(state);
+        if self.stored_topology.is_some() {
+            return Ok(self.stored_topology.take().unwrap());
         }
-        Ok(self.topology.clone().unwrap())
+        let st = self.parse_next_model()?.ok_or(PdbHandlerError::Empty)?;
+        self.stored_state.get_or_insert(st);
+        Ok(self.stored_topology.take().unwrap())
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
-        if let Some(s) = self.stored_state.take() {
-            return Ok(s);
+        if self.stored_state.is_some() {
+            return Ok(self.stored_state.take().unwrap());
         }
-        if self.exhausted {
-            return Err(FileFormatError::Eof);
-        }
-        self.parse_next_model()?.ok_or(FileFormatError::Eof)
+        let st = self.parse_next_model()?.ok_or(FileFormatError::Eof)?;
+        Ok(st)
     }
 
     fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
