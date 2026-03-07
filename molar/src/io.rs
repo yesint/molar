@@ -11,6 +11,7 @@ use thiserror::Error;
 mod gro_handler;
 mod itp_handler;
 mod netcdf_handler;
+mod pdb_handler;
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
@@ -18,6 +19,7 @@ mod xtc_handler;
 use gro_handler::{GroFileHandler, GroHandlerError};
 use itp_handler::{ItpFileHandler, ItpHandlerError};
 use netcdf_handler::{NetCdfFileHandler, NetCdfHandlerError};
+use pdb_handler::{PdbFileHandler, PdbHandlerError};
 use tpr_handler::{TprFileHandler, TprHandlerError};
 use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
 use xtc_handler::{XtcFileHandler, XtcHandlerError};
@@ -227,7 +229,10 @@ impl FileHandler {
         let fname = fname.as_ref();
         let ext = get_ext(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?;
         let format_handler: Box<dyn FileFormatHandler> = match ext {
-            "pdb" | "dcd" | "xyz" => Box::new(
+            "pdb" | "ent" => Box::new(
+                PdbFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "dcd" | "xyz" => Box::new(
                 VmdMolFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xtc" => Box::new(
@@ -273,7 +278,10 @@ impl FileHandler {
         let fname = fname.as_ref();
         let ext = get_ext(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?;
         let format_handler: Box<dyn FileFormatHandler> = match ext {
-            "pdb" | "dcd" | "xyz" => Box::new(
+            "pdb" | "ent" => Box::new(
+                PdbFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "dcd" | "xyz" => Box::new(
                 VmdMolFileHandler::create(fname)
                     .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
@@ -597,6 +605,10 @@ pub(crate) enum FileFormatError {
     /// ITP format handler error
     #[error("in itp format handler")]
     Itp(#[from] ItpHandlerError),
+
+    /// PDB format handler error
+    #[error("in pdb format handler")]
+    Pdb(#[from] PdbHandlerError),
 
     /// NetCDF format handler error
     #[error("in netcdf format handler")]

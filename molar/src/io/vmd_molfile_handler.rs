@@ -81,7 +81,6 @@ fn get_plugin(ext: &str) -> Result<*mut molfile_plugin_t, FileFormatError> {
     // and returns stored pointer on later invocations
     let plugin = unsafe {
         match ext {
-            "pdb" | "ent" => pdb_get_plugin_ptr(),
             "xyz" => xyz_get_plugin_ptr(),
             "dcd" => dcd_get_plugin_ptr(),
             _ => return Err(FileFormatError::NotRecognized), // This should never happen
@@ -326,7 +325,6 @@ impl FileFormatHandler for VmdMolFileHandler {
     }
 
     fn write_state(&mut self, data: &dyn super::SaveState) -> Result<(), super::FileFormatError> {
-        println!("(3): {:?}",data.get_box());
         let n = data.len();
 
         // Open file if not yet opened

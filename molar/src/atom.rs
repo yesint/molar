@@ -199,6 +199,15 @@ impl Atom {
     }
 }
 
+/// Returns the uppercase element symbol for the given atomic number (e.g. `"FE"`, `"C"`, `"HE"`).
+/// Returns `""` for atomic number 0 (unknown).
+pub(crate) fn element_symbol(atomic_number: u8) -> &'static str {
+    ELEMENT_NAME_UPPER
+        .get(atomic_number as usize)
+        .copied()
+        .unwrap_or("")
+}
+
 impl AtomLike for Atom {
     // Atom name
     fn get_name(&self) -> &str {
