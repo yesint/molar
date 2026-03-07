@@ -11,14 +11,12 @@ use thiserror::Error;
 pub struct PdbFileHandler {
     // Reading
     reader: Option<BufReader<File>>,
-    bonds: Vec<[usize; 2]>,       // 0-indexed, collected inline when CONECT is encountered
-    stored_topology: Option<Topology>, // cached topology; consumed by read_topology()
-    stored_state: Option<State>,       // cached state; consumed by read_state()
-    exhausted: bool,
+    bonds: Vec<[usize; 2]>, // 0-indexed, collected from CONECT records
+    stored_topology: Option<Topology>,
+    stored_state: Option<State>,
+    at_least_one_state_read: bool,
     // Writing
     writer: Option<BufWriter<File>>,
-    serial: usize,                // running atom serial counter for write
-    write_topo: Option<Vec<Atom>>, // buffered by write_topology() for use in write_state()
 }
 
 #[derive(Debug, Error)]
@@ -31,6 +29,9 @@ pub enum PdbHandlerError {
 
     #[error("pdb file is empty or contains no ATOM/HETATM records")]
     Empty,
+
+    #[error("unexpected end of file reached")]
+    Eof,
 
     #[error(transparent)]
     ParseInt(#[from] ParseIntError),
@@ -83,21 +84,56 @@ fn format_atom_name(name: &str) -> String {
     }
 }
 
-// ── core handler ────────────────────────────────────────────────────────────
+// ── FileFormatHandler ────────────────────────────────────────────────────────
 
-impl PdbFileHandler {
-    /// Stream-parse one MODEL block (or the whole file if no MODEL records).
-    ///
-    /// Topology is built and stored into `self.stored_topology` only when it is `None`.
-    /// CONECT lines are accumulated in `self.bonds` and applied during topology build.
-    /// Returns `Ok(None)` when no ATOM/HETATM records were found (EOF or empty model).
-    fn parse_next_model(&mut self) -> Result<Option<State>, PdbHandlerError> {
-        let reader = match self.reader.as_mut() {
-            Some(r) => r,
-            None => return Ok(None),
-        };
+impl FileFormatHandler for PdbFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            reader: Some(BufReader::new(
+                File::open(fname).map_err(PdbHandlerError::OpenRead)?,
+            )),
+            writer: None,
+            bonds: Vec::new(),
+            stored_topology: None,
+            stored_state: None,
+            at_least_one_state_read: false,
+        })
+    }
 
-        let build_topo = self.stored_topology.is_none();
+    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            reader: None,
+            writer: Some(BufWriter::new(
+                File::create(fname).map_err(PdbHandlerError::OpenWrite)?,
+            )),
+            bonds: Vec::new(),
+            stored_topology: None,
+            stored_state: None,
+            at_least_one_state_read: false,
+        })
+    }
+
+    fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
+        let buf = self.reader.as_mut().unwrap();
+
+        // Check if we are at EOF
+        if buf.fill_buf()?.is_empty() {
+            return if self.at_least_one_state_read {
+                Err(PdbHandlerError::Eof)?
+            } else {
+                Err(PdbHandlerError::Empty)?
+            };
+        }
+
+        // Fresh bond list for this model
+        self.bonds.clear();
+
         let mut atoms: Vec<Atom> = Vec::new();
         let mut coords: Vec<Pos> = Vec::new();
         let mut current_box: Option<PeriodicBox> = None;
@@ -106,9 +142,8 @@ impl PdbFileHandler {
 
         loop {
             line.clear();
-            let n = reader.read_line(&mut line)?;
+            let n = buf.read_line(&mut line)?;
             if n == 0 {
-                self.exhausted = true;
                 break;
             }
 
@@ -119,31 +154,28 @@ impl PdbFileHandler {
                 let z = parse_f32(&line, 46, 54).unwrap_or(0.0);
                 coords.push(Pos::new(x * 0.1, y * 0.1, z * 0.1));
 
-                if build_topo {
-                    let name = line.get(12..16).unwrap_or("").trim();
-                    let resname = line.get(17..20).unwrap_or("").trim();
-                    let chain = line
-                        .get(21..22)
-                        .and_then(|s| s.chars().next())
-                        .unwrap_or(' ');
-                    let resid = parse_i32_opt(&line, 22, 26).unwrap_or(0);
-                    let occupancy = parse_f32_opt(&line, 54, 60).unwrap_or(1.0);
-                    let bfactor = parse_f32_opt(&line, 60, 66).unwrap_or(0.0);
+                let name = line.get(12..16).unwrap_or("").trim();
+                let resname = line.get(17..20).unwrap_or("").trim();
+                let chain = line
+                    .get(21..22)
+                    .and_then(|s| s.chars().next())
+                    .unwrap_or(' ');
+                let resid = parse_i32_opt(&line, 22, 26).unwrap_or(0);
+                let occupancy = parse_f32_opt(&line, 54, 60).unwrap_or(1.0);
+                let bfactor = parse_f32_opt(&line, 60, 66).unwrap_or(0.0);
 
-                    let mut at = Atom {
-                        name: AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT),
-                        resname: AtomStr::try_from_str(resname)
-                            .expect(ATOM_RESNAME_EXPECT),
-                        resid,
-                        chain,
-                        occupancy,
-                        bfactor,
-                        type_name: AtomStr::try_from_str("").unwrap(),
-                        ..Default::default()
-                    };
-                    at.guess_element_and_mass_from_name();
-                    atoms.push(at);
-                }
+                let mut at = Atom {
+                    name: AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT),
+                    resname: AtomStr::try_from_str(resname).expect(ATOM_RESNAME_EXPECT),
+                    resid,
+                    chain,
+                    occupancy,
+                    bfactor,
+                    type_name: AtomStr::try_from_str("").unwrap(),
+                    ..Default::default()
+                };
+                at.guess_element_and_mass_from_name();
+                atoms.push(at);
             } else if line.starts_with("CRYST1") {
                 let a = parse_f32(&line, 6, 15).unwrap_or(0.0);
                 let b = parse_f32(&line, 15, 24).unwrap_or(0.0);
@@ -162,158 +194,75 @@ impl PdbFileHandler {
                 .ok();
             } else if line.starts_with("MODEL") {
                 if has_atoms {
-                    // New model starts — previous model is complete (ENDMDL absent)
+                    // New MODEL starts — previous model is complete (ENDMDL absent)
                     break;
                 }
             } else if line.starts_with("ENDMDL") {
                 break;
             } else if line.starts_with("CONECT") {
-                if build_topo {
-                    if let Some(a) = parse_serial_opt(&line, 6, 11) {
-                        for (s, e) in [(11usize, 16usize), (16, 21), (21, 26), (26, 31)] {
-                            if let Some(b) = parse_serial_opt(&line, s, e) {
-                                if a != b {
-                                    let mut pair = [a, b];
-                                    pair.sort();
-                                    self.bonds.push(pair);
-                                }
+                if let Some(a) = parse_serial_opt(&line, 6, 11) {
+                    for (s, e) in [(11usize, 16usize), (16, 21), (21, 26), (26, 31)] {
+                        if let Some(b) = parse_serial_opt(&line, s, e) {
+                            if a != b {
+                                let mut pair = [a, b];
+                                pair.sort();
+                                self.bonds.push(pair);
                             }
                         }
                     }
                 }
             } else if line.starts_with("END") && !line.starts_with("ENDMDL") {
-                self.exhausted = true;
                 break;
             }
         }
 
         if !has_atoms {
-            return Ok(None);
+            return if self.at_least_one_state_read {
+                Err(PdbHandlerError::Eof)?
+            } else {
+                Err(PdbHandlerError::Empty)?
+            };
         }
 
-        if build_topo {
-            self.bonds.sort();
-            self.bonds.dedup();
-            let mut top = Topology::default();
-            top.atoms = atoms;
-            top.bonds = self.bonds.clone();
-            top.assign_resindex();
-            self.stored_topology = Some(top);
-        }
+        self.bonds.sort();
+        self.bonds.dedup();
 
-        Ok(Some(State {
-            coords,
-            time: 0.0,
-            pbox: current_box,
-        }))
-    }
-}
+        let mut top = Topology::default();
+        top.atoms = atoms;
+        top.bonds = self.bonds.clone();
+        top.assign_resindex();
 
-// ── FileFormatHandler ────────────────────────────────────────────────────────
+        self.at_least_one_state_read = true;
 
-impl FileFormatHandler for PdbFileHandler {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            reader: Some(BufReader::new(
-                File::open(fname).map_err(PdbHandlerError::OpenRead)?,
-            )),
-            writer: None,
-            bonds: Vec::new(),
-            stored_topology: None,
-            stored_state: None,
-            exhausted: false,
-            serial: 0,
-            write_topo: None,
-        })
-    }
-
-    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            reader: None,
-            writer: Some(BufWriter::new(
-                File::create(fname).map_err(PdbHandlerError::OpenWrite)?,
-            )),
-            bonds: Vec::new(),
-            stored_topology: None,
-            stored_state: None,
-            exhausted: false,
-            serial: 0,
-            write_topo: None,
-        })
-    }
-
-    fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
-        self.stored_topology = None; // force topology rebuild
-        let st = self.parse_next_model()?.ok_or(PdbHandlerError::Empty)?;
-        let top = self.stored_topology.take().unwrap();
-        Ok((top, st))
+        Ok((top, State { coords, time: 0.0, pbox: current_box }))
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
         if self.stored_topology.is_some() {
-            return Ok(self.stored_topology.take().unwrap());
+            Ok(self.stored_topology.take().unwrap())
+        } else {
+            let (top, st) = self.read()?;
+            self.stored_state.get_or_insert(st);
+            Ok(top)
         }
-        let st = self.parse_next_model()?.ok_or(PdbHandlerError::Empty)?;
-        self.stored_state.get_or_insert(st);
-        Ok(self.stored_topology.take().unwrap())
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
         if self.stored_state.is_some() {
-            return Ok(self.stored_state.take().unwrap());
+            Ok(self.stored_state.take().unwrap())
+        } else {
+            let (top, st) = self.read()?;
+            self.stored_topology.get_or_insert(top);
+            Ok(st)
         }
-        let st = self.parse_next_model()?.ok_or(FileFormatError::Eof)?;
-        Ok(st)
     }
 
     fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
         let w = self.writer.as_mut().ok_or(FileFormatError::NotWritable)?;
         write_cryst1(w, data.get_box())?;
-        let mut serial = self.serial;
-        for (at, pos) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()) {
-            serial += 1;
-            write_atom_record(w, serial % 99999, at, pos)?;
+        for (i, (at, pos)) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()).enumerate() {
+            write_atom_record(w, (i % 99999) + 1, at, pos)?;
         }
-        self.serial = serial;
-        writeln!(w, "END")?;
-        Ok(())
-    }
-
-    fn write_topology(&mut self, data: &dyn SaveTopology) -> Result<(), FileFormatError> {
-        self.write_topo = Some(data.iter_atoms_dyn().cloned().collect());
-        Ok(())
-    }
-
-    fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileFormatError> {
-        let w = self.writer.as_mut().ok_or(FileFormatError::NotWritable)?;
-        write_cryst1(w, data.get_box())?;
-        let mut serial = self.serial;
-        if let Some(ref atoms) = self.write_topo {
-            for (at, pos) in atoms.iter().zip(data.iter_pos_dyn()) {
-                serial += 1;
-                write_atom_record(w, serial % 99999, at, pos)?;
-            }
-        } else {
-            // No topology buffered — write minimal records with empty fields
-            let empty = AtomStr::try_from_str("").unwrap();
-            let dummy = Atom {
-                name: empty,
-                resname: empty,
-                type_name: empty,
-                ..Default::default()
-            };
-            for pos in data.iter_pos_dyn() {
-                serial += 1;
-                write_atom_record(w, serial % 99999, &dummy, pos)?;
-            }
-        }
-        self.serial = serial;
         writeln!(w, "END")?;
         Ok(())
     }

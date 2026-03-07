@@ -138,8 +138,7 @@ mod tests {
 
         let mut h = FileHandler::create(concat!(env!("OUT_DIR"), "/unwrapped.pdb"))?;
         let sel = sys.select_bound(ind)?;
-        h.write_topology(&sel)?;
-        h.write_state(&sel)?;
+        h.write(&sel)?;
         Ok(())
     }
 
