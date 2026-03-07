@@ -169,20 +169,18 @@ impl FileFormatHandler for GroFileHandler {
                     .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
                     .trim()
                     .parse::<i32>().map_err(GroHandlerError::ParseInt)?,
-                resname: AtomStr::from_bytes(
+                resname: AtomStr::try_from_str(
                     line.get(5..10)
                         .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
                         .trim()
-                        .as_bytes(),
                 ).expect(ATOM_RESNAME_EXPECT),
-                name: AtomStr::from_bytes(
+                name: AtomStr::try_from_str(
                     line.get(10..15)
                         .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
                         .trim()
-                        .as_bytes(),
                 ).expect(ATOM_NAME_EXPECT),
                 chain: ' ',
-                type_name: AtomStr::from_bytes(b"").unwrap(),
+                type_name: AtomStr::try_from_str("").unwrap(),
                 ..Default::default()
             };
 

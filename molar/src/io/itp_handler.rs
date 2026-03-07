@@ -81,9 +81,9 @@ impl FileFormatHandler for ItpFileHandler {
                 break;
             }
             let mut at = Atom {
-                name: AtomStr::from_bytes(fields[4].as_bytes()).expect(ATOM_NAME_EXPECT),
-                resname: AtomStr::from_bytes(fields[3].as_bytes()).expect(ATOM_RESNAME_EXPECT),
-                type_name: AtomStr::from_bytes(fields[1].as_bytes()).expect(ATOM_TYPE_NAME_EXPECT),
+                name: AtomStr::try_from_str(fields[4]).expect(ATOM_NAME_EXPECT),
+                resname: AtomStr::try_from_str(fields[3]).expect(ATOM_RESNAME_EXPECT),
+                type_name: AtomStr::try_from_str(fields[1]).expect(ATOM_TYPE_NAME_EXPECT),
                 resid: fields[2].parse().map_err(ItpHandlerError::ParseInt)?,
                 charge: fields[6].parse().map_err(ItpHandlerError::ParseFloat)?,
                 mass: fields[7].parse().map_err(ItpHandlerError::ParseFloat)?,

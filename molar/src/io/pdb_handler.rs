@@ -131,14 +131,14 @@ impl PdbFileHandler {
                     let bfactor = parse_f32_opt(&line, 60, 66).unwrap_or(0.0);
 
                     let mut at = Atom {
-                        name: AtomStr::from_bytes(name.as_bytes()).expect(ATOM_NAME_EXPECT),
-                        resname: AtomStr::from_bytes(resname.as_bytes())
+                        name: AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT),
+                        resname: AtomStr::try_from_str(resname)
                             .expect(ATOM_RESNAME_EXPECT),
                         resid,
                         chain,
                         occupancy,
                         bfactor,
-                        type_name: AtomStr::from_bytes(b"").unwrap(),
+                        type_name: AtomStr::try_from_str("").unwrap(),
                         ..Default::default()
                     };
                     at.guess_element_and_mass_from_name();
@@ -301,7 +301,7 @@ impl FileFormatHandler for PdbFileHandler {
             }
         } else {
             // No topology buffered — write minimal records with empty fields
-            let empty = AtomStr::from_bytes(b"").unwrap();
+            let empty = AtomStr::try_from_str("").unwrap();
             let dummy = Atom {
                 name: empty,
                 resname: empty,

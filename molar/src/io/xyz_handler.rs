@@ -98,12 +98,12 @@ impl XyzFileHandler {
 
             if build_topo {
                 let mut at = Atom {
-                    name: AtomStr::from_bytes(elem.as_bytes()).expect(ATOM_NAME_EXPECT),
-                    resname: AtomStr::from_bytes(b"MOL").unwrap(),
+                    name: AtomStr::try_from_str(elem).expect(ATOM_NAME_EXPECT),
+                    resname: AtomStr::try_from_str("MOL").unwrap(),
                     resid: 1,
                     chain: 'A',
                     occupancy: 1.0,
-                    type_name: AtomStr::from_bytes(b"").unwrap(),
+                    type_name: AtomStr::try_from_str("").unwrap(),
                     ..Default::default()
                 };
                 at.guess_element_and_mass_from_name();

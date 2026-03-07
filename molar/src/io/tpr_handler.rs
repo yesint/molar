@@ -186,7 +186,7 @@ mod internal_tpr_enabled {
 
     unsafe fn c_ptr_to_atom_str(ptr: *const i8, expect: &str) -> Result<AtomStr, TprHandlerError> {
         let s = CStr::from_ptr(ptr).to_str().map_err(TprHandlerError::CStringUtf8)?;
-        Ok(AtomStr::from_bytes(s.as_bytes()).expect(expect))
+        Ok(AtomStr::try_from_str(s.as_bytes()).expect(expect))
     }
 
     fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {

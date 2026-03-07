@@ -92,7 +92,7 @@ pub struct Atom {
 
 impl Default for Atom {
     fn default() -> Self {
-        let empty = AtomStr::from_bytes(b"").unwrap();
+        let empty = AtomStr::try_from_str("").unwrap();
         Atom {
             name: empty,
             resname: empty,
@@ -214,7 +214,7 @@ impl AtomLike for Atom {
         self.name.as_str()
     }
     fn set_name(&mut self, name: &str) {
-        self.name = AtomStr::from_bytes(name.as_bytes()).expect(ATOM_NAME_EXPECT);
+        self.name = AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT);
     }
 
     // Residue name
@@ -222,7 +222,7 @@ impl AtomLike for Atom {
         self.resname.as_str()
     }
     fn set_resname(&mut self, resname: &str) {
-        self.resname = AtomStr::from_bytes(resname.as_bytes()).expect(ATOM_RESNAME_EXPECT);
+        self.resname = AtomStr::try_from_str(resname).expect(ATOM_RESNAME_EXPECT);
     }
 
     // Residue id
@@ -270,7 +270,7 @@ impl AtomLike for Atom {
         self.type_name.as_str()
     }
     fn set_type_name(&mut self, type_name: &str) {
-        self.type_name = AtomStr::from_bytes(type_name.as_bytes()).expect(ATOM_TYPE_NAME_EXPECT);
+        self.type_name = AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT);
     }
 
     // Type id

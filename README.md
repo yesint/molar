@@ -397,8 +397,8 @@ for mol in water.split_resindex_bound() {
     let m_pos = o_pos + v*0.01546;
     // Dummy atom M
     let m_at = Atom {
-        resname: AtomStr::from_bytes(b"TIP4").unwrap(),
-        name: AtomStr::from_bytes(b"M").unwrap(),
+        resname: AtomStr::try_from_str(b"TIP4").unwrap(),
+        name: AtomStr::try_from_str(b"M").unwrap(),
         ..mol.first_particle().atom.clone()
     };
     println!("{:?} {:?}",m_at,m_pos);
@@ -524,8 +524,8 @@ fn main() -> Result<()> {
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
         let m_at = Atom {
-            resname: AtomStr::from_bytes(b"TIP4").unwrap(),
-            name: AtomStr::from_bytes(b"M").unwrap(),
+            resname: AtomStr::try_from_str(b"TIP4").unwrap(),
+            name: AtomStr::try_from_str(b"M").unwrap(),
             ..mol.first_particle().atom.clone()
         };
 
