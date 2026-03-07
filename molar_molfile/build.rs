@@ -2,7 +2,7 @@ fn main() {
     // We need to pass different VMDPLUGIN flag for each plugin 
     // cc don't allow per-file defines, so we instead compile each
     // plugin into an object file and them add these objects to a final lib
-    let ofiles: Vec<_> = ["dcd","xyz"].into_iter().map(|pl|
+    let ofiles: Vec<_> = ["dcd"].into_iter().map(|pl|
         cc::Build::new()
         .file(format!("molfile/{pl}plugin.c"))
         .define("VMDPLUGIN",format!("{pl}plugin").as_str())

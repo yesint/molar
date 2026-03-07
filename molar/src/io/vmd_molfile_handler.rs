@@ -81,7 +81,6 @@ fn get_plugin(ext: &str) -> Result<*mut molfile_plugin_t, FileFormatError> {
     // and returns stored pointer on later invocations
     let plugin = unsafe {
         match ext {
-            "xyz" => xyz_get_plugin_ptr(),
             "dcd" => dcd_get_plugin_ptr(),
             _ => return Err(FileFormatError::NotRecognized), // This should never happen
         }

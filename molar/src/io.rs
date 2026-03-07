@@ -15,6 +15,7 @@ mod pdb_handler;
 mod tpr_handler;
 mod vmd_molfile_handler;
 mod xtc_handler;
+mod xyz_handler;
 
 use gro_handler::{GroFileHandler, GroHandlerError};
 use itp_handler::{ItpFileHandler, ItpHandlerError};
@@ -23,6 +24,7 @@ use pdb_handler::{PdbFileHandler, PdbHandlerError};
 use tpr_handler::{TprFileHandler, TprHandlerError};
 use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
 use xtc_handler::{XtcFileHandler, XtcHandlerError};
+use xyz_handler::{XyzFileHandler, XyzHandlerError};
 
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: RandomBondProvider + LenProvider {
@@ -232,7 +234,10 @@ impl FileHandler {
             "pdb" | "ent" => Box::new(
                 PdbFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
-            "dcd" | "xyz" => Box::new(
+            "xyz" => Box::new(
+                XyzFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "dcd" => Box::new(
                 VmdMolFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xtc" => Box::new(
@@ -281,7 +286,10 @@ impl FileHandler {
             "pdb" | "ent" => Box::new(
                 PdbFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
-            "dcd" | "xyz" => Box::new(
+            "xyz" => Box::new(
+                XyzFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "dcd" => Box::new(
                 VmdMolFileHandler::create(fname)
                     .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
@@ -609,6 +617,10 @@ pub(crate) enum FileFormatError {
     /// PDB format handler error
     #[error("in pdb format handler")]
     Pdb(#[from] PdbHandlerError),
+
+    /// XYZ format handler error
+    #[error("in xyz format handler")]
+    Xyz(#[from] XyzHandlerError),
 
     /// NetCDF format handler error
     #[error("in netcdf format handler")]

@@ -16,7 +16,6 @@
 
 
 // Declare plugins
-DECLARE_PLUGIN(xyz)
 DECLARE_PLUGIN(dcd)
 
 #define PLUGIN_GETTER(name)\
@@ -28,5 +27,4 @@ molfile_plugin_t* name##_get_plugin_ptr(){\
     return name##_plugin_ptr;\
 }
 
-PLUGIN_GETTER(xyz)
 PLUGIN_GETTER(dcd)
