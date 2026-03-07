@@ -8,21 +8,21 @@ use std::{
 };
 use thiserror::Error;
 
+mod dcd_handler;
 mod gro_handler;
 mod itp_handler;
 mod netcdf_handler;
 mod pdb_handler;
 mod tpr_handler;
-mod vmd_molfile_handler;
 mod xtc_handler;
 mod xyz_handler;
 
+use dcd_handler::{DcdFileHandler, DcdHandlerError};
 use gro_handler::{GroFileHandler, GroHandlerError};
 use itp_handler::{ItpFileHandler, ItpHandlerError};
 use netcdf_handler::{NetCdfFileHandler, NetCdfHandlerError};
 use pdb_handler::{PdbFileHandler, PdbHandlerError};
 use tpr_handler::{TprFileHandler, TprHandlerError};
-use vmd_molfile_handler::{VmdHandlerError, VmdMolFileHandler};
 use xtc_handler::{XtcFileHandler, XtcHandlerError};
 use xyz_handler::{XyzFileHandler, XyzHandlerError};
 
@@ -238,7 +238,7 @@ impl FileHandler {
                 XyzFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "dcd" => Box::new(
-                VmdMolFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+                DcdFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xtc" => Box::new(
                 XtcFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -290,8 +290,7 @@ impl FileHandler {
                 XyzFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "dcd" => Box::new(
-                VmdMolFileHandler::create(fname)
-                    .map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+                DcdFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xtc" => Box::new(
                 XtcFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -594,9 +593,9 @@ pub(crate) enum FileFormatError {
     #[error("end of file reached")]
     Eof,
 
-    /// VMD molfile format handler error
-    #[error("in vmd format handler")]
-    Vmd(#[from] VmdHandlerError),
+    /// DCD format handler error
+    #[error("in dcd format handler")]
+    Dcd(#[from] DcdHandlerError),
 
     /// GRO format handler error
     #[error("in gro format handler")]
@@ -788,6 +787,84 @@ mod tests {
         for atom in sys.iter_atoms() {
             println!("mass = {}", atom.mass);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn dcd_roundtrip() -> anyhow::Result<()> {
+        // Read frames from XTC, write to DCD, read back and compare
+        let xtc_path = "tests/protein.xtc";
+        let dcd_path = concat!(env!("OUT_DIR"), "/roundtrip.dcd");
+
+        // Collect reference states from XTC
+        let ref_states: Vec<State> = FileHandler::open(xtc_path)?.into_iter().collect();
+        assert!(!ref_states.is_empty(), "No frames read from XTC");
+
+        // Write all frames to DCD
+        let mut writer = FileHandler::create(dcd_path)?;
+        for st in &ref_states {
+            writer.write_state(st)?;
+        }
+        drop(writer);
+
+        // Read back and compare
+        let dcd_states: Vec<State> = FileHandler::open(dcd_path)?.into_iter().collect();
+        assert_eq!(ref_states.len(), dcd_states.len(), "Frame count mismatch");
+
+        for (fr, (ref_st, dcd_st)) in ref_states.iter().zip(dcd_states.iter()).enumerate() {
+            assert_eq!(ref_st.coords.len(), dcd_st.coords.len(), "Atom count mismatch at frame {fr}");
+            for (i, (rp, dp)) in ref_st.coords.iter().zip(dcd_st.coords.iter()).enumerate() {
+                let d = (rp - dp).norm();
+                assert!(d < 1e-3, "Coord mismatch at frame {fr} atom {i}: diff={d}");
+            }
+            // Box comparison
+            match (&ref_st.pbox, &dcd_st.pbox) {
+                (Some(rb), Some(db)) => {
+                    let (rl, ra) = rb.to_vectors_angles();
+                    let (dl, da) = db.to_vectors_angles();
+                    for k in 0..3 {
+                        assert!((rl[k] - dl[k]).abs() < 1e-4, "Box length mismatch at frame {fr}");
+                        assert!((ra[k] - da[k]).abs() < 0.01, "Box angle mismatch at frame {fr}");
+                    }
+                }
+                (None, None) => {}
+                _ => panic!("Box presence mismatch at frame {fr}"),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn dcd_seek() -> anyhow::Result<()> {
+        let xtc_path = "tests/protein.xtc";
+        let dcd_path = concat!(env!("OUT_DIR"), "/seek_test.dcd");
+
+        // Write a few frames to DCD
+        let ref_states: Vec<State> = FileHandler::open(xtc_path)?
+            .into_iter()
+            .take(5)
+            .collect();
+        let mut writer = FileHandler::create(dcd_path)?;
+        for st in &ref_states {
+            writer.write_state(st)?;
+        }
+        drop(writer);
+
+        // Seek to last, then to frame 1
+        let mut reader = FileHandler::open(dcd_path)?;
+        reader.seek_last()?;
+        let last = reader.read_state()?;
+        let last_ref = &ref_states[ref_states.len() - 1];
+        let d = (last.coords[0] - last_ref.coords[0]).norm();
+        assert!(d < 1e-3, "seek_last coord diff={d}");
+
+        reader.seek_frame(1)?;
+        let fr1 = reader.read_state()?;
+        let fr1_ref = &ref_states[1];
+        let d = (fr1.coords[0] - fr1_ref.coords[0]).norm();
+        assert!(d < 1e-3, "seek_frame(1) coord diff={d}");
+
         Ok(())
     }
 }
