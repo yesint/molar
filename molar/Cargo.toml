@@ -43,7 +43,6 @@ criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [features]
 netcdf = ["dep:netcdf"]
-gen_bindings = ["molar_gromacs/gen_bindings"]
 
 # [[bench]]
 # name = "fit_benchmark"

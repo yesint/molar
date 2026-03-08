@@ -1,241 +1,177 @@
-#[cfg(not(gromacs))]
-pub use internal_tpr_disabled::*;
-#[cfg(gromacs)]
-pub use internal_tpr_enabled::*;
+use std::{ffi::CString, path::Path, sync::Arc};
 
-#[cfg(gromacs)]
-mod internal_tpr_enabled {
-    use crate::atom::{AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME_EXPECT};
-    use crate::prelude::*;
-    use molar_gromacs::gromacs_bindings::*;
-    use nalgebra::Matrix3;
-    use std::{
-        ffi::{CStr, CString, NulError}, path::Path, ptr::null_mut, str::Utf8Error
-    };
-    use thiserror::Error;
+use molar_gromacs::{TprAtom, TprBond, TprHandle, TprMolecule, TprPlugin};
+use nalgebra::Matrix3;
+use thiserror::Error;
 
-    pub struct TprFileHandler {
-        handle: TprHelper,
-        already_read: bool,
-    }
+use crate::atom::{AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME_EXPECT};
+use crate::prelude::*;
 
-    // Allow sending handler between threads
-    unsafe impl Send for TprFileHandler {}
+pub struct TprFileHandler {
+    plugin:       Arc<TprPlugin>,
+    handle:       *mut TprHandle,
+    already_read: bool,
+}
 
-    #[derive(Debug, Error)]
-    pub enum TprHandlerError {
-        #[error("unexpected null characted")]
-        CStringNull(#[from] NulError),
+// TprHandle is heap-allocated C++ data managed through the plugin functions.
+unsafe impl Send for TprFileHandler {}
 
-        #[error("invalid utf8")]
-        CStringUtf8(#[from] Utf8Error),
+#[derive(Debug, Error)]
+pub enum TprHandlerError {
+    #[error("Gromacs plugin not found (set MOLAR_GROMACS_PLUGIN to the path of libmolar_gromacs_plugin.so): {0}")]
+    GromacsNotFound(String),
 
-        #[error("invalid periodic box")]
-        Pbc(#[from] PeriodicBoxError),
+    #[error("failed to open TPR file: {0}")]
+    OpenFailed(String),
 
-        #[error("can't read gmx topology")]
-        GetTop,
-    }
+    #[error("unexpected null character in path")]
+    CStringNull(#[from] std::ffi::NulError),
 
-    impl TprFileHandler {
-        fn new(fname: impl AsRef<Path>) -> Result<Self, TprHandlerError> {
-            let f_name = CString::new(fname.as_ref().to_str().unwrap())?;
-            Ok(TprFileHandler {
-                handle: unsafe { TprHelper::new(f_name.as_ptr()) },
-                already_read: false,
-            })
-        }
-    }
+    #[error("invalid periodic box")]
+    Pbc(#[from] PeriodicBoxError),
+}
 
-    impl FileFormatHandler for TprFileHandler {
-        fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-        where
-            Self: Sized,
-        {
-            Ok(TprFileHandler::new(fname)?)
-        }
-
-        #[allow(non_snake_case)]
-        fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
-            if self.already_read {
-                return Err(FileFormatError::Eof);
-            }
-            //================
-            // Read top
-            //================
-            let gmx_top = unsafe {
-                self.handle
-                    .get_top()
-                    .as_ref()
-                    .ok_or_else(|| TprHandlerError::GetTop)?
-            };
-            let natoms = gmx_top.atoms.nr as usize;
-            let nres = gmx_top.atoms.nres as usize;
-
-            let mut top = Topology::default();
-            top.atoms.reserve(natoms);
-
-            let gmx_atoms = c_array_to_slice(gmx_top.atoms.atom, natoms);
-            let gmx_atomnames = c_array_to_slice(gmx_top.atoms.atomname, natoms);
-            let gmx_resinfo = c_array_to_slice(gmx_top.atoms.resinfo, nres);
-            let gmx_pdbinfo = if gmx_top.atoms.pdbinfo != null_mut() {
-                Some(c_array_to_slice(gmx_top.atoms.pdbinfo, natoms))
-            } else {
-                None
-            };
-            let gmx_atomtypes = c_array_to_slice(gmx_top.atoms.atomtype, natoms);
-
-            unsafe {
-                for i in 0..natoms {
-                    let name = c_ptr_to_atom_str(*gmx_atomnames[i], ATOM_NAME_EXPECT)?;
-                    let resi = gmx_atoms[i].resind as usize;
-                    let resname = c_ptr_to_atom_str(*gmx_resinfo[resi].name, ATOM_RESNAME_EXPECT)?;
-                    let mut chain = gmx_resinfo[resi].chainid as u8 as char;
-                    if chain == '\0' {
-                        chain = ' ';
-                    }
-                    let type_name = c_ptr_to_atom_str(*gmx_atomtypes[i], ATOM_TYPE_NAME_EXPECT)?;
-
-                    let new_atom = Atom {
-                        name,
-                        resid: gmx_atoms[i].resind,
-                        resname,
-                        chain,
-                        charge: gmx_atoms[i].q,
-                        mass: gmx_atoms[i].m,
-                        atomic_number: gmx_atoms[i].atomnumber as u8,
-                        type_id: gmx_atoms[i].type_ as u32,
-                        type_name,
-                        occupancy: gmx_pdbinfo.map(|inf| inf[i].occup).unwrap_or(0.0),
-                        bfactor: gmx_pdbinfo.map(|inf| inf[i].bfac).unwrap_or(0.0),
-                        ..Default::default()
-                    };
-
-                    top.atoms.push(new_atom);
-                } //for atoms
-
-                // Parsing idef for bonds
-                let functypes = c_array_to_slice(gmx_top.idef.functype, gmx_top.idef.ntypes);
-                // Iterate over non-empty interaction lists
-                for il in gmx_top.idef.il.iter().filter(|el| el.nr > 0) {
-                    let iatoms = c_array_to_slice(il.iatoms, il.nr);
-                    // We can check the first type only since we only
-                    // need to evaluate the interaction type and not
-                    // the concrete parameters for involved atoms
-                    match functypes[iatoms[0] as usize] as u32 {
-                        F_BONDS | F_G96BONDS | F_HARMONIC | F_FENEBONDS | F_CUBICBONDS
-                        | F_CONSTR | F_CONSTRNC => {
-                            for el in iatoms.chunks_exact(3) {
-                                // el[0] is type and not needed
-                                top.bonds.push([el[1] as usize, el[2] as usize]);
-                            }
-                        }
-                        F_SETTLE => {
-                            for el in iatoms.chunks_exact(4) {
-                                // el[0] is type and not needed
-                                // Each settle is 2 bonds
-                                top.bonds.push([el[1] as usize, el[2] as usize]);
-                                top.bonds.push([el[1] as usize, el[3] as usize]);
-                            }
-                        }
-                        _ => (),
-                    } //match
-                } //for
-
-                // Read molecules
-                let mol_index = c_array_to_slice(gmx_top.mols.index, gmx_top.mols.nr);
-                for m in mol_index.chunks_exact(2) {
-                    top.molecules.push([m[0] as usize, m[1] as usize - 1]);
-                }
-            } //unsafe
-
-            // Assign resindexes
-            top.assign_resindex();
-
-            //================
-            // Now read state
-            //================
-            let mut st = State::default();
-            // Gromacs stores coordinates in TPR in internal non-standard vectors
-            // So we will need to copy them atom by atom
-            st.coords.resize(natoms, Default::default());
-            unsafe {
-                for i in 0..natoms {
-                    // We are passing coords of point
-                    st.coords[i]
-                        .coords
-                        .copy_from_slice(c_array_to_slice(self.handle.get_atom_xyz(i), 3usize));
-                }
-            }
-
-            // Box is stored as column-major matrix
-            let sl = unsafe { std::slice::from_raw_parts(self.handle.get_box(), 9) };
-            let m = Matrix3::from_column_slice(sl);
-            st.pbox = Some(PeriodicBox::from_matrix(m).map_err(|e| TprHandlerError::Pbc(e))?);
-
-            Ok((top, st))
-        }
-    }
-
-    impl Drop for TprFileHandler {
-        fn drop(&mut self) {
-            // Call destructor of C++ helper class
-            unsafe { self.handle.destruct() };
-        }
-    }
-
-    unsafe fn c_ptr_to_atom_str(ptr: *const i8, expect: &str) -> Result<AtomStr, TprHandlerError> {
-        let s = CStr::from_ptr(ptr).to_str().map_err(TprHandlerError::CStringUtf8)?;
-        Ok(AtomStr::try_from_str(s.as_bytes()).expect(expect))
-    }
-
-    fn c_array_to_slice<'a, T, I: TryInto<usize>>(ptr: *mut T, n: I) -> &'a [T] {
-        match n.try_into() {
-            Ok(sz) => unsafe { std::slice::from_raw_parts(ptr, sz) },
-            _ => panic!("Array size is not convertible to usize"),
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use crate::io::TprFileHandler;
-        use crate::prelude::*;
-        #[test]
-        fn test_tpr() {
-            let mut h = TprFileHandler::open("tests/topol.tpr").unwrap();
-            let (top, st) = h.read().unwrap();
-            println!("natoms: {:?}", top.len());
-            println!("nbonds: {:?}", top.num_bonds());
-            println!("nmolecules: {:?}", top.num_molecules());
-            println!("state sz: {:?}", st.len());
+impl Drop for TprFileHandler {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            unsafe { (self.plugin.fns.tpr_close)(self.handle) };
+            self.handle = std::ptr::null_mut();
         }
     }
 }
 
-#[cfg(not(gromacs))]
-mod internal_tpr_disabled {
-    use crate::{FileFormatHandler, State, Topology};
-    use std::path::Path;
-    use thiserror::Error;
+impl FileFormatHandler for TprFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        let plugin = TprPlugin::load()
+            .map(Arc::new)
+            .map_err(|e| TprHandlerError::GromacsNotFound(e.to_string()))?;
 
-    pub struct TprFileHandler {}
+        let c_path = CString::new(fname.as_ref().to_str().unwrap())
+            .map_err(TprHandlerError::CStringNull)?;
+        let handle = unsafe { (plugin.fns.tpr_open)(c_path.as_ptr()) };
 
-    impl FileFormatHandler for TprFileHandler {
-        fn open(_fname: impl AsRef<Path>) -> Result<Self, crate::FileFormatError>
-            where
-                Self: Sized, 
-        {
-            Err(crate::FileFormatError::Tpr(TprHandlerError::GromacsDisabled))
+        if handle.is_null() {
+            let msg = plugin.last_error();
+            return Err(TprHandlerError::OpenFailed(msg).into());
         }
 
-        fn read(&mut self) -> Result<(Topology, State), crate::FileFormatError> {
-            Err(crate::FileFormatError::Tpr(TprHandlerError::GromacsDisabled))
-        }
+        Ok(TprFileHandler { plugin, handle, already_read: false })
     }
 
-    #[derive(Debug, Error)]
-    pub enum TprHandlerError {
-        #[error("gromacs support disabled")]
-        GromacsDisabled,
+    fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
+        if self.already_read {
+            return Err(FileFormatError::Eof);
+        }
+        self.already_read = true;
+
+        let fns = &self.plugin.fns;
+        let h   = self.handle;
+
+        let natoms = unsafe { (fns.tpr_natoms)(h) };
+        let nbonds = unsafe { (fns.tpr_nbonds)(h) };
+        let nmols  = unsafe { (fns.tpr_nmolecules)(h) };
+
+        // Allocate caller-owned buffers; C++ fills them.
+        let mut atoms_buf  = vec![unsafe { std::mem::zeroed::<TprAtom>() }; natoms];
+        let mut bonds_buf  = vec![TprBond { atom1: 0, atom2: 0 }; nbonds];
+        let mut mols_buf   = vec![TprMolecule { start: 0, end: 0 }; nmols];
+        let mut coords_buf = vec![0f32; natoms * 3];
+        let mut box_buf    = [0f32; 9];
+
+        unsafe {
+            (fns.tpr_fill_atoms)(h, atoms_buf.as_mut_ptr());
+            (fns.tpr_fill_bonds)(h, bonds_buf.as_mut_ptr());
+            (fns.tpr_fill_molecules)(h, mols_buf.as_mut_ptr());
+            (fns.tpr_fill_coords)(h, coords_buf.as_mut_ptr());
+            (fns.tpr_fill_box)(h, box_buf.as_mut_ptr());
+        }
+
+        //====================
+        // Build Topology
+        //====================
+        let mut top = Topology::default();
+        top.atoms.reserve(natoms);
+
+        for a in &atoms_buf {
+            let chain = if a.chain == 0 || a.chain == b'\0' { ' ' } else { a.chain as char };
+            top.atoms.push(Atom {
+                name:          atom_str_from_buf(&a.name,      ATOM_NAME_EXPECT),
+                resname:       atom_str_from_buf(&a.resname,   ATOM_RESNAME_EXPECT),
+                type_name:     atom_str_from_buf(&a.type_name, ATOM_TYPE_NAME_EXPECT),
+                chain,
+                resid:         a.resind as i32,
+                type_id:       a.type_id,
+                atomic_number: a.atomic_number as u8,
+                charge:        a.charge,
+                mass:          a.mass,
+                occupancy:     a.occupancy,
+                bfactor:       a.bfactor,
+                ..Default::default()
+            });
+        }
+
+        for b in &bonds_buf {
+            top.bonds.push([b.atom1 as usize, b.atom2 as usize]);
+        }
+
+        for m in &mols_buf {
+            top.molecules.push([m.start as usize, m.end as usize]);
+        }
+
+        top.assign_resindex();
+
+        //====================
+        // Build State
+        //====================
+        let mut st = State::default();
+        st.coords.resize(natoms, Default::default());
+        for i in 0..natoms {
+            st.coords[i].coords.copy_from_slice(&coords_buf[i * 3..i * 3 + 3]);
+        }
+
+        let m = Matrix3::from_column_slice(&box_buf);
+        st.pbox = Some(PeriodicBox::from_matrix(m).map_err(TprHandlerError::Pbc)?);
+
+        Ok((top, st))
+    }
+}
+
+fn atom_str_from_buf(buf: &[u8; 8], expect: &str) -> AtomStr {
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(8);
+    let s = std::str::from_utf8(&buf[..len]).expect("Gromacs atom strings are ASCII");
+    AtomStr::try_from_str(s).expect(expect)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::io::TprFileHandler;
+    use crate::prelude::*;
+
+    #[test]
+    fn test_tpr() {
+        let mut h = match TprFileHandler::open("tests/topol.tpr") {
+            Ok(h) => h,
+            Err(e) => {
+                // Check the error source chain for the "plugin not found" case.
+                let is_not_found = std::iter::successors(
+                    Some(&e as &dyn std::error::Error),
+                    |e| e.source(),
+                )
+                .any(|e| e.to_string().contains("plugin not found"));
+                if is_not_found {
+                    eprintln!("Skipping test_tpr: Gromacs plugin not available");
+                    return;
+                }
+                panic!("unexpected error: {e}");
+            }
+        };
+        let (top, st) = h.read().unwrap();
+        println!("natoms: {:?}", top.len());
+        println!("nbonds: {:?}", top.num_bonds());
+        println!("nmolecules: {:?}", top.num_molecules());
+        println!("state sz: {:?}", st.len());
     }
 }

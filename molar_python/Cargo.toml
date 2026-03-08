@@ -29,4 +29,3 @@ log.workspace = true
 triomphe.workspace = true
 
 [features]
-gen_bindings = ["molar/gen_bindings"]
