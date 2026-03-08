@@ -69,9 +69,9 @@ impl TprPlugin {
     /// Try to load the plugin shared library.
     ///
     /// Search order:
-    /// 1. `MOLAR_GROMACS_PLUGIN` env var (runtime override, full path).
-    /// 2. Path baked in at compile time via `MOLAR_GROMACS_PLUGIN_DEFAULT`
-    ///    (set by `molar_gromacs/build.rs` when Gromacs env vars were present).
+    /// 1. `MOLAR_GROMACS_PLUGIN` env var at runtime (user override).
+    /// 2. `MOLAR_GROMACS_PLUGIN` baked in at compile time by `build.rs`
+    ///    (set automatically when Gromacs env vars were present at build time).
     /// 3. System library search path (`libmolar_gromacs_plugin.so`).
     pub fn load() -> Result<Self, libloading::Error> {
         let lib = Self::open_library()?;
@@ -80,18 +80,17 @@ impl TprPlugin {
     }
 
     fn open_library() -> Result<libloading::Library, libloading::Error> {
-        // 1. Runtime env var
+        // 1. Runtime env var (overrides compile-time default).
         if let Ok(path) = std::env::var("MOLAR_GROMACS_PLUGIN") {
             return unsafe { libloading::Library::new(path) };
         }
-        // 2. Compile-time default (present only when molar_gromacs was built
-        //    with Gromacs env vars set)
-        if let Some(path) = option_env!("MOLAR_GROMACS_PLUGIN_DEFAULT") {
+        // 2. Compile-time default set by build.rs.
+        if let Some(path) = option_env!("MOLAR_GROMACS_PLUGIN") {
             if let Ok(lib) = unsafe { libloading::Library::new(path) } {
                 return Ok(lib);
             }
         }
-        // 3. System search
+        // 3. System search.
         let name = libloading::library_filename("molar_gromacs_plugin");
         unsafe { libloading::Library::new(name) }
     }

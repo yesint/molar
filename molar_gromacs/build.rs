@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::Command};
+use std::path::PathBuf;
 
 fn main() {
     let src_env = option_env!("GROMACS_SOURCE_DIR");
@@ -16,35 +16,42 @@ fn main() {
         };
         let so_path = out_dir.join(so_name);
 
-        // Use the cc crate only to locate the C++ compiler.
-        let compiler = cc::Build::new().cpp(true).get_compiler();
+        // Step 1: compile wrapper.cpp to an object file via the cc crate.
+        // This lets cc handle compiler detection, CXX env var, PIC, etc.
+        let obj_files = cc::Build::new()
+            .cpp(true)
+            .file("gromacs/wrapper.cpp")
+            .include("gromacs")
+            .include(format!("{src_env}/src"))
+            .include(format!("{src_env}/src/gromacs/utility/include"))
+            .include(format!("{src_env}/src/gromacs/math/include"))
+            .include(format!("{src_env}/src/gromacs/topology/include"))
+            .include(format!("{src_env}/api/legacy/include"))
+            .include(format!("{src_env}/src/external"))
+            .include(format!("{bld_env}/api/legacy/include"))
+            .pic(true)
+            .warnings(false)
+            .compile_intermediates();
 
-        let status = Command::new(compiler.path())
+        // Step 2: link object file(s) into a shared library using the same compiler.
+        let compiler = cc::Build::new().cpp(true).get_compiler();
+        let status = compiler
+            .to_command()
             .arg("-shared")
-            .arg("-fPIC")
-            .arg("-std=c++20")
-            .arg("-w")                              // suppress warnings
-            .arg("gromacs/wrapper.cpp")
-            .arg("-Igromacs")
-            .arg(format!("-I{src_env}/src"))
-            .arg(format!("-I{src_env}/src/gromacs/utility/include"))
-            .arg(format!("-I{src_env}/src/gromacs/math/include"))
-            .arg(format!("-I{src_env}/src/gromacs/topology/include"))
-            .arg(format!("-I{src_env}/api/legacy/include"))
-            .arg(format!("-I{src_env}/src/external"))
-            .arg(format!("-I{bld_env}/api/legacy/include"))
+            .args(&obj_files)
             .arg(format!("-L{lib_env}"))
             .arg("-lgromacs")
             .arg("-lmuparser")
             .arg("-o")
             .arg(&so_path)
             .status()
-            .expect("failed to invoke C++ compiler");
+            .expect("failed to link shared library");
 
         assert!(status.success(), "failed to build {so_name}");
 
+        // Bake the plugin path as the default value of MOLAR_GROMACS_PLUGIN.
+        // Users can override it at runtime by setting the same env var.
+        println!("cargo::rustc-env=MOLAR_GROMACS_PLUGIN={}", so_path.display());
         println!("cargo::warning=Gromacs plugin built: {}", so_path.display());
-        // Bake the path into the binary so the loader can find it by default.
-        println!("cargo::rustc-env=MOLAR_GROMACS_PLUGIN_DEFAULT={}", so_path.display());
     }
 }
