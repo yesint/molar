@@ -9,12 +9,8 @@ fn main() {
         let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
         // Determine shared library filename for the current target OS.
-        let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-        let so_name = match target_os.as_str() {
-            "macos" => "libmolar_gromacs_plugin.dylib",
-            _       => "libmolar_gromacs_plugin.so",
-        };
-        let so_path = out_dir.join(so_name);
+        let so_name = libloading::library_filename("molar_gromacs_plugin");
+        let so_path = out_dir.join(&so_name);
 
         // Step 1: compile wrapper.cpp to an object file via the cc crate.
         // This lets cc handle compiler detection, CXX env var, PIC, etc.
@@ -47,7 +43,7 @@ fn main() {
             .status()
             .expect("failed to link shared library");
 
-        assert!(status.success(), "failed to build {so_name}");
+        assert!(status.success(), "failed to build {}", so_path.display());
 
         // Bake the plugin path as the default value of MOLAR_GROMACS_PLUGIN.
         // Users can override it at runtime by setting the same env var.
