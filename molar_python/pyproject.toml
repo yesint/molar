@@ -4,13 +4,24 @@ build-backend = "maturin"
 
 [project]
 name = "pymolar"
+description = "Python bindings for MolAR — molecular analysis library"
 requires-python = ">=3.8"
+license = { text = "Artistic-2.0" }
+dependencies = ["numpy"]
 classifiers = [
+    "License :: OSI Approved :: Artistic License",
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/yesint/molar"
+Repository = "https://github.com/yesint/molar"
+Documentation = "https://yesint.github.io/molar/"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
