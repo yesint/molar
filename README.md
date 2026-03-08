@@ -56,11 +56,11 @@ For installation of the Python bindings [look here](#python-bindings).
 
 ## Gromacs TPR support
 
-TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin.so`). MolAR itself has **no compile-time Gromacs dependency** — the plugin is loaded via `dlopen` when a `.tpr` file is opened. If the plugin is not found, TPR files return a descriptive error; all other formats work normally.
+TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has **no compile-time Gromacs dependency** — the plugin is loaded dynamically when a `.tpr` file is opened. If the plugin is not found, TPR files return a descriptive error; all other formats work normally.
 
 ### Building the plugin
 
-The plugin must be compiled once against a local Gromacs installation. Because modern Gromacs does not expose all required data structures in its public API, you need access to both the Gromacs **source tree** and its **build directory**.
+The plugin must be compiled once against a local Gromacs installation. Modern Gromacs does not expose all required data structures in its public API, so you need access to both the Gromacs **source tree** and its **build directory**.
 
 1. Compile Gromacs from source (see the [Gromacs installation guide](https://manual.gromacs.org/current/install-guide/index.html)).
 
@@ -68,26 +68,26 @@ The plugin must be compiled once against a local Gromacs installation. Because m
 ```toml
 [env]
 # Path to the Gromacs source tree
-GROMACS_SOURCE_DIR = "/path/to/gromacs"
+GROMACS_SOURCE_DIR = "/path/to/gromacs_src"
 # Path to the Gromacs build directory (for generated headers)
-GROMACS_BUILD_DIR  = "/path/to/gromacs/build"
+GROMACS_BUILD_DIR  = "/path/to/gromacs_src/build"
 # Directory containing libgromacs.so
-GROMACS_LIB_DIR    = "/path/to/gromacs/install/lib64"
+GROMACS_LIB_DIR    = "/installed/gromacs/lib64"
 ```
 A template is provided: `cp config.toml.template .cargo/config.toml`.
 
 3. Build the plugin:
 ```shell
-cargo build -p molar_gromacs
+cargo build -p molar_gromacs -r
 ```
-The plugin is written to `target/debug/build/molar_gromacs-*/out/libmolar_gromacs_plugin.so` (or the `release` subdirectory for `--release` builds). The path is baked into the binary automatically, so no further configuration is needed if you run the binary from the same machine.
+The plugin is written to `target/release/build/molar_gromacs-*/out/libmolar_gromacs_plugin.so`. This path is baked into the molar library automatically, so no further configuration is needed if you used molar at the same machine.
 
 ### Using the plugin at runtime
 
-If you copy the binary to another machine (or want to use a plugin built separately), set the `MOLAR_GROMACS_PLUGIN` environment variable:
+If you want to use a plugin built separately, set the `MOLAR_GROMACS_PLUGIN` environment variable:
 
 ```shell
-export MOLAR_GROMACS_PLUGIN=/path/to/libmolar_gromacs_plugin.so
+export MOLAR_GROMACS_PLUGIN=/path/to/libmolar_gromacs_plugin
 ```
 
 MolAR searches in this order:
