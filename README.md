@@ -54,20 +54,46 @@ To add MolAR to your Rust project just use `cargo add molar`.
 
 For installation of the Python bindings [look here](#python-bindings).
 
-## Linking to Gromacs
-In order to be able to read Gromacs TPR files MolAR should link to locally installed Gromacs. Unfortunately, modern versions of Gromacs do not expose all needed functionality in the public API, so MolAR has to hack into the internals and thus requires an access to the whole Gromacs source and build directories. This means that you have to _compile_ Gromacs on your local machine from source.
+## Gromacs TPR support
 
-In order to link with Gromacs create a `.cargo/config.toml` file in the root directory of your project with the following content:
+TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin.so`). MolAR itself has **no compile-time Gromacs dependency** — the plugin is loaded via `dlopen` when a `.tpr` file is opened. If the plugin is not found, TPR files return a descriptive error; all other formats work normally.
+
+### Building the plugin
+
+The plugin must be compiled once against a local Gromacs installation. Because modern Gromacs does not expose all required data structures in its public API, you need access to both the Gromacs **source tree** and its **build directory**.
+
+1. Compile Gromacs from source (see the [Gromacs installation guide](https://manual.gromacs.org/current/install-guide/index.html)).
+
+2. In the **root of the MolAR workspace** (or your project using `molar_gromacs`), create `.cargo/config.toml`:
 ```toml
 [env]
-# Location of Gromacs source tree
-GROMACS_SOURCE_DIR = "<path-to-gromacs-source>/gromacs"
-# Location of Gromacs *build* directory (for generated headers)
-GROMACS_BUILD_DIR = "<path-to-gromacs-source>/gromacs/build"
-# Location of installed gromacs libraries (where libgromacs.so is located)
-GROMACS_LIB_DIR = "<path-to-installed-gromacs>/lib64"
+# Path to the Gromacs source tree
+GROMACS_SOURCE_DIR = "/path/to/gromacs"
+# Path to the Gromacs build directory (for generated headers)
+GROMACS_BUILD_DIR  = "/path/to/gromacs/build"
+# Directory containing libgromacs.so
+GROMACS_LIB_DIR    = "/path/to/gromacs/install/lib64"
 ```
-You may use a template: `mv config.toml.template config.toml`.
+A template is provided: `cp config.toml.template .cargo/config.toml`.
+
+3. Build the plugin:
+```shell
+cargo build -p molar_gromacs
+```
+The plugin is written to `target/debug/build/molar_gromacs-*/out/libmolar_gromacs_plugin.so` (or the `release` subdirectory for `--release` builds). The path is baked into the binary automatically, so no further configuration is needed if you run the binary from the same machine.
+
+### Using the plugin at runtime
+
+If you copy the binary to another machine (or want to use a plugin built separately), set the `MOLAR_GROMACS_PLUGIN` environment variable:
+
+```shell
+export MOLAR_GROMACS_PLUGIN=/path/to/libmolar_gromacs_plugin.so
+```
+
+MolAR searches in this order:
+1. `MOLAR_GROMACS_PLUGIN` environment variable (runtime override).
+2. Path baked in at compile time by `build.rs` (automatic when Gromacs env vars were set during build).
+3. System library search path (`libmolar_gromacs_plugin.so`).
 
 ## AMBER NetCDF trajectories
 
@@ -524,8 +550,8 @@ fn main() -> Result<()> {
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
         let m_at = Atom {
-            resname: AtomStr::try_from_str(b"TIP4").unwrap(),
-            name: AtomStr::try_from_str(b"M").unwrap(),
+            resname: AtomStr::try_from_str("TIP4").unwrap(),
+            name: AtomStr::try_from_str("M").unwrap(),
             ..mol.first_particle().atom.clone()
         };
 
