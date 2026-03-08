@@ -74,20 +74,25 @@ impl FileFormatHandler for TprFileHandler {
         let nbonds = unsafe { (fns.tpr_nbonds)(h) };
         let nmols  = unsafe { (fns.tpr_nmolecules)(h) };
 
-        // Allocate caller-owned buffers; C++ fills them.
-        let mut atoms_buf  = vec![unsafe { std::mem::zeroed::<TprAtom>() }; natoms];
-        let mut bonds_buf  = vec![TprBond { atom1: 0, atom2: 0 }; nbonds];
-        let mut mols_buf   = vec![TprMolecule { start: 0, end: 0 }; nmols];
-        let mut coords_buf = vec![0f32; natoms * 3];
-        let mut box_buf    = [0f32; 9];
+        // Allocate caller-owned buffers without initialization; C++ fills them.
+        let mut atoms_buf:  Vec<TprAtom>     = Vec::with_capacity(natoms);
+        let mut bonds_buf:  Vec<TprBond>     = Vec::with_capacity(nbonds);
+        let mut mols_buf:   Vec<TprMolecule> = Vec::with_capacity(nmols);
+        let mut coords_buf: Vec<f32>         = Vec::with_capacity(natoms * 3);
+        let mut box_buf                      = std::mem::MaybeUninit::<[f32; 9]>::uninit();
 
         unsafe {
+            atoms_buf.set_len(natoms);
+            bonds_buf.set_len(nbonds);
+            mols_buf.set_len(nmols);
+            coords_buf.set_len(natoms * 3);
             (fns.tpr_fill_atoms)(h, atoms_buf.as_mut_ptr());
             (fns.tpr_fill_bonds)(h, bonds_buf.as_mut_ptr());
             (fns.tpr_fill_molecules)(h, mols_buf.as_mut_ptr());
             (fns.tpr_fill_coords)(h, coords_buf.as_mut_ptr());
-            (fns.tpr_fill_box)(h, box_buf.as_mut_ptr());
+            (fns.tpr_fill_box)(h, box_buf.as_mut_ptr() as *mut f32);
         }
+        let box_buf = unsafe { box_buf.assume_init() };
 
         //====================
         // Build Topology
