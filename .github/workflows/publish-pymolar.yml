@@ -10,10 +10,14 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - runs-on: ubuntu-latest
+            target: x86_64
+          - runs-on: ubuntu-24.04-arm
+            target: aarch64
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
