@@ -7,6 +7,7 @@ mod analysis_task;
 mod atom;
 mod connectivity;
 mod distance_search;
+mod dssp;
 mod measure;
 mod modify;
 mod ndx_file;
@@ -26,17 +27,17 @@ pub mod voronoi_cell;
 /// Most useful public imports exposed to the users
 pub mod prelude {
     pub use crate::{
-        aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, io::*,
-        measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
+        aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*,
+        io::*, measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
         sasa::*, selection::*, state::*, topology::*,
     };
     pub use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 }
 
 pub use crate::{
-    aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, io::*, measure::*,
-    modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, sasa::*, selection::*,
-    state::*, topology::*,
+    aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*, io::*,
+    measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, sasa::*,
+    selection::*, state::*, topology::*,
 };
 
 const BOLD: &str = "\x1b[1m";
