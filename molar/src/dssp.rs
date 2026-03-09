@@ -639,32 +639,55 @@ mod tests {
         assert!(e > HBOND_THRESHOLD, "No H-bond expected at long distance, got {:.3}", e);
     }
 
-    #[test]
-    fn dssp_protein_pdb() -> anyhow::Result<()> {
-        let sys = System::from_file("tests/protein.pdb")?;
+    /// Load PDB, run DSSP, compare with reference `.dat` file.
+    ///
+    /// `strip_breaks` removes `=` characters from the reference before comparing.
+    /// Gromacs marks chain-boundary residues as `=` via its C–N distance check;
+    /// our backbone extraction simply skips those residues entirely, so the counts
+    /// differ when `strip_breaks` is false.
+    fn check_dssp(pdb: &str, dat: &str, threshold: f32, strip_breaks: bool) -> anyhow::Result<()> {
+        let sys = System::from_file(pdb)?;
         let sel = sys.select_bound("protein")?;
         let ss_string = sel.dssp_string();
 
-        let expected = std::fs::read_to_string("tests/protein_dssp.dat")?;
-        let expected = expected.trim();
+        let raw = std::fs::read_to_string(dat)?;
+        let expected: String = if strip_breaks {
+            raw.trim().chars().filter(|&c| c != '=').collect()
+        } else {
+            raw.trim().to_string()
+        };
 
         assert_eq!(ss_string.len(), expected.len(),
-            "Residue count mismatch: got {}, expected {}",
-            ss_string.len(), expected.len());
+            "Residue count mismatch: got {}, expected {}", ss_string.len(), expected.len());
 
         let matches = ss_string.chars().zip(expected.chars())
             .filter(|(a, b)| a == b)
             .count();
 
         let accuracy = matches as f32 / ss_string.len() as f32;
-        println!("DSSP accuracy: {:.1}% ({}/{} residues)",
-            accuracy * 100.0, matches, ss_string.len());
+        println!("DSSP accuracy: {:.1}% ({}/{} residues)", accuracy * 100.0, matches, ss_string.len());
         println!("Got:      {}", ss_string);
         println!("Expected: {}", expected);
 
-        assert!(accuracy >= 0.98,
-            "DSSP accuracy {:.1}% below 98% threshold", accuracy * 100.0);
+        assert!(accuracy >= threshold,
+            "DSSP accuracy {:.1}% below {:.0}% threshold", accuracy * 100.0, threshold * 100.0);
         Ok(())
+    }
+
+    #[test]
+    fn dssp_protein_pdb() -> anyhow::Result<()> {
+        check_dssp("tests/protein.pdb", "tests/protein_dssp.dat", 0.98, false)
+    }
+
+    #[test]
+    fn dssp_2lao() -> anyhow::Result<()> {
+        check_dssp("tests/2lao.pdb", "tests/2lao_dssp.dat", 0.95, false)
+    }
+
+    #[test]
+    fn dssp_7pbd() -> anyhow::Result<()> {
+        // Gromacs marks chain-boundary residues as `=`; we skip them → strip before comparing.
+        check_dssp("tests/7pbd.pdb", "tests/7pbd_dssp.dat", 0.95, true)
     }
 
 }
