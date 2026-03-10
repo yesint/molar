@@ -254,7 +254,7 @@ fn compute_hbonds(backbone: &[Option<BackboneResidue>], sel: &impl AtomPosAnalys
                 None => continue,
             };
 
-            let e = hbond_energy(dn, dh, ac, ao);
+            let e = hbond_energy(dn, &dh, ac, ao);
             if e < HBOND_THRESHOLD {
                 hbond.insert((donor, acceptor));
             }
@@ -265,7 +265,7 @@ fn compute_hbonds(backbone: &[Option<BackboneResidue>], sel: &impl AtomPosAnalys
 }
 
 #[inline]
-fn hbond_energy(donor_n: Pos, donor_h: Pos, acceptor_c: Pos, acceptor_o: Pos) -> f32 {
+fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos) -> f32 {
     let r_on = (acceptor_o - donor_n).norm();
     let r_ch = (acceptor_c - donor_h).norm();
     let r_oh = (acceptor_o - donor_h).norm();
@@ -548,7 +548,7 @@ fn detect_polyproline(
 /// Dihedral angle A-B-C-D using the Gromacs formula (degrees).
 /// Returns 360.0 for degenerate geometry.
 #[inline]
-fn dihedral_gmx(a: Pos, b: Pos, c: Pos, d: Pos) -> f32 {
+fn dihedral_gmx(a: &Pos, b: &Pos, c: &Pos, d: &Pos) -> f32 {
     let vec_ba = a - b; // B→A
     let vec_cd = d - c; // C→D
     let vec_cb = b - c; // C→B
@@ -571,8 +571,8 @@ fn dihedral_gmx(a: Pos, b: Pos, c: Pos, d: Pos) -> f32 {
 //──────────────────────────────────────────────────────────────────────────────
 
 #[inline]
-fn get_pos(sel: &impl AtomPosAnalysis, idx: usize) -> Pos {
-    unsafe { *sel.coords_ptr().add(idx) }
+fn get_pos(sel: &impl RandomPosProvider, idx: usize) -> &Pos {
+    unsafe {sel.get_pos_unchecked(idx)}
 }
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -593,7 +593,7 @@ mod tests {
         let acceptor_o = Pos::new(0.0, 0.0, -0.290);
         let acceptor_c = Pos::new(0.0, 0.0, -0.390);
 
-        let e = hbond_energy(donor_n, donor_h, acceptor_c, acceptor_o);
+        let e = hbond_energy(&donor_n, &donor_h, &acceptor_c, &acceptor_o);
         // Should be a good H-bond (energy < -0.5 kcal/mol)
         assert!(e < -0.5, "Expected H-bond energy < -0.5 kcal/mol, got {:.3}", e);
     }
@@ -606,7 +606,7 @@ mod tests {
         let acceptor_o = Pos::new(0.0, 0.0, -1.0); // 1 nm away
         let acceptor_c = Pos::new(0.0, 0.0, -1.1);
 
-        let e = hbond_energy(donor_n, donor_h, acceptor_c, acceptor_o);
+        let e = hbond_energy(&donor_n, &donor_h, &acceptor_c, &acceptor_o);
         assert!(e > HBOND_THRESHOLD, "No H-bond expected at long distance, got {:.3}", e);
     }
 
