@@ -101,168 +101,417 @@ impl SS {
 // Internal types
 //──────────────────────────────────────────────────────────────────────────────
 
-/// Backbone atom indices and reconstructed/explicit H position for one residue.
-struct BackboneResidue {
-    n:  usize,       // atom index of amide N
-    ca: usize,       // atom index of Cα
-    c:  usize,       // atom index of carbonyl C
-    o:  usize,       // atom index of carbonyl O
-    h:  Option<Pos>, // amide H position (explicit or reconstructed)
+/// Backbone atom **local** indices (for `RandomPosProvider`) and H position.
+enum BackboneResidue {
+    Valid { n: usize, ca: usize, c: usize, o: usize, h: Option<Pos> },
+    Break,
+}
+
+impl BackboneResidue {
+    #[inline]
+    fn is_valid(&self) -> bool { matches!(self, Self::Valid { .. }) }
+    #[inline]
+    fn is_break(&self) -> bool { matches!(self, Self::Break) }
 }
 
 //──────────────────────────────────────────────────────────────────────────────
-// Algorithm entry point
+// Public struct
 //──────────────────────────────────────────────────────────────────────────────
 
-pub(crate) fn compute_dssp(sel: &impl AtomPosAnalysis) -> Vec<SS> {
-    let mut backbone = extract_backbone(sel);
-    reconstruct_h(&mut backbone, sel);
+/// DSSP secondary structure assignment result for a selection.
+///
+/// Constructed via [`MeasureAtomPos::dssp`].
+pub struct Dssp {
+    backbone: Vec<BackboneResidue>,  // local selection indices
+    hbond:    HashSet<(usize, usize)>,
+    ss:       Vec<SS>,
+}
 
-    let n = backbone.len();
-    let mut ss = vec![SS::Coil; n];
+impl Dssp {
+    /// Run the full DSSP algorithm on `sel` and return the result.
+    pub fn new(sel: &(impl ParticleIterProvider + RandomPosProvider)) -> Self {
+        let backbone = Self::extract_backbone(sel);
+        let ss = backbone.iter().map(|b| match b {
+            BackboneResidue::Break => SS::Break,
+            BackboneResidue::Valid { .. } => SS::Coil,
+        }).collect();
 
-    // Mark breaks immediately
-    for (i, b) in backbone.iter().enumerate() {
-        if b.is_none() {
-            ss[i] = SS::Break;
+        let mut this = Self { backbone, hbond: HashSet::new(), ss };
+        this.reconstruct_h(sel);
+        this.hbond = this.compute_hbonds(sel);
+        this.detect_helices();
+        this.detect_beta();
+        this.detect_bends(sel);
+        this.detect_polyproline(sel);
+        this
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Public accessors
+    //──────────────────────────────────────────────────────────────────────────
+
+    /// Per-residue secondary structure codes, ordered by residue index.
+    pub fn ss(&self) -> &[SS] { &self.ss }
+
+    /// Compact string of DSSP codes, one character per residue.
+    pub fn ss_string(&self) -> String { self.ss.iter().map(|s| s.to_char()).collect() }
+
+    /// Number of residues.
+    pub fn len(&self) -> usize { self.ss.len() }
+
+    /// Returns `true` if the result contains no residues.
+    pub fn is_empty(&self) -> bool { self.ss.is_empty() }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 1: Backbone extraction
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn extract_backbone(sel: &impl ParticleIterProvider) -> Vec<BackboneResidue> {
+        struct ResEntry {
+            n:  Option<usize>,
+            ca: Option<usize>,
+            c:  Option<usize>,
+            o:  Option<usize>,
+            h:  Option<Pos>,
         }
-    }
 
-    let hbond = compute_hbonds(&backbone, sel);
+        let mut by_res: BTreeMap<usize, ResEntry> = BTreeMap::new();
 
-    detect_helices(&backbone, &hbond, &mut ss);
-    detect_beta(&backbone, &hbond, &mut ss);
-    detect_bends(&backbone, sel, &mut ss);
-    detect_polyproline(&backbone, sel, &mut ss);
-
-    ss
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 1: Backbone extraction
-//──────────────────────────────────────────────────────────────────────────────
-
-fn extract_backbone(sel: &impl AtomPosAnalysis) -> Vec<Option<BackboneResidue>> {
-    struct ResEntry {
-        n:  Option<usize>,
-        ca: Option<usize>,
-        c:  Option<usize>,
-        o:  Option<usize>,
-        h:  Option<Pos>,
-    }
-
-    let mut by_res: BTreeMap<usize, ResEntry> = BTreeMap::new();
-
-    for p in sel.iter_particle() {
-        let entry = by_res.entry(p.atom.resindex).or_insert(ResEntry {
-            n: None, ca: None, c: None, o: None, h: None,
-        });
-        match p.atom.name.as_str() {
-            "N"  => entry.n  = Some(p.id),
-            "CA" => entry.ca = Some(p.id),
-            "C"  => entry.c  = Some(p.id),
-            // Accept standard and C-terminal oxygen naming
-            "O" | "OT1" | "OXT" => {
-                if entry.o.is_none() { entry.o = Some(p.id); }
+        for (local_idx, p) in sel.iter_particle().enumerate() {
+            let entry = by_res.entry(p.atom.resindex).or_insert(ResEntry {
+                n: None, ca: None, c: None, o: None, h: None,
+            });
+            match p.atom.name.as_str() {
+                "N"  => entry.n  = Some(local_idx),  // LOCAL — correct for get_pos_unchecked
+                "CA" => entry.ca = Some(local_idx),
+                "C"  => entry.c  = Some(local_idx),
+                // Accept standard and C-terminal oxygen naming
+                "O" | "OT1" | "OXT" => {
+                    if entry.o.is_none() { entry.o = Some(local_idx); }
+                }
+                // Accept common amide H naming conventions; store pos directly
+                "H" | "HN" | "1H" | "H1" => entry.h = Some(*p.pos),
+                _ => {}
             }
-            // Accept common amide H naming conventions
-            "H" | "HN" | "1H" | "H1" => entry.h = Some(*p.pos),
-            _ => {}
         }
+
+        by_res.into_values().map(|e| {
+            match (e.n, e.ca, e.c, e.o) {
+                (Some(n), Some(ca), Some(c), Some(o)) =>
+                    BackboneResidue::Valid { n, ca, c, o, h: e.h },
+                _ => BackboneResidue::Break,
+            }
+        }).collect()
     }
 
-    by_res.into_values().map(|e| {
-        match (e.n, e.ca, e.c, e.o) {
-            (Some(n), Some(ca), Some(c), Some(o)) =>
-                Some(BackboneResidue { n, ca, c, o, h: e.h }),
-            _ => None,
-        }
-    }).collect()
-}
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 2: Hydrogen reconstruction
+    //──────────────────────────────────────────────────────────────────────────
 
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 2: Hydrogen reconstruction
-//──────────────────────────────────────────────────────────────────────────────
-
-/// Reconstruct amide H positions for all non-proline residues.
-///
-/// Formula matches Gromacs `gmx dssp -hmode dssp`:
-///   H_i = N_i + normalize(C_{i-1} − O_{i-1}) × 0.1 nm
-///
-/// The mixed-unit scaling (C-O vector in nm, distance in Å) in Gromacs effectively
-/// places H at N + unit_vector × 0.1 nm (= 1.0 Å), where the direction is
-/// from O toward C of the preceding residue — pointing along the trans-peptide amide.
-///
-/// This function overwrites any previously stored H position so that all bonds are
-/// computed from reconstructed H, consistent with the Gromacs -hmode dssp reference.
-fn reconstruct_h(backbone: &mut Vec<Option<BackboneResidue>>, sel: &impl AtomPosAnalysis) {
-    for i in 1..backbone.len() {
-        if backbone[i].is_none() { continue; }
-
-        let (prev_c, prev_o) = match backbone[i - 1].as_ref() {
-            Some(p) => (p.c, p.o),
-            None => continue, // preceding residue is a Break — no reconstruction possible
-        };
-
-        let n_pos  = get_pos(sel, backbone[i].as_ref().unwrap().n);
-        let c_prev = get_pos(sel, prev_c);
-        let o_prev = get_pos(sel, prev_o);
-
-        // Gromacs -hmode dssp: H = N + normalize(C_prev − O_prev) × 0.1 nm
-        let v = c_prev - o_prev; // vector from O toward C of the previous residue
-        let norm = v.norm();
-        if norm > 1e-6 {
-            let h_pos = n_pos + v / norm * 0.1; // 0.1 nm = 1.0 Å
-            backbone[i].as_mut().unwrap().h = Some(h_pos);
-        }
-    }
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 3: Hydrogen bond detection
-//──────────────────────────────────────────────────────────────────────────────
-
-/// Electrostatic H-bond factor: 0.084 × 33.2 (converts to nm, kcal/mol).
-/// Original formula uses Å: E = 0.084 × 332 × (1/r_ON + 1/r_CH − 1/r_OH − 1/r_CN).
-/// For nm: multiply by 0.1, giving factor = 0.084 × 33.2 = 2.7888.
-const HBOND_FACTOR: f32 = 0.084 * 33.2; // kcal/mol·nm
-const HBOND_THRESHOLD: f32 = -0.5;      // kcal/mol
-
-/// Returns a set of `(donor_local_idx, acceptor_local_idx)` pairs where
-/// the amide N–H of `donor` residue forms an H-bond with the C=O of `acceptor`.
-fn compute_hbonds(backbone: &[Option<BackboneResidue>], sel: &impl AtomPosAnalysis)
-    -> HashSet<(usize, usize)>
-{
-    let n = backbone.len();
-    let mut hbond = HashSet::new();
-
-    for donor in 0..n {
-        let (dn, dh) = match backbone[donor].as_ref() {
-            Some(b) => (get_pos(sel, b.n), match b.h {
-                Some(h) => h,
-                None => continue, // no H — cannot donate
-            }),
-            None => continue,
-        };
-
-        for acceptor in 0..n {
-            if donor == acceptor { continue; }
-            if donor.abs_diff(acceptor) < 2 { continue; } // skip adjacent residues
-
-            let (ac, ao) = match backbone[acceptor].as_ref() {
-                Some(b) => (get_pos(sel, b.c), get_pos(sel, b.o)),
-                None => continue,
+    /// Reconstruct amide H positions for all non-proline residues.
+    ///
+    /// Formula matches Gromacs `gmx dssp -hmode dssp`:
+    ///   H_i = N_i + normalize(C_{i-1} − O_{i-1}) × 0.1 nm
+    ///
+    /// Overwrites any previously stored H so all bonds are computed from
+    /// reconstructed H, consistent with the Gromacs -hmode dssp reference.
+    fn reconstruct_h(&mut self, sel: &impl RandomPosProvider) {
+        for i in 1..self.backbone.len() {
+            // Extract local indices (immutable borrows end here via Copy)
+            let (prev_c, prev_o, n_idx) = match (&self.backbone[i - 1], &self.backbone[i]) {
+                (BackboneResidue::Valid { c, o, .. }, BackboneResidue::Valid { n, .. })
+                    => (*c, *o, *n),
+                _ => continue,
             };
 
-            let e = hbond_energy(dn, &dh, ac, ao);
-            if e < HBOND_THRESHOLD {
-                hbond.insert((donor, acceptor));
+            let n_pos  = *get_pos(sel, n_idx);
+            let c_prev = *get_pos(sel, prev_c);
+            let o_prev = *get_pos(sel, prev_o);
+
+            // Gromacs -hmode dssp: H = N + normalize(C_prev − O_prev) × 0.1 nm
+            let v = c_prev - o_prev;
+            let norm = v.norm();
+            if norm > 1e-6 {
+                let h_pos = n_pos + v / norm * 0.1;
+                if let BackboneResidue::Valid { h, .. } = &mut self.backbone[i] {
+                    *h = Some(h_pos);
+                }
             }
         }
     }
 
-    hbond
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 3: Hydrogen bond detection
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn compute_hbonds(&self, sel: &impl RandomPosProvider) -> HashSet<(usize, usize)> {
+        let n = self.backbone.len();
+        let mut hbond = HashSet::new();
+
+        for donor in 0..n {
+            let (dn_idx, dh) = match &self.backbone[donor] {
+                BackboneResidue::Valid { n, h: Some(h), .. } => (*n, *h),
+                _ => continue, // no H or Break — cannot donate
+            };
+            let dn = get_pos(sel, dn_idx);
+
+            for acceptor in 0..n {
+                if donor == acceptor { continue; }
+                if donor.abs_diff(acceptor) < 2 { continue; } // skip adjacent
+
+                let (ac_idx, ao_idx) = match &self.backbone[acceptor] {
+                    BackboneResidue::Valid { c, o, .. } => (*c, *o),
+                    BackboneResidue::Break => continue,
+                };
+
+                let ac = get_pos(sel, ac_idx);
+                let ao = get_pos(sel, ao_idx);
+
+                let e = hbond_energy(dn, &dh, ac, ao);
+                if e < HBOND_THRESHOLD {
+                    hbond.insert((donor, acceptor));
+                }
+            }
+        }
+
+        hbond
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 4: Helix detection
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn detect_helices(&mut self) {
+        let n = self.backbone.len();
+
+        // Pre-compute n-turn start positions for all 3 helix types
+        let mut n_turn_at = [vec![false; n], vec![false; n], vec![false; n]];
+        for (t, n_turn) in [(0usize, 3usize), (1, 4), (2, 5)] {
+            for i in 0..n {
+                if i + n_turn < n
+                    && self.backbone[i].is_valid()
+                    && self.backbone[i + n_turn].is_valid()
+                    && self.hbond.contains(&(i + n_turn, i))
+                {
+                    n_turn_at[t][i] = true;
+                }
+            }
+        }
+
+        // Process helices in Gromacs order: alpha (4) first, then 3-10 (3), then pi (5).
+        for &(t, n_turn, helix_code) in &[
+            (1usize, 4usize, SS::AlphaHelix),
+            (0usize, 3usize, SS::Helix310),
+            (2usize, 5usize, SS::PiHelix),
+        ] {
+            let min_priority_block: u8 = match helix_code {
+                SS::AlphaHelix => u8::MAX,
+                SS::Helix310   => SS::BetaSheet.priority(),
+                SS::PiHelix    => SS::Helix310.priority(),
+                _              => u8::MAX,
+            };
+
+            let turns = &n_turn_at[t];
+
+            for i in 0..n {
+                if turns[i] && i + 1 < n && turns[i + 1] {
+                    let lo = i + 1;
+                    let hi = (i + n_turn).min(n - 1);
+                    if (lo..=hi).any(|k| self.ss[k].priority() >= min_priority_block) {
+                        continue;
+                    }
+                    for k in lo..=hi {
+                        self.ss[k].try_assign(helix_code);
+                    }
+                }
+            }
+
+            // Mark interior turn residues as T
+            for i in 0..n {
+                if turns[i] {
+                    for k in (i + 1)..(i + n_turn).min(n) {
+                        self.ss[k].try_assign(SS::Turn);
+                    }
+                }
+            }
+        }
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 5: Beta bridge / sheet detection
+    // Algorithm matches Gromacs 2025 dssp.cpp analyzeBridgesAndStrandsPatterns()
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn detect_beta(&mut self) {
+        let n = self.backbone.len();
+        if n < 5 { return; }
+
+        let mut ap_partners:  Vec<Vec<usize>> = vec![vec![]; n];
+        let mut par_partners: Vec<Vec<usize>> = vec![vec![]; n];
+
+        for i in 1..n.saturating_sub(4) {
+            if self.backbone[i - 1].is_break() || self.backbone[i].is_break() || self.backbone[i + 1].is_break() {
+                continue;
+            }
+            for j in (i + 3)..n.saturating_sub(1) {
+                if self.backbone[j - 1].is_break() || self.backbone[j].is_break() || self.backbone[j + 1].is_break() {
+                    continue;
+                }
+
+                let ap = (self.hbond.contains(&(i + 1, j - 1)) && self.hbond.contains(&(j + 1, i - 1)))
+                      || (self.hbond.contains(&(j, i))          && self.hbond.contains(&(i, j)));
+                if ap {
+                    ap_partners[i].push(j);
+                    ap_partners[j].push(i);
+                }
+
+                let par = (self.hbond.contains(&(i + 1, j)) && self.hbond.contains(&(j, i - 1)))
+                       || (self.hbond.contains(&(j + 1, i)) && self.hbond.contains(&(i, j - 1)));
+                if par {
+                    par_partners[i].push(j);
+                    par_partners[j].push(i);
+                }
+            }
+        }
+
+        for i in 1..n.saturating_sub(1) {
+            for gap in 1..=2_usize {
+                let ij = i + gap;
+                if ij >= n { continue; }
+
+                // has_break(i): i==0 || i+1>=n || backbone[i-1] or backbone[i+1] is Break
+                let i_break  = i  == 0 || i  + 1 >= n
+                    || self.backbone[i  - 1].is_break() || self.backbone[i  + 1].is_break();
+                let ij_break = ij == 0 || ij + 1 >= n
+                    || self.backbone[ij - 1].is_break() || self.backbone[ij + 1].is_break();
+                if i_break || ij_break { continue; }
+
+                for (pi, pij) in [(&ap_partners[i], &ap_partners[ij]),
+                                  (&par_partners[i], &par_partners[ij])] {
+                    if pi.is_empty() || pij.is_empty() { continue; }
+                    for &ip in pi.iter() {
+                        for &jp in pij.iter() {
+                            if ip.abs_diff(jp) < 6 {
+                                let lo = ip.min(jp);
+                                let hi = ip.max(jp);
+                                for k in lo..=hi {
+                                    self.ss[k].try_assign(SS::BetaSheet);
+                                }
+                                for k in i..=ij {
+                                    self.ss[k].try_assign(SS::BetaSheet);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for i in 1..n.saturating_sub(1) {
+            if self.backbone[i].is_break() { continue; }
+            if self.ss[i] != SS::BetaSheet
+                && (!ap_partners[i].is_empty() || !par_partners[i].is_empty())
+            {
+                self.ss[i].try_assign(SS::BetaBridge);
+            }
+        }
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 6: Bend detection
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn detect_bends(&mut self, sel: &impl RandomPosProvider) {
+        let n = self.backbone.len();
+
+        for i in 2..n.saturating_sub(2) {
+            let (ca_m2_idx, ca_0_idx, ca_p2_idx) = match (
+                &self.backbone[i - 2],
+                &self.backbone[i],
+                &self.backbone[i + 2],
+            ) {
+                (BackboneResidue::Valid { ca: m2, .. },
+                 BackboneResidue::Valid { ca: z,  .. },
+                 BackboneResidue::Valid { ca: p2, .. }) => (*m2, *z, *p2),
+                _ => continue,
+            };
+
+            let ca_m2 = get_pos(sel, ca_m2_idx);
+            let ca_0  = get_pos(sel, ca_0_idx);
+            let ca_p2 = get_pos(sel, ca_p2_idx);
+
+            let v1 = ca_0  - ca_m2;
+            let v2 = ca_p2 - ca_0;
+
+            let n1 = v1.norm();
+            let n2 = v2.norm();
+            if n1 < 1e-6 || n2 < 1e-6 { continue; }
+
+            let cos_angle = (v1.dot(&v2) / (n1 * n2)).clamp(-1.0, 1.0);
+            let angle_deg = cos_angle.acos().to_degrees();
+
+            if angle_deg >= 70.0 {
+                self.ss[i].try_assign(SS::Bend);
+            }
+        }
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 7: PolyProline II helix detection (torsion angle-based)
+    // Matches Gromacs `gmx dssp -polypro` (default behavior, PPStretches::Default)
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn detect_polyproline(&mut self, sel: &impl RandomPosProvider) {
+        let n = self.backbone.len();
+
+        let mut phi = vec![360.0f32; n];
+        let mut psi = vec![360.0f32; n];
+
+        for i in 1..n.saturating_sub(1) {
+            let (prev_c_idx, n_idx, ca_idx, c_idx) = match (&self.backbone[i - 1], &self.backbone[i]) {
+                (BackboneResidue::Valid { c: pc, .. },
+                 BackboneResidue::Valid { n, ca, c, .. }) => (*pc, *n, *ca, *c),
+                _ => continue,
+            };
+
+            let c_prev  = get_pos(sel, prev_c_idx);
+            let n_curr  = get_pos(sel, n_idx);
+            let ca_curr = get_pos(sel, ca_idx);
+            let c_curr  = get_pos(sel, c_idx);
+            phi[i] = dihedral_gmx(c_prev, n_curr, ca_curr, c_curr);
+
+            if let BackboneResidue::Valid { n: nn, .. } = &self.backbone[i + 1] {
+                let n_next = get_pos(sel, *nn);
+                psi[i] = dihedral_gmx(n_curr, ca_curr, c_curr, n_next);
+            }
+        }
+
+        let phi_min = -75.0_f32 - 29.0; // -104°
+        let phi_max = -75.0_f32 + 29.0; // -46°
+        let psi_min = 145.0_f32 - 29.0; // 116°
+        let psi_max = 145.0_f32 + 29.0; // 174°
+
+        let in_phi = |k: usize| phi[k] >= phi_min && phi[k] <= phi_max;
+        let in_psi = |k: usize| psi[k] >= psi_min && psi[k] <= psi_max;
+
+        for i in 1..n {
+            if i + 3 >= n { break; }
+            if !in_phi(i) || !in_phi(i + 1) || !in_phi(i + 2) { continue; }
+            if !in_psi(i) || !in_psi(i + 1) || !in_psi(i + 2) { continue; }
+            self.ss[i].try_assign(SS::PolyProline);
+            self.ss[i + 1].try_assign(SS::PolyProline);
+            self.ss[i + 2].try_assign(SS::PolyProline);
+        }
+    }
 }
+
+//──────────────────────────────────────────────────────────────────────────────
+// H-bond energy constants and helper
+//──────────────────────────────────────────────────────────────────────────────
+
+/// Electrostatic H-bond factor: 0.084 × 33.2 (nm units, kcal/mol).
+const HBOND_FACTOR: f32 = 0.084 * 33.2;
+const HBOND_THRESHOLD: f32 = -0.5; // kcal/mol
 
 #[inline]
 fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos) -> f32 {
@@ -271,7 +520,6 @@ fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos
     let r_oh = (acceptor_o - donor_h).norm();
     let r_cn = (acceptor_c - donor_n).norm();
 
-    // Guard against degenerate geometry
     if r_oh < 1e-4 || r_on < 1e-4 || r_ch < 1e-4 || r_cn < 1e-4 {
         return 0.0;
     }
@@ -279,284 +527,18 @@ fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos
     HBOND_FACTOR * (1.0 / r_on + 1.0 / r_ch - 1.0 / r_oh - 1.0 / r_cn)
 }
 
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 4: Helix detection
-//──────────────────────────────────────────────────────────────────────────────
-
-fn detect_helices(
-    backbone: &[Option<BackboneResidue>],
-    hbond: &HashSet<(usize, usize)>,
-    ss: &mut Vec<SS>,
-) {
-    let n = backbone.len();
-
-    // Pre-compute n-turn start positions for all 3 helix types
-    let mut n_turn_at = [vec![false; n], vec![false; n], vec![false; n]];
-    for (t, n_turn) in [(0usize, 3usize), (1, 4), (2, 5)] {
-        for i in 0..n {
-            if i + n_turn < n
-                && backbone[i].is_some()
-                && backbone[i + n_turn].is_some()
-                && hbond.contains(&(i + n_turn, i))
-            {
-                n_turn_at[t][i] = true;
-            }
-        }
-    }
-
-    // Process helices in Gromacs order: alpha (4) first, then 3-10 (3), then pi (5).
-    // Alpha always assigns; 3-10 and pi have an "empty check" matching Gromacs behavior:
-    //   3-10 (G, priority 5): skip if any residue in range already has E, B, or H (priority ≥ 6)
-    //   pi   (I, priority 4): skip if any residue in range already has G, E, B, or H (priority ≥ 5)
-    for &(t, n_turn, helix_code) in &[
-        (1usize, 4usize, SS::AlphaHelix),
-        (0usize, 3usize, SS::Helix310),
-        (2usize, 5usize, SS::PiHelix),
-    ] {
-        let min_priority_block: u8 = match helix_code {
-            SS::AlphaHelix => u8::MAX, // no block: always assign
-            SS::Helix310   => SS::BetaSheet.priority(), // block if any residue has E/B/H (≥ 6)
-            SS::PiHelix    => SS::Helix310.priority(),  // block if any residue has G/E/B/H (≥ 5)
-            _              => u8::MAX,
-        };
-
-        let turns = &n_turn_at[t];
-
-        // A proper helix requires two consecutive n-turns:
-        // turns[i] AND turns[i+1] → residues i+1 … i+n_turn get the helix code.
-        for i in 0..n {
-            if turns[i] && i + 1 < n && turns[i + 1] {
-                let lo = i + 1;
-                let hi = (i + n_turn).min(n - 1);
-                // Empty check: skip if any residue in range is already ≥ min_priority_block
-                if (lo..=hi).any(|k| ss[k].priority() >= min_priority_block) {
-                    continue;
-                }
-                for k in lo..=hi {
-                    ss[k].try_assign(helix_code);
-                }
-            }
-        }
-
-        // Mark interior turn residues as T (NOT the acceptor i nor the donor i+n_turn).
-        // Only residues not already assigned a helix get T (via try_assign priority).
-        for i in 0..n {
-            if turns[i] {
-                for k in (i + 1)..(i + n_turn).min(n) {
-                    ss[k].try_assign(SS::Turn);
-                }
-            }
-        }
-    }
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 5: Beta bridge / sheet detection
-// Algorithm matches Gromacs 2025 dssp.cpp analyzeBridgesAndStrandsPatterns()
-//──────────────────────────────────────────────────────────────────────────────
-
-fn detect_beta(
-    backbone: &[Option<BackboneResidue>],
-    hbond: &HashSet<(usize, usize)>,
-    ss: &mut Vec<SS>,
-) {
-    let n = backbone.len();
-    if n < 5 { return; }
-
-    // Per-residue bridge partner lists (matches Gromacs per-residue storage)
-    let mut ap_partners:  Vec<Vec<usize>> = vec![vec![]; n];
-    let mut par_partners: Vec<Vec<usize>> = vec![vec![]; n];
-
-    // Bridge detection: i in 1..n-4, j in i+3..n-1
-    // Requires backbone[i-1], backbone[i], backbone[i+1],
-    //          backbone[j-1], backbone[j], backbone[j+1] all present (no chain break)
-    for i in 1..n.saturating_sub(4) {
-        if backbone[i - 1].is_none() || backbone[i].is_none() || backbone[i + 1].is_none() {
-            continue;
-        }
-        for j in (i + 3)..n.saturating_sub(1) {
-            if backbone[j - 1].is_none() || backbone[j].is_none() || backbone[j + 1].is_none() {
-                continue;
-            }
-
-            // Anti-parallel bridge (i, j) — Gromacs / Kabsch & Sander:
-            //   Pattern B: hbond(i+1, j-1) AND hbond(j+1, i-1)
-            //   Pattern A: hbond(j, i)     AND hbond(i, j)      [mutual]
-            let ap = (hbond.contains(&(i + 1, j - 1)) && hbond.contains(&(j + 1, i - 1)))
-                  || (hbond.contains(&(j, i))          && hbond.contains(&(i, j)));
-
-            if ap {
-                ap_partners[i].push(j);
-                ap_partners[j].push(i);
-            }
-
-            // Parallel bridge (i, j) — Gromacs / Kabsch & Sander:
-            //   Pattern A: hbond(i+1, j) AND hbond(j, i-1)
-            //   Pattern B: hbond(j+1, i) AND hbond(i, j-1)
-            let par = (hbond.contains(&(i + 1, j)) && hbond.contains(&(j, i - 1)))
-                   || (hbond.contains(&(j + 1, i)) && hbond.contains(&(i, j - 1)));
-
-            if par {
-                par_partners[i].push(j);
-                par_partners[j].push(i);
-            }
-        }
-    }
-
-    // Strand detection — matches Gromacs second loop in analyzeBridgesAndStrandsPatterns()
-    // For each i, check i+gap for gap in {1, 2}:
-    //   if both residues have bridges of the same type, and their partners are within 6,
-    //   mark all residues between partners as E, and all residues i..=i+gap as E.
-    let has_break = |k: usize| -> bool {
-        k == 0 || k + 1 >= n || backbone[k - 1].is_none() || backbone[k + 1].is_none()
-    };
-
-    for i in 1..n.saturating_sub(1) {
-        for gap in 1..=2_usize {
-            let ij = i + gap;
-            if ij >= n { continue; }
-            if has_break(i) || has_break(ij) { continue; }
-
-            for (pi, pij) in [(&ap_partners[i], &ap_partners[ij]),
-                              (&par_partners[i], &par_partners[ij])] {
-                if pi.is_empty() || pij.is_empty() { continue; }
-                for &ip in pi.iter() {
-                    for &jp in pij.iter() {
-                        let delta = ip.abs_diff(jp);
-                        if delta < 6 {
-                            // Mark E: all residues between the two partners (second strand)
-                            let lo = ip.min(jp);
-                            let hi = ip.max(jp);
-                            for k in lo..=hi {
-                                ss[k].try_assign(SS::BetaSheet);
-                            }
-                            // Mark E: residues i through i+gap (first strand)
-                            for k in i..=ij {
-                                ss[k].try_assign(SS::BetaSheet);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Isolated bridges: has bridge partners but was not assigned E → assign B
-    for i in 1..n.saturating_sub(1) {
-        if backbone[i].is_none() { continue; }
-        if ss[i] != SS::BetaSheet && (!ap_partners[i].is_empty() || !par_partners[i].is_empty()) {
-            ss[i].try_assign(SS::BetaBridge);
-        }
-    }
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 6: Bend detection
-//──────────────────────────────────────────────────────────────────────────────
-
-fn detect_bends(
-    backbone: &[Option<BackboneResidue>],
-    sel: &impl AtomPosAnalysis,
-    ss: &mut Vec<SS>,
-) {
-    let n = backbone.len();
-
-    for i in 2..n.saturating_sub(2) {
-        if backbone[i - 2].is_none() || backbone[i].is_none() || backbone[i + 2].is_none() {
-            continue;
-        }
-
-        let ca_m2 = get_pos(sel, backbone[i - 2].as_ref().unwrap().ca);
-        let ca_0  = get_pos(sel, backbone[i].as_ref().unwrap().ca);
-        let ca_p2 = get_pos(sel, backbone[i + 2].as_ref().unwrap().ca);
-
-        let v1 = ca_0  - ca_m2;
-        let v2 = ca_p2 - ca_0;
-
-        let n1 = v1.norm();
-        let n2 = v2.norm();
-        if n1 < 1e-6 || n2 < 1e-6 { continue; }
-
-        let cos_angle = (v1.dot(&v2) / (n1 * n2)).clamp(-1.0, 1.0);
-        let angle_deg = cos_angle.acos().to_degrees();
-
-        if angle_deg >= 70.0 {
-            ss[i].try_assign(SS::Bend);
-        }
-    }
-}
-
-//──────────────────────────────────────────────────────────────────────────────
-// Stage 7: PolyProline II helix detection (torsion angle-based)
-// Matches Gromacs `gmx dssp -polypro` (default behavior, PPStretches::Default)
-//──────────────────────────────────────────────────────────────────────────────
-
-/// Detect PolyProline II helices from backbone φ/ψ torsion angles.
-///
-/// Assigns `SS::PolyProline` (P) to any Coil residue that belongs to a run of
-/// three consecutive residues with φ ∈ [-104°, -46°] and ψ ∈ [116°, 174°].
-/// This matches the Gromacs default (`-ppstretch default`, `-polypro true`).
-fn detect_polyproline(
-    backbone: &[Option<BackboneResidue>],
-    sel: &impl AtomPosAnalysis,
-    ss: &mut Vec<SS>,
-) {
-    let n = backbone.len();
-
-    // Phi and psi angles in degrees; 360.0 marks invalid / not computed.
-    let mut phi = vec![360.0f32; n];
-    let mut psi = vec![360.0f32; n];
-
-    // phi[i] = dihedral(C[i-1], N[i], CA[i], C[i]) — needs backbone[i-1] and backbone[i]
-    // psi[i] = dihedral(N[i], CA[i], C[i], N[i+1]) — needs backbone[i] and backbone[i+1]
-    for i in 1..n.saturating_sub(1) {
-        if backbone[i - 1].is_none() || backbone[i].is_none() { continue; }
-        let prev = backbone[i - 1].as_ref().unwrap();
-        let curr = backbone[i].as_ref().unwrap();
-        let c_prev  = get_pos(sel, prev.c);
-        let n_curr  = get_pos(sel, curr.n);
-        let ca_curr = get_pos(sel, curr.ca);
-        let c_curr  = get_pos(sel, curr.c);
-        phi[i] = dihedral_gmx(c_prev, n_curr, ca_curr, c_curr);
-        if backbone[i + 1].is_some() {
-            let n_next = get_pos(sel, backbone[i + 1].as_ref().unwrap().n);
-            psi[i] = dihedral_gmx(n_curr, ca_curr, c_curr, n_next);
-        }
-    }
-
-    // PP ranges (Gromacs / libcifpp values): phi ∈ [-75±29], psi ∈ [145±29]
-    let phi_min = -75.0_f32 - 29.0; // -104°
-    let phi_max = -75.0_f32 + 29.0; // -46°
-    let psi_min = 145.0_f32 - 29.0; // 116°
-    let psi_max = 145.0_f32 + 29.0; // 174°
-
-    // Default stretch = 3 consecutive residues.
-    // Gromacs loop: for i in 1..n while i+3 < n, checks i, i+1, i+2.
-    for i in 1..n {
-        if i + 3 >= n { break; }
-        let in_phi = |k: usize| phi[k] >= phi_min && phi[k] <= phi_max;
-        let in_psi = |k: usize| psi[k] >= psi_min && psi[k] <= psi_max;
-        if !in_phi(i) || !in_phi(i + 1) || !in_phi(i + 2) { continue; }
-        if !in_psi(i) || !in_psi(i + 1) || !in_psi(i + 2) { continue; }
-        // Assign PP only to residues currently Coil (priority 0 < PP priority 1)
-        ss[i].try_assign(SS::PolyProline);
-        ss[i + 1].try_assign(SS::PolyProline);
-        ss[i + 2].try_assign(SS::PolyProline);
-    }
-}
-
 /// Dihedral angle A-B-C-D using the Gromacs formula (degrees).
 /// Returns 360.0 for degenerate geometry.
 #[inline]
 fn dihedral_gmx(a: &Pos, b: &Pos, c: &Pos, d: &Pos) -> f32 {
-    let vec_ba = a - b; // B→A
-    let vec_cd = d - c; // C→D
-    let vec_cb = b - c; // C→B
+    let vec_ba = a - b;
+    let vec_cd = d - c;
+    let vec_cb = b - c;
     let cbxba      = vec_cb.cross(&vec_ba);
     let cbxcd      = vec_cb.cross(&vec_cd);
     let cbxcbxcd   = vec_cb.cross(&cbxcd);
-    let vdot1 = cbxcd.dot(&cbxcd);       // |CB×CD|²
-    let vdot2 = cbxcbxcd.dot(&cbxcbxcd); // |CB×(CB×CD)|²
+    let vdot1 = cbxcd.dot(&cbxcd);
+    let vdot2 = cbxcbxcd.dot(&cbxcbxcd);
     if vdot1 > 0.0 && vdot2 > 0.0 {
         let x = cbxba.dot(&cbxcd)    / vdot1.sqrt();
         let y = cbxba.dot(&cbxcbxcd) / vdot2.sqrt();
@@ -566,13 +548,9 @@ fn dihedral_gmx(a: &Pos, b: &Pos, c: &Pos, d: &Pos) -> f32 {
     }
 }
 
-//──────────────────────────────────────────────────────────────────────────────
-// Helpers
-//──────────────────────────────────────────────────────────────────────────────
-
 #[inline]
-fn get_pos(sel: &impl RandomPosProvider, idx: usize) -> &Pos {
-    unsafe {sel.get_pos_unchecked(idx)}
+fn get_pos(sel: &impl RandomPosProvider, local_idx: usize) -> &Pos {
+    unsafe { sel.get_pos_unchecked(local_idx) }
 }
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -584,26 +562,22 @@ mod tests {
     use super::*;
 
     // Known geometry: ideal alpha-helix H-bond geometry
-    // N at origin; H points toward O (−z direction); O and C below.
     #[test]
     fn hbond_energy_alpha_helix() {
-        // N at 0; H at 0.101 nm below N (pointing toward O); O at 0.29 nm below N
         let donor_n = Pos::new(0.0, 0.0, 0.0);
-        let donor_h = Pos::new(0.0, 0.0, -0.101); // H points toward O
+        let donor_h = Pos::new(0.0, 0.0, -0.101);
         let acceptor_o = Pos::new(0.0, 0.0, -0.290);
         let acceptor_c = Pos::new(0.0, 0.0, -0.390);
 
         let e = hbond_energy(&donor_n, &donor_h, &acceptor_c, &acceptor_o);
-        // Should be a good H-bond (energy < -0.5 kcal/mol)
         assert!(e < -0.5, "Expected H-bond energy < -0.5 kcal/mol, got {:.3}", e);
     }
 
     #[test]
     fn hbond_energy_bad_geometry() {
-        // Very long distance: no H-bond expected
         let donor_n = Pos::new(0.0, 0.0, 0.0);
         let donor_h = Pos::new(0.0, 0.0, 0.101);
-        let acceptor_o = Pos::new(0.0, 0.0, -1.0); // 1 nm away
+        let acceptor_o = Pos::new(0.0, 0.0, -1.0);
         let acceptor_c = Pos::new(0.0, 0.0, -1.1);
 
         let e = hbond_energy(&donor_n, &donor_h, &acceptor_c, &acceptor_o);
@@ -611,11 +585,6 @@ mod tests {
     }
 
     /// Load PDB, run DSSP, compare with reference `.dat` file.
-    ///
-    /// `strip_breaks` removes `=` characters from the reference before comparing.
-    /// Gromacs marks chain-boundary residues as `=` via its C–N distance check;
-    /// our backbone extraction simply skips those residues entirely, so the counts
-    /// differ when `strip_breaks` is false.
     fn check_dssp(pdb: &str, dat: &str, threshold: f32, strip_breaks: bool) -> anyhow::Result<()> {
         let sys = System::from_file(pdb)?;
         let sel = sys.select_bound("protein")?;
@@ -657,8 +626,6 @@ mod tests {
 
     #[test]
     fn dssp_7pbd() -> anyhow::Result<()> {
-        // Gromacs marks chain-boundary residues as `=`; we skip them → strip before comparing.
         check_dssp("tests/7pbd.pdb", "tests/7pbd_dssp.dat", 0.95, true)
     }
-
 }

@@ -1,4 +1,3 @@
-use crate::dssp::{compute_dssp, SS};
 use crate::prelude::*;
 use crate::sasa::Sasa;
 use itertools::izip;
@@ -660,7 +659,7 @@ pub enum LipidOrderError {
 ///
 /// The returned [`Sasa`] is both a result holder and a persistent calculator:
 /// call [`Sasa::update`] on subsequent frames to reuse the power diagram.
-pub trait MeasureAtomPos: AtomPosAnalysis + AtomIterProvider + PosIterProvider + LenProvider {
+pub trait MeasureAtomPos: AtomPosAnalysis {
     /// Compute SASA (areas only).
     fn sasa(&self) -> Result<Sasa, MeasureError> {
         Sasa::new(self)
@@ -673,16 +672,16 @@ pub trait MeasureAtomPos: AtomPosAnalysis + AtomIterProvider + PosIterProvider +
 
     /// Compute per-residue secondary structure assignments (DSSP).
     ///
-    /// Returns one [`SS`] per residue present in the selection, ordered by
+    /// Returns a [`Dssp`] result containing one [`SS`] per residue, ordered by
     /// residue index. Residues missing any backbone heavy atom (N, CA, C or O)
     /// are assigned [`SS::Break`].
-    fn dssp(&self) -> Vec<SS> {
-        compute_dssp(self)
+    fn dssp(&self) -> Dssp {
+        Dssp::new(self)
     }
 
     /// Compact string of DSSP codes, one character per residue.
     fn dssp_string(&self) -> String {
-        self.dssp().iter().map(|ss| ss.to_char()).collect()
+        self.dssp().ss_string()
     }
 }
 

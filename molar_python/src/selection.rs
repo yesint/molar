@@ -801,7 +801,8 @@ impl SelPy {
     ///    helix_count = codes.count('H')
     fn dssp(&self) -> Vec<String> {
         MeasureAtomPos::dssp(self)
-            .into_iter()
+            .ss()
+            .iter()
             .map(|ss| ss.to_char().to_string())
             .collect()
     }
@@ -821,7 +822,7 @@ impl SelPy {
     ///    prot = sys("protein")
     ///    print(prot.dssp_string())    # e.g. "HHHHHTTEEEE~~~~~"
     fn dssp_string(&self) -> String {
-        MeasureAtomPos::dssp_string(self)
+        MeasureAtomPos::dssp(self).ss_string()
     }
 
     /// Axis-aligned bounding-box min and max coordinates.
