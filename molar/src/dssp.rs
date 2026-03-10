@@ -98,35 +98,6 @@ impl SS {
 }
 
 //──────────────────────────────────────────────────────────────────────────────
-// Public trait
-//──────────────────────────────────────────────────────────────────────────────
-
-/// Secondary structure assignment via DSSP (Kabsch & Sander 1983).
-///
-/// The returned `Vec<SS>` has one entry per **residue** found in the selection,
-/// in residue-index order.  Residues missing any backbone heavy atom (N, CA,
-/// C or O) are assigned [`SS::Break`].
-///
-/// Hydrogen atoms are used when present in the topology; otherwise the amide H
-/// position is reconstructed from the carbonyl C and O of the preceding
-/// residue.
-pub trait Dssp: AtomPosAnalysis {
-    /// Compute per-residue secondary structure assignments.
-    fn dssp(&self) -> Vec<SS>;
-
-    /// Compact string of DSSP codes, one character per residue.
-    fn dssp_string(&self) -> String {
-        self.dssp().iter().map(|ss| ss.to_char()).collect()
-    }
-}
-
-impl<T: AtomPosAnalysis> Dssp for T {
-    fn dssp(&self) -> Vec<SS> {
-        compute_dssp(self)
-    }
-}
-
-//──────────────────────────────────────────────────────────────────────────────
 // Internal types
 //──────────────────────────────────────────────────────────────────────────────
 
@@ -143,7 +114,7 @@ struct BackboneResidue {
 // Algorithm entry point
 //──────────────────────────────────────────────────────────────────────────────
 
-fn compute_dssp(sel: &impl AtomPosAnalysis) -> Vec<SS> {
+pub(crate) fn compute_dssp(sel: &impl AtomPosAnalysis) -> Vec<SS> {
     let mut backbone = extract_backbone(sel);
     reconstruct_h(&mut backbone, sel);
 

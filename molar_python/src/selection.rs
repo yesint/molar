@@ -767,6 +767,63 @@ impl SelPy {
         Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
     }
 
+    /// Compute DSSP secondary structure assignment for each residue.
+    ///
+    /// Implements the Kabsch & Sander (1983) algorithm.  Pass a **protein-only**
+    /// selection; non-protein residues lack backbone atoms and will appear as
+    /// ``'='`` (break) in the output.
+    ///
+    /// :returns: List of single-character DSSP codes, one per residue.
+    ///
+    ///     ========= =================================
+    ///     Character Meaning
+    ///     ========= =================================
+    ///     ``H``     Alpha helix
+    ///     ``G``     3\ :sub:`10` helix
+    ///     ``I``     π helix
+    ///     ``P``     Poly-proline II helix
+    ///     ``E``     Extended beta strand (sheet)
+    ///     ``B``     Isolated beta bridge
+    ///     ``T``     Hydrogen-bonded turn
+    ///     ``S``     Bend (Cα angle ≥ 70°)
+    ///     ``~``     Loop / coil
+    ///     ``=``     Break (missing backbone atoms)
+    ///     ========= =================================
+    ///
+    /// :rtype: list[str]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot = sys("protein")
+    ///    codes = prot.dssp()            # ['H', 'H', 'T', 'E', '~', ...]
+    ///    helix_count = codes.count('H')
+    fn dssp(&self) -> Vec<String> {
+        MeasureAtomPos::dssp(self)
+            .into_iter()
+            .map(|ss| ss.to_char().to_string())
+            .collect()
+    }
+
+    /// Compact DSSP secondary structure string, one character per residue.
+    ///
+    /// Equivalent to ``''.join(sel.dssp())``.  See :meth:`dssp` for the code
+    /// table and caveats about non-protein residues.
+    ///
+    /// :returns: DSSP string, e.g. ``"HHHHHTTEEEE~~~~~"``.
+    /// :rtype: str
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot = sys("protein")
+    ///    print(prot.dssp_string())    # e.g. "HHHHHTTEEEE~~~~~"
+    fn dssp_string(&self) -> String {
+        MeasureAtomPos::dssp_string(self)
+    }
+
     /// Axis-aligned bounding-box min and max coordinates.
     ///
     /// :returns: Tuple ``(min_xyz, max_xyz)`` as NumPy arrays.
