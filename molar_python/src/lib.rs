@@ -327,8 +327,6 @@ fn distance_search<'py>(
             }
 
             if pbc_dims.any() {
-                res = distance_search_double_vdw(&sel1 as &SelPy, &sel2 as &SelPy, &vdw1, &vdw2);
-            } else {
                 res = distance_search_double_vdw_pbc(
                     sel1.iter_pos(),
                     sel2.iter_pos(),
@@ -337,6 +335,8 @@ fn distance_search<'py>(
                     &sel1.require_box().unwrap(),
                     pbc_dims,
                 );
+            } else {
+                res = distance_search_double_vdw(&sel1 as &SelPy, &sel2 as &SelPy, &vdw1, &vdw2);
             }
 
             // Convert local indices to global
@@ -352,26 +352,21 @@ fn distance_search<'py>(
             ));
         }
     } else {
-        unreachable!()
+        return Err(PyTypeError::new_err("cutoff must be a float or 'vdw'"));
     };
 
     // Subdivide the result into two arrays
-    unsafe {
-        // Pairs array
-        let pairs_arr = numpy::PyArray2::<usize>::new(py, [res.len(), 2], true);
-        for i in 0..res.len() {
-            pairs_arr.uget_raw([i, 0]).write(res[i].0);
-            pairs_arr.uget_raw([i, 1]).write(res[i].1);
-        }
-
-        // Distances array
-        let dist_arr = numpy::PyArray1::<f32>::new(py, [res.len()], true);
-        for i in 0..res.len() {
-            dist_arr.uget_raw(i).write(res[i].2);
-        }
-
-        Ok((pairs_arr, dist_arr).into_bound_py_any(py)?)
+    let n = res.len();
+    let mut flat_pairs = Vec::with_capacity(n * 2);
+    let mut dists = Vec::with_capacity(n);
+    for (i, j, d) in res {
+        flat_pairs.push(i);
+        flat_pairs.push(j);
+        dists.push(d);
     }
+    let pairs_arr = numpy::PyArray1::from_vec(py, flat_pairs).reshape([n, 2])?;
+    let dist_arr = numpy::PyArray1::from_vec(py, dists);
+    Ok((pairs_arr, dist_arr).into_bound_py_any(py)?)
 }
 /// Reader for GROMACS NDX index files.
 ///
