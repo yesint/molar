@@ -705,21 +705,18 @@ impl SelPy {
         ))
     }
 
-    /// Principal-axes alignment transform (non-periodic).
+    #[pyo3(signature = (pbc = false))]
+    /// Principal-axes alignment transform.
     ///
+    /// :param pbc: If ``True``, use periodic boundary conditions.
     /// :returns: Rigid transform.
     /// :rtype: IsometryTransform
-    fn principal_transform(&self) -> PyResult<crate::IsometryTransform> {
-        let tr = MeasureMasses::principal_transform(self).map_err(to_py_runtime_err)?;
-        Ok(crate::IsometryTransform(tr))
-    }
-
-    /// Principal-axes alignment transform with periodic handling.
-    ///
-    /// :returns: Rigid transform.
-    /// :rtype: IsometryTransform
-    fn principal_transform_pbc(&self) -> PyResult<crate::IsometryTransform> {
-        let tr = MeasurePeriodic::principal_transform_pbc(self).map_err(to_py_runtime_err)?;
+    fn principal_transform(&self, pbc: bool) -> PyResult<crate::IsometryTransform> {
+        let tr = if pbc {
+            MeasurePeriodic::principal_transform_pbc(self).map_err(to_py_runtime_err)?
+        } else {
+            MeasureMasses::principal_transform(self).map_err(to_py_runtime_err)?
+        };
         Ok(crate::IsometryTransform(tr))
     }
 
@@ -745,8 +742,10 @@ impl SelPy {
         .apply_transform(&tr.0);
     }
 
-    /// Radius of gyration (non-periodic).
+    #[pyo3(signature = (pbc = false))]
+    /// Radius of gyration.
     ///
+    /// :param pbc: If ``True``, use periodic boundary conditions.
     /// :returns: Radius of gyration in nm.
     /// :rtype: float
     ///
@@ -754,17 +753,14 @@ impl SelPy {
     ///
     /// .. code-block:: python
     ///
-    ///    rg = sel.gyration()    # radius of gyration in nm
-    fn gyration(&self) -> PyResult<f32> {
-        Ok(MeasureMasses::gyration(self).map_err(to_py_runtime_err)?)
-    }
-
-    /// Radius of gyration with periodic handling.
-    ///
-    /// :returns: Radius of gyration.
-    /// :rtype: float
-    fn gyration_pbc(&self) -> PyResult<f32> {
-        Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
+    ///    rg = sel.gyration()         # no PBC
+    ///    rg = sel.gyration(pbc=True) # with PBC
+    fn gyration(&self, pbc: bool) -> PyResult<f32> {
+        if pbc {
+            Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
+        } else {
+            Ok(MeasureMasses::gyration(self).map_err(to_py_runtime_err)?)
+        }
     }
 
     /// Compute DSSP secondary structure assignment for each residue.
@@ -845,8 +841,10 @@ impl SelPy {
         (minpy, maxpy)
     }
 
+    #[pyo3(signature = (pbc = false))]
     /// Principal moments and axes of inertia tensor.
     ///
+    /// :param pbc: If ``True``, use periodic boundary conditions.
     /// :returns: Tuple ``(moments, axes)`` where moments is length-3 and axes is 3×3.
     /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
     ///
@@ -858,28 +856,16 @@ impl SelPy {
     fn inertia<'py>(
         &self,
         py: Python<'py>,
+        pbc: bool,
     ) -> PyResult<(
         Bound<'py, numpy::PyArray1<f32>>,
         Bound<'py, numpy::PyArray2<f32>>,
     )> {
-        let (moments, axes) = MeasureMasses::inertia(self).map_err(to_py_runtime_err)?;
-        let mom = clone_vec_to_pyarray1(&moments, py);
-        let ax = axes.to_pyarray(py);
-        Ok((mom, ax))
-    }
-
-    /// Principal moments and axes of inertia tensor with periodic handling.
-    ///
-    /// :returns: Tuple ``(moments, axes)``.
-    /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
-    fn inertia_pbc<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<(
-        Bound<'py, numpy::PyArray1<f32>>,
-        Bound<'py, numpy::PyArray2<f32>>,
-    )> {
-        let (moments, axes) = MeasurePeriodic::inertia_pbc(self).map_err(to_py_runtime_err)?;
+        let (moments, axes) = if pbc {
+            MeasurePeriodic::inertia_pbc(self).map_err(to_py_runtime_err)?
+        } else {
+            MeasureMasses::inertia(self).map_err(to_py_runtime_err)?
+        };
         let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);
         Ok((mom, ax))
