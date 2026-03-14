@@ -94,7 +94,7 @@ impl IndexProvider for SelPy {
         self.index.get_index_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.index.iter_index()
     }
 }
@@ -135,13 +135,13 @@ impl TimeProvider for SelPy {
 }
 
 impl SaveTopology for SelPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
         Box::new(self.iter_atoms())
     }
 }
 
 impl SaveState for SelPy {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.iter_pos())
     }
 }

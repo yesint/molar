@@ -86,32 +86,24 @@ impl FileFormatHandler for XtcFileHandler {
     fn write_state(&mut self, data: &dyn super::SaveState) -> Result<(), super::FileFormatError> {
         match self {
             Self::Writer(w) => {
-                // Coordinate buffer with ownership to be transfered to molly frame
-                let mut buf =
-                    ManuallyDrop::new(Vec::<Pos>::from_iter(data.iter_pos_dyn().cloned()));
-                // Decompose the buffer
-                let p = buf.as_mut_ptr() as *mut f32;
-                let len = buf.len() * 3;
-                let cap = buf.capacity() * 3;
-                // Assamble it back to molly positions
-                let positions = unsafe { Vec::from_raw_parts(p, len, cap) };
                 // Construct molly box
                 let m = match data.get_box() {
                     Some(b) => b.get_matrix(),
                     None => Matrix3::<f32>::zeros(),
                 };
-                let fr = molly::Frame {
-                    precision: 1000.0,
-                    time: data.get_time(),
-                    step: w.cur_fr as u32,
-                    positions,
-                    boxvec: m.as_slice().try_into().unwrap(),
-                };
+
                 // Update frame counter
                 w.cur_fr += 1;
-                w.writer
-                    .write_frame(&fr)
-                    .map_err(|e| XtcHandlerError::WriteFrame(e))?
+
+                let it = data.iter_pos_dyn().map(|p| p.coords.as_ref());
+
+                w.writer.write_frame_parts(
+                    w.cur_fr as u32,
+                    data.get_time(),
+                    m.as_slice().try_into().unwrap(),
+                    it,
+                    1000.0,
+                ).map_err(|e| XtcHandlerError::WriteFrame(e))?;
             }
 
             Self::Reader(_) => unreachable!(),
@@ -128,11 +120,13 @@ impl FileFormatHandler for XtcFileHandler {
                 }
                 if fr < r.cur_fr {
                     for _ in 0..r.cur_fr - fr {
-                        r.reader.seek_prev()
+                        r.reader
+                            .seek_prev()
                             .map_err(|e| XtcHandlerError::SeekFrame(fr, e))?;
                     }
                 } else {
-                    r.reader.skip_frames((fr - r.cur_fr) as u64)
+                    r.reader
+                        .skip_frames((fr - r.cur_fr) as u64)
                         .map_err(|e| XtcHandlerError::SeekFrame(fr, e))?;
                 }
             }
@@ -144,7 +138,8 @@ impl FileFormatHandler for XtcFileHandler {
     fn seek_time(&mut self, t: f32) -> Result<(), super::FileFormatError> {
         match self {
             Self::Reader(r) => {
-                r.reader.skip_to_time(t)
+                r.reader
+                    .skip_to_time(t)
                     .map_err(|e| XtcHandlerError::SeekTime(t, e))?;
             }
             Self::Writer(_) => unreachable!(),
@@ -173,3 +168,4 @@ pub enum XtcHandlerError {
     #[error("unexpected io error in xtc file")]
     Io(#[from] std::io::Error),
 }
+

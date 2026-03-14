@@ -100,7 +100,7 @@ impl Topology {
 
 //---------------------------
 impl SaveTopology for Topology {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
         Box::new(self.atoms.iter())
     }
 }
@@ -150,7 +150,7 @@ impl RandomBondProvider for Topology {
 }
 
 impl BondIterProvider for Topology {
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_bonds(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
         self.bonds.iter()
     }
 }
@@ -166,7 +166,7 @@ impl RandomMoleculeProvider for Topology {
 }
 
 impl MoleculeIterProvider for Topology {
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_molecules(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
         self.molecules.iter()
     }
 }

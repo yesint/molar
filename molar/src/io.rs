@@ -30,12 +30,12 @@ use xyz_handler::{XyzFileHandler, XyzHandlerError};
 
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: RandomBondProvider + LenProvider {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a>;
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a>;
 }
 
 /// Trait for saving [State] to file
 pub trait SaveState: BoxProvider + TimeProvider + LenProvider {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a>;
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a>;
 }
 
 /// Trait for saving both [Topology] and [State] to file

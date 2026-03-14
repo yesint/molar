@@ -222,8 +222,8 @@ impl System {
 
     pub fn append_atoms_coords<'a>(
         &mut self,
-        atoms: impl AtomIterator<'a>,
-        coords: impl PosIterator<'a>,
+        atoms: impl Iterator<Item = &'a Atom>,
+        coords: impl Iterator<Item = &'a Pos>,
     ) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         self.st.add_coords(coords.cloned());
@@ -308,13 +308,13 @@ impl SelectableBound for System {
 }
 
 impl SaveTopology for System {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
         Box::new(self.iter_atoms())
     }
 }
 
 impl SaveState for System {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.iter_pos())
     }
 }
@@ -340,7 +340,7 @@ impl IndexProvider for System {
         i
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         (0..self.len()).into_iter()
     }
 }

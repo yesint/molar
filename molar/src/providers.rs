@@ -11,7 +11,7 @@ use crate::prelude::*;
 pub trait IndexProvider: LenProvider {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         (0..self.len()).map(|i| unsafe { self.get_index_unchecked(i) })
     }
        
@@ -59,7 +59,7 @@ impl<T: IndexSliceProvider> IndexProvider for T {
         *self.get_index_slice().get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.get_index_slice().into_iter().cloned()
     }
 }
@@ -105,7 +105,7 @@ pub trait PosParIterMutProvider {
 
 /// Trait for providing iteration over atomic masses
 pub trait MassIterProvider {
-    fn iter_masses(&self) -> impl Iterator<Item = f32>;
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32>;
 }
 
 /// Trait for providing iteration over atoms
@@ -123,7 +123,7 @@ pub trait AtomParIterMutProvider {
 }
 
 impl<T: AtomIterProvider> MassIterProvider for T {
-    fn iter_masses(&self) -> impl Iterator<Item = f32> {
+    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
         self.iter_atoms().map(|at| at.mass)
     }
 }
@@ -146,7 +146,7 @@ pub trait TimeProvider {
 
 /// Trait for providing iteration over particles
 pub trait ParticleIterProvider {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>>;
+    fn iter_particle(&self) -> impl ParticleIterator<'_>;
 }
 
 pub trait ParticleParIterProvider {
@@ -237,7 +237,7 @@ pub trait RandomBondProvider {
 }
 
 pub trait BondIterProvider {
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]>;
+    fn iter_bonds(&self) -> impl ExactSizeIterator<Item = &[usize; 2]>;
 }
 
 /// Trait for providing access to molecules (atoms subsets connected by bonds)
@@ -302,7 +302,7 @@ pub trait RandomMoleculeProvider {
 }
 
 pub trait MoleculeIterProvider {
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]>;
+    fn iter_molecules(&self) -> impl ExactSizeIterator<Item = &[usize; 2]>;
 }
 
 //--------------------------------------------------------------
@@ -405,7 +405,7 @@ pub trait AtomIterMutProvider {
 
 /// Trait for providing mutable iteration over particles
 pub trait ParticleIterMutProvider: IndexProvider {
-    fn iter_particle_mut(&mut self) -> impl Iterator<Item = ParticleMut<'_>>;
+    fn iter_particle_mut(&mut self) -> impl ParticleMutIterator<'_>;
 }
 
 /// Trait for providing mutable random access to atoms

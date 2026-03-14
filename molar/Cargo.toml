@@ -34,7 +34,7 @@ clap.workspace = true
 serde.workspace = true
 rayon.workspace = true
 tinystr.workspace = true
-molly = {version = ">=0.6", git = "https://github.com/ma3ke/molly.git"}
+molly = {version = ">=0.6.1", git = "https://github.com/ma3ke/molly.git"}
 powersasa = {version = ">=0.1", git = "https://github.com/yesint/powersasa-llm.git"}
 netcdf = { version = "0.12", optional = true }
 

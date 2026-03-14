@@ -135,7 +135,7 @@ impl StatePy {
 }
 
 impl SaveState for StatePy {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         self.inner().iter_pos_dyn()
     }
 }
@@ -230,7 +230,7 @@ impl RandomBondProvider for TopologyPy {
 }
 
 impl SaveTopology for TopologyPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
         self.inner().iter_atoms_dyn()
     }
 }

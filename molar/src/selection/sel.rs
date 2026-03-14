@@ -130,12 +130,12 @@ impl SystemProvider for SelOwnBound<'_> {
 }
 
 impl SaveTopology for SelOwnBound<'_> {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
         Box::new(self.iter_atoms())
     }
 }
 impl SaveState for SelOwnBound<'_> {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.iter_pos())
     }
 }
@@ -256,12 +256,12 @@ impl SystemProvider for SelBound<'_> {
 }
 
 impl SaveTopology for SelBound<'_> {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
         Box::new(self.iter_atoms())
     }
 }
 impl SaveState for SelBound<'_> {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.iter_pos())
     }
 }

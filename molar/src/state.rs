@@ -74,7 +74,7 @@ impl State {
 }
 
 impl SaveState for State {
-    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Pos> + 'a> {
+    fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.iter_pos())
     }
 }

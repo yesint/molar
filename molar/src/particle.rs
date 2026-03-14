@@ -57,13 +57,13 @@ impl IndexProvider for Particle<'_> {
         }
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         std::iter::once(self.id)
     }
 }
 
 impl ParticleIterProvider for Particle<'_> {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
+    fn iter_particle(&self) -> impl ParticleIterator<'_> {
         std::iter::once(Particle {
             id: self.id,
             pos: self.pos,

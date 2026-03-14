@@ -242,7 +242,7 @@ impl<T: AtomPosAnalysis> RandomAtomProvider for T {
 }
 
 impl<T: AtomPosAnalysis> ParticleIterProvider for T {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
+    fn iter_particle(&self) -> impl ParticleIterator<'_> {
         unsafe {
             self.iter_index().map(|i| Particle {
                 id: i,
@@ -269,7 +269,7 @@ impl<T: AtomPosAnalysis + IndexParProvider> ParticleParIterProvider for T {
 }
 
 impl<T: AtomPosAnalysisMut> ParticleIterMutProvider for T {
-    fn iter_particle_mut(&mut self) -> impl Iterator<Item = ParticleMut<'_>> {
+    fn iter_particle_mut(&mut self) -> impl ParticleMutIterator<'_> {
         let cp = self.coords_ptr_mut();
         let ap = self.atoms_ptr_mut();
         unsafe {
@@ -333,7 +333,7 @@ impl<T: NonAtomPosAnalysis> RandomMoleculeProvider for T {
 }
 
 impl<T: NonAtomPosAnalysis> MoleculeIterProvider for T {
-    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_molecules(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
         unsafe { &*self.top_ptr() }.iter_molecules()
     }
 }
@@ -349,7 +349,7 @@ impl<T: NonAtomPosAnalysis> RandomBondProvider for T {
 }
 
 impl<T: NonAtomPosAnalysis> BondIterProvider for T {
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_bonds(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
         unsafe { &*self.top_ptr() }.iter_bonds()
     }
 }

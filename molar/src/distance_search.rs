@@ -119,7 +119,7 @@ impl<'a> Grid<'a> {
 
     pub(crate) fn populate(
         &mut self,
-        data: impl PosIterator<'a>,
+        data: impl Iterator<Item = &'a Pos>,
         ids: impl Iterator<Item = usize>,
         lower: &Vector3f,
         upper: &Vector3f,
@@ -143,7 +143,7 @@ impl<'a> Grid<'a> {
 
     pub(crate) fn populate_pbc(
         &mut self,
-        data: impl PosIterator<'a>,
+        data: impl Iterator<Item = &'a Pos>,
         ids: impl Iterator<Item = usize>,
         box_: &PeriodicBox,
         pbc_dims: PbcDims,
@@ -599,7 +599,7 @@ where
 
 //-------------------------------------------------------------------------
 
-fn compute_min_max<'a>(data: impl PosIterator<'a>) -> (Vector3f, Vector3f) {
+fn compute_min_max<'a>(data: impl Iterator<Item = &'a Pos>) -> (Vector3f, Vector3f) {
     let mut lower = Vector3f::zeros();
     let mut upper = Vector3f::zeros();
     for p in data {
@@ -617,8 +617,8 @@ fn compute_min_max<'a>(data: impl PosIterator<'a>) -> (Vector3f, Vector3f) {
 
 fn compute_bounding_box_double<'a>(
     cutoff: f32,
-    data1: impl PosIterator<'a>,
-    data2: impl PosIterator<'a>,
+    data1: impl Iterator<Item = &'a Pos>,
+    data2: impl Iterator<Item = &'a Pos>,
 ) -> (Vector3f, Vector3f) {
     let (l1, u1) = compute_min_max(data1);
     let (l2, u2) = compute_min_max(data2);
@@ -637,7 +637,7 @@ fn compute_bounding_box_double<'a>(
 
 fn compute_bounding_box_single<'a>(
     cutoff: f32,
-    data: impl PosIterator<'a>,
+    data: impl Iterator<Item = &'a Pos>,
 ) -> (Vector3f, Vector3f) {
     let (mut l, mut u) = compute_min_max(data);
     l.add_scalar_mut(-cutoff - f32::EPSILON);
@@ -712,8 +712,8 @@ where
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_pbc<'a, T, C>(
     cutoff: f32,
-    data1: impl PosIterator<'a>,
-    data2: impl PosIterator<'a>,
+    data1: impl Iterator<Item = &'a Pos>,
+    data2: impl Iterator<Item = &'a Pos>,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
@@ -827,8 +827,8 @@ where
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_vdw_pbc<'a, T, C>(
-    data1: impl PosIterator<'a>,
-    data2: impl PosIterator<'a>,
+    data1: impl Iterator<Item = &'a Pos>,
+    data2: impl Iterator<Item = &'a Pos>,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
     pbox: &PeriodicBox,
@@ -928,7 +928,7 @@ where
 pub fn distance_search_single_pbc<'a, T, C>(
     cutoff: f32,
     //data: &(impl PosProvider + ?Sized),
-    data: impl PosIterator<'a>,
+    data: impl Iterator<Item = &'a Pos>,
     ids: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
     pbc_dims: PbcDims,
