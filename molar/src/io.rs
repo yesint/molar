@@ -14,6 +14,7 @@ mod itp_handler;
 mod netcdf_handler;
 mod pdb_handler;
 mod tpr_handler;
+mod trr_handler;
 mod xtc_handler;
 mod xyz_handler;
 
@@ -23,6 +24,7 @@ use itp_handler::{ItpFileHandler, ItpHandlerError};
 use netcdf_handler::{NetCdfFileHandler, NetCdfHandlerError};
 use pdb_handler::{PdbFileHandler, PdbHandlerError};
 use tpr_handler::{TprFileHandler, TprHandlerError};
+use trr_handler::{TrrFileHandler, TrrHandlerError};
 use xtc_handler::{XtcFileHandler, XtcHandlerError};
 use xyz_handler::{XyzFileHandler, XyzHandlerError};
 
@@ -252,6 +254,9 @@ impl FileHandler {
             "tpr" => Box::new(
                 TprFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
+            "trr" => Box::new(
+                TrrFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
             "nc" | "ncdf" => Box::new(
                 NetCdfFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
@@ -300,6 +305,9 @@ impl FileHandler {
             ),
             "itp" => Box::new(
                 ItpFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "trr" => Box::new(
+                TrrFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "nc" | "ncdf" => Box::new(
                 NetCdfFileHandler::create(fname)
@@ -605,6 +613,10 @@ pub(crate) enum FileFormatError {
     #[error("in xtc format handler")]
     Xtc(#[from] XtcHandlerError),
 
+    /// TRR format handler error
+    #[error("in trr format handler")]
+    Trr(#[from] TrrHandlerError),
+
     /// TPR format handler error
     #[error("in tpr format handler")]
     Tpr(#[from] TprHandlerError),
@@ -864,6 +876,120 @@ mod tests {
         let fr1_ref = &ref_states[1];
         let d = (fr1.coords[0] - fr1_ref.coords[0]).norm();
         assert!(d < 1e-3, "seek_frame(1) coord diff={d}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn trr_read() -> anyhow::Result<()> {
+        // Read TRR and verify it parses correctly
+        let trr_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
+        assert!(!trr_states.is_empty(), "No frames read from TRR");
+
+        // All frames must have atoms and a periodic box
+        for (fr, st) in trr_states.iter().enumerate() {
+            assert!(!st.coords.is_empty(), "Frame {fr} has no coords");
+            assert!(st.pbox.is_some(), "Frame {fr} has no periodic box");
+            // Coordinates should be finite and within a sane range (~nm scale)
+            for p in &st.coords {
+                assert!(p.x.is_finite() && p.y.is_finite() && p.z.is_finite(),
+                    "Non-finite coord at frame {fr}");
+            }
+        }
+
+        // Times should be monotonically increasing
+        for w in trr_states.windows(2) {
+            assert!(w[1].time > w[0].time, "Times not monotonic: {} -> {}", w[0].time, w[1].time);
+        }
+
+        println!("TRR: {} frames, {} atoms, t=[{:.1}..{:.1}] ps",
+            trr_states.len(),
+            trr_states[0].coords.len(),
+            trr_states[0].time,
+            trr_states.last().unwrap().time);
+
+        Ok(())
+    }
+
+    #[test]
+    fn trr_roundtrip() -> anyhow::Result<()> {
+        let trr_path = concat!(env!("OUT_DIR"), "/roundtrip.trr");
+
+        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
+        assert!(!ref_states.is_empty(), "No frames read from TRR");
+
+        let mut writer = FileHandler::create(trr_path)?;
+        for st in &ref_states {
+            writer.write_state(st)?;
+        }
+        drop(writer);
+
+        let rt_states: Vec<State> = FileHandler::open(trr_path)?.into_iter().collect();
+        assert_eq!(ref_states.len(), rt_states.len(), "Frame count mismatch");
+
+        for (fr, (rs, ts)) in ref_states.iter().zip(rt_states.iter()).enumerate() {
+            assert_eq!(rs.coords.len(), ts.coords.len(), "Atom count mismatch at frame {fr}");
+            assert!((rs.time - ts.time).abs() < 1e-4, "Time mismatch at frame {fr}");
+            for (i, (rp, tp)) in rs.coords.iter().zip(ts.coords.iter()).enumerate() {
+                let d = (rp - tp).norm();
+                assert!(d < 1e-6, "Coord mismatch at frame {fr} atom {i}: diff={d}");
+            }
+            match (&rs.pbox, &ts.pbox) {
+                (Some(rb), Some(tb)) => {
+                    let (rl, _) = rb.to_vectors_angles();
+                    let (tl, _) = tb.to_vectors_angles();
+                    for k in 0..3 {
+                        assert!((rl[k] - tl[k]).abs() < 1e-6, "Box length mismatch at frame {fr}");
+                    }
+                }
+                (None, None) => {}
+                _ => panic!("Box presence mismatch at frame {fr}"),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn trr_seek() -> anyhow::Result<()> {
+        // Collect all frames as reference
+        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
+        assert!(ref_states.len() >= 3, "Need at least 3 frames for seek test");
+
+        let mut reader = FileHandler::open("tests/protein.trr")?;
+
+        // seek_last
+        reader.seek_last()?;
+        let last = reader.read_state()?;
+        let last_ref = ref_states.last().unwrap();
+        let d = (last.coords[0] - last_ref.coords[0]).norm();
+        assert!(d < 1e-6, "seek_last coord diff={d}");
+
+        // seek_frame(1)
+        reader.seek_frame(1)?;
+        let fr1 = reader.read_state()?;
+        let d = (fr1.coords[0] - ref_states[1].coords[0]).norm();
+        assert!(d < 1e-6, "seek_frame(1) coord diff={d}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn trr_seek_time() -> anyhow::Result<()> {
+        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
+        assert!(ref_states.len() >= 3, "Need at least 3 frames for seek_time test");
+
+        // Pick a middle frame
+        let mid = ref_states.len() / 2;
+        let target_time = ref_states[mid].time;
+
+        let mut reader = FileHandler::open("tests/protein.trr")?;
+        reader.seek_time(target_time)?;
+        let st = reader.read_state()?;
+
+        assert!((st.time - target_time).abs() < 1e-4, "Time mismatch: got {} expected {}", st.time, target_time);
+        let d = (st.coords[0] - ref_states[mid].coords[0]).norm();
+        assert!(d < 1e-6, "seek_time coord diff={d}");
 
         Ok(())
     }
