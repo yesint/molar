@@ -758,7 +758,7 @@ mod tests {
     fn test_itp() -> Result<()> {
         let mut h = FileHandler::open("../molar_membrane/tests/POPE.itp")?;
         let top = h.read_topology()?;
-        for a in AtomIterProvider::iter_atoms(&top) {
+        for a in top.iter_atoms() {
             println!("{:?}", a);
         }
         Ok(())
@@ -798,7 +798,7 @@ mod tests {
     #[test]
     fn xyz_test() -> anyhow::Result<()> {
         let sys = System::from_file("tests/test.xyz")?;
-        for atom in AtomIterProvider::iter_atoms(&sys) {
+        for atom in sys.iter_atoms() {
             println!("mass = {}", atom.mass);
         }
         Ok(())

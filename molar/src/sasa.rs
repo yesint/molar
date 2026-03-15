@@ -18,7 +18,7 @@ impl Sasa {
     /// Build power diagram + compute per-atom SASA (areas only).
     pub fn new<S>(sel: &S) -> Result<Self, MeasureError>
     where
-        S: AtomIterProvider + PosIterProvider + LenProvider + ?Sized,
+        S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
         Self::build(sel, false)
     }
@@ -26,14 +26,14 @@ impl Sasa {
     /// Build power diagram + compute per-atom SASA and volumes.
     pub fn new_with_volume<S>(sel: &S) -> Result<Self, MeasureError>
     where
-        S: AtomIterProvider + PosIterProvider + LenProvider + ?Sized,
+        S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
         Self::build(sel, true)
     }
 
     fn build<S>(sel: &S, with_vol: bool) -> Result<Self, MeasureError>
     where
-        S: AtomIterProvider + PosIterProvider + LenProvider + ?Sized,
+        S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
         let probe_r = Self::DEFAULT_PROBE_R;
         let mut inner = powersasa::PowerSasa::new(
@@ -54,7 +54,7 @@ impl Sasa {
     /// rebuilding from scratch. Intended for the inner loop of trajectory analysis.
     pub fn update<S>(&mut self, sel: &S) -> Result<(), MeasureError>
     where
-        S: AtomIterProvider + PosIterProvider + LenProvider + ?Sized,
+        S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
         self.inner.update(
             sel.iter_pos().map(|p| p.coords),

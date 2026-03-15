@@ -74,7 +74,7 @@ impl SelectableBound for SelOwnBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
             index: def.into_sel_index(self.sys, Some(self.index.as_slice()))?,
-            sys: unsafe { &*self.sys_ptr() },
+            sys: unsafe { &*self.get_system_ptr() },
         })
     }
 }
@@ -124,17 +124,17 @@ impl IndexSliceProvider for SelOwnBound<'_> {
 }
 
 impl SysProvider for SelOwnBound<'_> {
-    fn sys_ptr(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
 
 impl SaveTopology for SelOwnBound<'_> {
     fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
-        Box::new(AtomIterProvider::iter_atoms(self))
+        Box::new(AtomProvider::iter_atoms(self))
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
-        BondProvider::iter_bonds_dyn(self)
+        Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
         BondProvider::num_bonds(self)
@@ -189,16 +189,12 @@ impl IndexSliceProvider for SelOwnBoundMut<'_> {
 }
 
 impl SysProvider for SelOwnBoundMut<'_> {
-    fn sys_ptr(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-impl SysMutProvider for SelOwnBoundMut<'_> {
-    fn sys_ptr_mut(&self) -> *mut System {
-        (self.sys as *const System) as *mut System
-    }
-}
+impl SysMutProvider for SelOwnBoundMut<'_> {}
 
 impl SelectionLogic for SelOwnBoundMut<'_> {
     type DerivedSel = Sel;
@@ -232,7 +228,7 @@ impl SelectableBound for SelBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
             index: def.into_sel_index(self.sys, Some(self.index))?,
-            sys: unsafe { &*self.sys_ptr() },
+            sys: unsafe { &*self.get_system_ptr() },
         })
     }
 }
@@ -260,17 +256,17 @@ impl IndexSliceProvider for SelBound<'_> {
 }
 
 impl SysProvider for SelBound<'_> {
-    fn sys_ptr(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
 
 impl SaveTopology for SelBound<'_> {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
-        Box::new(AtomIterProvider::iter_atoms(self))
+        Box::new(AtomProvider::iter_atoms(self))
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
-        BondProvider::iter_bonds_dyn(self)
+        Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
         BondProvider::num_bonds(self)
@@ -315,16 +311,12 @@ impl IndexSliceProvider for SelBoundMut<'_> {
 }
 
 impl SysProvider for SelBoundMut<'_> {
-    fn sys_ptr(&self) -> *const System {
+    fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-impl SysMutProvider for SelBoundMut<'_> {
-    fn sys_ptr_mut(&self) -> *mut System {
-        (self.sys as *const System) as *mut System
-    }
-}
+impl SysMutProvider for SelBoundMut<'_> {}
 
 impl SelectionLogic for SelBoundMut<'_> {
     type DerivedSel = Sel;
@@ -419,7 +411,7 @@ mod tests {
     fn test1_1() -> anyhow::Result<()> {
         let mut sys = System::from_file("tests/albumin.pdb")?;
 
-        let par = SplittableByParticle::split_par(&sys, |p| {
+        let par = sys.split_par(|p| {
             if p.atom.resname != "SOL" {
                 Some(p.atom.resindex)
             } else {

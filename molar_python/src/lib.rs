@@ -269,8 +269,8 @@ fn distance_search<'py>(
             if pbc_dims.any() {
                 res = distance_search_double_pbc(
                     d,
-                    PosIterProvider::iter_pos(&*sel1),
-                    PosIterProvider::iter_pos(&*sel2),
+                    sel1.iter_pos(),
+                    sel2.iter_pos(),
                     sel1.iter_index(),
                     sel2.iter_index(),
                     &sel1.require_box().unwrap(),
@@ -289,7 +289,7 @@ fn distance_search<'py>(
             if pbc_dims.any() {
                 res = distance_search_single_pbc(
                     d,
-                    PosIterProvider::iter_pos(&*sel1),
+                    sel1.iter_pos(),
                     sel1.iter_index(),
                     &sel1.require_box().unwrap(),
                     pbc_dims,
@@ -304,7 +304,7 @@ fn distance_search<'py>(
         }
 
         // VdW cutof
-        let vdw1: Vec<f32> = AtomIterProvider::iter_atoms(&*sel1).map(|a| a.vdw()).collect();
+        let vdw1: Vec<f32> = sel1.iter_atoms().map(|a| a.vdw()).collect();
 
         if sel1.len() != vdw1.len() {
             return Err(PyValueError::new_err(format!(
@@ -316,7 +316,7 @@ fn distance_search<'py>(
 
         if let Some(d2) = data2 {
             let sel2 = d2.borrow();
-            let vdw2: Vec<f32> = AtomIterProvider::iter_atoms(&*sel2).map(|a| a.vdw()).collect();
+            let vdw2: Vec<f32> = sel2.iter_atoms().map(|a| a.vdw()).collect();
 
             if sel2.len() != vdw2.len() {
                 return Err(PyValueError::new_err(format!(
@@ -328,8 +328,8 @@ fn distance_search<'py>(
 
             if pbc_dims.any() {
                 res = distance_search_double_vdw_pbc(
-                    PosIterProvider::iter_pos(&*sel1),
-                    PosIterProvider::iter_pos(&*sel2),
+                    sel1.iter_pos(),
+                    sel2.iter_pos(),
                     &vdw1,
                     &vdw2,
                     &sel1.require_box().unwrap(),

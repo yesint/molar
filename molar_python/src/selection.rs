@@ -99,17 +99,21 @@ impl IndexProvider for SelPy {
     }
 }
 
-impl AtomPosAnalysis for SelPy {
-    fn atoms_ptr(&self) -> *const Atom {
+impl AtomProvider for SelPy {
+    unsafe fn atoms_ptr(&self) -> *const Atom {
         self.r_top().atoms.as_ptr()
     }
+}
 
-    fn coords_ptr(&self) -> *const Pos {
+impl AtomMutProvider for SelPy {}
+
+impl PosProvider for SelPy {
+    unsafe fn coords_ptr(&self) -> *const Pos {
         self.r_st().coords.as_ptr()
     }
 }
 
-impl AtomPosAnalysisMut for SelPy {}
+impl PosMutProvider for SelPy {}
 
 impl BoxProvider for SelPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
@@ -119,14 +123,16 @@ impl BoxProvider for SelPy {
 }
 
 impl BondProvider for SelPy {
-    fn bonds_raw(&self) -> &[[usize; 2]] {
-        &[]
+    fn num_bonds(&self) -> usize {
+        0
     }
-}
 
-impl MolProvider for SelPy {
-    fn molecules_raw(&self) -> &[[usize; 2]] {
-        self.r_top().molecules_raw()
+    unsafe fn get_bond_unchecked(&self, _i: usize) -> &[usize; 2] {
+        unreachable!()
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        std::iter::empty()
     }
 }
 
@@ -136,79 +142,13 @@ impl TimeProvider for SelPy {
     }
 }
 
-impl PosIterProvider for SelPy {
-    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
-        AtomPosAnalysis::iter_pos(self)
-    }
-}
-
-impl AtomIterProvider for SelPy {
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
-        AtomPosAnalysis::iter_atoms(self)
-    }
-}
-
-impl MeasurePos for SelPy {}
-impl MeasureMasses for SelPy {}
-impl MeasureAtomPos for SelPy {}
-
-impl ParticleIterProvider for SelPy {
-    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
-        IndexProvider::iter_index(self).map(|i| unsafe {
-            Particle {
-                id: i,
-                atom: &*self.atoms_ptr().add(i),
-                pos: &*self.coords_ptr().add(i),
-            }
-        })
-    }
-}
-
-impl RandomPosProvider for SelPy {
-    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        let idx = self.get_index_unchecked(i);
-        &*self.coords_ptr().add(idx)
-    }
-}
-
-impl PosIterMutProvider for SelPy {
-    fn iter_pos_mut(&mut self) -> impl Iterator<Item = &mut Pos> {
-        let cp = self.coords_ptr_mut();
-        let len = self.len();
-        let p = self as *mut SelPy;
-        (0..len).map(move |i| unsafe {
-            let s = &*p;
-            let idx = s.get_index_unchecked(i);
-            &mut *cp.add(idx)
-        })
-    }
-}
-
-impl AtomIterMutProvider for SelPy {
-    fn iter_atoms_mut(&mut self) -> impl Iterator<Item = &mut Atom> {
-        let ap = self.atoms_ptr_mut();
-        let len = self.len();
-        let p = self as *mut SelPy;
-        (0..len).map(move |i| unsafe {
-            let s = &*p;
-            let idx = s.get_index_unchecked(i);
-            &mut *ap.add(idx)
-        })
-    }
-}
-
-impl ModifyPos for SelPy {}
-impl ModifyAtoms for SelPy {}
-
 impl SaveTopology for SelPy {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
-        Box::new(AtomPosAnalysis::iter_atoms(self))
+        Box::new(self.iter_atoms())
     }
-
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
-
     fn num_bonds(&self) -> usize {
         BondProvider::num_bonds(self)
     }
@@ -222,7 +162,19 @@ impl SaveState for SelPy {
 
 impl SaveTopologyState for SelPy {}
 
-impl MeasurePeriodic for SelPy {}
+impl MolProvider for SelPy {
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.r_top().get_molecule_unchecked(i)
+    }
+
+    fn num_molecules(&self) -> usize {
+        self.r_top().num_molecules()
+    }
+
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.r_top().iter_molecules()
+    }
+}
 
 impl SelPy {
     pub fn from_svec(&self, index: SVec) -> Self {
@@ -257,68 +209,21 @@ impl IndexSliceProvider for TmpSel<'_> {
     }
 }
 
-impl AtomPosAnalysis for TmpSel<'_> {
-    fn atoms_ptr(&self) -> *const Atom {
+impl AtomProvider for TmpSel<'_> {
+    unsafe fn atoms_ptr(&self) -> *const Atom {
         self.top.atoms.as_ptr()
     }
+}
 
-    fn coords_ptr(&self) -> *const Pos {
+impl AtomMutProvider for TmpSel<'_> {}
+
+impl PosProvider for TmpSel<'_> {
+    unsafe fn coords_ptr(&self) -> *const Pos {
         self.st.coords.as_ptr()
     }
 }
 
-impl AtomPosAnalysisMut for TmpSel<'_> {}
-
-impl BoxProvider for TmpSel<'_> {
-    fn get_box(&self) -> Option<&PeriodicBox> {
-        self.st.get_box()
-    }
-}
-
-impl PosIterProvider for TmpSel<'_> {
-    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
-        AtomPosAnalysis::iter_pos(self)
-    }
-}
-
-impl AtomIterProvider for TmpSel<'_> {
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
-        AtomPosAnalysis::iter_atoms(self)
-    }
-}
-
-impl MeasurePos for TmpSel<'_> {}
-impl MeasureMasses for TmpSel<'_> {}
-impl MeasurePeriodic for TmpSel<'_> {}
-
-impl PosIterMutProvider for TmpSel<'_> {
-    fn iter_pos_mut(&mut self) -> impl Iterator<Item = &mut Pos> {
-        let cp = self.coords_ptr_mut();
-        let len = self.len();
-        let p = self as *mut TmpSel<'_>;
-        (0..len).map(move |i| unsafe {
-            let s = &*p;
-            let idx = s.get_index_unchecked(i);
-            &mut *cp.add(idx)
-        })
-    }
-}
-
-impl AtomIterMutProvider for TmpSel<'_> {
-    fn iter_atoms_mut(&mut self) -> impl Iterator<Item = &mut Atom> {
-        let ap = self.atoms_ptr_mut();
-        let len = self.len();
-        let p = self as *mut TmpSel<'_>;
-        (0..len).map(move |i| unsafe {
-            let s = &*p;
-            let idx = s.get_index_unchecked(i);
-            &mut *ap.add(idx)
-        })
-    }
-}
-
-impl ModifyPos for TmpSel<'_> {}
-impl ModifyAtoms for TmpSel<'_> {}
+impl PosMutProvider for TmpSel<'_> {}
 
 //-----------------------------------------
 /// Iterator over selected atom positions.
@@ -491,7 +396,7 @@ impl SelPy {
     /// :rtype: numpy.ndarray
     #[getter("coords")]
     fn get_coords<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
-        let coord_ptr = self.coords_ptr() as *const f32;
+        let coord_ptr = unsafe { self.coords_ptr() } as *const f32;
         unsafe {
             let arr = numpy::PyArray2::<f32>::new(py, [3, self.len()], true);
             let arr_ptr = arr.data();
@@ -547,7 +452,7 @@ impl SelPy {
             )));
         }
         let arr_ptr = arr.data();
-        let coord_ptr = self.coords_ptr() as *const f32 as *mut f32;
+        let coord_ptr = unsafe { self.coords_ptr() } as *const f32 as *mut f32;
 
         unsafe {
             for i in self.index.iter_index() {
@@ -669,7 +574,7 @@ impl SelPy {
     ///
     ///    sel.set_same_chain('A')
     pub fn set_same_chain(&self, val: char) {
-        AtomIterMutProvider::set_same_chain(self.r_top_mut(), val)
+        AtomMutProvider::set_same_chain(self.r_top_mut(), val)
     }
 
     /// Set residue name for all selected atoms in-place.
@@ -682,35 +587,35 @@ impl SelPy {
     ///
     ///    sel.set_same_resname('ALA')
     pub fn set_same_resname(&self, val: &str) {
-        AtomIterMutProvider::set_same_resname(self.r_top_mut(), val)
+        AtomMutProvider::set_same_resname(self.r_top_mut(), val)
     }
 
     /// Set residue ID for all selected atoms in-place.
     ///
     /// :param val: New residue ID.
     pub fn set_same_resid(&self, val: i32) {
-        AtomIterMutProvider::set_same_resid(self.r_top_mut(), val)
+        AtomMutProvider::set_same_resid(self.r_top_mut(), val)
     }
 
     /// Set atom name for all selected atoms in-place.
     ///
     /// :param val: New atom name.
     pub fn set_same_name(&self, val: &str) {
-        AtomIterMutProvider::set_same_name(self.r_top_mut(), val)
+        AtomMutProvider::set_same_name(self.r_top_mut(), val)
     }
 
     /// Set atomic mass for all selected atoms in-place.
     ///
     /// :param val: New mass in Da.
     pub fn set_same_mass(&self, val: f32) {
-        AtomIterMutProvider::set_same_mass(self.r_top_mut(), val)
+        AtomMutProvider::set_same_mass(self.r_top_mut(), val)
     }
 
     /// Set B-factor for all selected atoms in-place.
     ///
     /// :param val: New B-factor value.
     pub fn set_same_bfactor(&self, val: f32) {
-        AtomIterMutProvider::set_same_bfactor(self.r_top_mut(), val)
+        AtomMutProvider::set_same_bfactor(self.r_top_mut(), val)
     }
 
     /// Selection time value (proxied to backing state).
@@ -1038,7 +943,7 @@ impl SelPy {
     ///    residues = sel.split_resindex()    # list of Sel, one per residue
     fn split_resindex(&self) -> Vec<SelPy> {
         Python::attach(|py| {
-            AtomPosAnalysis::split_resindex(self)
+            Analysis::split_resindex(self)
                 .map(|s| SelPy {
                     top: UnsafeCell::new(self.py_top().clone_ref(py)),
                     st: UnsafeCell::new(self.py_st().clone_ref(py)),
@@ -1297,7 +1202,7 @@ impl SelPy {
     ///    res = ca.whole_residues()    # all atoms in CA-containing residues
     fn whole_residues(slf: &Bound<'_, Self>) -> SelPy {
         let s = slf.get();
-        let sel = AtomPosAnalysis::whole_residues(s);
+        let sel = Analysis::whole_residues(s);
         let index: SVec = sel.iter_index().collect();
         SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index)
     }
@@ -1315,7 +1220,7 @@ impl SelPy {
     ///    chain = ca.whole_chains()    # all atoms in those chains
     fn whole_chains(slf: &Bound<'_, Self>) -> SelPy {
         let s = slf.get();
-        let sel = AtomPosAnalysis::whole_chains(s);
+        let sel = Analysis::whole_chains(s);
         let index: SVec = sel.iter_index().collect();
         SelPy::new(s.py_top().clone_ref(slf.py()), s.py_st().clone_ref(slf.py()), index)
     }

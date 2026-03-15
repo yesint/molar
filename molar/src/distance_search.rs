@@ -518,8 +518,8 @@ fn search_cell_pair_single_pbc<T: DistanceSearchOutput>(
 
 pub(crate) fn distance_search_within<'a, C>(
     cutoff: f32,
-    data1: &impl PosIterProvider,
-    data2: &impl PosIterProvider,
+    data1: &impl PosProvider,
+    data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
     lower: &Vector3f,
@@ -559,8 +559,8 @@ where
 
 pub(crate) fn distance_search_within_pbc<C>(
     cutoff: f32,
-    data1: &impl PosIterProvider,
-    data2: &impl PosIterProvider,
+    data1: &impl PosProvider,
+    data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
     pbox: &PeriodicBox,
@@ -658,8 +658,8 @@ fn compute_bounding_box_single<'a>(
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double<T, C>(
     cutoff: f32,
-    data1: &impl PosIterProvider,
-    data2: &impl PosIterProvider,
+    data1: &impl PosProvider,
+    data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
     ids2: impl Iterator<Item = usize>,
 ) -> C
@@ -765,8 +765,8 @@ where
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_vdw<'a, T, C>(
-    data1: &impl PosIterProvider,
-    data2: &impl PosIterProvider,
+    data1: &impl PosProvider,
+    data2: &impl PosProvider,
     vdw1: &Vec<f32>,
     vdw2: &Vec<f32>,
 ) -> C
@@ -891,7 +891,7 @@ where
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_single<T, C>(
     cutoff: f32,
-    data: &impl PosIterProvider,
+    data: &impl PosProvider,
     ids: impl Iterator<Item = usize>,
 ) -> C
 where

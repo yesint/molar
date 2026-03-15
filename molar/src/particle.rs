@@ -1,7 +1,6 @@
 use crate::prelude::*;
 
 /// Holds immutable reference to [Atom] and [Pos] and particle id.
-/// Usually created indirectly by types implementing [ParticleIterProvider](crate::core::ParticleIterProvider).
 #[derive(Debug)]
 pub struct Particle<'a> {
     pub id: usize,
@@ -10,7 +9,6 @@ pub struct Particle<'a> {
 }
 
 /// Holds mutable reference to [Atom] and [Pos] and particle id.
-/// Usually created indirectly by types implementing [ParticleIterMutProvider](crate::core::ParticleIterMutProvider).
 #[derive(Debug)]
 pub struct ParticleMut<'a> {
     pub id: usize,
@@ -45,32 +43,38 @@ impl IndexProvider for Particle<'_> {
         }
     }
 
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         std::iter::once(self.id)
     }
 }
 
 impl PosProvider for Particle<'_> {
-    unsafe fn pos_unchecked(&self, _i: usize) -> &Pos {
-        // For Particle, the only valid storage index is self.id
-        // but we ignore i and return self.pos directly
+    unsafe fn coords_ptr(&self) -> *const Pos {
+        self.pos as *const Pos
+    }
+
+    // Override iter_pos to avoid index indirection (particle has a direct pos ptr)
+    fn iter_pos(&self) -> impl PosIterator<'_> {
+        std::iter::once(self.pos)
+    }
+
+    unsafe fn get_pos_unchecked(&self, _i: usize) -> &Pos {
         self.pos
     }
 }
 
 impl AtomProvider for Particle<'_> {
-    unsafe fn atom_unchecked(&self, _i: usize) -> &Atom {
-        self.atom
+    unsafe fn atoms_ptr(&self) -> *const Atom {
+        self.atom as *const Atom
     }
-}
 
-impl ParticleIterProvider for Particle<'_> {
-    fn iter_particle(&self) -> impl ParticleIterator<'_> {
-        std::iter::once(Particle {
-            id: self.id,
-            pos: self.pos,
-            atom: self.atom,
-        })
+    // Override iter_atoms to avoid index indirection
+    fn iter_atoms(&self) -> impl AtomIterator<'_> {
+        std::iter::once(self.atom)
+    }
+
+    unsafe fn get_atom_unchecked(&self, _i: usize) -> &Atom {
+        self.atom
     }
 }
 

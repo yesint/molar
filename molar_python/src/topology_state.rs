@@ -158,9 +158,15 @@ impl BoxProvider for StatePy {
     }
 }
 
-impl RandomPosProvider for StatePy {
-    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
-        self.inner().get_pos_unchecked(i)
+impl IndexProvider for StatePy {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
+    }
+}
+
+impl PosProvider for StatePy {
+    unsafe fn coords_ptr(&self) -> *const Pos {
+        self.inner().coords.as_ptr()
     }
 }
 
@@ -219,16 +225,28 @@ impl TopologyPy {
     }
 }
 
+impl BondProvider for TopologyPy {
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self.inner())
+    }
+
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.inner().get_bond_unchecked(i)
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.inner().iter_bonds()
+    }
+}
+
 impl SaveTopology for TopologyPy {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
         self.inner().iter_atoms_dyn()
     }
-
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
-        Box::new(BondProvider::iter_bonds(self.inner()))
+        self.inner().iter_bonds_dyn()
     }
-
     fn num_bonds(&self) -> usize {
-        BondProvider::num_bonds(self.inner())
+        BondProvider::num_bonds(self)
     }
 }

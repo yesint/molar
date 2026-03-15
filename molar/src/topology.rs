@@ -72,8 +72,8 @@ impl Topology {
 impl Topology {
     pub fn assign_resindex(&mut self) {
         let mut resindex = 0usize;
-        let mut cur_resid = unsafe { self.atom_unchecked(0) }.resid;
-        for at in AtomIterMutProvider::iter_atoms_mut(self) {
+        let mut cur_resid = unsafe { self.get_atom_unchecked(0) }.resid;
+        for at in self.iter_atoms_mut() {
             if at.resid != cur_resid {
                 cur_resid = at.resid;
                 resindex += 1;
@@ -92,10 +92,10 @@ impl Topology {
 //---------------------------
 impl SaveTopology for Topology {
     fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
-        Box::new(self.atoms.iter())
+        Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
-        BondProvider::iter_bonds_dyn(self)
+        Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
         BondProvider::num_bonds(self)
@@ -108,7 +108,7 @@ impl LenProvider for Topology {
     }
 }
 
-// Identity indexing for Topology
+/// Identity index provider for Topology (index i → atom i)
 impl IndexProvider for Topology {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         i
@@ -120,33 +120,41 @@ impl IndexProvider for Topology {
 }
 
 impl AtomProvider for Topology {
-    unsafe fn atom_unchecked(&self, i: usize) -> &Atom {
-        self.atoms.get_unchecked(i)
+    unsafe fn atoms_ptr(&self) -> *const Atom {
+        self.atoms.as_ptr()
     }
 }
 
 impl AtomMutProvider for Topology {
-    unsafe fn atom_mut_unchecked(&mut self, i: usize) -> &mut Atom {
-        self.atoms.get_unchecked_mut(i)
+    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
+        self.atoms.as_mut_ptr()
     }
 }
-
-// Explicit AtomIterProvider for Topology (does not go through SysProvider blanket)
-impl AtomIterProvider for Topology {
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
-        self.atoms.iter()
-    }
-}
-// Note: AtomIterMutProvider for Topology comes from the blanket impl in providers.rs
 
 impl BondProvider for Topology {
-    fn bonds_raw(&self) -> &[[usize; 2]] {
-        &self.bonds
+    fn num_bonds(&self) -> usize {
+        self.bonds.len()
+    }
+
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.bonds.get_unchecked(i)
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.bonds.iter()
     }
 }
 
 impl MolProvider for Topology {
-    fn molecules_raw(&self) -> &[[usize; 2]] {
-        &self.molecules
+    fn num_molecules(&self) -> usize {
+        self.molecules.len()
+    }
+
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.molecules.get_unchecked(i)
+    }
+
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+        self.molecules.iter()
     }
 }

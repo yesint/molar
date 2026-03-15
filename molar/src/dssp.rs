@@ -129,7 +129,7 @@ pub struct Dssp {
 
 impl Dssp {
     /// Run the full DSSP algorithm on `sel` and return the result.
-    pub fn new(sel: &(impl ParticleIterProvider + RandomPosProvider)) -> Self {
+    pub fn new(sel: &(impl ParticleIterProvider + PosProvider)) -> Self {
         let backbone = Self::extract_backbone(sel);
         let ss = backbone.iter().map(|b| match b {
             BackboneResidue::Break => SS::Break,
@@ -166,7 +166,7 @@ impl Dssp {
     // Stage 1: Backbone extraction
     //──────────────────────────────────────────────────────────────────────────
 
-    fn extract_backbone(sel: &impl ParticleIterProvider) -> Vec<BackboneResidue> {
+    fn extract_backbone(sel: &(impl ParticleIterProvider + PosProvider)) -> Vec<BackboneResidue> {
         struct ResEntry {
             n:  Option<usize>,
             ca: Option<usize>,
@@ -215,7 +215,7 @@ impl Dssp {
     ///
     /// Overwrites any previously stored H so all bonds are computed from
     /// reconstructed H, consistent with the Gromacs -hmode dssp reference.
-    fn reconstruct_h(&mut self, sel: &impl RandomPosProvider) {
+    fn reconstruct_h(&mut self, sel: &impl PosProvider) {
         for i in 1..self.backbone.len() {
             // Extract local indices (immutable borrows end here via Copy)
             let (prev_c, prev_o, n_idx) = match (&self.backbone[i - 1], &self.backbone[i]) {
@@ -244,7 +244,7 @@ impl Dssp {
     // Stage 3: Hydrogen bond detection
     //──────────────────────────────────────────────────────────────────────────
 
-    fn compute_hbonds(&self, sel: &impl RandomPosProvider) -> HashSet<(usize, usize)> {
+    fn compute_hbonds(&self, sel: &impl PosProvider) -> HashSet<(usize, usize)> {
         let n = self.backbone.len();
         let mut hbond = HashSet::new();
 
@@ -421,7 +421,7 @@ impl Dssp {
     // Stage 6: Bend detection
     //──────────────────────────────────────────────────────────────────────────
 
-    fn detect_bends(&mut self, sel: &impl RandomPosProvider) {
+    fn detect_bends(&mut self, sel: &impl PosProvider) {
         let n = self.backbone.len();
 
         for i in 2..n.saturating_sub(2) {
@@ -461,7 +461,7 @@ impl Dssp {
     // Matches Gromacs `gmx dssp -polypro` (default behavior, PPStretches::Default)
     //──────────────────────────────────────────────────────────────────────────
 
-    fn detect_polyproline(&mut self, sel: &impl RandomPosProvider) {
+    fn detect_polyproline(&mut self, sel: &impl PosProvider) {
         let n = self.backbone.len();
 
         let mut phi = vec![360.0f32; n];
@@ -549,7 +549,7 @@ fn dihedral_gmx(a: &Pos, b: &Pos, c: &Pos, d: &Pos) -> f32 {
 }
 
 #[inline]
-fn get_pos(sel: &impl RandomPosProvider, local_idx: usize) -> &Pos {
+fn get_pos(sel: &impl PosProvider, local_idx: usize) -> &Pos {
     unsafe { sel.get_pos_unchecked(local_idx) }
 }
 

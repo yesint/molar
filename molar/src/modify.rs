@@ -9,7 +9,7 @@ use nalgebra::Unit;
 //==============================================================
 
 /// Trait for modification requiring only positions
-pub trait ModifyPos: PosIterMutProvider {
+pub trait ModifyPos: PosMutProvider {
     //pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
     //where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
 
@@ -37,7 +37,7 @@ pub trait ModifyPos: PosIterMutProvider {
 }
 
 /// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: PosIterMutProvider + BoxProvider + LenProvider {
+pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
     fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<(), MeasureError> {
         let n = self.len();
         let b = self.require_box()?.to_owned();
@@ -57,7 +57,7 @@ pub trait ModifyPeriodic: PosIterMutProvider + BoxProvider + LenProvider {
 }
 
 /// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: PosIterMutProvider + BoxProvider + PosIterProvider + RandomPosMutProvider + Sized {
+pub trait ModifyRandomAccess: PosMutProvider + BoxProvider + Sized {
     fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<Vec<Sel>, MeasureError> 
     where Self: Selectable,
     {
@@ -171,7 +171,7 @@ pub trait ModifyRandomAccess: PosIterMutProvider + BoxProvider + PosIterProvider
 }
 
 /// Trait for modification requiring atoms
-pub trait ModifyAtoms: AtomIterMutProvider + LenProvider {
+pub trait ModifyAtoms: AtomMutProvider + LenProvider {
     fn assign_resindex(&mut self) {
         let n = self.len();
         let mut resindex = 0usize;

@@ -43,7 +43,7 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
         // Dummy atom M
         let m_at = Atom {
             name: AtomStr::try_from_str("M").unwrap(),
-            ..mol.first_particle().atom.clone()
+            ..mol.iter_particle().next().unwrap().atom.clone()
         };
         println!("{:?}", m_at);
 

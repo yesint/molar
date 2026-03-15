@@ -425,7 +425,7 @@ for mol in water.split_resindex_bound() {
     let m_at = Atom {
         resname: AtomStr::try_from_str(b"TIP4").unwrap(),
         name: AtomStr::try_from_str(b"M").unwrap(),
-        ..mol.first_particle().atom.clone()
+        ..mol.iter_particle().next().unwrap().atom.clone()
     };
     println!("{:?} {:?}",m_at,m_pos);
 }
@@ -552,7 +552,7 @@ fn main() -> Result<()> {
         let m_at = Atom {
             resname: AtomStr::try_from_str("TIP4").unwrap(),
             name: AtomStr::try_from_str("M").unwrap(),
-            ..mol.first_particle().atom.clone()
+            ..mol.iter_particle().next().unwrap().atom.clone()
         };
 
         // Add new converted water molecule
@@ -652,7 +652,7 @@ fn main() -> Result<()> {
     let mut sys = System::from_file("tests/membr.gro")?;
 
     // Make a parallel split: distinct selection for each POPG lipid.
-    let par = SplittableByParticle::split_par(&sys, |p| {
+    let par = sys.split_par(|p| {
         if p.atom.resname == "POPG" {
             // Whenever distinct result is returned form this closure
             // new selection is created, so each distinct POPG residue

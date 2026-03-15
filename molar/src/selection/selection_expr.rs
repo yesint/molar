@@ -61,7 +61,7 @@ impl SelectionExpr {
     /// Applies selection expression to all atoms in the system
     pub(super) fn apply_whole (
         &self,
-        sys: &(impl AtomPosAnalysis + BoxProvider)
+        sys: &(impl PosProvider + AtomProvider + BoxProvider)
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvalContext::new(sys, None)?;
         let mut ast = self.ast.borrow_mut();
@@ -73,7 +73,7 @@ impl SelectionExpr {
     /// Applies the selection expression to a subset of atoms
     pub(super) fn apply_subset (
         &self,
-        sys: &(impl AtomPosAnalysis + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider),
         subset: &[usize],
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvalContext::new(sys, Some(subset))?;

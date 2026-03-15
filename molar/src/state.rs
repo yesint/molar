@@ -92,7 +92,7 @@ impl LenProvider for State {
     }
 }
 
-// Identity indexing for State - index i maps to storage position i
+/// Identity index provider for State (index i → position i)
 impl IndexProvider for State {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         i
@@ -103,22 +103,15 @@ impl IndexProvider for State {
     }
 }
 
-impl IndexParProvider for State {
-    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
-        use rayon::iter::IntoParallelIterator;
-        (0..self.coords.len()).into_par_iter()
-    }
-}
-
 impl PosProvider for State {
-    unsafe fn pos_unchecked(&self, i: usize) -> &Pos {
-        self.coords.get_unchecked(i)
+    unsafe fn coords_ptr(&self) -> *const Pos {
+        self.coords.as_ptr()
     }
 }
 
 impl PosMutProvider for State {
-    unsafe fn pos_mut_unchecked(&mut self, i: usize) -> &mut Pos {
-        self.coords.get_unchecked_mut(i)
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+        self.coords.as_mut_ptr()
     }
 }
 
@@ -134,11 +127,4 @@ impl BoxMutProvider for State {
     }
 }
 
-impl PosIterProvider for State {
-    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
-        self.coords.iter()
-    }
-}
-
-impl MeasurePos for State {}
-impl MeasureRandomAccess for State {}
+// MeasurePos and MeasureRandomAccess are provided by blanket impls in traits.rs

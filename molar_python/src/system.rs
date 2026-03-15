@@ -89,17 +89,21 @@ impl IndexProvider for SystemPy {
     }
 }
 
-impl AtomPosAnalysis for SystemPy {
-    fn atoms_ptr(&self) -> *const Atom {
+impl AtomProvider for SystemPy {
+    unsafe fn atoms_ptr(&self) -> *const Atom {
         self.r_top().atoms.as_ptr()
     }
+}
 
-    fn coords_ptr(&self) -> *const Pos {
+impl AtomMutProvider for SystemPy {}
+
+impl PosProvider for SystemPy {
+    unsafe fn coords_ptr(&self) -> *const Pos {
         self.r_st().coords.as_ptr()
     }
 }
 
-impl AtomPosAnalysisMut for SystemPy {}
+impl PosMutProvider for SystemPy {}
 
 impl BoxProvider for SystemPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
@@ -108,8 +112,16 @@ impl BoxProvider for SystemPy {
 }
 
 impl BondProvider for SystemPy {
-    fn bonds_raw(&self) -> &[[usize; 2]] {
-        &[]
+    fn num_bonds(&self) -> usize {
+        0
+    }
+
+    unsafe fn get_bond_unchecked(&self, _i: usize) -> &[usize; 2] {
+        unreachable!()
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        std::iter::empty()
     }
 }
 
@@ -119,30 +131,13 @@ impl TimeProvider for SystemPy {
     }
 }
 
-impl PosIterProvider for SystemPy {
-    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
-        AtomPosAnalysis::iter_pos(self)
-    }
-}
-
-impl AtomIterProvider for SystemPy {
-    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
-        AtomPosAnalysis::iter_atoms(self)
-    }
-}
-
-impl MeasurePos for SystemPy {}
-impl MeasureMasses for SystemPy {}
-
 impl SaveTopology for SystemPy {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
-        Box::new(AtomPosAnalysis::iter_atoms(self))
+        Box::new(self.iter_atoms())
     }
-
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
-
     fn num_bonds(&self) -> usize {
         BondProvider::num_bonds(self)
     }
@@ -410,10 +405,10 @@ impl SystemPy {
 
             slf_b
                 .r_top_mut()
-                .add_atoms(AtomIterProvider::iter_atoms(&*sel.borrow()).cloned());
+                .add_atoms(sel.borrow().iter_atoms().cloned());
             slf_b
                 .r_st_mut()
-                .add_coords(PosIterProvider::iter_pos(&*sel.borrow()).cloned());
+                .add_coords(sel.borrow().iter_pos().cloned());
 
             Ok(())
         } else if args.len() == 2 {

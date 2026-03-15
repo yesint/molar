@@ -168,7 +168,7 @@ impl System {
         RT: Default + std::cmp::PartialEq + 'a,
         F: Fn(Particle) -> Option<RT> + 'a,
     {
-        SplittableByParticle::split(self, func).map(|sel| SelOwnBound {
+        self.split(func).map(|sel| SelOwnBound {
             sys: self,
             index: sel.0,
         })
@@ -234,7 +234,7 @@ impl System {
 
     pub fn append(
         &mut self,
-        data: &(impl AtomIterProvider + PosIterProvider),
+        data: &(impl AtomProvider + PosProvider),
     ) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         self.st.add_coords(data.iter_pos().cloned());
@@ -302,17 +302,17 @@ impl SelectableBound for System {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
             index: def.into_sel_index(self, None)?,
-            sys: unsafe{&*self.sys_ptr()},
+            sys: unsafe{&*self.get_system_ptr()},
         })
     }
 }
 
 impl SaveTopology for System {
     fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
-        Box::new(AtomIterProvider::iter_atoms(self))
+        Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
-        BondProvider::iter_bonds_dyn(self)
+        Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
         BondProvider::num_bonds(self)
@@ -327,27 +327,13 @@ impl SaveState for System {
 
 impl SaveTopologyState for System {}
 
-impl SysProvider for System {
-    fn sys_ptr(&self) -> *const System {
+impl SystemProvider for System {
+    fn get_system_ptr(&self) -> *const System {
         self
     }
 }
 
-// AtomPosAnalysis for System: enables use as selection context in selection_def / selection_expr.
-impl AtomPosAnalysis for System {
-    fn atoms_ptr(&self) -> *const Atom {
-        self.top.atoms.as_ptr()
-    }
-    fn coords_ptr(&self) -> *const Pos {
-        self.st.coords.as_ptr()
-    }
-}
-
-impl SysMutProvider for System {
-    fn sys_ptr_mut(&self) -> *mut System {
-        self as *const _ as *mut _
-    }
-}
+impl SystemMutProvider for System {}
 
 impl LenProvider for System {
     fn len(&self) -> usize {
