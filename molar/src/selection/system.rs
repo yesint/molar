@@ -168,7 +168,7 @@ impl System {
         RT: Default + std::cmp::PartialEq + 'a,
         F: Fn(Particle) -> Option<RT> + 'a,
     {
-        self.split(func).map(|sel| SelOwnBound {
+        SplittableByParticle::split(self, func).map(|sel| SelOwnBound {
             sys: self,
             index: sel.0,
         })
@@ -302,32 +302,52 @@ impl SelectableBound for System {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
             index: def.into_sel_index(self, None)?,
-            sys: unsafe{&*self.get_system_ptr()},
+            sys: unsafe{&*self.sys_ptr()},
         })
     }
 }
 
 impl SaveTopology for System {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
-        Box::new(self.iter_atoms())
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+        Box::new(AtomIterProvider::iter_atoms(self))
+    }
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+        BondProvider::iter_bonds_dyn(self)
+    }
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self)
     }
 }
 
 impl SaveState for System {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
-        Box::new(self.iter_pos())
+        Box::new(self.st.coords.iter())
     }
 }
 
 impl SaveTopologyState for System {}
 
-impl SystemProvider for System {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for System {
+    fn sys_ptr(&self) -> *const System {
         self
     }
 }
 
-impl SystemMutProvider for System {}
+// AtomPosAnalysis for System: enables use as selection context in selection_def / selection_expr.
+impl AtomPosAnalysis for System {
+    fn atoms_ptr(&self) -> *const Atom {
+        self.top.atoms.as_ptr()
+    }
+    fn coords_ptr(&self) -> *const Pos {
+        self.st.coords.as_ptr()
+    }
+}
+
+impl SysMutProvider for System {
+    fn sys_ptr_mut(&self) -> *mut System {
+        self as *const _ as *mut _
+    }
+}
 
 impl LenProvider for System {
     fn len(&self) -> usize {
@@ -340,7 +360,7 @@ impl IndexProvider for System {
         i
     }
 
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         (0..self.len()).into_iter()
     }
 }

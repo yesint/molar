@@ -257,7 +257,7 @@ where
     S: AtomPosAnalysis + BoxProvider
 {
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
-        self.iter_index().zip(self.iter_atoms())
+        self.iter_index().zip(AtomPosAnalysis::iter_atoms(self))
     }
 }
 
@@ -295,7 +295,7 @@ where
     }
 }
 
-impl<S> BoxProvider for EvalContext<'_,S> 
+impl<S> BoxProvider for EvalContext<'_,S>
 where
     S: AtomPosAnalysis + BoxProvider
 {
@@ -304,7 +304,70 @@ where
     }
 }
 
+impl<S> PosProvider for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{
+    unsafe fn pos_unchecked(&self, i: usize) -> &Pos {
+        &*self.sys.coords_ptr().add(i)
+    }
+}
+
+impl<S> AtomProvider for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{
+    unsafe fn atom_unchecked(&self, i: usize) -> &Atom {
+        &*self.sys.atoms_ptr().add(i)
+    }
+}
+
+impl<S> ParticleIterProvider for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
+        let ap = self.sys.atoms_ptr() as usize;
+        let cp = self.sys.coords_ptr() as usize;
+        self.iter_index().map(move |i| unsafe {
+            Particle {
+                id: i,
+                atom: &*(ap as *const Atom).add(i),
+                pos: &*(cp as *const Pos).add(i),
+            }
+        })
+    }
+}
+
+impl<S> PosIterProvider for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{
+    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
+        AtomPosAnalysis::iter_pos(self)
+    }
+}
+
+impl<S> AtomIterProvider for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{
+    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
+        AtomPosAnalysis::iter_atoms(self)
+    }
+}
+
 impl<S> MeasurePeriodic for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{}
+
+impl<S> MeasurePos for EvalContext<'_,S>
+where
+    S: AtomPosAnalysis + BoxProvider
+{}
+
+impl<S> MeasureMasses for EvalContext<'_,S>
 where
     S: AtomPosAnalysis + BoxProvider
 {}
@@ -374,8 +437,7 @@ impl VectorNode {
             }
             Self::NthAtomOf(inner, i) => {
                 let res = inner.apply(data)?;
-                let v = data
-                    .get_pos(*i)
+                let v = RandomPosProvider::get_pos(data, *i)
                     .ok_or_else(|| SelectionParserError::OutOfBounds(*i, res.len()))?;
                 *self = Self::Const(*v);
                 self.get_vec(data)
@@ -417,7 +479,7 @@ impl LogicalNode {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
         let sub = data.with_custom_subset(inner);
-        for at in sub.iter_atoms() {
+        for at in AtomPosAnalysis::iter_atoms(&sub) {
             properties.insert(*prop_fn(at));
         }
 

@@ -74,7 +74,7 @@ impl SelectableBound for SelOwnBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
             index: def.into_sel_index(self.sys, Some(self.index.as_slice()))?,
-            sys: unsafe { &*self.get_system_ptr() },
+            sys: unsafe { &*self.sys_ptr() },
         })
     }
 }
@@ -123,20 +123,26 @@ impl IndexSliceProvider for SelOwnBound<'_> {
     }
 }
 
-impl SystemProvider for SelOwnBound<'_> {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for SelOwnBound<'_> {
+    fn sys_ptr(&self) -> *const System {
         self.sys
     }
 }
 
 impl SaveTopology for SelOwnBound<'_> {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
-        Box::new(self.iter_atoms())
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+        Box::new(AtomIterProvider::iter_atoms(self))
+    }
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+        BondProvider::iter_bonds_dyn(self)
+    }
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self)
     }
 }
 impl SaveState for SelOwnBound<'_> {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
-        Box::new(self.iter_pos())
+        Box::new(self.index.iter().map(|&i| &self.sys.st.coords[i]))
     }
 }
 
@@ -182,13 +188,17 @@ impl IndexSliceProvider for SelOwnBoundMut<'_> {
     }
 }
 
-impl SystemProvider for SelOwnBoundMut<'_> {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for SelOwnBoundMut<'_> {
+    fn sys_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-impl SystemMutProvider for SelOwnBoundMut<'_> {}
+impl SysMutProvider for SelOwnBoundMut<'_> {
+    fn sys_ptr_mut(&self) -> *mut System {
+        (self.sys as *const System) as *mut System
+    }
+}
 
 impl SelectionLogic for SelOwnBoundMut<'_> {
     type DerivedSel = Sel;
@@ -222,7 +232,7 @@ impl SelectableBound for SelBound<'_> {
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError> {
         Ok(SelOwnBound {
             index: def.into_sel_index(self.sys, Some(self.index))?,
-            sys: unsafe { &*self.get_system_ptr() },
+            sys: unsafe { &*self.sys_ptr() },
         })
     }
 }
@@ -249,20 +259,26 @@ impl IndexSliceProvider for SelBound<'_> {
     }
 }
 
-impl SystemProvider for SelBound<'_> {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for SelBound<'_> {
+    fn sys_ptr(&self) -> *const System {
         self.sys
     }
 }
 
 impl SaveTopology for SelBound<'_> {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
-        Box::new(self.iter_atoms())
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+        Box::new(AtomIterProvider::iter_atoms(self))
+    }
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+        BondProvider::iter_bonds_dyn(self)
+    }
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self)
     }
 }
 impl SaveState for SelBound<'_> {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
-        Box::new(self.iter_pos())
+        Box::new(self.index.iter().map(|&i| &self.sys.st.coords[i]))
     }
 }
 
@@ -298,13 +314,17 @@ impl IndexSliceProvider for SelBoundMut<'_> {
     }
 }
 
-impl SystemProvider for SelBoundMut<'_> {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for SelBoundMut<'_> {
+    fn sys_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-impl SystemMutProvider for SelBoundMut<'_> {}
+impl SysMutProvider for SelBoundMut<'_> {
+    fn sys_ptr_mut(&self) -> *mut System {
+        (self.sys as *const System) as *mut System
+    }
+}
 
 impl SelectionLogic for SelBoundMut<'_> {
     type DerivedSel = Sel;
@@ -399,7 +419,7 @@ mod tests {
     fn test1_1() -> anyhow::Result<()> {
         let mut sys = System::from_file("tests/albumin.pdb")?;
 
-        let par = sys.split_par(|p| {
+        let par = SplittableByParticle::split_par(&sys, |p| {
             if p.atom.resname != "SOL" {
                 Some(p.atom.resindex)
             } else {

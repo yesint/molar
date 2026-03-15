@@ -89,11 +89,11 @@ pub(crate) fn command_solvate(
     info!("Searching for overlapping solvent molecules...");
     // Do the distance search
     let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
-    let vdw2 = solute.iter_atoms().map(|a| a.vdw()).collect();
+    let vdw2: Vec<f32> = AtomIterProvider::iter_atoms(&solute).map(|a| a.vdw()).collect();
 
     let local_overlap_ind: Vec<usize> = distance_search_double_vdw_pbc(
-        inside_sel.iter_pos(),
-        solute.iter_pos(),
+        PosIterProvider::iter_pos(&inside_sel),
+        PosIterProvider::iter_pos(&solute),
         &vdw1,
         &vdw2,
         b,

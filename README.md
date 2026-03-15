@@ -652,7 +652,7 @@ fn main() -> Result<()> {
     let mut sys = System::from_file("tests/membr.gro")?;
 
     // Make a parallel split: distinct selection for each POPG lipid.
-    let par = sys.split_par(|p| {
+    let par = SplittableByParticle::split_par(&sys, |p| {
         if p.atom.resname == "POPG" {
             // Whenever distinct result is returned form this closure
             // new selection is created, so each distinct POPG residue

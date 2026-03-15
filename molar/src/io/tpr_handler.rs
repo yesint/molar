@@ -175,8 +175,8 @@ mod tests {
         };
         let (top, st) = h.read().unwrap();
         println!("natoms: {:?}", top.len());
-        println!("nbonds: {:?}", top.num_bonds());
-        println!("nmolecules: {:?}", top.num_molecules());
+        println!("nbonds: {:?}", BondProvider::num_bonds(&top));
+        println!("nmolecules: {:?}", MolProvider::num_molecules(&top));
         println!("state sz: {:?}", st.len());
     }
 }

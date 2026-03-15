@@ -1,6 +1,5 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
 
-use crate::atom::{ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
 use crate::prelude::*;
 
 //--------------------------------------------------------------
@@ -11,10 +10,10 @@ use crate::prelude::*;
 pub trait IndexProvider: LenProvider {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
 
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         (0..self.len()).map(|i| unsafe { self.get_index_unchecked(i) })
     }
-       
+
     fn first_index(&self) -> usize {
         unsafe { self.get_index_unchecked(0) }
     }
@@ -37,7 +36,7 @@ pub trait IndexProvider: LenProvider {
     }
 }
 
-/// Trair for parallel iteration over indexes
+/// Trait for parallel iteration over indexes
 pub trait IndexParProvider: LenProvider {
     fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize>;
 }
@@ -59,7 +58,7 @@ impl<T: IndexSliceProvider> IndexProvider for T {
         *self.get_index_slice().get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
         self.get_index_slice().into_iter().cloned()
     }
 }
@@ -77,7 +76,7 @@ impl IndexSliceProvider for SVec {
 }
 
 //--------------------------------------------------------------
-// Immutable providers
+// LenProvider
 //--------------------------------------------------------------
 
 /// Trait for providing length of provided data
@@ -85,58 +84,43 @@ pub trait LenProvider {
     fn len(&self) -> usize;
 }
 
-/// Trait for providing iteration over positions
-/// 
-/// This trait is not dyn compatible, so it can't be combined
-/// with dyn-compatible RandomPosProvider
-pub trait PosIterProvider {
-    fn iter_pos(&self) -> impl PosIterator<'_>;
+//--------------------------------------------------------------
+// New element traits (v5)
+//--------------------------------------------------------------
+
+/// Trait for random access to positions by absolute index.
+/// `pos_unchecked(i)` takes the *absolute* storage index (not the selection-local index).
+pub trait PosProvider: LenProvider {
+    unsafe fn pos_unchecked(&self, i: usize) -> &Pos;
 }
 
-/// Trait for providing parallel iteration over positions
-pub trait PosParIterProvider {
-    fn par_iter_pos(&self) -> impl IndexedParallelIterator<Item = &Pos>;
+/// Trait for mutable random access to positions.
+pub trait PosMutProvider: PosProvider {
+    unsafe fn pos_mut_unchecked(&mut self, i: usize) -> &mut Pos;
 }
 
-/// Trait for providing parallel mutable iteration over positions
-pub trait PosParIterMutProvider {
-    fn par_iter_pos_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Pos>;
+/// Trait for random access to atoms by absolute index.
+pub trait AtomProvider: LenProvider {
+    unsafe fn atom_unchecked(&self, i: usize) -> &Atom;
 }
 
-/// Trait for providing iteration over atomic masses
-pub trait MassIterProvider {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32>;
+/// Trait for mutable random access to atoms.
+pub trait AtomMutProvider: AtomProvider {
+    unsafe fn atom_mut_unchecked(&mut self, i: usize) -> &mut Atom;
 }
 
-/// Trait for providing iteration over atoms
-pub trait AtomIterProvider {
-    fn iter_atoms(&self) -> impl AtomIterator<'_>;
-}
-
-pub trait AtomParIterProvider {
-    fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = &Atom>;
-}
-
-/// Trait for providing parallel mutable iteration over atoms
-pub trait AtomParIterMutProvider {
-    fn par_iter_atoms_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Atom>;
-}
-
-impl<T: AtomIterProvider> MassIterProvider for T {
-    fn iter_masses(&self) -> impl ExactSizeIterator<Item = f32> {
-        self.iter_atoms().map(|at| at.mass)
-    }
-}
-
-/// Trait for providing access to periodic box
+/// Trait for access to periodic box
 pub trait BoxProvider {
-    /// Get reference to the periodic box or `None` if there is no box.
     fn get_box(&self) -> Option<&PeriodicBox>;
 
-    /// Get reference to the periodic box or an error if there is no box.
     fn require_box(&self) -> Result<&PeriodicBox, PeriodicBoxError> {
-        self.get_box().ok_or_else(|| PeriodicBoxError::NoPbc)
+        self.get_box().ok_or(PeriodicBoxError::NoPbc)
     }
+}
+
+/// Trait for mutable access to periodic box
+pub trait BoxMutProvider: BoxProvider {
+    fn get_box_mut(&mut self) -> Option<&mut PeriodicBox>;
 }
 
 /// Trait for getting time
@@ -144,206 +128,207 @@ pub trait TimeProvider {
     fn get_time(&self) -> f32;
 }
 
-/// Trait for providing iteration over particles
-pub trait ParticleIterProvider {
-    fn iter_particle(&self) -> impl ParticleIterator<'_>;
+/// Trait for setting simulation time
+pub trait TimeMutProvider: TimeProvider {
+    fn set_time(&mut self, t: f32);
 }
 
-pub trait ParticleParIterProvider {
-    fn par_iter_particle(&self) -> impl IndexedParallelIterator<Item = Particle<'_>>;
-}
+/// Trait for access to bonds
+pub trait BondProvider {
+    fn bonds_raw(&self) -> &[[usize; 2]];
 
-/// Trait for providing parallel mutable iteration over particles
-pub trait ParticleParIterMutProvider {
-    fn par_iter_particle_mut(&mut self) -> impl IndexedParallelIterator<Item = ParticleMut<'_>>;
-}
-
-/// Trait for providing random access to particles
-pub trait RandomParticleProvider: RandomPosProvider + RandomAtomProvider {
-    unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_>;
-
-    fn first_particle(&self) -> Particle<'_> {
-        unsafe { self.get_particle_unchecked(0) }
+    fn iter_bonds(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
+        self.bonds_raw().iter()
     }
 
-    fn last_particle(&self) -> Particle<'_> {
-        unsafe { self.get_particle_unchecked(self.len() - 1) }
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a [usize; 2]> + 'a> {
+        Box::new(self.iter_bonds())
     }
 
-    fn get_particle(&self, i: usize) -> Option<Particle<'_>> {
-        if i < self.len() {
-            Some(unsafe { self.get_particle_unchecked(i) })
-        } else {
-            None
-        }
+    fn num_bonds(&self) -> usize {
+        self.bonds_raw().len()
+    }
+
+    // For backwards compatibility
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.bonds_raw().get_unchecked(i)
+    }
+
+    fn get_bond(&self, i: usize) -> Option<&[usize; 2]> {
+        self.bonds_raw().get(i)
     }
 }
 
-/// Trait for providing random access to positions
+/// Trait for access to molecules
+pub trait MolProvider {
+    fn molecules_raw(&self) -> &[[usize; 2]];
+
+    fn iter_molecules(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
+        self.molecules_raw().iter()
+    }
+
+    fn num_molecules(&self) -> usize {
+        self.molecules_raw().len()
+    }
+
+    // For backwards compatibility
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.molecules_raw().get_unchecked(i)
+    }
+
+    fn get_molecule(&self, i: usize) -> Option<&[usize; 2]> {
+        self.molecules_raw().get(i)
+    }
+}
+
+//--------------------------------------------------------------
+// Backward-compat aliases (used in distance_search.rs, sasa.rs etc.)
+// These delegate to the new traits.
+//--------------------------------------------------------------
+
+// PosIterProvider - NOT a blanket from PosProvider to avoid conflicts.
+// Types implementing SysProvider get it via PosProvider::iter_pos()
+// and can implement PosIterProvider separately if needed.
+pub trait PosIterProvider {
+    fn iter_pos(&self) -> impl Iterator<Item = &Pos>;
+}
+
+// AtomIterProvider - NOT a blanket from AtomProvider.
+pub trait AtomIterProvider {
+    fn iter_atoms(&self) -> impl Iterator<Item = &Atom>;
+}
+
+// MassIterProvider - NOT a blanket.
+pub trait MassIterProvider {
+    fn iter_masses(&self) -> impl Iterator<Item = f32>;
+}
+
+// Default: AtomIterProvider implies MassIterProvider
+impl<T: AtomIterProvider> MassIterProvider for T {
+    fn iter_masses(&self) -> impl Iterator<Item = f32> {
+        self.iter_atoms().map(|a| a.mass)
+    }
+}
+
+// PosParIterProvider
+pub trait PosParIterProvider {
+    fn par_iter_pos(&self) -> impl IndexedParallelIterator<Item = &Pos>;
+}
+
+// AtomParIterProvider
+pub trait AtomParIterProvider {
+    fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = &Atom>;
+}
+
+// Keep RandomPosProvider as alias
 pub trait RandomPosProvider: LenProvider {
     unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos;
 
     fn get_pos(&self, i: usize) -> Option<&Pos> {
-        if i < self.len() {
-            Some(unsafe { self.get_pos_unchecked(i) })
-        } else {
-            None
-        }
+        if i < self.len() { Some(unsafe { self.get_pos_unchecked(i) }) } else { None }
     }
 
-    fn first_pos(&self) -> &Pos {
-        unsafe { self.get_pos_unchecked(0) }
-    }
-
-    fn last_pos(&self) -> &Pos {
-        unsafe { self.get_pos_unchecked(self.len() - 1) }
-    }
+    fn first_pos(&self) -> &Pos { unsafe { self.get_pos_unchecked(0) } }
+    fn last_pos(&self) -> &Pos { unsafe { self.get_pos_unchecked(self.len()-1) } }
 }
 
-/// Trait for providing random access to atoms
+// Keep RandomAtomProvider as alias
 pub trait RandomAtomProvider: LenProvider {
     unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom;
 
     fn get_atom(&self, i: usize) -> Option<&Atom> {
-        if i < self.len() {
-            Some(unsafe { self.get_atom_unchecked(i) })
-        } else {
-            None
-        }
+        if i < self.len() { Some(unsafe { self.get_atom_unchecked(i) }) } else { None }
     }
 
-    fn first_atom(&self) -> &Atom {
-        unsafe { self.get_atom_unchecked(0) }
-    }
-
-    fn last_atom(&self) -> &Atom {
-        unsafe { self.get_atom_unchecked(self.len() - 1) }
-    }
+    fn first_atom(&self) -> &Atom { unsafe { self.get_atom_unchecked(0) } }
+    fn last_atom(&self) -> &Atom { unsafe { self.get_atom_unchecked(self.len()-1) } }
 }
 
-/// Trait for providing access to bonds
-pub trait RandomBondProvider {
-    fn num_bonds(&self) -> usize;
-
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2];
-
-    fn get_bond(&self, i: usize) -> Option<&[usize; 2]> {
-        if i < self.num_bonds() {
-            Some(unsafe { self.get_bond_unchecked(i) })
-        } else {
-            None
-        }
-    }
-}
-
-pub trait BondIterProvider {
-    fn iter_bonds(&self) -> impl ExactSizeIterator<Item = &[usize; 2]>;
-}
-
-/// Trait for providing access to molecules (atoms subsets connected by bonds)
-pub trait RandomMoleculeProvider {
-    fn num_molecules(&self) -> usize;
-
-    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2];
-
-    fn get_molecule(&self, i: usize) -> Option<&[usize; 2]> {
-        if i < self.num_molecules() {
-            Some(unsafe { self.get_molecule_unchecked(i) })
-        } else {
-            None
-        }
-    }
-
-    /// Splits by molecule and returns an iterator over them.
-    /// If molecule is only partially contained in self then only this part is returned (molecules are clipped).
-    /// If there are no molecules in [Topology] return an empty iterator.
-    fn split_mol_iter(&self) -> impl Iterator<Item = Sel>
-    where
-        Self: Sized + IndexProvider,
-    {
-        // Iterate over molecules and find those inside selection
-        let first = self.first_index();
-        let last = self.last_index();
-
-        let mut molid = 0;
-
-        let next_fn = move || {
-            if self.num_molecules() == 0 {
-                return None;
-            }
-
-            let res = match self.get_molecule(molid) {
-                Some(mol) => {
-                    let b = mol[0];
-                    let e = mol[1];
-                    if b < first && e >= first && e <= last {
-                        // molecule starts before Sel
-                        Some(0..=e - first)
-                    } else if b >= first && e <= last {
-                        // molecule inside Sel
-                        Some(b - first..=e - first)
-                    } else if b >= first && b <= last && e > last {
-                        // molecule ends after Sel
-                        Some(b - first..=last - first)
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            }
-            .map(|r| Sel(unsafe { SVec::from_sorted(r.into_iter().collect()) }));
-
-            molid += 1;
-            res
-        };
-
-        std::iter::from_fn(next_fn)
-    }
-}
-
-pub trait MoleculeIterProvider {
-    fn iter_molecules(&self) -> impl ExactSizeIterator<Item = &[usize; 2]>;
-}
-
-//--------------------------------------------------------------
-// Mutable providers
-//--------------------------------------------------------------
-
-/// Trait for providing mutable iteration over positions
-pub trait PosIterMutProvider {
-    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_>;
-}
-
-/// Trait for providing mutable random access to positions
+// Keep RandomPosMutProvider
 pub trait RandomPosMutProvider: LenProvider {
     unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos;
 
     fn get_pos_mut(&mut self, i: usize) -> Option<&mut Pos> {
-        if i < self.len() {
-            Some(unsafe { self.get_pos_mut_unchecked(i) })
-        } else {
-            None
-        }
+        if i < self.len() { Some(unsafe { self.get_pos_mut_unchecked(i) }) } else { None }
     }
 
-    fn first_pos_mut(&mut self) -> &mut Pos {
-        unsafe { self.get_pos_mut_unchecked(0) }
-    }
-
+    fn first_pos_mut(&mut self) -> &mut Pos { unsafe { self.get_pos_mut_unchecked(0) } }
     fn last_pos_mut(&mut self) -> &mut Pos {
-        unsafe { self.get_pos_mut_unchecked(self.len() - 1) }
+        let last = self.len() - 1;
+        unsafe { self.get_pos_mut_unchecked(last) }
     }
 }
 
-/// Trait for providing mutable iteration over atoms
+// Keep RandomAtomMutProvider
+pub trait RandomAtomMutProvider: LenProvider {
+    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom;
+
+    fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
+        if i < self.len() { Some(unsafe { self.get_atom_mut_unchecked(i) }) } else { None }
+    }
+
+    fn first_atom_mut(&mut self) -> &mut Atom { unsafe { self.get_atom_mut_unchecked(0) } }
+}
+
+// Blanket impls: PosProvider -> RandomPosProvider (via selection indexing)
+impl<T: PosProvider + IndexProvider> RandomPosProvider for T {
+    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+        let idx = self.get_index_unchecked(i);
+        PosProvider::pos_unchecked(self, idx)
+    }
+}
+
+// Blanket impls: PosMutProvider -> RandomPosMutProvider (via selection indexing)
+impl<T: PosMutProvider + IndexProvider> RandomPosMutProvider for T {
+    unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos {
+        let idx = self.get_index_unchecked(i);
+        PosMutProvider::pos_mut_unchecked(self, idx)
+    }
+}
+
+// Blanket impls: AtomProvider -> RandomAtomProvider
+impl<T: AtomProvider + IndexProvider> RandomAtomProvider for T {
+    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+        let idx = self.get_index_unchecked(i);
+        AtomProvider::atom_unchecked(self, idx)
+    }
+}
+
+// Blanket impls: AtomMutProvider -> RandomAtomMutProvider
+impl<T: AtomMutProvider + IndexProvider> RandomAtomMutProvider for T {
+    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom {
+        let idx = self.get_index_unchecked(i);
+        AtomMutProvider::atom_mut_unchecked(self, idx)
+    }
+}
+
+// Keep PosIterMutProvider
+pub trait PosIterMutProvider {
+    fn iter_pos_mut(&mut self) -> impl Iterator<Item = &mut Pos>;
+}
+
+impl<T: PosMutProvider + IndexProvider> PosIterMutProvider for T {
+    fn iter_pos_mut(&mut self) -> impl Iterator<Item = &mut Pos> {
+        let len = self.len();
+        let p = self as *mut T;
+        (0..len).map(move |i| unsafe {
+            let s = &mut *p;
+            let idx = s.get_index_unchecked(i);
+            s.pos_mut_unchecked(idx)
+        })
+    }
+}
+
+// Keep AtomIterMutProvider with the set_ methods
 pub trait AtomIterMutProvider {
-    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_>;
+    fn iter_atoms_mut(&mut self) -> impl Iterator<Item = &mut Atom>;
 
     /// Sets same name to all selected atoms
     fn set_same_name(&mut self, val: &str)
     where
         Self: Sized,
     {
+        use crate::atom::ATOM_NAME_EXPECT;
         let s = AtomStr::try_from_str(val).expect(ATOM_NAME_EXPECT);
         for a in self.iter_atoms_mut() {
             a.name = s;
@@ -355,6 +340,7 @@ pub trait AtomIterMutProvider {
     where
         Self: Sized,
     {
+        use crate::atom::ATOM_RESNAME_EXPECT;
         let s = AtomStr::try_from_str(val).expect(ATOM_RESNAME_EXPECT);
         for a in self.iter_atoms_mut() {
             a.resname = s;
@@ -402,73 +388,184 @@ pub trait AtomIterMutProvider {
     }
 }
 
-
-/// Trait for providing mutable iteration over particles
-pub trait ParticleIterMutProvider: IndexProvider {
-    fn iter_particle_mut(&mut self) -> impl ParticleMutIterator<'_>;
-}
-
-/// Trait for providing mutable random access to atoms
-pub trait RandomAtomMutProvider: LenProvider {
-    fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
-        if i < self.len() {
-            Some(unsafe { self.get_atom_mut_unchecked(i) })
-        } else {
-            None
-        }
-    }
-
-    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom;
-
-    fn first_atom_mut(&mut self) -> &mut Atom {
-        unsafe { self.get_atom_mut_unchecked(0) }
-    }
-
-    fn last_atom_mut(&mut self) -> &Atom {
-        unsafe { self.get_atom_mut_unchecked(self.len() - 1) }
+impl<T: AtomMutProvider + IndexProvider> AtomIterMutProvider for T {
+    fn iter_atoms_mut(&mut self) -> impl Iterator<Item = &mut Atom> {
+        let len = self.len();
+        let p = self as *mut T;
+        (0..len).map(move |i| unsafe {
+            let s = &mut *p;
+            let idx = s.get_index_unchecked(i);
+            s.atom_mut_unchecked(idx)
+        })
     }
 }
 
-/// Trait for providing mutable access to periodic box
-pub trait BoxMutProvider {
-    fn get_box_mut(&mut self) -> Option<&mut PeriodicBox>;
+// ParticleIterProvider
+pub trait ParticleIterProvider {
+    fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>>;
 }
 
-/// Trait for setting simulation time
-pub trait TimeMutProvider {
-    fn set_time(&mut self, t: f32);
+// ParticleParIterProvider
+pub trait ParticleParIterProvider {
+    fn par_iter_particle(&self) -> impl IndexedParallelIterator<Item = Particle<'_>>;
 }
 
-/// Trait for providing mutable random access to particles
+// ParticleIterMutProvider
+pub trait ParticleIterMutProvider {
+    fn iter_particle_mut(&mut self) -> impl Iterator<Item = ParticleMut<'_>>;
+}
+
+// ParticleParIterMutProvider
+pub trait ParticleParIterMutProvider {
+    fn par_iter_particle_mut(&mut self) -> impl IndexedParallelIterator<Item = ParticleMut<'_>>;
+}
+
+// RandomParticleProvider
+pub trait RandomParticleProvider: RandomPosProvider + RandomAtomProvider {
+    unsafe fn get_particle_unchecked(&self, i: usize) -> Particle<'_>;
+
+    fn first_particle(&self) -> Particle<'_> { unsafe { self.get_particle_unchecked(0) } }
+    fn last_particle(&self) -> Particle<'_> {
+        let last = self.len()-1;
+        unsafe { self.get_particle_unchecked(last) }
+    }
+    fn get_particle(&self, i: usize) -> Option<Particle<'_>> {
+        if i < self.len() { Some(unsafe { self.get_particle_unchecked(i) }) } else { None }
+    }
+}
+
+// RandomParticleMutProvider
 pub trait RandomParticleMutProvider: RandomPosMutProvider + RandomAtomMutProvider {
     unsafe fn get_particle_mut_unchecked(&mut self, i: usize) -> ParticleMut<'_>;
 
-    fn first_particle_mut(&mut self) -> ParticleMut<'_> {
-        unsafe { self.get_particle_mut_unchecked(0) }
-    }
-
+    fn first_particle_mut(&mut self) -> ParticleMut<'_> { unsafe { self.get_particle_mut_unchecked(0) } }
     fn last_particle_mut(&mut self) -> ParticleMut<'_> {
-        unsafe { self.get_particle_mut_unchecked(self.len() - 1) }
+        let last = self.len()-1;
+        unsafe { self.get_particle_mut_unchecked(last) }
     }
-
     fn get_particle_mut(&mut self, i: usize) -> Option<ParticleMut<'_>> {
-        if i < self.len() {
-            Some(unsafe { self.get_particle_mut_unchecked(i) })
-        } else {
-            None
-        }
+        if i < self.len() { Some(unsafe { self.get_particle_mut_unchecked(i) }) } else { None }
     }
 }
 
+// Keep PosParIterMutProvider
+pub trait PosParIterMutProvider {
+    fn par_iter_pos_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Pos>;
+}
+
+// Keep AtomParIterProvider
+pub trait AtomParIterMutProvider {
+    fn par_iter_atoms_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Atom>;
+}
+
+// Keep RandomBondProvider for backward compat (maps to BondProvider)
+pub trait RandomBondProvider {
+    fn num_bonds(&self) -> usize;
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2];
+    fn get_bond(&self, i: usize) -> Option<&[usize; 2]> {
+        if i < self.num_bonds() { Some(unsafe { self.get_bond_unchecked(i) }) } else { None }
+    }
+}
+
+// Blanket: BondProvider -> RandomBondProvider
+impl<T: BondProvider> RandomBondProvider for T {
+    fn num_bonds(&self) -> usize { self.bonds_raw().len() }
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.bonds_raw().get_unchecked(i)
+    }
+}
+
+// Keep BondIterProvider for backward compat
+pub trait BondIterProvider {
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]>;
+}
+
+impl<T: BondProvider> BondIterProvider for T {
+    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+        BondProvider::iter_bonds(self)
+    }
+}
+
+// Keep RandomMoleculeProvider for backward compat
+pub trait RandomMoleculeProvider {
+    fn num_molecules(&self) -> usize;
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2];
+    fn get_molecule(&self, i: usize) -> Option<&[usize; 2]> {
+        if i < self.num_molecules() { Some(unsafe { self.get_molecule_unchecked(i) }) } else { None }
+    }
+
+    fn split_mol_iter(&self) -> impl Iterator<Item = Sel>
+    where Self: Sized + IndexProvider,
+    {
+        let first = self.first_index();
+        let last = self.last_index();
+        let mut molid = 0;
+
+        let next_fn = move || {
+            if self.num_molecules() == 0 {
+                return None;
+            }
+
+            let res = match self.get_molecule(molid) {
+                Some(mol) => {
+                    let b = mol[0];
+                    let e = mol[1];
+                    if b < first && e >= first && e <= last {
+                        Some(0..=e - first)
+                    } else if b >= first && e <= last {
+                        Some(b - first..=e - first)
+                    } else if b >= first && b <= last && e > last {
+                        Some(b - first..=last - first)
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            }
+            .map(|r| Sel(unsafe { SVec::from_sorted(r.into_iter().collect()) }));
+
+            molid += 1;
+            res
+        };
+
+        std::iter::from_fn(next_fn)
+    }
+}
+
+// Blanket: MolProvider -> RandomMoleculeProvider
+impl<T: MolProvider> RandomMoleculeProvider for T {
+    fn num_molecules(&self) -> usize { self.molecules_raw().len() }
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+        self.molecules_raw().get_unchecked(i)
+    }
+}
+
+// Keep MoleculeIterProvider
+pub trait MoleculeIterProvider {
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]>;
+}
+
+impl<T: MolProvider> MoleculeIterProvider for T {
+    fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
+        MolProvider::iter_molecules(self)
+    }
+}
+
+//--------------------------------------------------------------
+// BoxMutProvider - also keep TimeMutProvider at module level
+// (already defined as new trait above)
+//--------------------------------------------------------------
+
 //----------------------------------------------------
+// Keep Vec<Pos> impls for State backward compat
 impl PosIterProvider for Vec<Pos> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
+    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
         self.iter()
     }
 }
 
 impl PosIterProvider for Pos {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
+    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
         std::iter::once(self)
     }
 }

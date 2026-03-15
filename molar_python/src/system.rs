@@ -107,13 +107,9 @@ impl BoxProvider for SystemPy {
     }
 }
 
-impl RandomBondProvider for SystemPy {
-    fn num_bonds(&self) -> usize {
-        0
-    }
-
-    unsafe fn get_bond_unchecked(&self, _i: usize) -> &[usize; 2] {
-        unreachable!()
+impl BondProvider for SystemPy {
+    fn bonds_raw(&self) -> &[[usize; 2]] {
+        &[]
     }
 }
 
@@ -123,15 +119,38 @@ impl TimeProvider for SystemPy {
     }
 }
 
+impl PosIterProvider for SystemPy {
+    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
+        AtomPosAnalysis::iter_pos(self)
+    }
+}
+
+impl AtomIterProvider for SystemPy {
+    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
+        AtomPosAnalysis::iter_atoms(self)
+    }
+}
+
+impl MeasurePos for SystemPy {}
+impl MeasureMasses for SystemPy {}
+
 impl SaveTopology for SystemPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
-        Box::new(self.iter_atoms())
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+        Box::new(AtomPosAnalysis::iter_atoms(self))
+    }
+
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+        Box::new(BondProvider::iter_bonds(self))
+    }
+
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self)
     }
 }
 
 impl SaveState for SystemPy {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
-        Box::new(self.iter_pos())
+        Box::new(self.r_st().coords.iter())
     }
 }
 
@@ -391,10 +410,10 @@ impl SystemPy {
 
             slf_b
                 .r_top_mut()
-                .add_atoms(sel.borrow().iter_atoms().cloned());
+                .add_atoms(AtomIterProvider::iter_atoms(&*sel.borrow()).cloned());
             slf_b
                 .r_st_mut()
-                .add_coords(sel.borrow().iter_pos().cloned());
+                .add_coords(PosIterProvider::iter_pos(&*sel.borrow()).cloned());
 
             Ok(())
         } else if args.len() == 2 {

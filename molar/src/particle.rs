@@ -36,18 +36,6 @@ impl LenProvider for Particle<'_> {
     }
 }
 
-impl PosIterProvider for Particle<'_> {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        std::iter::once(self.pos)
-    }
-}
-
-impl AtomIterProvider for Particle<'_> {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        std::iter::once(self.atom)
-    }
-}
-
 impl IndexProvider for Particle<'_> {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         if i > 0 {
@@ -59,6 +47,20 @@ impl IndexProvider for Particle<'_> {
 
     fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         std::iter::once(self.id)
+    }
+}
+
+impl PosProvider for Particle<'_> {
+    unsafe fn pos_unchecked(&self, _i: usize) -> &Pos {
+        // For Particle, the only valid storage index is self.id
+        // but we ignore i and return self.pos directly
+        self.pos
+    }
+}
+
+impl AtomProvider for Particle<'_> {
+    unsafe fn atom_unchecked(&self, _i: usize) -> &Atom {
+        self.atom
     }
 }
 

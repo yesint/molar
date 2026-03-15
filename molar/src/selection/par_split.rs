@@ -27,8 +27,8 @@ impl IndexSliceProvider for SelPar<'_> {
     }
 }
 
-impl SystemProvider for SelPar<'_> {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for SelPar<'_> {
+    fn sys_ptr(&self) -> *const System {
         self.sys
     }
 }
@@ -60,15 +60,19 @@ impl IndexSliceProvider for SelParMut<'_> {
     }
 }
 
-impl SystemProvider for SelParMut<'_> {
-    fn get_system_ptr(&self) -> *const System {
+impl SysProvider for SelParMut<'_> {
+    fn sys_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-// Mutable access to coords and atoms is allowed
-impl AtomPosAnalysisMut for SelParMut<'_> {}
-// NonAtomPosAnalysisMut is NOT implemeneted to avoid races!
+// For SelParMut, we allow mutable access to coords and atoms but NOT to box/bonds
+// (to avoid races in parallel context). We implement SysMutProvider to get pos/atom mut access.
+impl SysMutProvider for SelParMut<'_> {
+    fn sys_ptr_mut(&self) -> *mut System {
+        self.sys as *mut System
+    }
+}
 
 //============================================================================
 /// Collection of non-overlapping selections that could be mutated in parallel
@@ -114,7 +118,7 @@ mod tests {
         let mut sys = System::from_file("tests/membr.gro")?;
 
         // Make a parallel split for each POPG lipid molecule
-        let par = sys.split_par(|p| {
+        let par = SplittableByParticle::split_par(&sys, |p| {
             if p.atom.resname == "POPG" {
                 // Whenever new distinct result is returned form this closure
                 // new selection is created, so each distinct POPG residue

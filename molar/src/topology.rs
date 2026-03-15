@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use thiserror::Error;
 
-pub trait TopLike: Default + BondIterProvider + MoleculeIterProvider + SaveTopology {
+pub trait TopLike: Default + BondProvider + MolProvider + SaveTopology {
     // Construction methods (to use with format readers)
     fn add_atom_dyn(&mut self, atom: &dyn AtomLike);
     fn add_bond(&mut self, bond: &[usize;2]);
@@ -34,15 +34,6 @@ impl Topology {
     pub fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
         self.atoms.extend(atoms);
     }
-
-    // pub(crate) fn add_bonds(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-    //     todo!("Check if bond already exists");
-    //     self.bonds.extend(added);
-    // }
-
-    // pub(crate) fn add_molecules(&mut self, added: impl Iterator<Item = [usize; 2]>) {
-    //     self.molecules.extend(added);
-    // }
 
     pub fn remove_atoms(
         &mut self,
@@ -81,8 +72,8 @@ impl Topology {
 impl Topology {
     pub fn assign_resindex(&mut self) {
         let mut resindex = 0usize;
-        let mut cur_resid = unsafe { self.get_atom_unchecked(0) }.resid;
-        for at in self.iter_atoms_mut() {
+        let mut cur_resid = unsafe { self.atom_unchecked(0) }.resid;
+        for at in AtomIterMutProvider::iter_atoms_mut(self) {
             if at.resid != cur_resid {
                 cur_resid = at.resid;
                 resindex += 1;
@@ -100,20 +91,14 @@ impl Topology {
 
 //---------------------------
 impl SaveTopology for Topology {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
         Box::new(self.atoms.iter())
     }
-}
-
-impl AtomIterProvider for Topology {
-    fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        self.atoms.iter()
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+        BondProvider::iter_bonds_dyn(self)
     }
-}
-
-impl AtomIterMutProvider for Topology {
-    fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
-        self.atoms.iter_mut()
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self)
     }
 }
 
@@ -123,50 +108,45 @@ impl LenProvider for Topology {
     }
 }
 
-impl RandomAtomProvider for Topology {
-    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+// Identity indexing for Topology
+impl IndexProvider for Topology {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
+    }
+
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
+        0..self.atoms.len()
+    }
+}
+
+impl AtomProvider for Topology {
+    unsafe fn atom_unchecked(&self, i: usize) -> &Atom {
         self.atoms.get_unchecked(i)
     }
 }
 
-impl RandomAtomMutProvider for Topology {
-    fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
-        self.atoms.get_mut(i)
-    }
-
-    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom {
+impl AtomMutProvider for Topology {
+    unsafe fn atom_mut_unchecked(&mut self, i: usize) -> &mut Atom {
         self.atoms.get_unchecked_mut(i)
     }
 }
 
-impl RandomBondProvider for Topology {
-    fn num_bonds(&self) -> usize {
-        self.bonds.len()
+// Explicit AtomIterProvider for Topology (does not go through SysProvider blanket)
+impl AtomIterProvider for Topology {
+    fn iter_atoms(&self) -> impl Iterator<Item = &Atom> {
+        self.atoms.iter()
     }
+}
+// Note: AtomIterMutProvider for Topology comes from the blanket impl in providers.rs
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.bonds.get_unchecked(i)
+impl BondProvider for Topology {
+    fn bonds_raw(&self) -> &[[usize; 2]] {
+        &self.bonds
     }
 }
 
-impl BondIterProvider for Topology {
-    fn iter_bonds(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
-        self.bonds.iter()
-    }
-}
-
-impl RandomMoleculeProvider for Topology {
-    fn num_molecules(&self) -> usize {
-        self.molecules.len()
-    }
-
-    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.molecules.get_unchecked(i)
-    }
-}
-
-impl MoleculeIterProvider for Topology {
-    fn iter_molecules(&self) -> impl ExactSizeIterator<Item = &[usize; 2]> {
-        self.molecules.iter()
+impl MolProvider for Topology {
+    fn molecules_raw(&self) -> &[[usize; 2]] {
+        &self.molecules
     }
 }

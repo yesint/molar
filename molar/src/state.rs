@@ -57,11 +57,6 @@ impl State {
 impl State {
     pub fn interchangeable(&self, other: &State) -> bool {
         self.coords.len() == other.coords.len()
-        // && (
-        //     (self.get_storage().pbox.is_none() && other.get_storage().pbox.is_none())
-        //     ||
-        //     (self.get_storage().pbox.is_some() && other.get_storage().pbox.is_some())
-        // )
     }
 
     pub fn new_fake(n: usize) -> Self {
@@ -75,7 +70,7 @@ impl State {
 
 impl SaveState for State {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
-        Box::new(self.iter_pos())
+        Box::new(self.coords.iter())
     }
 }
 
@@ -91,21 +86,39 @@ impl TimeMutProvider for State {
     }
 }
 
-impl PosIterProvider for State {
-    fn iter_pos(&self) -> impl PosIterator<'_> {
-        self.coords.iter()
-    }
-}
-
 impl LenProvider for State {
     fn len(&self) -> usize {
         self.coords.len()
     }
 }
 
-impl RandomPosProvider for State {
-    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+// Identity indexing for State - index i maps to storage position i
+impl IndexProvider for State {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+        i
+    }
+
+    fn iter_index(&self) -> impl Iterator<Item = usize> {
+        0..self.coords.len()
+    }
+}
+
+impl IndexParProvider for State {
+    fn par_iter_index(&self) -> impl IndexedParallelIterator<Item = usize> {
+        use rayon::iter::IntoParallelIterator;
+        (0..self.coords.len()).into_par_iter()
+    }
+}
+
+impl PosProvider for State {
+    unsafe fn pos_unchecked(&self, i: usize) -> &Pos {
         self.coords.get_unchecked(i)
+    }
+}
+
+impl PosMutProvider for State {
+    unsafe fn pos_mut_unchecked(&mut self, i: usize) -> &mut Pos {
+        self.coords.get_unchecked_mut(i)
     }
 }
 
@@ -121,19 +134,9 @@ impl BoxMutProvider for State {
     }
 }
 
-impl PosIterMutProvider for State {
-    fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
-        self.coords.iter_mut()
-    }
-}
-
-impl RandomPosMutProvider for State {
-    fn get_pos_mut(&mut self, i: usize) -> Option<&mut Pos> {
-        self.coords.get_mut(i)
-    }
-
-    unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos {
-        self.coords.get_unchecked_mut(i)
+impl PosIterProvider for State {
+    fn iter_pos(&self) -> impl Iterator<Item = &Pos> {
+        self.coords.iter()
     }
 }
 

@@ -219,18 +219,16 @@ impl TopologyPy {
     }
 }
 
-impl RandomBondProvider for TopologyPy {
-    fn num_bonds(&self) -> usize {
-        self.inner().num_bonds()
-    }
-
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
-        self.inner().get_bond_unchecked(i)
-    }
-}
-
 impl SaveTopology for TopologyPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
         self.inner().iter_atoms_dyn()
+    }
+
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+        Box::new(BondProvider::iter_bonds(self.inner()))
+    }
+
+    fn num_bonds(&self) -> usize {
+        BondProvider::num_bonds(self.inner())
     }
 }

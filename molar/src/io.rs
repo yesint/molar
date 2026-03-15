@@ -29,8 +29,10 @@ use xtc_handler::{XtcFileHandler, XtcHandlerError};
 use xyz_handler::{XyzFileHandler, XyzHandlerError};
 
 /// Trait for saving [Topology] to file
-pub trait SaveTopology: RandomBondProvider + LenProvider {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Atom> + 'a>;
+pub trait SaveTopology: LenProvider {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a>;
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a>;
+    fn num_bonds(&self) -> usize;
 }
 
 /// Trait for saving [State] to file
@@ -756,7 +758,7 @@ mod tests {
     fn test_itp() -> Result<()> {
         let mut h = FileHandler::open("../molar_membrane/tests/POPE.itp")?;
         let top = h.read_topology()?;
-        for a in top.iter_atoms() {
+        for a in AtomIterProvider::iter_atoms(&top) {
             println!("{:?}", a);
         }
         Ok(())
@@ -796,7 +798,7 @@ mod tests {
     #[test]
     fn xyz_test() -> anyhow::Result<()> {
         let sys = System::from_file("tests/test.xyz")?;
-        for atom in sys.iter_atoms() {
+        for atom in AtomIterProvider::iter_atoms(&sys) {
             println!("mass = {}", atom.mass);
         }
         Ok(())
