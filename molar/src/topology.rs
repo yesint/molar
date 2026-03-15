@@ -114,7 +114,7 @@ impl IndexProvider for Topology {
         i
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         0..self.atoms.len()
     }
 }

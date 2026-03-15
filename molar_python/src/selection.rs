@@ -94,7 +94,7 @@ impl IndexProvider for SelPy {
         self.index.get_index_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.index.iter_index()
     }
 }

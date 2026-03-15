@@ -11,7 +11,7 @@ use crate::prelude::*;
 pub trait IndexProvider: LenProvider {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize;
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         (0..self.len()).map(|i| unsafe { self.get_index_unchecked(i) })
     }
 
@@ -59,8 +59,8 @@ impl<T: IndexSliceProvider> IndexProvider for T {
         *self.get_index_slice().get_unchecked(i)
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
-        self.get_index_slice().into_iter().cloned()
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
+        self.get_index_slice().iter().cloned()
     }
 }
 
@@ -102,7 +102,8 @@ pub trait PosProvider: LenProvider + IndexProvider {
     unsafe fn coords_ptr(&self) -> *const Pos;
 
     fn iter_pos(&self) -> impl PosIterator<'_> {
-        (0..self.len()).map(|i| unsafe { self.get_pos_unchecked(i) })
+        let cp = unsafe { self.coords_ptr() };
+        unsafe { self.iter_index().map(move |i| &*cp.add(i)) }
     }
 
     fn par_iter_pos(&self) -> impl IndexedParallelIterator<Item = &Pos>
@@ -192,7 +193,8 @@ pub trait AtomProvider: LenProvider + IndexProvider {
     unsafe fn atoms_ptr(&self) -> *const Atom;
 
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        (0..self.len()).map(|i| unsafe { self.get_atom_unchecked(i) })
+        let ap = unsafe { self.atoms_ptr() };
+        unsafe { self.iter_index().map(move |i| &*ap.add(i)) }
     }
 
     fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = &Atom>
@@ -484,7 +486,7 @@ impl IndexProvider for Vec<Pos> {
         i
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         0..self.len()
     }
 }
@@ -505,7 +507,7 @@ impl IndexProvider for Pos {
     unsafe fn get_index_unchecked(&self, _i: usize) -> usize {
         0
     }
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         std::iter::once(0)
     }
 }

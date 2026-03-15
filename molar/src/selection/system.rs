@@ -346,7 +346,7 @@ impl IndexProvider for System {
         i
     }
 
-    fn iter_index(&self) -> impl Iterator<Item = usize> {
+    fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         (0..self.len()).into_iter()
     }
 }
