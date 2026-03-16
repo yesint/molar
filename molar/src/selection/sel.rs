@@ -123,7 +123,7 @@ impl IndexSliceProvider for SelOwnBound<'_> {
     }
 }
 
-impl SysProvider for SelOwnBound<'_> {
+impl SystemProvider for SelOwnBound<'_> {
     fn get_system_ptr(&self) -> *const System {
         self.sys
     }
@@ -188,13 +188,13 @@ impl IndexSliceProvider for SelOwnBoundMut<'_> {
     }
 }
 
-impl SysProvider for SelOwnBoundMut<'_> {
+impl SystemProvider for SelOwnBoundMut<'_> {
     fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-impl SysMutProvider for SelOwnBoundMut<'_> {}
+impl SystemMutProvider for SelOwnBoundMut<'_> {}
 
 impl SelectionLogic for SelOwnBoundMut<'_> {
     type DerivedSel = Sel;
@@ -255,7 +255,7 @@ impl IndexSliceProvider for SelBound<'_> {
     }
 }
 
-impl SysProvider for SelBound<'_> {
+impl SystemProvider for SelBound<'_> {
     fn get_system_ptr(&self) -> *const System {
         self.sys
     }
@@ -310,13 +310,13 @@ impl IndexSliceProvider for SelBoundMut<'_> {
     }
 }
 
-impl SysProvider for SelBoundMut<'_> {
+impl SystemProvider for SelBoundMut<'_> {
     fn get_system_ptr(&self) -> *const System {
         self.sys
     }
 }
 
-impl SysMutProvider for SelBoundMut<'_> {}
+impl SystemMutProvider for SelBoundMut<'_> {}
 
 impl SelectionLogic for SelBoundMut<'_> {
     type DerivedSel = Sel;

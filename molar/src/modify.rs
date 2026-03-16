@@ -5,14 +5,14 @@ use nalgebra::Rotation3;
 use nalgebra::Unit;
 
 //==============================================================
-// Traits for modification (mutable access)
+// Unified Modify trait
 //==============================================================
 
-/// Trait for modification requiring only positions
-pub trait ModifyPos: PosMutProvider {
-    //pub fn from_matrix<S>(matrix: nalgebra::Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
-    //where S: nalgebra::storage::Storage<f32, Const<3>, Const<3>>
-
+/// Unified trait for all modification operations on selections.
+///
+/// The base supertrait is [`PosMutProvider`]. Methods that require additional
+/// capabilities carry `where Self: …` bounds.
+pub trait Modify: PosMutProvider {
     fn translate<S>(&mut self, shift: &nalgebra::Matrix<f32, Const<3>, Const<1>, S>)
     where
         S: nalgebra::storage::Storage<f32, Const<3>, Const<1>>,
@@ -34,11 +34,13 @@ pub trait ModifyPos: PosMutProvider {
             *p = tr * (*p);
         }
     }
-}
 
-/// Trait for modification requiring positions and pbc
-pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
-    fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<(), MeasureError> {
+    // ---- BoxProvider methods ----
+
+    fn unwrap_simple_dim(&mut self, dims: PbcDims) -> Result<(), MeasureError>
+    where
+        Self: BoxProvider,
+    {
         let n = self.len();
         let b = self.require_box()?.to_owned();
         let mut iter = self.iter_pos_mut();
@@ -51,60 +53,25 @@ pub trait ModifyPeriodic: PosMutProvider + BoxProvider + LenProvider {
         Ok(())
     }
 
-    fn unwrap_simple(&mut self) -> Result<(), MeasureError> {
+    fn unwrap_simple(&mut self) -> Result<(), MeasureError>
+    where
+        Self: BoxProvider,
+    {
         self.unwrap_simple_dim(PBC_FULL)
     }
-}
 
-/// Trait for modification requiring random access positions and pbc
-pub trait ModifyRandomAccess: PosMutProvider + BoxProvider + Sized {
-    fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<Vec<Sel>, MeasureError> 
-    where Self: Selectable,
+    // ---- BoxProvider + Sized + Selectable methods ----
+
+    fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<Vec<Sel>, MeasureError>
+    where
+        Self: BoxProvider + Sized + Selectable,
     {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
 
-    // fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<(), MeasureError> {
-    //     let b = self.require_box()?.to_owned();
-    //     let conn: SearchConnectivity =
-    //         distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.len(), &b, dims);
-
-    //     // used atoms
-    //     let mut used = vec![false; conn.len()];
-    //     // Centers to unwrap
-    //     let mut todo = Vec::<usize>::with_capacity(conn.len() / 2);
-    //     // Place first center to the stack
-    //     todo.push(0);
-    //     used[0] = true;
-
-    //     // Loop while stack is not empty
-    //     while let Some(c) = todo.pop() {
-    //         // Central point
-    //         let p0 = unsafe { self.get_pos_mut_unchecked(c) }.to_owned();
-    //         // Iterate over connected points
-    //         for ind in &conn[c] {
-    //             // Unwrap this point if it is not used yet
-    //             if !used[*ind] {
-    //                 let p = unsafe { self.get_pos_mut_unchecked(*ind) };
-    //                 *p = b.closest_image_dims(p, &p0, dims);
-    //                 // Add it to the stack
-    //                 todo.push(*ind);
-    //                 used[*ind] = true;
-    //             }
-    //         }
-    //         //println!(">> {:?}",todo);
-    //     }
-
-    //     if used.len() != conn.len() {
-    //         Err(MeasureError::Disjoint)
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
-
     fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<Vec<Sel>, MeasureError>
     where
-        Self: Selectable,
+        Self: BoxProvider + Sized + Selectable,
     {
         let b = self.require_box()?.to_owned();
         let conn: SearchConnectivity =
@@ -117,7 +84,7 @@ pub trait ModifyRandomAccess: PosMutProvider + BoxProvider + Sized {
         // Place first center to the stack
         todo.push(0);
         used[0] = true;
-        let mut sel_vec= vec![];
+        let mut sel_vec = vec![];
         let mut res_sels = vec![];
         loop {
             // Loop while stack is not empty
@@ -139,7 +106,6 @@ pub trait ModifyRandomAccess: PosMutProvider + BoxProvider + Sized {
                         }
                     }
                 }
-                //println!(">> {:?}",todo);
             }
 
             // Check if any unused points remained
@@ -149,30 +115,27 @@ pub trait ModifyRandomAccess: PosMutProvider + BoxProvider + Sized {
                 used[i] = true;
                 // Create output selection
                 if !sel_vec.is_empty() {
-                    res_sels.push( self.select(&sel_vec).unwrap() );
+                    res_sels.push(self.select(&sel_vec).unwrap());
                 }
                 sel_vec.clear();
             } else {
                 // Add remaining indices to the last selection
                 if !sel_vec.is_empty() {
-                    res_sels.push( self.select(&sel_vec).unwrap() );
+                    res_sels.push(self.select(&sel_vec).unwrap());
                 }
                 break;
             }
         }
 
-        // if used.len() != conn.len() {
-        //     Err(MeasureError::Disjoint)
-        // } else {
-        //     Ok(())
-        // }
         Ok(res_sels)
     }
-}
 
-/// Trait for modification requiring atoms
-pub trait ModifyAtoms: AtomMutProvider + LenProvider {
-    fn assign_resindex(&mut self) {
+    // ---- AtomMutProvider method ----
+
+    fn assign_resindex(&mut self)
+    where
+        Self: AtomMutProvider,
+    {
         let n = self.len();
         let mut resindex = 0usize;
         let mut at_iter = self.iter_atoms_mut();

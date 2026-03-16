@@ -689,7 +689,7 @@ impl SelPy {
         let dims = dims.unwrap_or([false, false, false]);
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
-            &MeasurePeriodic::center_of_mass_pbc_dims(self, pbc_dims)
+            &self.center_of_mass_pbc_dims(pbc_dims)
                 .map_err(to_py_runtime_err)?
                 .coords,
             py,
@@ -718,7 +718,7 @@ impl SelPy {
         let dims = dims.unwrap_or([false, false, false]);
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
-            &MeasurePeriodic::center_of_geometry_pbc_dims(self, pbc_dims)
+            &self.center_of_geometry_pbc_dims(pbc_dims)
                 .map_err(to_py_runtime_err)?
                 .coords,
             py,
@@ -733,9 +733,9 @@ impl SelPy {
     /// :rtype: IsometryTransform
     fn principal_transform(&self, pbc: bool) -> PyResult<crate::IsometryTransform> {
         let tr = if pbc {
-            MeasurePeriodic::principal_transform_pbc(self).map_err(to_py_runtime_err)?
+            Measure::principal_transform_pbc(self).map_err(to_py_runtime_err)?
         } else {
-            MeasureMasses::principal_transform(self).map_err(to_py_runtime_err)?
+            Measure::principal_transform(self).map_err(to_py_runtime_err)?
         };
         Ok(crate::IsometryTransform(tr))
     }
@@ -777,9 +777,9 @@ impl SelPy {
     ///    rg = sel.gyration(pbc=True) # with PBC
     fn gyration(&self, pbc: bool) -> PyResult<f32> {
         if pbc {
-            Ok(MeasurePeriodic::gyration_pbc(self).map_err(to_py_runtime_err)?)
+            Ok(Measure::gyration_pbc(self).map_err(to_py_runtime_err)?)
         } else {
-            Ok(MeasureMasses::gyration(self).map_err(to_py_runtime_err)?)
+            Ok(Measure::gyration(self).map_err(to_py_runtime_err)?)
         }
     }
 
@@ -816,7 +816,7 @@ impl SelPy {
     ///    codes = prot.dssp()            # ['H', 'H', 'T', 'E', '~', ...]
     ///    helix_count = codes.count('H')
     fn dssp(&self) -> Vec<String> {
-        MeasureAtomPos::dssp(self)
+        Measure::dssp(self)
             .ss()
             .iter()
             .map(|ss| ss.to_char().to_string())
@@ -838,7 +838,7 @@ impl SelPy {
     ///    prot = sys("protein")
     ///    print(prot.dssp_string())    # e.g. "HHHHHTTEEEE~~~~~"
     fn dssp_string(&self) -> String {
-        MeasureAtomPos::dssp(self).ss_string()
+        Measure::dssp(self).ss_string()
     }
 
     /// Axis-aligned bounding-box min and max coordinates.
@@ -855,7 +855,7 @@ impl SelPy {
         &self,
         py: Python<'py>,
     ) -> (Bound<'py, PyArray1<f32>>, Bound<'py, PyArray1<f32>>) {
-        let (min, max) = MeasurePos::min_max(self);
+        let (min, max) = Measure::min_max(self);
         let minpy = clone_vec_to_pyarray1(&min.coords, py);
         let maxpy = clone_vec_to_pyarray1(&max.coords, py);
         (minpy, maxpy)
@@ -882,9 +882,9 @@ impl SelPy {
         Bound<'py, numpy::PyArray2<f32>>,
     )> {
         let (moments, axes) = if pbc {
-            MeasurePeriodic::inertia_pbc(self).map_err(to_py_runtime_err)?
+            Measure::inertia_pbc(self).map_err(to_py_runtime_err)?
         } else {
-            MeasureMasses::inertia(self).map_err(to_py_runtime_err)?
+            Measure::inertia(self).map_err(to_py_runtime_err)?
         };
         let mom = clone_vec_to_pyarray1(&moments, py);
         let ax = axes.to_pyarray(py);

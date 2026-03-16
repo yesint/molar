@@ -8,77 +8,70 @@ pub trait Selectable {
 }
 
 /// Trait for objects that support creating bound selections
-pub trait SelectableBound: SysProvider + Selectable {
+pub trait SelectableBound: SystemProvider + Selectable {
     // Make bound immutable selection
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError>;
 }
 
 //=============================================================================
 /// Trait for things containing reference to System (mostly selections)
-/// (previously called SystemProvider)
-pub trait SysProvider {
+pub trait SystemProvider {
     fn get_system_ptr(&self) -> *const System;
 }
 
 /// Trait for things containing mut reference to System (mostly selections)
-/// (previously called SystemMutProvider)
-pub trait SysMutProvider: SysProvider {
+pub trait SystemMutProvider: SystemProvider {
     fn get_system_mut(&mut self) -> *mut System {
         self.get_system_ptr() as *mut System
     }
 }
 
-/// Backward-compatible alias for [`SysProvider`].
-pub use SysProvider as SystemProvider;
-/// Backward-compatible alias for [`SysMutProvider`].
-pub use SysMutProvider as SystemMutProvider;
-
 //=============================================================================
-/// Blanket impls: anything that has a SysProvider + IndexProvider gets all
+/// Blanket impls: anything that has a SystemProvider + IndexProvider gets all
 /// the element traits for free.
 //=============================================================================
 
-impl<T: SysProvider + IndexProvider> PosProvider for T {
+impl<T: SystemProvider + IndexProvider> PosProvider for T {
     unsafe fn coords_ptr(&self) -> *const Pos {
         unsafe { (*self.get_system_ptr()).st.coords.as_ptr() }
     }
 }
 
-impl<T: SysMutProvider + IndexProvider> PosMutProvider for T {}
+impl<T: SystemMutProvider + IndexProvider> PosMutProvider for T {}
 
-impl<T: SysProvider + IndexProvider> AtomProvider for T {
+impl<T: SystemProvider + IndexProvider> AtomProvider for T {
     unsafe fn atoms_ptr(&self) -> *const Atom {
         unsafe { (*self.get_system_ptr()).top.atoms.as_ptr() }
     }
 }
 
-impl<T: SysMutProvider + IndexProvider> AtomMutProvider for T {}
+impl<T: SystemMutProvider + IndexProvider> AtomMutProvider for T {}
 
-impl<T: SysProvider + IndexProvider> BoxProvider for T {
+impl<T: SystemProvider + IndexProvider> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
         unsafe { (*self.get_system_ptr()).st.get_box() }
     }
 }
 
-impl<T: SysMutProvider + IndexProvider> BoxMutProvider for T {
+impl<T: SystemMutProvider + IndexProvider> BoxMutProvider for T {
     fn get_box_mut(&mut self) -> Option<&mut PeriodicBox> {
         unsafe { (*self.get_system_mut()).st.pbox.as_mut() }
     }
 }
 
-impl<T: SysProvider + IndexProvider> TimeProvider for T {
+impl<T: SystemProvider + IndexProvider> TimeProvider for T {
     fn get_time(&self) -> f32 {
         unsafe { (*self.get_system_ptr()).st.time }
     }
 }
 
-impl<T: SysMutProvider + IndexProvider> TimeMutProvider for T {
+impl<T: SystemMutProvider + IndexProvider> TimeMutProvider for T {
     fn set_time(&mut self, t: f32) {
         unsafe { (*self.get_system_mut()).st.time = t; }
     }
 }
 
-impl<T: SysProvider + IndexProvider> BondProvider for T {
+impl<T: SystemProvider + IndexProvider> BondProvider for T {
     fn num_bonds(&self) -> usize {
         unsafe { BondProvider::num_bonds(&(*self.get_system_ptr()).top) }
     }
@@ -92,7 +85,7 @@ impl<T: SysProvider + IndexProvider> BondProvider for T {
     }
 }
 
-impl<T: SysProvider + IndexProvider> MolProvider for T {
+impl<T: SystemProvider + IndexProvider> MolProvider for T {
     fn num_molecules(&self) -> usize {
         unsafe { (*self.get_system_ptr()).top.num_molecules() }
     }
@@ -151,20 +144,13 @@ impl<T: PosMutProvider + AtomMutProvider + IndexProvider> ParticleIterMutProvide
     }
 }
 
-//████████  Measure blanket impls
+//████████  Measure blanket impl
 
-impl<T: PosProvider + LenProvider> MeasurePos for T {}
-impl<T: PosProvider + AtomProvider + BoxProvider + LenProvider> MeasurePeriodic for T {}
-impl<T: PosProvider + AtomProvider + LenProvider> MeasureMasses for T {}
-impl<T: PosProvider> MeasureRandomAccess for T {}
-impl<T: PosProvider + AtomProvider> MeasureAtomPos for T {}
+impl<T: PosProvider> Measure for T {}
 
-//████████  Modify blanket impls
+//████████  Modify blanket impl
 
-impl<T: PosMutProvider> ModifyPos for T {}
-impl<T: PosMutProvider + BoxProvider + LenProvider> ModifyPeriodic for T {}
-impl<T: PosMutProvider + BoxProvider + Sized> ModifyRandomAccess for T {}
-impl<T: AtomMutProvider + LenProvider> ModifyAtoms for T {}
+impl<T: PosMutProvider> Modify for T {}
 
 //=============================================================================
 /// Trait for logical operations in any (borrowed or own) bound selections
@@ -194,7 +180,7 @@ pub trait SelectionLogic: IndexSliceProvider {
     }
 
     fn invert(&self, rhs: &impl IndexSliceProvider) -> Result<Self::DerivedSel,SelectionError>
-    where Self: SysProvider,
+    where Self: SystemProvider,
     {
         let all = (0..unsafe{&*self.get_system_ptr()}.len()).into_iter().collect::<Vec<_>>();
         let index = unsafe {difference_sorted(&all, rhs.get_index_slice())};

@@ -10,11 +10,15 @@ use std::iter::zip;
 use thiserror::Error;
 
 //==============================================================
-// Traits for measuring (immutable access)
+// Unified Measure trait
 //==============================================================
 
-/// Trait for analysis requiring only positions
-pub trait MeasurePos: PosProvider + LenProvider {
+/// Unified trait for all measurement operations on selections.
+///
+/// The base supertrait is [`PosProvider`]. Methods that require additional
+/// capabilities (masses, periodic box, etc.) carry `where Self: …` bounds so
+/// they are only callable when those providers are also implemented.
+pub trait Measure: PosProvider {
     /// Returns the minimum and maximum coordinates across all dimensions
     fn min_max(&self) -> (Pos, Pos) {
         let mut lower = Pos::max_value();
@@ -46,45 +50,24 @@ pub trait MeasurePos: PosProvider + LenProvider {
     fn rmsd<S>(&self, other: &S) -> Result<f32, MeasureError>
     where
         Self: Sized,
-        S: MeasurePos,
+        S: Measure,
     {
         super::measure::rmsd(self, other)
     }
-}
 
-/// Calculates the Root Mean Square Deviation between two selections
-pub fn rmsd<S1, S2>(sel1: &S1, sel2: &S2) -> Result<f32, MeasureError>
-where
-    S1: MeasurePos,
-    S2: MeasurePos,
-{
-    let mut res = 0.0;
-    let iter1 = sel1.iter_pos();
-    let iter2 = sel2.iter_pos();
+    // ---- AtomProvider methods ----
 
-    if sel1.len() != sel2.len() {
-        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
-    }
-
-    let n = sel1.len();
-    for (p1, p2) in std::iter::zip(iter1, iter2) {
-        res += (p2 - p1).norm_squared();
-    }
-
-    Ok((res / n as f32).sqrt())
-}
-
-/// Trait for analysis requiring positions and masses
-pub trait MeasureMasses: PosProvider + AtomProvider + LenProvider {
     /// Calculates the center of mass
-    fn center_of_mass(&self) -> Result<Pos, MeasureError> {
+    fn center_of_mass(&self) -> Result<Pos, MeasureError>
+    where
+        Self: AtomProvider,
+    {
         let mut cm = Vector3f::zeros();
         let mut mass = 0.0;
         for (c, m) in zip(self.iter_pos(), self.iter_masses()) {
             cm += c.coords * m;
             mass += m;
         }
-
         if mass == 0.0 {
             Err(MeasureError::ZeroMass)
         } else {
@@ -93,7 +76,10 @@ pub trait MeasureMasses: PosProvider + AtomProvider + LenProvider {
     }
 
     /// Calculates the radius of gyration
-    fn gyration(&self) -> Result<f32, MeasureError> {
+    fn gyration(&self) -> Result<f32, MeasureError>
+    where
+        Self: AtomProvider,
+    {
         let c = self.center_of_mass()?;
         Ok(do_gyration(
             self.iter_pos().map(|pos| pos - c),
@@ -102,7 +88,10 @@ pub trait MeasureMasses: PosProvider + AtomProvider + LenProvider {
     }
 
     /// Calculates the moments and axes of inertia
-    fn inertia(&self) -> Result<(Vector3f, Matrix3f), MeasureError> {
+    fn inertia(&self) -> Result<(Vector3f, Matrix3f), MeasureError>
+    where
+        Self: AtomProvider,
+    {
         let c = self.center_of_mass()?;
         Ok(do_inertia(
             self.iter_pos().map(|pos| pos - c),
@@ -111,7 +100,10 @@ pub trait MeasureMasses: PosProvider + AtomProvider + LenProvider {
     }
 
     /// Computes transformation to principal axes of inertia
-    fn principal_transform(&self) -> Result<IsometryMatrix3<f32>, MeasureError> {
+    fn principal_transform(&self) -> Result<IsometryMatrix3<f32>, MeasureError>
+    where
+        Self: AtomProvider,
+    {
         let c = self.center_of_mass()?;
         let (_, axes) = do_inertia(self.iter_pos().map(|pos| pos - c), self.iter_masses());
         Ok(do_principal_transform(axes, c.coords))
@@ -119,10 +111,10 @@ pub trait MeasureMasses: PosProvider + AtomProvider + LenProvider {
 
     fn fit_transform(
         &self,
-        other: &impl MeasureMasses,
+        other: &(impl Measure + AtomProvider),
     ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
     where
-        Self: Sized,
+        Self: AtomProvider + Sized,
     {
         super::measure::fit_transform(self, other)
     }
@@ -130,80 +122,58 @@ pub trait MeasureMasses: PosProvider + AtomProvider + LenProvider {
     /// Like fit_transform but assumes both selections are centered at origin
     fn fit_transform_at_origin(
         &self,
-        other: &impl MeasureMasses,
+        other: &(impl Measure + AtomProvider),
     ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
     where
-        Self: Sized,
+        Self: AtomProvider + Sized,
     {
         super::measure::fit_transform_at_origin(self, other)
     }
 
     /// Calculates the mass-weighted Root Mean Square Deviation between two selections
-    fn rmsd_mw(&self, other: &impl MeasureMasses) -> Result<f32, MeasureError>
+    fn rmsd_mw(&self, other: &(impl Measure + AtomProvider)) -> Result<f32, MeasureError>
     where
-        Self: Sized,
+        Self: AtomProvider + Sized,
     {
         super::measure::rmsd_mw(self, other)
     }
-}
 
-/// Computes the transformation that best fits sel1 onto sel2
-pub fn fit_transform(
-    sel1: &impl MeasureMasses,
-    sel2: &impl MeasureMasses,
-) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
-    let cm1 = sel1.center_of_mass()?;
-    let cm2 = sel2.center_of_mass()?;
+    // ---- BoxProvider methods ----
 
-    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
-    let rot = rot_transform(
-        sel1.iter_pos().map(|p| *p - cm1),
-        sel2.iter_pos().map(|p| *p - cm2),
-        sel1.iter_masses(),
-    )?;
-
-    Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
-}
-
-/// Like fit_transform but assumes both selections are centered at origin
-pub fn fit_transform_at_origin(
-    sel1: &impl MeasureMasses,
-    sel2: &impl MeasureMasses,
-) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
-    let rot = rot_transform(
-        sel1.iter_pos().map(|p| p.coords),
-        sel2.iter_pos().map(|p| p.coords),
-        sel1.iter_masses(),
-    )?;
-    Ok(nalgebra::convert(rot))
-}
-
-/// Calculates the mass-weighted Root Mean Square Deviation between two selections
-pub fn rmsd_mw(sel1: &impl MeasureMasses, sel2: &impl MeasureMasses) -> Result<f32, MeasureError> {
-    let mut res = 0.0;
-    let mut m_tot = 0.0;
-    let iter1 = sel1.iter_pos();
-    let iter2 = sel2.iter_pos();
-
-    if sel1.len() != sel2.len() {
-        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
+    fn center_of_geometry_pbc(&self) -> Result<Pos, MeasureError>
+    where
+        Self: BoxProvider,
+    {
+        let b = self.require_box()?;
+        let mut pos_iter = self.iter_pos();
+        let p0 = pos_iter.next().unwrap();
+        let mut cm = p0.coords;
+        for c in pos_iter {
+            cm += b.closest_image(c, p0).coords;
+        }
+        Ok(Pos::from(cm / self.len() as f32))
     }
 
-    for (p1, p2, m) in izip!(iter1, iter2, sel1.iter_masses()) {
-        res += (p2 - p1).norm_squared() * m;
-        m_tot += m;
+    fn center_of_geometry_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError>
+    where
+        Self: BoxProvider,
+    {
+        let b = self.require_box()?;
+        let mut pos_iter = self.iter_pos();
+        let p0 = pos_iter.next().unwrap();
+        let mut cm = p0.coords;
+        for c in pos_iter {
+            cm += b.closest_image_dims(c, p0, dims).coords;
+        }
+        Ok(Pos::from(cm / self.len() as f32))
     }
 
-    if m_tot == 0.0 {
-        Err(MeasureError::ZeroMass)
-    } else {
-        Ok((res / m_tot).sqrt())
-    }
-}
+    // ---- AtomProvider + BoxProvider methods ----
 
-/// Trait for analysis requiring positions, masses and periodic boundary conditions
-pub trait MeasurePeriodic: PosProvider + AtomProvider + BoxProvider + LenProvider {
-    fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError> {
+    fn center_of_mass_pbc(&self) -> Result<Pos, MeasureError>
+    where
+        Self: AtomProvider + BoxProvider,
+    {
         let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
         let mut mass_iter = self.iter_masses();
@@ -225,7 +195,10 @@ pub trait MeasurePeriodic: PosProvider + AtomProvider + BoxProvider + LenProvide
         }
     }
 
-    fn center_of_mass_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError> {
+    fn center_of_mass_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError>
+    where
+        Self: AtomProvider + BoxProvider,
+    {
         let b = self.require_box()?;
         let mut pos_iter = self.iter_pos();
         let mut mass_iter = self.iter_masses();
@@ -247,35 +220,10 @@ pub trait MeasurePeriodic: PosProvider + AtomProvider + BoxProvider + LenProvide
         }
     }
 
-    fn center_of_geometry_pbc(&self) -> Result<Pos, MeasureError> {
-        let b = self.require_box()?;
-        let mut pos_iter = self.iter_pos();
-
-        let p0 = pos_iter.next().unwrap();
-        let mut cm = p0.coords;
-
-        for c in pos_iter {
-            cm += b.closest_image(c, p0).coords;
-        }
-
-        Ok(Pos::from(cm / self.len() as f32))
-    }
-
-    fn center_of_geometry_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError> {
-        let b = self.require_box()?;
-        let mut pos_iter = self.iter_pos();
-
-        let p0 = pos_iter.next().unwrap();
-        let mut cm = p0.coords;
-
-        for c in pos_iter {
-            cm += b.closest_image_dims(c, p0, dims).coords;
-        }
-
-        Ok(Pos::from(cm / self.len() as f32))
-    }
-
-    fn gyration_pbc(&self) -> Result<f32, MeasureError> {
+    fn gyration_pbc(&self) -> Result<f32, MeasureError>
+    where
+        Self: AtomProvider + BoxProvider,
+    {
         let b = self.require_box()?;
         let c = self.center_of_mass_pbc()?;
         Ok(do_gyration(
@@ -284,7 +232,10 @@ pub trait MeasurePeriodic: PosProvider + AtomProvider + BoxProvider + LenProvide
         ))
     }
 
-    fn inertia_pbc(&self) -> Result<(Vector3f, Matrix3f), MeasureError> {
+    fn inertia_pbc(&self) -> Result<(Vector3f, Matrix3f), MeasureError>
+    where
+        Self: AtomProvider + BoxProvider,
+    {
         let b = self.require_box()?;
         let c = self.center_of_mass_pbc()?;
         Ok(do_inertia(
@@ -293,7 +244,10 @@ pub trait MeasurePeriodic: PosProvider + AtomProvider + BoxProvider + LenProvide
         ))
     }
 
-    fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<f32>, MeasureError> {
+    fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<f32>, MeasureError>
+    where
+        Self: AtomProvider + BoxProvider,
+    {
         let b = self.require_box()?;
         let c = self.center_of_mass_pbc()?;
         let (_, axes) = do_inertia(
@@ -301,6 +255,281 @@ pub trait MeasurePeriodic: PosProvider + AtomProvider + BoxProvider + LenProvide
             self.iter_masses(),
         );
         Ok(do_principal_transform(axes, c.coords))
+    }
+
+    // ---- Random-access / lipid order ----
+
+    /// Computes order parameter of the lipid tail. Each position in [Self] is
+    /// supposed to represent a carbon atom of a single lipid tail. The size of the array
+    /// of normals is either `1` or `N-2`, where `N` is the number of position in [Self].
+    /// In the first case the same normal is used for all bonds, in the second case each
+    /// bond in the range `1..N-1` has its own normal.
+    /// `bonds_orders` should contain either 1 or 2 for all `N-1` bonds.
+    /// Formulas are taken from:
+    /// - <https://pubs.acs.org/doi/10.1021/acs.jctc.7b00643>
+    /// - <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/>
+    fn lipid_tail_order(
+        &self,
+        order_type: OrderType,
+        normals: &Vec<Vector3f>,
+        bond_orders: &Vec<u8>,
+    ) -> Result<DVector<f32>, LipidOrderError> {
+        //atoms:  0 - 1 - 2 - 3 = 4 - 5 - 6
+        //bonds:    0   1   2   3   4   5
+        //normals:  0   1   2   3   4   5
+
+        // Size check
+        if self.len() < 3 {
+            return Err(LipidOrderError::TailTooShort(self.len()));
+        }
+
+        if normals.len() != 1 && normals.len() != self.len() - 2 {
+            return Err(LipidOrderError::NormalsCount(self.len(), self.len() - 2));
+        }
+
+        if bond_orders.len() != self.len() - 1 {
+            return Err(LipidOrderError::BondOrderCount(self.len(), self.len() - 1));
+        }
+
+        let mut order = DVector::from_element(self.len() - 2, 0.0);
+        if order_type == OrderType::Sz {
+            // Calculate Gromacs Sz order
+            // Iterate over atoms
+            for at in 1..self.len() - 1 {
+                // Vector from at+1 to at-1
+                let v = unsafe { self.get_pos_unchecked(at + 1) - self.get_pos_unchecked(at - 1) };
+                // Normal
+                let normal = if normals.len() == 1 {
+                    &normals[0]
+                } else {
+                    &normals[at - 1] // indexing starts from zero
+                };
+                // Angle
+                let ang = v.angle(&normal);
+                order[at - 1] = 1.5 * ang.cos().powi(2) - 0.5;
+            }
+        } else {
+            // Compute deuterium order
+            // We iterate over bonds and treat differently single and double bonds
+            for i in 0..self.len() - 2 {
+                if bond_orders[i] == 1 {
+                    // Single bond between atoms i:i+1
+                    // If next bond is also single, compute order for atom i+1
+                    if bond_orders[i + 1] == 1 {
+                        /*
+                         * C(i)[1]
+                         *  \
+                         *   C(i+1)[2]---H1,2
+                         *  /
+                         * C(i+2)[3]
+                         */
+
+                        let p1 = unsafe { self.get_pos_unchecked(i) };
+                        let p2 = unsafe { self.get_pos_unchecked(i + 1) };
+                        let p3 = unsafe { self.get_pos_unchecked(i + 2) };
+
+                        let local_z = (p3 - p1).normalize();
+                        let local_x = ((p1 - p2).cross(&(p3 - p2))).normalize();
+                        let local_y = local_x.cross(&local_z);
+
+                        let n = if normals.len() == 1 {
+                            &normals[0]
+                        } else {
+                            &normals[i] // indexing starts from zero, (i+1)-1 = i
+                        };
+
+                        let ang_x = local_x.angle(n);
+                        let ang_y = local_y.angle(n);
+                        let sxx = 0.5 * (3.0 * ang_x.cos().powi(2) - 1.0);
+                        let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
+                        // Index in order array is c_atom-1: (i+1)-1=i
+                        order[i] = -(2.0 * sxx + syy) / 3.0;
+                    }
+                    // If next bond is double we do nothing and wait for next iteration
+                } else {
+                    // Double bond between atoms i:i+1
+                    /*
+                     * C(i-1)[1]
+                     *  \
+                     *   C(i)[2]----H1
+                     *   ||
+                     *   C(i+1)[3]--H2
+                     *  /
+                     * C(i+2)[4]
+                     *
+                     * a1 = 0.5*(pi-ang(1,2,3))
+                     * a2 = 0.5*(pi-ang(2,3,4))
+                     */
+
+                    let p1 = unsafe { self.get_pos_unchecked(i - 1) };
+                    let p2 = unsafe { self.get_pos_unchecked(i) };
+                    let p3 = unsafe { self.get_pos_unchecked(i + 1) };
+                    let p4 = unsafe { self.get_pos_unchecked(i + 2) };
+
+                    let a1 = 0.5 * (PI - (p1 - p2).angle(&(p3 - p2)));
+                    let a2 = 0.5 * (PI - (p2 - p3).angle(&(p4 - p3)));
+
+                    // For atom i
+                    let local_z = (p3 - p2).normalize();
+                    let local_x = ((p1 - p2).cross(&local_z)).normalize();
+                    let local_y = local_x.cross(&local_z);
+
+                    let n1 = if normals.len() == 1 {
+                        &normals[0]
+                    } else {
+                        &normals[i] // indexing starts from zero, (i+1)-1 = i
+                    };
+
+                    let ang_y = local_y.angle(&n1);
+                    let ang_z = local_z.angle(&n1);
+                    let szz = 0.5 * (3.0 * ang_z.cos().powi(2) - 1.0);
+                    let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
+                    let syz = 1.5 * ang_y.cos() * ang_z.cos();
+                    // Index in order array is c_atom-1: i-1
+                    if order_type == OrderType::ScdCorr {
+                        order[i - 1] = -(a1.cos().powi(2) * syy + a1.sin().powi(2) * szz
+                            - 2.0 * a1.cos() * a1.sin() * syz);
+                    } else {
+                        order[i - 1] = -(szz / 4.0 + 3.0 * syy / 4.0 - 3.0_f32.sqrt() * syz / 2.0);
+                    }
+
+                    // For atom i+1 (same local_z)
+                    let local_x = ((p3 - p4).cross(&local_z)).normalize();
+                    let local_y = local_x.cross(&local_z);
+
+                    let n2 = if normals.len() == 1 {
+                        &normals[0]
+                    } else {
+                        &normals[i + 1] // indexing starts from zero, (i+2)-1 = i+1
+                    };
+
+                    let ang_y = local_y.angle(n2);
+                    let ang_z = local_z.angle(n2);
+                    let szz = 0.5 * (3.0 * ang_z.cos().powi(2) - 1.0);
+                    let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
+                    let syz = 1.5 * ang_y.cos() * ang_z.cos();
+                    // Index in order array is c_atom-1: (i+1)-1=i
+                    if order_type == OrderType::ScdCorr {
+                        order[i] = -(a2.cos().powi(2) * syy
+                            + a2.sin().powi(2) * szz
+                            + 2.0 * a2.cos() * a2.sin() * syz);
+                    } else {
+                        order[i] = -(szz / 4.0 + 3.0 * syy / 4.0 + 3.0_f32.sqrt() * syz / 2.0);
+                    }
+                } // if single/double
+            } // for bonds
+        }
+        Ok(order)
+    }
+
+    // ---- AtomProvider: SASA and DSSP ----
+
+    /// Compute SASA (areas only).
+    fn sasa(&self) -> Result<Sasa, MeasureError>
+    where
+        Self: AtomProvider,
+    {
+        Sasa::new(self)
+    }
+
+    /// Compute SASA with per-atom volumes enabled.
+    fn sasa_vol(&self) -> Result<Sasa, MeasureError>
+    where
+        Self: AtomProvider,
+    {
+        Sasa::new_with_volume(self)
+    }
+
+    /// Compute per-residue secondary structure assignments (DSSP).
+    fn dssp(&self) -> Dssp
+    where
+        Self: AtomProvider + Sized,
+    {
+        Dssp::new(self)
+    }
+
+    /// Compact string of DSSP codes, one character per residue.
+    fn dssp_string(&self) -> String
+    where
+        Self: AtomProvider + Sized,
+    {
+        self.dssp().ss_string()
+    }
+}
+
+/// Calculates the Root Mean Square Deviation between two selections
+pub fn rmsd<S1, S2>(sel1: &S1, sel2: &S2) -> Result<f32, MeasureError>
+where
+    S1: Measure,
+    S2: Measure,
+{
+    let mut res = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
+
+    if sel1.len() != sel2.len() {
+        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
+    }
+
+    let n = sel1.len();
+    for (p1, p2) in std::iter::zip(iter1, iter2) {
+        res += (p2 - p1).norm_squared();
+    }
+
+    Ok((res / n as f32).sqrt())
+}
+
+/// Computes the transformation that best fits sel1 onto sel2
+pub fn fit_transform(
+    sel1: &(impl Measure + AtomProvider),
+    sel2: &(impl Measure + AtomProvider),
+) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+    let cm1 = sel1.center_of_mass()?;
+    let cm2 = sel2.center_of_mass()?;
+
+    //let rot = rot_transform_matrix(coords1.iter(), coords2.iter(), masses.iter());
+    let rot = rot_transform(
+        sel1.iter_pos().map(|p| *p - cm1),
+        sel2.iter_pos().map(|p| *p - cm2),
+        sel1.iter_masses(),
+    )?;
+
+    Ok(Translation3::from(cm2) * rot * Translation3::from(-cm1))
+}
+
+/// Like fit_transform but assumes both selections are centered at origin
+pub fn fit_transform_at_origin(
+    sel1: &(impl Measure + AtomProvider),
+    sel2: &(impl Measure + AtomProvider),
+) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+    let rot = rot_transform(
+        sel1.iter_pos().map(|p| p.coords),
+        sel2.iter_pos().map(|p| p.coords),
+        sel1.iter_masses(),
+    )?;
+    Ok(nalgebra::convert(rot))
+}
+
+/// Calculates the mass-weighted Root Mean Square Deviation between two selections
+pub fn rmsd_mw(sel1: &(impl Measure + AtomProvider), sel2: &(impl Measure + AtomProvider)) -> Result<f32, MeasureError> {
+    let mut res = 0.0;
+    let mut m_tot = 0.0;
+    let iter1 = sel1.iter_pos();
+    let iter2 = sel2.iter_pos();
+
+    if sel1.len() != sel2.len() {
+        return Err(MeasureError::Sizes(sel1.len(), sel2.len()));
+    }
+
+    for (p1, p2, m) in izip!(iter1, iter2, sel1.iter_masses()) {
+        res += (p2 - p1).norm_squared() * m;
+        m_tot += m;
+    }
+
+    if m_tot == 0.0 {
+        Err(MeasureError::ZeroMass)
+    } else {
+        Ok((res / m_tot).sqrt())
     }
 }
 
@@ -395,186 +624,6 @@ fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f
     Translation3::from(cm) * Rotation3::from_matrix_unchecked(axes) * Translation3::from(-cm)
 }
 
-/// Trait for modification requiring random access positions and pbc
-pub trait MeasureRandomAccess: PosProvider {
-    /// Computes order parameter of the lipid tail. Each position in [Self] is
-    /// supposed to represent a carbon atom of a single lipid tail. The size of the array
-    /// of normals is either `1` or `N-2`, where `N` is the number of position in [Self].
-    /// In the first case the same normal is used for all bonds, in the second case each
-    /// bond in the range `1..N-1` has its own normal.
-    /// `bonds_orders` should contain either 1 or 2 for all `N-1` bonds.
-    /// Formulas are taken from:
-    /// - <https://pubs.acs.org/doi/10.1021/acs.jctc.7b00643>
-    /// - <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3882000/>
-    fn lipid_tail_order(
-        &self,
-        order_type: OrderType,
-        normals: &Vec<Vector3f>,
-        bond_orders: &Vec<u8>,
-    ) -> Result<DVector<f32>, LipidOrderError> {
-        //atoms:  0 - 1 - 2 - 3 = 4 - 5 - 6
-        //bonds:    0   1   2   3   4   5
-        //normals:  0   1   2   3   4   5
-
-        // Size check
-        if self.len() < 3 {
-            return Err(LipidOrderError::TailTooShort(self.len()));
-        }
-
-        if normals.len() != 1 && normals.len() != self.len() - 2 {
-            return Err(LipidOrderError::NormalsCount(self.len(), self.len() - 2));
-        }
-
-        if bond_orders.len() != self.len() - 1 {
-            return Err(LipidOrderError::BondOrderCount(self.len(), self.len() - 1));
-        }
-
-        let mut order = DVector::from_element(self.len() - 2, 0.0);
-        if order_type == OrderType::Sz {
-            // Calculate Gromacs Sz order
-            // Iterate over atoms
-            for at in 1..self.len() - 1 {
-                // Vector from at+1 to at-1
-                let v = unsafe { self.get_pos_unchecked(at + 1) - self.get_pos_unchecked(at - 1) };
-                // Normal
-                let normal = if normals.len() == 1 {
-                    &normals[0]
-                } else {
-                    &normals[at - 1] // indexing starts from zero
-                };
-                // Angle
-                let ang = v.angle(&normal);
-                order[at - 1] = 1.5 * ang.cos().powi(2) - 0.5;
-            }
-        } else {
-            // Compute deuterium order
-            // We iterate over bonds and treat differently single and double bonds
-            for i in 0..self.len() - 2 {
-                if bond_orders[i] == 1 {
-                    // Single bond between atoms i:i+1
-                    // If next bond is also single, compute order for atom i+1
-                    if bond_orders[i + 1] == 1 {
-                        // Compute single order for atom i+1
-                        /*
-                         * C(i)[1]
-                         *  \
-                         *   C(i+1)[2]---H1,2
-                         *  /
-                         * C(i+2)[3]
-                         */
-
-                        let p1 = unsafe { self.get_pos_unchecked(i) };
-                        let p2 = unsafe { self.get_pos_unchecked(i + 1) };
-                        let p3 = unsafe { self.get_pos_unchecked(i + 2) };
-
-                        let local_z = (p3 - p1).normalize();
-                        let local_x = ((p1 - p2).cross(&(p3 - p2))).normalize();
-                        let local_y = local_x.cross(&local_z);
-
-                        // Normal
-                        let n = if normals.len() == 1 {
-                            &normals[0]
-                        } else {
-                            &normals[i] // indexing starts from zero, (i+1)-1 = i
-                        };
-
-                        let ang_x = local_x.angle(n);
-                        let ang_y = local_y.angle(n);
-                        let sxx = 0.5 * (3.0 * ang_x.cos().powi(2) - 1.0);
-                        let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
-                        // Instantaneous order
-                        // Index in order array is c_atom-1: (i+1)-1=i
-                        order[i] = -(2.0 * sxx + syy) / 3.0;
-                        // For single bonds there is no difference between ideal
-                        // and corrected versions of Scd
-                    }
-                    // If next bond is double we do nothing and wait for next iteration
-                } else {
-                    // Double bond between atoms i:i+1
-                    // Compute double order for atoms i and i+1
-                    /*
-                     * C(i-1)[1]
-                     *  \
-                     *   C(i)[2]----H1
-                     *   ||
-                     *   C(i+1)[3]--H2
-                     *  /
-                     * C(i+2)[4]
-                     *
-                     * a1 = 0.5*(pi-ang(1,2,3))
-                     * a2 = 0.5*(pi-ang(2,3,4))
-                     */
-
-                    let c1 = i - 1;
-                    let c2 = i;
-                    let c3 = i + 1;
-                    let c4 = i + 2;
-
-                    let p1 = unsafe { self.get_pos_unchecked(c1) };
-                    let p2 = unsafe { self.get_pos_unchecked(c2) };
-                    let p3 = unsafe { self.get_pos_unchecked(c3) };
-                    let p4 = unsafe { self.get_pos_unchecked(c4) };
-
-                    let a1 = 0.5 * (PI - (p1 - p2).angle(&(p3 - p2)));
-                    let a2 = 0.5 * (PI - (p2 - p3).angle(&(p4 - p3)));
-
-                    // For atom i
-                    let local_z = (p3 - p2).normalize();
-                    let local_x = ((p1 - p2).cross(&local_z)).normalize();
-                    let local_y = local_x.cross(&local_z);
-
-                    let n1 = if normals.len() == 1 {
-                        &normals[0]
-                    } else {
-                        &normals[i] // indexing starts from zero, (i+1)-1 = i
-                    };
-
-                    let ang_y = local_y.angle(&n1);
-                    let ang_z = local_z.angle(&n1);
-                    let szz = 0.5 * (3.0 * ang_z.cos().powi(2) - 1.0);
-                    let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
-                    let syz = 1.5 * ang_y.cos() * ang_z.cos();
-                    // Index in order array is c_atom-1: i-1
-                    if order_type == OrderType::ScdCorr {
-                        order[i - 1] = -(a1.cos().powi(2) * syy + a1.sin().powi(2) * szz
-                            - 2.0 * a1.cos() * a1.sin() * syz);
-                    } else {
-                        // SCD
-                        order[i - 1] = -(szz / 4.0 + 3.0 * syy / 4.0 - 3.0_f32.sqrt() * syz / 2.0);
-                    }
-
-                    // For atom i+1
-                    // same local_z is used
-                    let local_x = ((p3 - p4).cross(&local_z)).normalize();
-                    let local_y = local_x.cross(&local_z);
-
-                    let n2 = if normals.len() == 1 {
-                        &normals[0]
-                    } else {
-                        &normals[i + 1] // indexing starts from zero, (i+2)-1 = i+1
-                    };
-
-                    let ang_y = local_y.angle(n2);
-                    let ang_z = local_z.angle(n2);
-                    let szz = 0.5 * (3.0 * ang_z.cos().powi(2) - 1.0);
-                    let syy = 0.5 * (3.0 * ang_y.cos().powi(2) - 1.0);
-                    let syz = 1.5 * ang_y.cos() * ang_z.cos();
-                    // Index in order array is c_atom-1: (i+1)-1=i
-                    if order_type == OrderType::ScdCorr {
-                        order[i] = -(a2.cos().powi(2) * syy
-                            + a2.sin().powi(2) * szz
-                            + 2.0 * a2.cos() * a2.sin() * syz);
-                    } else {
-                        // SCD
-                        order[i] = -(szz / 4.0 + 3.0 * syy / 4.0 + 3.0_f32.sqrt() * syz / 2.0);
-                    }
-                } // if single/double
-            } // for bonds
-        }
-        Ok(order)
-    }
-}
-
 pub fn get_matching_atoms_by_name<T1, T2>(seq1: &T1, seq2: &T2) -> (Vec<usize>, Vec<usize>)
 where
     T1: AtomProvider,
@@ -653,36 +702,6 @@ pub enum LipidOrderError {
 
     #[error("tail should have at least 3 carbons, not {0}")]
     TailTooShort(usize),
-}
-
-/// Trait for analysis requiring both atom properties and positions.
-///
-/// The returned [`Sasa`] is both a result holder and a persistent calculator:
-/// call [`Sasa::update`] on subsequent frames to reuse the power diagram.
-pub trait MeasureAtomPos: PosProvider + AtomProvider {
-    /// Compute SASA (areas only).
-    fn sasa(&self) -> Result<Sasa, MeasureError> {
-        Sasa::new(self)
-    }
-
-    /// Compute SASA with per-atom volumes enabled.
-    fn sasa_vol(&self) -> Result<Sasa, MeasureError> {
-        Sasa::new_with_volume(self)
-    }
-
-    /// Compute per-residue secondary structure assignments (DSSP).
-    ///
-    /// Returns a [`Dssp`] result containing one [`SS`] per residue, ordered by
-    /// residue index. Residues missing any backbone heavy atom (N, CA, C or O)
-    /// are assigned [`SS::Break`].
-    fn dssp(&self) -> Dssp where Self: Sized {
-        Dssp::new(self)
-    }
-
-    /// Compact string of DSSP codes, one character per residue.
-    fn dssp_string(&self) -> String where Self: Sized {
-        self.dssp().ss_string()
-    }
 }
 
 /// Errors that can occur during measurements
