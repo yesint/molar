@@ -147,9 +147,10 @@ impl System {
         par: &'a ParSplit,
     ) -> impl IndexedParallelIterator<Item = SelParMut<'a>> {
         par.check_bounds(self);
+        let ptr = self as *mut System as usize;
         par.selections
             .par_iter()
-            .map(|sel| SelParMut::new(self, &sel.0))
+            .map(move |sel| SelParMut::new(ptr as *mut System, &sel.0))
     }
 
     /// Returns parallel iterator over parallel selections.

@@ -81,6 +81,16 @@ impl SelPy {
     pub(crate) fn py_st_mut(&self) -> &mut Py<StatePy> {
         unsafe { &mut *self.st.get() }
     }
+
+    /// Get `*mut State` via UnsafeCell chain, without materializing `&State`.
+    pub(crate) fn st_ptr_mut(&self) -> *mut State {
+        self.py_st().get().0.get()
+    }
+
+    /// Get `*mut Topology` via UnsafeCell chain, without materializing `&Topology`.
+    pub(crate) fn top_ptr_mut(&self) -> *mut Topology {
+        self.py_top().get().0.get()
+    }
 }
 
 impl LenProvider for SelPy {
@@ -105,15 +115,11 @@ impl AtomProvider for SelPy {
     }
 }
 
-impl AtomMutProvider for SelPy {}
-
 impl PosProvider for SelPy {
     unsafe fn coords_ptr(&self) -> *const Pos {
         self.r_st().coords.as_ptr()
     }
 }
-
-impl PosMutProvider for SelPy {}
 
 impl BoxProvider for SelPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
@@ -215,15 +221,54 @@ impl AtomProvider for TmpSel<'_> {
     }
 }
 
-impl AtomMutProvider for TmpSel<'_> {}
-
 impl PosProvider for TmpSel<'_> {
     unsafe fn coords_ptr(&self) -> *const Pos {
         self.st.coords.as_ptr()
     }
 }
 
-impl PosMutProvider for TmpSel<'_> {}
+//-------------------------------------------
+pub struct TmpSelMut<'a> {
+    pub(crate) top: *mut Topology,
+    pub(crate) st: *mut State,
+    pub(crate) index: &'a [usize],
+}
+
+impl IndexSliceProvider for TmpSelMut<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
+    }
+}
+
+impl AtomProvider for TmpSelMut<'_> {
+    unsafe fn atoms_ptr(&self) -> *const Atom {
+        (*self.top).atoms.as_ptr()
+    }
+}
+
+impl AtomMutProvider for TmpSelMut<'_> {
+    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
+        (*self.top).atoms.as_mut_ptr()
+    }
+}
+
+impl PosProvider for TmpSelMut<'_> {
+    unsafe fn coords_ptr(&self) -> *const Pos {
+        (*self.st).coords.as_ptr()
+    }
+}
+
+impl PosMutProvider for TmpSelMut<'_> {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+        (*self.st).coords.as_mut_ptr()
+    }
+}
+
+impl BoxProvider for TmpSelMut<'_> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        unsafe { (*self.st).pbox.as_ref() }
+    }
+}
 
 //-----------------------------------------
 /// Iterator over selected atom positions.
@@ -452,7 +497,7 @@ impl SelPy {
             )));
         }
         let arr_ptr = arr.data();
-        let coord_ptr = unsafe { self.coords_ptr() } as *const f32 as *mut f32;
+        let coord_ptr = unsafe { (*self.st_ptr_mut()).coords.as_mut_ptr() } as *mut f32;
 
         unsafe {
             for i in self.index.iter_index() {
@@ -754,9 +799,9 @@ impl SelPy {
     ///    tr = pymolar.fit_transform(mobile, ref)
     ///    mobile.apply_transform(tr)
     fn apply_transform(&self, tr: &crate::IsometryTransform) {
-        TmpSel {
-            top: self.r_top(),
-            st: self.r_st(),
+        TmpSelMut {
+            top: self.top_ptr_mut(),
+            st: self.st_ptr_mut(),
             index: &self.index,
         }
         .apply_transform(&tr.0);
@@ -922,9 +967,9 @@ impl SelPy {
         let vec: VectorView<f32, Const<3>, Dyn> = arg
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion to Vector3 has failed"))?;
-        TmpSel {
-            top: self.r_top(),
-            st: self.r_st(),
+        TmpSelMut {
+            top: self.top_ptr_mut(),
+            st: self.st_ptr_mut(),
             index: &self.index,
         }
         .translate(&vec);

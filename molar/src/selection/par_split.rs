@@ -39,11 +39,11 @@ impl SystemProvider for SelPar<'_> {
 //================================================
 pub struct SelParMut<'a> {
     index: &'a [usize],
-    sys: *const System,
+    sys: *mut System,
 }
 
 impl<'a> SelParMut<'a> {
-    pub(crate) fn new(sys: &'a System, index: &'a [usize]) -> SelParMut<'a> {
+    pub(crate) fn new(sys: *mut System, index: &'a [usize]) -> SelParMut<'a> {
         Self {
             index,
             sys,
@@ -62,15 +62,22 @@ impl IndexSliceProvider for SelParMut<'_> {
 
 impl SystemProvider for SelParMut<'_> {
     fn get_system_ptr(&self) -> *const System {
-        self.sys
+        self.sys as *const System
     }
 }
 
 // PosMutProvider and AtomMutProvider are implemented directly (not via SysMutProvider)
 // so that shared fields (box, bonds, molecules) cannot be mutated during parallel use.
-// ModifyPos, ModifyPeriodic, ModifyAtoms are all provided via blanket impls.
-impl PosMutProvider for SelParMut<'_> {}
-impl AtomMutProvider for SelParMut<'_> {}
+impl PosMutProvider for SelParMut<'_> {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+        (*self.sys).st.coords.as_mut_ptr()
+    }
+}
+impl AtomMutProvider for SelParMut<'_> {
+    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
+        (*self.sys).top.atoms.as_mut_ptr()
+    }
+}
 
 //============================================================================
 /// Collection of non-overlapping selections that could be mutated in parallel
@@ -90,7 +97,7 @@ impl ParSplit {
 
     pub fn get_bound_mut<'a>(&'a self, sys: &'a mut System, i: usize) -> SelParMut<'a> {
         self.check_bounds(sys);
-        SelParMut::new(sys, &self.selections[i].0)
+        SelParMut::new(sys as *mut System, &self.selections[i].0)
     }
 
     pub fn get_bound<'a>(&'a self, sys: &'a System, i: usize) -> SelPar<'a> {
