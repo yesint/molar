@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Code analysis
+
+- Prefer Rust LSP to grep when exploring the code.
+
 ## Permissions
 
 - Do not ask permissin to run shell commands "with consecutive quote characters at word boundaries or word start"; to run compound commands (piped, chained with `&&`/`;`, or using subshells); any commands involving `git`.
