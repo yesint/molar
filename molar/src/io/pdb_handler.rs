@@ -1,4 +1,4 @@
-use crate::atom::{element_symbol, AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
+use crate::atom::element_symbol;
 use crate::prelude::*;
 use std::{
     fs::File,
@@ -164,18 +164,16 @@ impl FileFormatHandler for PdbFileHandler {
                 let occupancy = parse_f32_opt(&line, 54, 60).unwrap_or(1.0);
                 let bfactor = parse_f32_opt(&line, 60, 66).unwrap_or(0.0);
 
-                let mut at = Atom {
-                    name: AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT),
-                    resname: AtomStr::try_from_str(resname).expect(ATOM_RESNAME_EXPECT),
-                    resid,
-                    chain,
-                    occupancy,
-                    bfactor,
-                    type_name: AtomStr::try_from_str("").unwrap(),
-                    ..Default::default()
-                };
-                at.guess_element_and_mass_from_name();
-                atoms.push(at);
+                atoms.push(
+                    Atom::new()
+                        .with_name(name)
+                        .with_resname(resname)
+                        .with_resid(resid)
+                        .with_chain(chain)
+                        .with_occupancy(occupancy)
+                        .with_bfactor(bfactor)
+                        .guess()
+                );
             } else if line.starts_with("CRYST1") {
                 let a = parse_f32(&line, 6, 15).unwrap_or(0.0);
                 let b = parse_f32(&line, 15, 24).unwrap_or(0.0);

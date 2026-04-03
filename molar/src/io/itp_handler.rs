@@ -1,4 +1,4 @@
-use crate::{atom::{Atom, AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME_EXPECT}, io::FileFormatHandler};
+use crate::{atom::Atom, io::FileFormatHandler};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -80,18 +80,15 @@ impl FileFormatHandler for ItpFileHandler {
             if fields.len() < 8 {
                 break;
             }
-            let mut at = Atom {
-                name: AtomStr::try_from_str(fields[4]).expect(ATOM_NAME_EXPECT),
-                resname: AtomStr::try_from_str(fields[3]).expect(ATOM_RESNAME_EXPECT),
-                type_name: AtomStr::try_from_str(fields[1]).expect(ATOM_TYPE_NAME_EXPECT),
-                resid: fields[2].parse().map_err(ItpHandlerError::ParseInt)?,
-                charge: fields[6].parse().map_err(ItpHandlerError::ParseFloat)?,
-                mass: fields[7].parse().map_err(ItpHandlerError::ParseFloat)?,
-                ..Default::default()
-            };
+            let mut at = Atom::new()
+                .with_name(fields[4])
+                .with_resname(fields[3])
+                .with_type_name(fields[1])
+                .with_resid(fields[2].parse().map_err(ItpHandlerError::ParseInt)?)
+                .with_charge(fields[6].parse().map_err(ItpHandlerError::ParseFloat)?)
+                .with_mass(fields[7].parse().map_err(ItpHandlerError::ParseFloat)?);
             // We don't have element number, guess it
             at.guess_element_from_name();
-            // Add atom to topology
             top.atoms.push(at);
         }
 

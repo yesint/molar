@@ -1,4 +1,3 @@
-use crate::atom::{ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
 use crate::prelude::*;
 use std::{
     fs::File,
@@ -163,32 +162,25 @@ impl FileFormatHandler for GroFileHandler {
             line.clear();
             buf.read_line(&mut line).unwrap();
         
-            let mut at = Atom {
-                resid: line
-                    .get(0..5)
-                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
-                    .trim()
-                    .parse::<i32>().map_err(GroHandlerError::ParseInt)?,
-                resname: AtomStr::try_from_str(
-                    line.get(5..10)
-                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
-                        .trim()
-                ).expect(ATOM_RESNAME_EXPECT),
-                name: AtomStr::try_from_str(
-                    line.get(10..15)
-                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
-                        .trim()
-                ).expect(ATOM_NAME_EXPECT),
-                chain: ' ',
-                type_name: AtomStr::try_from_str("").unwrap(),
-                ..Default::default()
-            };
+            let resid = line
+                .get(0..5)
+                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
+                .trim()
+                .parse::<i32>().map_err(GroHandlerError::ParseInt)?;
+            let resname = line.get(5..10)
+                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
+                .trim();
+            let name = line.get(10..15)
+                .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
+                .trim();
 
-            // We don't have element number and mass, so guess them
-            at.guess_element_and_mass_from_name();
-        
-            // Add atom to topology
-            top.atoms.push(at);
+            top.atoms.push(
+                Atom::new()
+                    .with_name(name)
+                    .with_resname(resname)
+                    .with_resid(resid)
+                    .guess()
+            );
 
             // Read coordinates
             let v = Pos::new(

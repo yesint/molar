@@ -103,9 +103,9 @@ impl Default for Atom {
             mass: 0.0,
             charge: 0.0,
             type_id: 0,
-            chain: '\0',
+            chain: ' ',
             bfactor: 0.0,
-            occupancy: 0.0,
+            occupancy: 1.0,
         }
     }
 }
@@ -114,6 +114,43 @@ impl Atom {
     pub fn new() -> Self {
         Default::default()
     }
+
+    // Fluent setters
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.name = AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT);
+        self
+    }
+    pub fn with_resname(mut self, resname: &str) -> Self {
+        self.resname = AtomStr::try_from_str(resname).expect(ATOM_RESNAME_EXPECT);
+        self
+    }
+    pub fn with_resid(mut self, resid: i32) -> Self { self.resid = resid; self }
+    pub fn with_resindex(mut self, resindex: usize) -> Self { self.resindex = resindex; self }
+    pub fn with_atomic_number(mut self, n: u8) -> Self { self.atomic_number = n; self }
+    pub fn with_mass(mut self, mass: f32) -> Self { self.mass = mass; self }
+    pub fn with_charge(mut self, charge: f32) -> Self { self.charge = charge; self }
+    pub fn with_type_name(mut self, type_name: &str) -> Self {
+        self.type_name = AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT);
+        self
+    }
+    pub fn with_type_id(mut self, type_id: u32) -> Self { self.type_id = type_id; self }
+    pub fn with_chain(mut self, chain: char) -> Self { self.chain = chain; self }
+    pub fn with_bfactor(mut self, bfactor: f32) -> Self { self.bfactor = bfactor; self }
+    pub fn with_occupancy(mut self, occupancy: f32) -> Self { self.occupancy = occupancy; self }
+
+    /// Chainable version of `guess_element_and_mass_from_name()`.
+    pub fn guess(mut self) -> Self {
+        self.guess_element_and_mass_from_name();
+        self
+    }
+
+    // Element constructors
+    pub fn hydrogen() -> Self { Atom::new().with_name("H").guess() }
+    pub fn carbon() -> Self { Atom::new().with_name("C").guess() }
+    pub fn nitrogen() -> Self { Atom::new().with_name("N").guess() }
+    pub fn oxygen() -> Self { Atom::new().with_name("O").guess() }
+    pub fn phosphorus() -> Self { Atom::new().with_name("P").guess() }
+    pub fn sulfur() -> Self { Atom::new().with_name("S").guess() }
 
     pub fn guess_element_from_name(&mut self) {
         self.atomic_number = 0;
@@ -206,6 +243,24 @@ pub(crate) fn element_symbol(atomic_number: u8) -> &'static str {
         .get(atomic_number as usize)
         .copied()
         .unwrap_or("")
+}
+
+impl<T: AtomLike> From<&T> for Atom {
+    fn from(a: &T) -> Self {
+        Atom::new()
+            .with_name(a.get_name())
+            .with_resname(a.get_resname())
+            .with_resid(a.get_resid() as i32)
+            .with_resindex(a.get_resindex())
+            .with_atomic_number(a.get_atomic_number())
+            .with_mass(a.get_mass())
+            .with_charge(a.get_charge())
+            .with_type_name(a.get_type_name())
+            .with_type_id(a.get_type_id())
+            .with_chain(a.get_chain())
+            .with_bfactor(a.get_bfactor())
+            .with_occupancy(a.get_occupancy())
+    }
 }
 
 impl AtomLike for Atom {

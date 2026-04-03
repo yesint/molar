@@ -19,33 +19,33 @@
 - [Python bindings](#python-bindings)
 
 # What is molar?
-MolAR is a library for molecular modeling and analysis written in Rust with an emphasis on memory safety and performance. 
+MolAR is a library for molecular modeling and analysis written in Rust with an emphasis on memory safety and performance. Python bindings are also provided.
 
 Molar is designed to simplify the analysis of molecular dynamics trajectories and to implement new analysis algorithms. Molar is intended to provide facilities, which are routinely used in all molecular analysis programs, namely input/output of popular file formats, powerful and flexible atom selections, geometry transformations, RMSD fitting and alignment, etc.
 
 MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies.
 
 # Features
-* Reading and writing PDB, GRO, XYZ, XTC, TPR, and AMBER NetCDF (.nc) files
-    * Reading and writing Gromacs XTC format with random access.
+* Reading and writing PDB, GRO, XYZ, XTC, TRR, TPR, and AMBER NetCDF (.nc) files
+    * Reading and writing trajectories with random access.
     * Reading Gromacs TPR files (if Gromacs is installed).
-    * Recognizes any VMD molfile plugins. 
-* Selections using the syntax similar to VMD and Pteros.
+* Selections using the syntax similar to VMD and Pteros
     * Memory-safe selections for serial and parallel analysis tasks.
     * Powerful subselections and selection splitting.
-* SASA calculations with the fastest PowerSasa method.
-* RMSD fitting and alignment.
-* Basic algorithm (center of mass, center of geometry, etc.).
-* Seamless PBC treatment.
-* Trajectory processing with powerful built-in features.
-* Python bindings.
+* SASA calculations with the fastest PowerSasa method
+* RMSD fitting and alignment
+* Fast distance search
+* Basic algorithm (center of mass, center of geometry, etc.)
+* Seamless PBC treatment
+* Trajectory processing with easy to write analysis tasks
+* Python bindings
 
 # Design and Performance
-Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 1.0 it was changed completely. Now selections are just indices of selected atoms, which have to "bound" to [System] (that is an actual container for atoms and coordinates) to do useful work.
+Initial design is described in the [MolAR paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536). However, this concept appeared to be too complex in practice and didn't cover all the real world scenarios properly. Starting from version 1.0 it was changed completely. Now selections are just indices of selected atoms, which have to be "bound" to [System] (that is an actual container for atoms and coordinates) to do useful work.
 The API becomes more noisy but you get proper compile-time borrow checking, soundness and all Rust memory safety guarantees. The "binding" of selections is very cheap (one integer comparison), so it should not affect the performance reported in the [paper](https://onlinelibrary.wiley.com/doi/10.1002/jcc.27536).
 
 # Current status
-Molar is usable in real-life projects and is close to be feature complete. Documentation is still rudimentary.
+Molar is usable in real-life projects and is close to be feature complete. Documentation is still work in progress.
 
 # Installation
 Molar requires Rust 1.83 or above and a C/C++ compiler for compiling third-party libraries. Any sufficiently modern gcc or clang compiler should work.
@@ -56,11 +56,16 @@ For installation of the Python bindings [look here](#python-bindings).
 
 ## Gromacs TPR support
 
-TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has **no compile-time Gromacs dependency** — the plugin is loaded dynamically when a `.tpr` file is opened. If the plugin is not found, attempt to load TPR files return an error.
+TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has no compile-time Gromacs dependency — the plugin is loaded dynamically when a `.tpr` file is opened. If the plugin is not found, attempt to load TPR files return an error.
+
+MolAR searches for plugin in this order:
+1. `MOLAR_GROMACS_PLUGIN` environment variable (runtime override).
+2. Path baked in at compile time when Gromacs env vars were set during build.
+3. System library search path.
 
 ### Building the plugin
 
-The plugin must be compiled once against a _local_ Gromacs installation. Modern Gromacs does not expose all required data structures in its public API, so you need access to both the Gromacs **source tree** and its **build directory**.
+The plugin must be compiled against a _local_ Gromacs installation. Modern Gromacs does not expose all required data structures in its public API, so you need access to both the Gromacs **source tree** and its **build directory**.
 
 1. Compile Gromacs from source (see the [Gromacs installation guide](https://manual.gromacs.org/current/install-guide/index.html)).
 
@@ -91,11 +96,6 @@ export MOLAR_GROMACS_PLUGIN=/path/to/libmolar_gromacs_plugin
 ```
 
 This is especially useful when using MolAR [Python bindings](#python-bindings) - you can install pre-compiled bindings from PyPI and then compile the Gromacs plugin on your machine.
-
-MolAR searches in this order:
-1. `MOLAR_GROMACS_PLUGIN` environment variable (runtime override).
-2. Path baked in at compile time when Gromacs env vars were set during build.
-3. System library search path.
 
 ## AMBER NetCDF trajectories
 
@@ -424,11 +424,9 @@ for mol in water.split_resindex_bound() {
     // Position of the M dummy particle in TIP4
     let m_pos = o_pos + v*0.01546;
     // Dummy atom M
-    let m_at = Atom {
-        resname: AtomStr::try_from_str(b"TIP4").unwrap(),
-        name: AtomStr::try_from_str(b"M").unwrap(),
-        ..mol.iter_particle().next().unwrap().atom.clone()
-    };
+    let m_at = Atom::from(mol.first_atom())
+        .with_name("M")
+        .with_resname("TIP4");
     println!("{:?} {:?}",m_at,m_pos);
 }
 ```
@@ -437,7 +435,7 @@ First, we are getting the coordinates of oxigen and two hydrogens. `get_pos(n)` 
 
 Then we are computing the position of the dummy atom, which is on the bisection of H-O-H angle at the distance of 0.01546 from the oxygen.
 
-Finally, we are constructing a new `Atom` with name 'M', residue name 'TIP4' and all other fields (resid,resindex, etc) the same as in our water molecule.
+Finally, we are constructing a new `Atom` from the first atom of our water molecule using `Atom::from()`, and then overriding the name to 'M' and the residue name to 'TIP4' using fluent setters. All other fields (resid, resindex, etc) are copied from the original atom.
 
 We are printing our new dummy atom and its position just to be sure that everything works as intended.
 
@@ -462,20 +460,15 @@ out.append(&non_water);
 Now, at the end of our loop over water molecules, we can add new dummy atoms properly to the new system:
 ```rust,ignore
 // Add new converted water molecule
-// We assume that the dummy is the last atom.
-let added = out.append_coords(
-    mol.iter_atoms().cloned().chain(std::iter::once(m_at)),
-    mol.iter_pos().cloned().chain(std::iter::once(m_pos)),
+let added = out.append_atoms(
+    mol.iter_atoms().chain(std::iter::once(&m_at)),
+    mol.iter_pos().chain(std::iter::once(&m_pos)),
 )?;
 ```
 
-This code snippet may look a bit puzzling for non-rustaceans, so let's go through it.
-- `append_atoms()` method accepts two iterators: the first yielding atoms and the second yielding their corresponding coordinates. 
-- Our selected water molecule `mol` has methods `iter_atoms()` and `iter_pos()` for getting these iterators. 
-- `cloned()` adaptor is used to get copies of existing atoms and coordinates instead of references to them. 
-- We add our new dummy atom at the end of water molecule by "chaining" another iterator at the end of the current one. `std::iter::once(value)` returns an iterator yielding a single value and allows us to add newly constructed `m_at` and `m_pos` to the corrsponding iterators.
+Here `append_atoms()` accepts two iterators: the first yielding atoms and the second yielding their corresponding coordinates. We chain the existing water molecule atoms/positions with the newly constructed dummy atom using `std::iter::once()`. The method returns a selection of all added atoms.
 
-We also need to change the resname of the old atoms of water molecule from TIP3 to TIP4. As you noticed, `append_atoms_coords()` returns a selection with added atoms, so we can bind it mutably to the output system and set new residue name:
+We also need to change the resname of the added atoms from TIP3 to TIP4. Since `append_atoms()` returned a selection of all added atoms, we can bind it mutably and set the new residue name:
 
 ```rust,ignore
 // Change resname for added atoms
@@ -528,7 +521,7 @@ fn main() -> Result<()> {
     // `sys.bind(&sel)` for read-only acces or 
     // `sys.bind_mut(&sel)` for read-write access. 
     // In this particular case we use `select_bound()` to get 
-    // bound selections. This works here because we know in advance
+    // bound selections in one shot. This works here because we know in advance
     // that `sys` is used read-only and we'll never re-bind it for mut access.
     let water = sys.select_bound("resname TIP3")?;
     let non_water = sys.select_bound("not resname TIP3")?;
@@ -551,15 +544,11 @@ fn main() -> Result<()> {
 	    // Position of the M dummy particle in TIP4
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
-        let m_at = Atom {
-            resname: AtomStr::try_from_str("TIP4").unwrap(),
-            name: AtomStr::try_from_str("M").unwrap(),
-            ..mol.iter_particle().next().unwrap().atom.clone()
-        };
+        let m_at = Atom::from(mol.first_atom())
+            .with_name("M");
 
         // Add new converted water molecule
-        // We assume that the dummy is the last atom.
-        let added = out.append_atoms_coords(
+        let added = out.append_atoms(
             mol.iter_atoms().chain(std::iter::once(&m_at)),
             mol.iter_pos().chain(std::iter::once(&m_pos)),
         )?;

@@ -1,5 +1,3 @@
-use std::iter;
-
 use anyhow::Result;
 use log::info;
 use molar::prelude::*;
@@ -41,17 +39,15 @@ pub(crate) fn command_tip3_to_tip4(file: &str, outfile: &str) -> Result<()> {
         // Position of the M dummy particle in TIP4
         let m_pos = o_pos + v * 0.01546;
         // Dummy atom M
-        let m_at = Atom {
-            name: AtomStr::try_from_str("M").unwrap(),
-            ..mol.iter_particle().next().unwrap().atom.clone()
-        };
+        let m_at = Atom::from(mol.first_atom())
+            .with_name("M");
         println!("{:?}", m_at);
 
         // Add new converted water molecule
         // We assume that the dummy is the last atom.
-        let added = out.append_atoms_coords(
-            mol.iter_atoms().chain(iter::once(&m_at)),
-            mol.iter_pos().chain(iter::once(&m_pos)),
+        let added = out.append_atoms(
+            mol.iter_atoms().chain(std::iter::once(&m_at)),
+            mol.iter_pos().chain(std::iter::once(&m_pos)),
         )?;
 
         // Change resname for added atoms

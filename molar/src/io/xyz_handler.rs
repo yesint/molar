@@ -1,4 +1,4 @@
-use crate::atom::{element_symbol, AtomStr, ATOM_NAME_EXPECT};
+use crate::atom::element_symbol;
 use crate::prelude::*;
 use std::{
     fs::File,
@@ -132,17 +132,14 @@ impl FileFormatHandler for XyzFileHandler {
 
             coords.push(Pos::new(x * 0.1, y * 0.1, z * 0.1));
 
-            let mut at = Atom {
-                name: AtomStr::try_from_str(elem).expect(ATOM_NAME_EXPECT),
-                resname: AtomStr::try_from_str("MOL").unwrap(),
-                resid: 1,
-                chain: 'A',
-                occupancy: 1.0,
-                type_name: AtomStr::try_from_str("").unwrap(),
-                ..Default::default()
-            };
-            at.guess_element_and_mass_from_name();
-            atoms.push(at);
+            atoms.push(
+                Atom::new()
+                    .with_name(elem)
+                    .with_resname("MOL")
+                    .with_resid(1)
+                    .with_chain('A')
+                    .guess()
+            );
         }
 
         let mut top = Topology::default();

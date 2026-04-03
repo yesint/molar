@@ -221,7 +221,7 @@ impl System {
         Ok(Sel::from_iter(old_last + 1..self.len())?)
     }
 
-    pub fn append_atoms_coords<'a>(
+    pub fn append_atoms<'a>(
         &mut self,
         atoms: impl Iterator<Item = &'a Atom>,
         coords: impl Iterator<Item = &'a Pos>,
@@ -231,6 +231,10 @@ impl System {
         self.top.add_atoms(atoms.cloned());
         check_topology_state_sizes(&self.top, &self.st)?;
         Ok(Sel::from_iter(old_last + 1..self.len())?)
+    }
+
+    pub fn append_atom(&mut self, atom: &Atom, pos: &Pos) -> Result<Sel, SelectionError> {
+        self.append_atoms(std::iter::once(atom), std::iter::once(pos))
     }
 
     pub fn append(
