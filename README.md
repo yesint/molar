@@ -56,15 +56,15 @@ For installation of the Python bindings [look here](#python-bindings).
 
 ## Gromacs TPR support
 
-TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has **no compile-time Gromacs dependency** — the plugin is loaded dynamically when a `.tpr` file is opened. If the plugin is not found, TPR files return a descriptive error; all other formats work normally.
+TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has **no compile-time Gromacs dependency** — the plugin is loaded dynamically when a `.tpr` file is opened. If the plugin is not found, attempt to load TPR files return an error.
 
 ### Building the plugin
 
-The plugin must be compiled once against a local Gromacs installation. Modern Gromacs does not expose all required data structures in its public API, so you need access to both the Gromacs **source tree** and its **build directory**.
+The plugin must be compiled once against a _local_ Gromacs installation. Modern Gromacs does not expose all required data structures in its public API, so you need access to both the Gromacs **source tree** and its **build directory**.
 
 1. Compile Gromacs from source (see the [Gromacs installation guide](https://manual.gromacs.org/current/install-guide/index.html)).
 
-2. In the **root of the MolAR workspace** (or your project using `molar_gromacs`), create `.cargo/config.toml`:
+2. In the root of the MolAR workspace (or your project using `molar`), create `.cargo/config.toml`:
 ```toml
 [env]
 # Path to the Gromacs source tree
@@ -90,10 +90,12 @@ If you want to use a plugin built separately, set the `MOLAR_GROMACS_PLUGIN` env
 export MOLAR_GROMACS_PLUGIN=/path/to/libmolar_gromacs_plugin
 ```
 
+This is especially useful when using MolAR [Python bindings](#python-bindings) - you can install pre-compiled bindings from PyPI and then compile the Gromacs plugin on your machine.
+
 MolAR searches in this order:
 1. `MOLAR_GROMACS_PLUGIN` environment variable (runtime override).
-2. Path baked in at compile time by `build.rs` (automatic when Gromacs env vars were set during build).
-3. System library search path (`libmolar_gromacs_plugin.so`).
+2. Path baked in at compile time when Gromacs env vars were set during build.
+3. System library search path.
 
 ## AMBER NetCDF trajectories
 
@@ -114,7 +116,7 @@ sudo apt install libhdf5-dev libnetcdf-dev
 brew install netcdf
 ```
 
-Once the libraries are installed, enable the feature when adding molar to your project:
+Once the libraries are installed, enable the `netcdf` feature when adding molar to your project:
 
 ```toml
 # Cargo.toml
@@ -122,7 +124,7 @@ Once the libraries are installed, enable the feature when adding molar to your p
 molar = { version = "1", features = ["netcdf"] }
 ```
 
-Or when building/testing from the command line:
+Or from the command line:
 ```sh
 cargo build --features molar/netcdf
 ```
@@ -160,7 +162,7 @@ name CA CB CG              # Multiple atom names
 name /C.+/               # Regex pattern: C followed by at least one symbol
 chain A /[AB]/             # Chain A or chains matching [AB]
 ```
-
+```shell
 ## Molecular groups
 
 Pre-defined selections for common molecular groups:
@@ -780,11 +782,25 @@ analysis_task -f structure.pdb traj_1.xtc traj_2.xtc -b 150 -e 100ns -log 100 --
 
 # Python bindings
 
-MolAR provides convenient Python bindings, creatively named `pymolar`, which has its own "Pythonic" API. The bindings are made as performant as possible, but they are not as fast as the Rust functions. 
+MolAR provides convenient Python bindings, creatively named `pymolar`, which has its own ["Pythonic" API](https://yesint.github.io/molar/).
+
+The bindings are made as performant as possible, but they are not as fast as the native Rust functions. Nevertheless, `pymolar` is still significanly faster than MDAnalysis or other similar pure-python libraries.
 
 ## Installation
 
 It is highly recommended to use a Python virtual environment. It is assumed that `pip` is used for installation, but you can use any Python package manager.
+
+### Installing from PyPI
+
+```shell
+pip install pymolar
+```
+
+Installed package _does not_ include the Gromacs plugin. If you want to read TPR files you have to compile the plugin and link against the local Gromacs installation as described [here](#gromacs-tpr-support).
+
+### Compiling from source
+
+You may compile `pymolar` from source. In this case Gromacs plugin is also compiled if the corresponding paths are provided as described [here](#gromacs-tpr-support).
 
 ```shell
 #1. Install maturin in the current virtual environment

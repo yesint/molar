@@ -18,7 +18,7 @@ unsafe impl Send for TprFileHandler {}
 
 #[derive(Debug, Error)]
 pub enum TprHandlerError {
-    #[error("Gromacs plugin not found (set MOLAR_GROMACS_PLUGIN to the path of libmolar_gromacs_plugin.so): {0}")]
+    #[error("Gromacs plugin not found (is MOLAR_GROMACS_PLUGIN set correctly?): {0}")]
     GromacsNotFound(String),
 
     #[error("failed to open TPR file: {0}")]

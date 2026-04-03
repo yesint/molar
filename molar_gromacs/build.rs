@@ -49,5 +49,7 @@ fn main() {
         // Users can override it at runtime by setting the same env var.
         println!("cargo::rustc-env=MOLAR_GROMACS_PLUGIN={}", so_path.display());
         println!("cargo::warning=Gromacs plugin built: {}", so_path.display());
+    } else {
+        println!("cargo::warning=Gromacs plugin in NOT built");
     }
 }
