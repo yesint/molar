@@ -144,6 +144,16 @@ impl SaveState for SelOwnBound<'_> {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.index.iter().map(|&i| &self.sys.st.coords[i]))
     }
+
+    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
+        let vels = self.sys.st.velocities.as_ref()?;
+        Some(Box::new(self.index.iter().map(|&i| &vels[i])))
+    }
+
+    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
+        let forces = self.sys.st.forces.as_ref()?;
+        Some(Box::new(self.index.iter().map(|&i| &forces[i])))
+    }
 }
 
 impl SaveTopologyState for SelOwnBound<'_> {}
@@ -275,6 +285,16 @@ impl SaveTopology for SelBound<'_> {
 impl SaveState for SelBound<'_> {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a> {
         Box::new(self.index.iter().map(|&i| &self.sys.st.coords[i]))
+    }
+
+    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
+        let vels = self.sys.st.velocities.as_ref()?;
+        Some(Box::new(self.index.iter().map(|&i| &vels[i])))
+    }
+
+    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
+        let forces = self.sys.st.forces.as_ref()?;
+        Some(Box::new(self.index.iter().map(|&i| &forces[i])))
     }
 }
 

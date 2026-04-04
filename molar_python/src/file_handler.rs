@@ -89,6 +89,23 @@ impl FileHandlerPy {
         Ok(st.into())
     }
 
+    /// Read next state frame, loading only the requested fields.
+    ///
+    /// :param coords: Load atomic coordinates (default ``True``).
+    /// :param velocities: Load atomic velocities when available (default ``True``).
+    /// :param forces: Load atomic forces when available (default ``True``).
+    /// :returns: Next state frame with only the requested fields populated.
+    /// :rtype: State
+    #[pyo3(signature = (coords=true, velocities=true, forces=true))]
+    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> PyResult<StatePy> {
+        let h = self
+            .0
+            .as_mut()
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        let st = h.read_state_pick(coords, velocities, forces).map_err(to_py_io_err)?;
+        Ok(st.into())
+    }
+
     /// Write a ``System``, ``Sel``, or ``(Topology, State)`` tuple.
     ///
     /// :param data: Data object to write.
@@ -167,6 +184,35 @@ impl FileHandlerPy {
             h.write_state(s.get().r_st()).map_err(to_py_io_err)?;
         } else if let Ok(s) = data.cast::<StatePy>() {
             h.write_state(&*s.borrow()).map_err(to_py_io_err)?;
+        } else {
+            return Err(PyTypeError::new_err(format!(
+                "Invalid data type {} when writing to file",
+                data.get_type().name()?.to_string()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Write state from ``System``, ``Sel``, or ``State``, outputting only selected fields.
+    ///
+    /// :param data: Source object containing state.
+    /// :param coords: Write atomic coordinates (default ``True``).
+    /// :param velocities: Write atomic velocities when available (default ``True``).
+    /// :param forces: Write atomic forces when available (default ``True``).
+    /// :returns: ``None``.
+    /// :rtype: None
+    #[pyo3(signature = (data, coords=true, velocities=true, forces=true))]
+    fn write_state_pick(&mut self, data: Bound<'_, PyAny>, coords: bool, velocities: bool, forces: bool) -> PyResult<()> {
+        let h = self
+            .0
+            .as_mut()
+            .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
+        if let Ok(s) = data.cast::<SystemPy>() {
+            h.write_state_pick(s.get().r_st(), coords, velocities, forces).map_err(to_py_io_err)?;
+        } else if let Ok(s) = data.cast::<SelPy>() {
+            h.write_state_pick(s.get().r_st(), coords, velocities, forces).map_err(to_py_io_err)?;
+        } else if let Ok(s) = data.cast::<StatePy>() {
+            h.write_state_pick(&*s.borrow(), coords, velocities, forces).map_err(to_py_io_err)?;
         } else {
             return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",

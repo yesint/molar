@@ -5,7 +5,6 @@ use nalgebra::Matrix3;
 use thiserror::Error;
 
 use crate::prelude::*;
-use super::ReadWhat;
 
 pub struct CptFileHandler {
     plugin:       Arc<TprPlugin>,
@@ -61,10 +60,10 @@ impl FileFormatHandler for CptFileHandler {
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
-        self.read_state_pick(ReadWhat::all())
+        self.read_state_pick(true, true, true)
     }
 
-    fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileFormatError> {
+    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
         if self.already_read {
             return Err(FileFormatError::Eof);
         }
@@ -80,7 +79,7 @@ impl FileFormatHandler for CptFileHandler {
         st.time = time;
 
         // Coordinates
-        if what.contains(ReadWhat::COORDS) {
+        if coords {
             let mut buf: Vec<f32> = vec![0.0; natoms * 3];
             unsafe { (cpt.cpt_fill_coords)(h, buf.as_mut_ptr()) };
             st.coords.resize(natoms, Default::default());
@@ -97,7 +96,7 @@ impl FileFormatHandler for CptFileHandler {
         st.pbox = Some(PeriodicBox::from_matrix(m).map_err(CptHandlerError::Pbc)?);
 
         // Velocities
-        if what.contains(ReadWhat::VELOCITIES) {
+        if velocities {
             let has_v = unsafe { (cpt.cpt_has_velocities)(h) };
             if has_v != 0 {
                 let mut buf: Vec<f32> = vec![0.0; natoms * 3];
@@ -110,15 +109,15 @@ impl FileFormatHandler for CptFileHandler {
         }
 
         // Forces
-        if what.contains(ReadWhat::FORCES) {
+        if forces {
             let has_f = unsafe { (cpt.cpt_has_forces)(h) };
             if has_f != 0 {
                 let mut buf: Vec<f32> = vec![0.0; natoms * 3];
                 unsafe { (cpt.cpt_fill_forces)(h, buf.as_mut_ptr()) };
-                let forces: Vec<Force> = (0..natoms)
+                let force_data: Vec<Force> = (0..natoms)
                     .map(|i| Force::new(buf[i * 3], buf[i * 3 + 1], buf[i * 3 + 2]))
                     .collect();
-                st.forces = Some(forces);
+                st.forces = Some(force_data);
             }
         }
 
@@ -184,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_cpt_pick() {
-        use crate::io::{FileHandler, ReadWhat};
+        use crate::io::FileHandler;
 
         let mut h = match FileHandler::open("tests/state.cpt") {
             Ok(h) => h,
@@ -203,7 +202,7 @@ mod tests {
         };
 
         // Read coords only — velocities should be None even though the file has them
-        let st = h.read_state_pick(ReadWhat::COORDS).unwrap();
+        let st = h.read_state_pick(true, false, false).unwrap();
         assert_eq!(st.len(), 96027);
         assert!(st.velocities.is_none(), "velocities should be None when not requested");
         assert!(st.forces.is_none());

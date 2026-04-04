@@ -6,7 +6,7 @@ use std::{
 };
 use thiserror::Error;
 
-use super::{FileFormatError, FileFormatHandler, ReadWhat, SaveState};
+use super::{FileFormatError, FileFormatHandler, SaveState};
 
 //=============================== Error type ===============================
 
@@ -244,11 +244,13 @@ pub enum TrrFileHandler {
 //=============================== Helper to read a frame's data ============
 
 /// Read a frame's data from current position (after header has been read).
-/// `what` controls which fields are populated; unwanted data is skipped at the I/O level.
+/// The bool flags control which fields are populated; unwanted data is skipped at the I/O level.
 fn read_frame_data(
     r: &mut impl Read,
     h: &TrrHeader,
-    what: ReadWhat,
+    coords: bool,
+    velocities: bool,
+    forces: bool,
 ) -> Result<State, TrrHandlerError> {
     let elem = if h.b_double { 8usize } else { 4usize };
     let n = h.natoms as usize;
@@ -277,8 +279,8 @@ fn read_frame_data(
     }
 
     // Coordinates
-    let coords: Vec<Pos> = if h.x_size != 0 {
-        if what.contains(ReadWhat::COORDS) {
+    let coord_data: Vec<Pos> = if h.x_size != 0 {
+        if coords {
             if h.b_double {
                 (0..n).map(|_| {
                     let x = xdr_read_f64(r)? as f32;
@@ -303,8 +305,8 @@ fn read_frame_data(
     };
 
     // Velocities
-    let velocities = if h.v_size != 0 {
-        if what.contains(ReadWhat::VELOCITIES) {
+    let vel_data = if h.v_size != 0 {
+        if velocities {
             Some(read_xvf(r, n, h.b_double)?)
         } else {
             xdr_skip(r, n * 3 * elem)?;
@@ -315,8 +317,8 @@ fn read_frame_data(
     };
 
     // Forces
-    let forces = if h.f_size != 0 {
-        if what.contains(ReadWhat::FORCES) {
+    let force_data = if h.f_size != 0 {
+        if forces {
             Some(read_xvf(r, n, h.b_double)?)
         } else {
             xdr_skip(r, n * 3 * elem)?;
@@ -327,9 +329,9 @@ fn read_frame_data(
     };
 
     Ok(State {
-        coords,
-        velocities,
-        forces,
+        coords: coord_data,
+        velocities: vel_data,
+        forces: force_data,
         pbox,
         time: h.time,
     })
@@ -384,23 +386,27 @@ impl FileFormatHandler for TrrFileHandler {
         };
 
         let h = read_trr_header(&mut r.file).map_err(trr_to_ff_err)?;
-        let st = read_frame_data(&mut r.file, &h, ReadWhat::all()).map_err(trr_to_ff_err)?;
+        let st = read_frame_data(&mut r.file, &h, true, true, true).map_err(trr_to_ff_err)?;
         r.cur_frame += 1;
         Ok(st)
     }
 
-    fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileFormatError> {
+    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
         let TrrFileHandler::Reader(ref mut r) = self else {
             return Err(FileFormatError::NotStateReadFormat);
         };
 
         let h = read_trr_header(&mut r.file).map_err(trr_to_ff_err)?;
-        let st = read_frame_data(&mut r.file, &h, what).map_err(trr_to_ff_err)?;
+        let st = read_frame_data(&mut r.file, &h, coords, velocities, forces).map_err(trr_to_ff_err)?;
         r.cur_frame += 1;
         Ok(st)
     }
 
     fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileFormatError> {
+        self.write_state_pick(data, true, true, true)
+    }
+
+    fn write_state_pick(&mut self, data: &dyn SaveState, coords: bool, velocities: bool, forces: bool) -> Result<(), FileFormatError> {
         let TrrFileHandler::Writer(ref mut w) = self else {
             return Err(FileFormatError::NotStateWriteFormat);
         };
@@ -412,15 +418,21 @@ impl FileFormatHandler for TrrFileHandler {
 
         let has_box = data.get_box().is_some();
         let box_size = if has_box { 9 * 4i32 } else { 0i32 };
-        let x_size = natoms as i32 * 3 * 4;
+        let x_size = if coords     { natoms as i32 * 3 * 4 } else { 0 };
+
+        let vels   = if velocities { data.iter_vel_dyn()   } else { None };
+        let forces = if forces     { data.iter_force_dyn() } else { None };
+
+        let v_size = if vels.is_some()   { natoms as i32 * 3 * 4 } else { 0 };
+        let f_size = if forces.is_some() { natoms as i32 * 3 * 4 } else { 0 };
 
         let h = TrrHeader {
             box_size,
             vir_size: 0,
             pres_size: 0,
             x_size,
-            v_size: 0,
-            f_size: 0,
+            v_size,
+            f_size,
             natoms: natoms as i32,
             step: w.cur_frame as i32,
             time: data.get_time(),
@@ -437,10 +449,30 @@ impl FileFormatHandler for TrrFileHandler {
         }
 
         // Write coordinates
-        for p in data.iter_pos_dyn() {
-            xdr_write_f32(&mut w.file, p.x)?;
-            xdr_write_f32(&mut w.file, p.y)?;
-            xdr_write_f32(&mut w.file, p.z)?;
+        if coords {
+            for p in data.iter_pos_dyn() {
+                xdr_write_f32(&mut w.file, p.x)?;
+                xdr_write_f32(&mut w.file, p.y)?;
+                xdr_write_f32(&mut w.file, p.z)?;
+            }
+        }
+
+        // Write velocities
+        if let Some(vel_iter) = vels {
+            for v in vel_iter {
+                xdr_write_f32(&mut w.file, v.x)?;
+                xdr_write_f32(&mut w.file, v.y)?;
+                xdr_write_f32(&mut w.file, v.z)?;
+            }
+        }
+
+        // Write forces
+        if let Some(force_iter) = forces {
+            for f in force_iter {
+                xdr_write_f32(&mut w.file, f.x)?;
+                xdr_write_f32(&mut w.file, f.y)?;
+                xdr_write_f32(&mut w.file, f.z)?;
+            }
         }
 
         w.cur_frame += 1;

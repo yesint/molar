@@ -1,35 +1,12 @@
 //! IO handlers for different file formats and associated traits
 
 use crate::prelude::*;
-use bitflags::bitflags;
 use log::{debug, warn};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
 };
 use thiserror::Error;
-
-bitflags! {
-    /// Controls which data fields are read from trajectory frames.
-    ///
-    /// Default (via [`ReadWhat::all()`]) reads everything available in the file.
-    /// Use with [`FileHandler::read_state_pick`] to skip unused data and save I/O.
-    ///
-    /// # Example
-    /// ```ignore
-    /// // Read coordinates and velocities only (skip forces)
-    /// let state = fh.read_state_pick(ReadWhat::COORDS | ReadWhat::VELOCITIES)?;
-    /// ```
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct ReadWhat: u8 {
-        /// Read atomic coordinates
-        const COORDS     = 0b001;
-        /// Read atomic velocities (if available in the format)
-        const VELOCITIES = 0b010;
-        /// Read atomic forces (if available in the format)
-        const FORCES     = 0b100;
-    }
-}
 
 mod cpt_handler;
 mod dcd_handler;
@@ -63,6 +40,16 @@ pub trait SaveTopology: LenProvider {
 /// Trait for saving [State] to file
 pub trait SaveState: BoxProvider + TimeProvider + LenProvider {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a>;
+
+    /// Returns an iterator over velocities, or `None` if not available.
+    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
+        None
+    }
+
+    /// Returns an iterator over forces, or `None` if not available.
+    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
+        None
+    }
 }
 
 /// Trait for saving both [Topology] and [State] to file
@@ -110,22 +97,16 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotStateReadFormat)
     }
 
-    /// Read a frame, loading only the fields indicated by `what`.
+    /// Read a frame, loading only the requested fields.
     ///
     /// The default implementation reads everything (via [`read_state`](Self::read_state))
     /// and then clears unwanted fields. Format handlers that support selective I/O
     /// (e.g. TRR, GRO) override this for actual byte-skipping performance gains.
-    fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileFormatError> {
+    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
         let mut st = self.read_state()?;
-        if !what.contains(ReadWhat::VELOCITIES) {
-            st.velocities = None;
-        }
-        if !what.contains(ReadWhat::FORCES) {
-            st.forces = None;
-        }
-        if !what.contains(ReadWhat::COORDS) {
-            st.coords.clear();
-        }
+        if !velocities { st.velocities = None; }
+        if !forces     { st.forces     = None; }
+        if !coords     { st.coords.clear(); }
         Ok(st)
     }
 
@@ -139,6 +120,15 @@ pub(crate) trait FileFormatHandler: Send {
 
     fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotStateWriteFormat)
+    }
+
+    /// Write a frame, outputting only the requested fields.
+    ///
+    /// The default implementation ignores the flags and calls [`write_state`](Self::write_state).
+    /// Format handlers that support selective I/O (e.g. TRR) override this.
+    fn write_state_pick(&mut self, data: &dyn SaveState, coords: bool, velocities: bool, forces: bool) -> Result<(), FileFormatError> {
+        let _ = (coords, velocities, forces);
+        self.write_state(data)
     }
 
     fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
@@ -495,27 +485,21 @@ impl FileHandler {
         Ok(res?)
     }
 
-    /// Reads next frame loading only the fields indicated by `what`.
+    /// Reads next frame, loading only the requested fields.
     ///
     /// Use this instead of [`read_state`](Self::read_state) when you don't need all data
     /// (e.g. skip velocities/forces to save memory and I/O time).
     /// For formats that natively support selective reading (TRR, GRO) the unwanted
     /// bytes are skipped at the I/O level; for all others the data is read and discarded.
     ///
-    /// # Example
-    /// ```ignore
-    /// // Coords only — forces/velocities stay None even if present in file
-    /// let state = fh.read_state_pick(ReadWhat::COORDS)?;
-    /// ```
-    ///
     /// # Errors
     /// Same as [`read_state`](Self::read_state).
-    pub fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileIoError> {
+    pub fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileIoError> {
         let t = std::time::Instant::now();
 
         let res = self
             .format_handler
-            .read_state_pick(what)
+            .read_state_pick(coords, velocities, forces)
             .map_err(|e| FileIoError(self.file_path.to_owned(), e));
 
         if res.is_ok() {
@@ -542,6 +526,26 @@ impl FileHandler {
 
         self.format_handler
             .write_state(data)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
+
+        self.stats.elapsed_time += t.elapsed();
+        self.stats.frames_processed += 1;
+
+        Ok(())
+    }
+
+    /// Writes a frame, outputting only the requested fields.
+    ///
+    /// For TRR, controls whether velocities and forces are written in addition to coordinates.
+    /// For formats that don't support selective writing, the flags are ignored.
+    ///
+    /// # Errors
+    /// Returns [FileIoError] if format doesn't support state writing
+    pub fn write_state_pick(&mut self, data: &dyn SaveState, coords: bool, velocities: bool, forces: bool) -> Result<(), FileIoError> {
+        let t = std::time::Instant::now();
+
+        self.format_handler
+            .write_state_pick(data, coords, velocities, forces)
             .map_err(|e| FileIoError(self.file_path.to_owned(), e))?;
 
         self.stats.elapsed_time += t.elapsed();
@@ -1075,6 +1079,101 @@ mod tests {
         assert!((st.time - target_time).abs() < 1e-4, "Time mismatch: got {} expected {}", st.time, target_time);
         let d = (st.coords[0] - ref_states[mid].coords[0]).norm();
         assert!(d < 1e-6, "seek_time coord diff={d}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn trr_vel_forces_roundtrip() -> anyhow::Result<()> {
+        // Build a synthetic State with coords, velocities, and forces
+        let natoms = 10usize;
+        let mut st = State::new_fake(natoms);
+        st.time = 42.0;
+        st.velocities = Some(
+            (0..natoms).map(|i| Vel::new(i as f32 * 0.1, i as f32 * 0.2, i as f32 * 0.3)).collect(),
+        );
+        st.forces = Some(
+            (0..natoms).map(|i| Force::new(i as f32 * 1.0, i as f32 * 2.0, i as f32 * 3.0)).collect(),
+        );
+        st.pbox = Some(PeriodicBox::from_vectors_angles(5.0, 5.0, 5.0, 90.0, 90.0, 90.0)?);
+
+        let trr_path = concat!(env!("OUT_DIR"), "/vel_force.trr");
+        let mut writer = FileHandler::create(trr_path)?;
+        writer.write_state(&st)?;
+        drop(writer);
+
+        let mut reader = FileHandler::open(trr_path)?;
+        let rt = reader.read_state()?;
+
+        assert_eq!(rt.coords.len(), natoms);
+        assert!((rt.time - 42.0_f32).abs() < 1e-4, "time mismatch");
+
+        let vels = rt.velocities.expect("velocities should be present");
+        assert_eq!(vels.len(), natoms);
+        for (i, v) in vels.iter().enumerate() {
+            assert!((v.x - i as f32 * 0.1).abs() < 1e-5, "vel.x mismatch at {i}");
+            assert!((v.y - i as f32 * 0.2).abs() < 1e-5, "vel.y mismatch at {i}");
+            assert!((v.z - i as f32 * 0.3).abs() < 1e-5, "vel.z mismatch at {i}");
+        }
+
+        let forces = rt.forces.expect("forces should be present");
+        assert_eq!(forces.len(), natoms);
+        for (i, f) in forces.iter().enumerate() {
+            assert!((f.x - i as f32 * 1.0).abs() < 1e-4, "force.x mismatch at {i}");
+            assert!((f.y - i as f32 * 2.0).abs() < 1e-4, "force.y mismatch at {i}");
+            assert!((f.z - i as f32 * 3.0).abs() < 1e-4, "force.z mismatch at {i}");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn trr_write_state_pick_coords_only() -> anyhow::Result<()> {
+        let natoms = 5usize;
+        let mut st = State::new_fake(natoms);
+        st.velocities = Some(
+            (0..natoms).map(|i| Vel::new(i as f32, 0.0, 0.0)).collect(),
+        );
+        st.pbox = Some(PeriodicBox::from_vectors_angles(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)?);
+
+        let trr_path = concat!(env!("OUT_DIR"), "/coords_only.trr");
+        let mut writer = FileHandler::create(trr_path)?;
+        writer.write_state_pick(&st, true, false, false)?;
+        drop(writer);
+
+        let mut reader = FileHandler::open(trr_path)?;
+        let rt = reader.read_state()?;
+        assert_eq!(rt.coords.len(), natoms);
+        assert!(rt.velocities.is_none(), "velocities should not have been written");
+        assert!(rt.forces.is_none(), "forces should not have been written");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gro_vel_roundtrip() -> anyhow::Result<()> {
+        // membr.gro has velocity columns — read it and write it back, check vels survive
+        let mut reader = FileHandler::open("tests/membr.gro")?;
+        let (top, st) = reader.read()?;
+        assert!(st.velocities.is_some(), "membr.gro should have velocities");
+
+        let vels_in = st.velocities.clone().unwrap();
+
+        let gro_path = concat!(env!("OUT_DIR"), "/vel_roundtrip.gro");
+        let sys = System::new(top, st)?;
+        let mut writer = FileHandler::create(gro_path)?;
+        writer.write(&sys.select_all_bound())?;
+        drop(writer);
+
+        let mut reader2 = FileHandler::open(gro_path)?;
+        let (_, st2) = reader2.read()?;
+        let vels_out = st2.velocities.expect("velocities should survive GRO roundtrip");
+        assert_eq!(vels_in.len(), vels_out.len());
+        for (i, (vi, vo)) in vels_in.iter().zip(vels_out.iter()).enumerate() {
+            assert!((vi.x - vo.x).abs() < 1e-3, "vel.x mismatch at atom {i}");
+            assert!((vi.y - vo.y).abs() < 1e-3, "vel.y mismatch at atom {i}");
+            assert!((vi.z - vo.z).abs() < 1e-3, "vel.z mismatch at atom {i}");
+        }
 
         Ok(())
     }
