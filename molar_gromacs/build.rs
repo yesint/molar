@@ -14,7 +14,8 @@ fn main() {
 
         // Step 1: compile wrapper.cpp to an object file via the cc crate.
         // This lets cc handle compiler detection, CXX env var, PIC, etc.
-        let obj_files = cc::Build::new()
+        let mut build = cc::Build::new();
+        build
             .cpp(true)
             .file("gromacs/wrapper.cpp")
             .include("gromacs")
@@ -24,12 +25,20 @@ fn main() {
             .include(format!("{src_env}/src/gromacs/topology/include"))
             .include(format!("{src_env}/api/legacy/include"))
             .include(format!("{src_env}/src/external"))
-            .include(format!("{src_env}/src/external/thread_mpi/include"))
             .include(format!("{bld_env}/api/legacy/include"))
             .include(format!("{bld_env}/src/include"))
             .pic(true)
-            .warnings(false)
-            .compile_intermediates();
+            .warnings(false);
+
+        // thread_mpi headers are only needed when Gromacs is built with
+        // GMX_THREAD_MPI=1 (indicated in config.h).  Add the path only if
+        // the directory is present so builds without thread-MPI are unaffected.
+        let tmpi_inc = format!("{src_env}/src/external/thread_mpi/include");
+        if std::path::Path::new(&tmpi_inc).is_dir() {
+            build.include(&tmpi_inc);
+        }
+
+        let obj_files = build.compile_intermediates();
 
         // Step 2: link object file(s) into a shared library using the same compiler.
         let compiler = cc::Build::new().cpp(true).get_compiler();
