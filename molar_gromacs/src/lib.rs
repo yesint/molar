@@ -42,13 +42,17 @@ pub enum CptHandle {}
 
 /// Function pointer table for CPT functions resolved from the plugin shared library.
 pub struct CptPluginFns {
-    pub cpt_open:        unsafe extern "C" fn(*const c_char) -> *mut CptHandle,
-    pub cpt_close:       unsafe extern "C" fn(*mut CptHandle),
-    pub cpt_natoms:      unsafe extern "C" fn(*mut CptHandle) -> usize,
-    pub cpt_time:        unsafe extern "C" fn(*mut CptHandle) -> f32,
-    pub cpt_step:        unsafe extern "C" fn(*mut CptHandle) -> i64,
-    pub cpt_fill_coords: unsafe extern "C" fn(*mut CptHandle, *mut f32),
-    pub cpt_fill_box:    unsafe extern "C" fn(*mut CptHandle, *mut f32),
+    pub cpt_open:            unsafe extern "C" fn(*const c_char) -> *mut CptHandle,
+    pub cpt_close:           unsafe extern "C" fn(*mut CptHandle),
+    pub cpt_natoms:          unsafe extern "C" fn(*mut CptHandle) -> usize,
+    pub cpt_time:            unsafe extern "C" fn(*mut CptHandle) -> f32,
+    pub cpt_step:            unsafe extern "C" fn(*mut CptHandle) -> i64,
+    pub cpt_has_velocities:  unsafe extern "C" fn(*mut CptHandle) -> i32,
+    pub cpt_has_forces:      unsafe extern "C" fn(*mut CptHandle) -> i32,
+    pub cpt_fill_coords:     unsafe extern "C" fn(*mut CptHandle, *mut f32),
+    pub cpt_fill_box:        unsafe extern "C" fn(*mut CptHandle, *mut f32),
+    pub cpt_fill_velocities: unsafe extern "C" fn(*mut CptHandle, *mut f32),
+    pub cpt_fill_forces:     unsafe extern "C" fn(*mut CptHandle, *mut f32),
 }
 
 /// Function pointer table resolved from the plugin shared library.
@@ -139,13 +143,17 @@ impl TprPlugin {
             };
         }
         Ok(CptPluginFns {
-            cpt_open:        sym!(b"cpt_open\0",        unsafe extern "C" fn(*const c_char) -> *mut CptHandle),
-            cpt_close:       sym!(b"cpt_close\0",       unsafe extern "C" fn(*mut CptHandle)),
-            cpt_natoms:      sym!(b"cpt_natoms\0",      unsafe extern "C" fn(*mut CptHandle) -> usize),
-            cpt_time:        sym!(b"cpt_time\0",        unsafe extern "C" fn(*mut CptHandle) -> f32),
-            cpt_step:        sym!(b"cpt_step\0",        unsafe extern "C" fn(*mut CptHandle) -> i64),
-            cpt_fill_coords: sym!(b"cpt_fill_coords\0", unsafe extern "C" fn(*mut CptHandle, *mut f32)),
-            cpt_fill_box:    sym!(b"cpt_fill_box\0",    unsafe extern "C" fn(*mut CptHandle, *mut f32)),
+            cpt_open:            sym!(b"cpt_open\0",            unsafe extern "C" fn(*const c_char) -> *mut CptHandle),
+            cpt_close:           sym!(b"cpt_close\0",           unsafe extern "C" fn(*mut CptHandle)),
+            cpt_natoms:          sym!(b"cpt_natoms\0",          unsafe extern "C" fn(*mut CptHandle) -> usize),
+            cpt_time:            sym!(b"cpt_time\0",            unsafe extern "C" fn(*mut CptHandle) -> f32),
+            cpt_step:            sym!(b"cpt_step\0",            unsafe extern "C" fn(*mut CptHandle) -> i64),
+            cpt_has_velocities:  sym!(b"cpt_has_velocities\0",  unsafe extern "C" fn(*mut CptHandle) -> i32),
+            cpt_has_forces:      sym!(b"cpt_has_forces\0",      unsafe extern "C" fn(*mut CptHandle) -> i32),
+            cpt_fill_coords:     sym!(b"cpt_fill_coords\0",     unsafe extern "C" fn(*mut CptHandle, *mut f32)),
+            cpt_fill_box:        sym!(b"cpt_fill_box\0",        unsafe extern "C" fn(*mut CptHandle, *mut f32)),
+            cpt_fill_velocities: sym!(b"cpt_fill_velocities\0", unsafe extern "C" fn(*mut CptHandle, *mut f32)),
+            cpt_fill_forces:     sym!(b"cpt_fill_forces\0",     unsafe extern "C" fn(*mut CptHandle, *mut f32)),
         })
     }
 

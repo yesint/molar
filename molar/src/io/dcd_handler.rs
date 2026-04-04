@@ -454,7 +454,7 @@ impl FileFormatHandler for DcdFileHandler {
         let time = (r.istart + r.cur_frame as i32 * r.nsavc) as f32 * r.delta;
         r.cur_frame += 1;
 
-        Ok(State { coords, pbox, time })
+        Ok(State { coords, pbox, time, ..Default::default() })
     }
 
     fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileFormatError> {

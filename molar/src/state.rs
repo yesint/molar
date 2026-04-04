@@ -11,6 +11,8 @@ use crate::prelude::*;
 #[derive(Debug, Default, Clone)]
 pub struct State {
     pub coords: Vec<Pos>,
+    pub velocities: Option<Vec<Vel>>,
+    pub forces: Option<Vec<Force>>,
     pub time: f32,
     pub pbox: Option<PeriodicBox>,
 }
@@ -62,6 +64,8 @@ impl State {
     pub fn new_fake(n: usize) -> Self {
         Self {
             coords: vec![Pos::origin(); n],
+            velocities: None,
+            forces: None,
             pbox: None,
             time: 0.0,
         }

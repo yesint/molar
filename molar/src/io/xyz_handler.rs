@@ -148,7 +148,7 @@ impl FileFormatHandler for XyzFileHandler {
 
         self.at_least_one_state_read = true;
 
-        Ok((top, State { coords, time: 0.0, pbox: None }))
+        Ok((top, State { coords, time: 0.0, pbox: None, ..Default::default() }))
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {

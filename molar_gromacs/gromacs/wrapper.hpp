@@ -61,16 +61,24 @@ void tpr_fill_coords(TprHandle* handle, float* out);
 void tpr_fill_box(TprHandle* handle, float* out9);
 
 /* Open a CPT (checkpoint) file; returns NULL on error (call tpr_last_error for message).
-   Reads and caches coordinates + box only; velocities and forces are ignored. */
+   Reads and caches coordinates, velocities, forces, and box. */
 CptHandle* cpt_open(const char* path);
 void       cpt_close(CptHandle* handle);
 size_t     cpt_natoms(CptHandle* handle);
 float      cpt_time(CptHandle* handle);
 int64_t    cpt_step(CptHandle* handle);
+/* Returns 1 if the file contained velocities, 0 otherwise. */
+int        cpt_has_velocities(CptHandle* handle);
+/* Returns 1 if the file contained forces, 0 otherwise. */
+int        cpt_has_forces(CptHandle* handle);
 /* out must hold natoms*3 floats (row-major XYZ, nm). */
 void       cpt_fill_coords(CptHandle* handle, float* out);
 /* out must hold 9 floats (box matrix flattened row-major, nm). */
 void       cpt_fill_box(CptHandle* handle, float* out9);
+/* out must hold natoms*3 floats; only valid if cpt_has_velocities() == 1. */
+void       cpt_fill_velocities(CptHandle* handle, float* out);
+/* out must hold natoms*3 floats; only valid if cpt_has_forces() == 1. */
+void       cpt_fill_forces(CptHandle* handle, float* out);
 
 #ifdef __cplusplus
 }

@@ -205,6 +205,8 @@ struct CptHandle {
     float              time;
     int64_t            step;
     std::vector<float> coords;  /* natoms*3 floats, nm */
+    std::vector<float> vels;    /* natoms*3 floats, nm/ps; empty if not in file */
+    std::vector<float> forces;  /* natoms*3 floats, kJ/mol/nm; empty if not in file */
     float              box[9];  /* 3×3 row-major, nm  */
 };
 
@@ -235,6 +237,24 @@ CptHandle* cpt_open(const char* path)
                 h->coords[i * 3 + 0] = fr.x[i][XX];
                 h->coords[i * 3 + 1] = fr.x[i][YY];
                 h->coords[i * 3 + 2] = fr.x[i][ZZ];
+            }
+        }
+
+        if (fr.bV && fr.v) {
+            h->vels.resize(fr.natoms * 3);
+            for (int i = 0; i < fr.natoms; ++i) {
+                h->vels[i * 3 + 0] = fr.v[i][XX];
+                h->vels[i * 3 + 1] = fr.v[i][YY];
+                h->vels[i * 3 + 2] = fr.v[i][ZZ];
+            }
+        }
+
+        if (fr.bF && fr.f) {
+            h->forces.resize(fr.natoms * 3);
+            for (int i = 0; i < fr.natoms; ++i) {
+                h->forces[i * 3 + 0] = fr.f[i][XX];
+                h->forces[i * 3 + 1] = fr.f[i][YY];
+                h->forces[i * 3 + 2] = fr.f[i][ZZ];
             }
         }
 
@@ -271,6 +291,21 @@ void cpt_fill_coords(CptHandle* h, float* out)
 void cpt_fill_box(CptHandle* h, float* out9)
 {
     memcpy(out9, h->box, 9 * sizeof(float));
+}
+
+int cpt_has_velocities(CptHandle* h) { return h->vels.empty() ? 0 : 1; }
+int cpt_has_forces(CptHandle* h)     { return h->forces.empty() ? 0 : 1; }
+
+void cpt_fill_velocities(CptHandle* h, float* out)
+{
+    if (!h->vels.empty())
+        memcpy(out, h->vels.data(), h->vels.size() * sizeof(float));
+}
+
+void cpt_fill_forces(CptHandle* h, float* out)
+{
+    if (!h->forces.empty())
+        memcpy(out, h->forces.data(), h->forces.size() * sizeof(float));
 }
 
 } /* extern "C" (CPT) */

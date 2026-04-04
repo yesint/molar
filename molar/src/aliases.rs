@@ -10,6 +10,10 @@ pub type Vector3f = nalgebra::Vector3<f32>;
 pub type Matrix3f = nalgebra::Matrix3<f32>;
 /// Atom position
 pub type Pos = nalgebra::Point3<f32>;
+/// Atom velocity (nm/ps)
+pub type Vel = nalgebra::Vector3<f32>;
+/// Atom force (kJ/mol/nm)
+pub type Force = nalgebra::Vector3<f32>;
 
 // Define alias traits for iterators to make it less verbose
 /// Convenience alias for iterator over indices

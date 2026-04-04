@@ -232,7 +232,7 @@ impl FileFormatHandler for PdbFileHandler {
 
         self.at_least_one_state_read = true;
 
-        Ok((top, State { coords, time: 0.0, pbox: current_box }))
+        Ok((top, State { coords, time: 0.0, pbox: current_box, ..Default::default() }))
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {

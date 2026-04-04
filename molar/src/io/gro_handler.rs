@@ -5,6 +5,7 @@ use std::{
     num::{ParseFloatError, ParseIntError}, path::Path,
 };
 use thiserror::Error;
+use super::{FileFormatError, ReadWhat};
 
 pub struct GroFileHandler {
     reader: Option<BufReader<File>>,
@@ -42,6 +43,149 @@ pub enum GroHandlerError {
 
     #[error("unexpcted end of file reached")]
     Eof,
+}
+
+impl GroFileHandler {
+    /// Internal reader that parses a full GRO frame. `what` controls which fields to populate.
+    fn read_inner(&mut self, what: ReadWhat) -> Result<(Topology, State), FileFormatError> {
+        let mut top = Topology::default();
+        let mut state = State::default();
+
+        let buf = self.reader.as_mut().unwrap();
+        let mut line = String::new();
+
+        // Check if we are at EOF
+        if buf.fill_buf()? .is_empty() {
+            if self.at_least_one_state_read {
+                return Err(GroHandlerError::Eof)?;
+            } else {
+                return Err(GroHandlerError::EmptyFile)?;
+            }
+        }
+
+        // Read the title
+        buf.read_line(&mut line).unwrap();
+
+        // Try to extract time from trailing "t=..."
+        state.time = if let Some(i) = line.rfind("t=") {
+            line[i + 2..].trim().parse::<f32>().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        // Read number of atoms
+        line.clear();
+        buf.read_line(&mut line).unwrap();
+        let natoms = line.trim().parse::<usize>().map_err(GroHandlerError::ParseInt)?;
+
+        let read_coords = what.contains(ReadWhat::COORDS);
+        let read_vels = what.contains(ReadWhat::VELOCITIES);
+        let mut vels: Vec<Vel> = if read_vels { Vec::with_capacity(natoms) } else { Vec::new() };
+
+        // Go over atoms line by line
+        for i in 0..natoms {
+            line.clear();
+            buf.read_line(&mut line).unwrap();
+
+            let resid = line
+                .get(0..5)
+                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
+                .trim()
+                .parse::<i32>()
+                .map_err(GroHandlerError::ParseInt)?;
+            let resname = line
+                .get(5..10)
+                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
+                .trim();
+            let name = line
+                .get(10..15)
+                .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
+                .trim();
+
+            top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+
+            // Coordinates (cols 20–43)
+            if read_coords {
+                let v = Pos::new(
+                    line.get(20..28)
+                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
+                        .trim()
+                        .parse::<f32>()
+                        .map_err(GroHandlerError::ParseFloat)?,
+                    line.get(28..36)
+                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
+                        .trim()
+                        .parse::<f32>()
+                        .map_err(GroHandlerError::ParseFloat)?,
+                    line.get(36..44)
+                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
+                        .trim()
+                        .parse::<f32>()
+                        .map_err(GroHandlerError::ParseFloat)?,
+                );
+                state.coords.push(v);
+            }
+
+            // Velocities (cols 44–67, optional columns in GRO format)
+            if read_vels {
+                if let (Some(vx), Some(vy), Some(vz)) =
+                    (line.get(44..52), line.get(52..60), line.get(60..68))
+                {
+                    if let (Ok(vx), Ok(vy), Ok(vz)) = (
+                        vx.trim().parse::<f32>(),
+                        vy.trim().parse::<f32>(),
+                        vz.trim().parse::<f32>(),
+                    ) {
+                        vels.push(Vel::new(vx, vy, vz));
+                    }
+                }
+            }
+        }
+
+        if !vels.is_empty() {
+            state.velocities = Some(vels);
+        }
+
+        /* Read the box
+        Format: (https://manual.gromacs.org/archive/5.0.3/online/gro.html)
+        v1(x) v2(y) v3(z) v1(y) v1(z) v2(x) v2(z) v3(x) v3(y)
+
+        Our arrangement:
+        v1(x) v2(x) v3(x)
+        v1(y) v2(y) v3(y)
+        v1(z) v2(z) v3(z)
+
+        So, the sequence of reads is:
+        (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
+        */
+        line.clear();
+        buf.read_line(&mut line).unwrap();
+        let l = line
+            .split_whitespace()
+            .map(|s| Ok(s.parse::<f32>()?))
+            .collect::<Result<Vec<f32>, GroHandlerError>>()?;
+
+        let mut m = Matrix3f::zeros();
+        m[(0, 0)] = l[0];
+        m[(1, 1)] = l[1];
+        m[(2, 2)] = l[2];
+        if l.len() == 9 {
+            m[(1, 0)] = l[3];
+            m[(2, 0)] = l[4];
+            m[(0, 1)] = l[5];
+            m[(2, 1)] = l[6];
+            m[(0, 2)] = l[7];
+            m[(1, 2)] = l[8];
+        }
+        state.pbox = Some(PeriodicBox::from_matrix(m).map_err(GroHandlerError::Pbc)?);
+
+        // Assign resindex
+        top.assign_resindex();
+
+        self.at_least_one_state_read = true;
+
+        Ok((top, state))
+    }
 }
 
 impl FileFormatHandler for GroFileHandler {
@@ -125,119 +269,7 @@ impl FileFormatHandler for GroFileHandler {
     }
 
     fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
-        let mut top = Topology::default();
-        let mut state = State::default();
-
-        let buf = self.reader.as_mut().unwrap();
-        let mut line = String::new();
-        
-        // Check if we are at EOF
-        if buf.fill_buf()?.is_empty() {
-            // EOF reached. If we alread read some frames than this is end of trajectory
-            // Otherwise this is an empty file.
-            if self.at_least_one_state_read {
-                return Err(GroHandlerError::Eof)?;
-            } else {
-                return Err(GroHandlerError::EmptyFile)?;
-            }
-        }
-
-        // Read the title 
-        buf.read_line(&mut line).unwrap();
-
-        // Try to extract time from trailing "t=..."
-        state.time = if let Some(i) = line.rfind("t=") {
-            line[i+2..].trim().parse::<f32>().unwrap_or(0.0)
-        } else {
-            0.0
-        };
-        
-        // Read number of atoms
-        line.clear();
-        buf.read_line(&mut line).unwrap();
-        let natoms = line.trim().parse::<usize>().map_err(GroHandlerError::ParseInt)?;
-
-        // Go over atoms line by line
-        for i in 0..natoms {
-            line.clear();
-            buf.read_line(&mut line).unwrap();
-        
-            let resid = line
-                .get(0..5)
-                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
-                .trim()
-                .parse::<i32>().map_err(GroHandlerError::ParseInt)?;
-            let resname = line.get(5..10)
-                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
-                .trim();
-            let name = line.get(10..15)
-                .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
-                .trim();
-
-            top.atoms.push(
-                Atom::new()
-                    .with_name(name)
-                    .with_resname(resname)
-                    .with_resid(resid)
-                    .guess()
-            );
-
-            // Read coordinates
-            let v = Pos::new(
-                line.get(20..28)
-                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
-                    .trim()
-                    .parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                line.get(28..36)
-                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
-                    .trim()
-                    .parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                line.get(36..44)
-                    .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
-                    .trim()
-                    .parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-            );
-            state.coords.push(v);
-        }
-        /* Read the box
-        Format: (https://manual.gromacs.org/archive/5.0.3/online/gro.html)
-        v1(x) v2(y) v3(z) v1(y) v1(z) v2(x) v2(z) v3(x) v3(y)
-
-        Our arrangement:
-        v1(x) v2(x) v3(x)
-        v1(y) v2(y) v3(y)
-        v1(z) v2(z) v3(z)
-
-        So, the sequence of reads is:
-        (0,0) (1,1) (2,2) (1,0) (2,0) (0,1) (2,1) (0,2) (1,2)
-        */
-        line.clear();
-        buf.read_line(&mut line).unwrap();
-        let l = line.split_whitespace().map(|s| {
-                Ok(s.parse::<f32>()?)
-            })
-            .collect::<Result<Vec<f32>, GroHandlerError>>()?;
-
-        let mut m = Matrix3f::zeros();
-        m[(0, 0)] = l[0];
-        m[(1, 1)] = l[1];
-        m[(2, 2)] = l[2];
-        if l.len() == 9 {
-            m[(1, 0)] = l[3];
-            m[(2, 0)] = l[4];
-            m[(0, 1)] = l[5];
-            m[(2, 1)] = l[6];
-            m[(0, 2)] = l[7];
-            m[(1, 2)] = l[8];
-        }
-        state.pbox = Some(PeriodicBox::from_matrix(m).map_err(GroHandlerError::Pbc)?);
-
-        // Assign resindex
-        top.assign_resindex();
-
-        self.at_least_one_state_read = true;
-
-        Ok((top, state))
+        self.read_inner(ReadWhat::all())
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
@@ -254,7 +286,22 @@ impl FileFormatHandler for GroFileHandler {
         if self.stored_state.is_some() {
             Ok(self.stored_state.take().unwrap())
         } else {
-            let (top,st) = self.read()?; 
+            let (top, st) = self.read()?;
+            self.stored_topology.get_or_insert(top);
+            Ok(st)
+        }
+    }
+
+    fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileFormatError> {
+        if self.stored_state.is_some() {
+            // Stored state was produced by read_inner(ALL); trim unwanted fields.
+            let mut st = self.stored_state.take().unwrap();
+            if !what.contains(ReadWhat::VELOCITIES) { st.velocities = None; }
+            if !what.contains(ReadWhat::FORCES)     { st.forces     = None; }
+            if !what.contains(ReadWhat::COORDS)     { st.coords.clear(); }
+            Ok(st)
+        } else {
+            let (top, st) = self.read_inner(what)?;
             self.stored_topology.get_or_insert(top);
             Ok(st)
         }

@@ -1,12 +1,35 @@
 //! IO handlers for different file formats and associated traits
 
 use crate::prelude::*;
+use bitflags::bitflags;
 use log::{debug, warn};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
 };
 use thiserror::Error;
+
+bitflags! {
+    /// Controls which data fields are read from trajectory frames.
+    ///
+    /// Default (via [`ReadWhat::all()`]) reads everything available in the file.
+    /// Use with [`FileHandler::read_state_pick`] to skip unused data and save I/O.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Read coordinates and velocities only (skip forces)
+    /// let state = fh.read_state_pick(ReadWhat::COORDS | ReadWhat::VELOCITIES)?;
+    /// ```
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct ReadWhat: u8 {
+        /// Read atomic coordinates
+        const COORDS     = 0b001;
+        /// Read atomic velocities (if available in the format)
+        const VELOCITIES = 0b010;
+        /// Read atomic forces (if available in the format)
+        const FORCES     = 0b100;
+    }
+}
 
 mod cpt_handler;
 mod dcd_handler;
@@ -85,6 +108,25 @@ pub(crate) trait FileFormatHandler: Send {
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
         Err(FileFormatError::NotStateReadFormat)
+    }
+
+    /// Read a frame, loading only the fields indicated by `what`.
+    ///
+    /// The default implementation reads everything (via [`read_state`](Self::read_state))
+    /// and then clears unwanted fields. Format handlers that support selective I/O
+    /// (e.g. TRR, GRO) override this for actual byte-skipping performance gains.
+    fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileFormatError> {
+        let mut st = self.read_state()?;
+        if !what.contains(ReadWhat::VELOCITIES) {
+            st.velocities = None;
+        }
+        if !what.contains(ReadWhat::FORCES) {
+            st.forces = None;
+        }
+        if !what.contains(ReadWhat::COORDS) {
+            st.coords.clear();
+        }
+        Ok(st)
     }
 
     fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
@@ -444,6 +486,38 @@ impl FileHandler {
             .map_err(|e| FileIoError(self.file_path.to_owned(), e));
 
         // Update stats if not error
+        if res.is_ok() {
+            self.stats.frames_processed += 1;
+            self.stats.cur_t = res.as_ref().unwrap().get_time();
+        }
+
+        self.stats.elapsed_time += t.elapsed();
+        Ok(res?)
+    }
+
+    /// Reads next frame loading only the fields indicated by `what`.
+    ///
+    /// Use this instead of [`read_state`](Self::read_state) when you don't need all data
+    /// (e.g. skip velocities/forces to save memory and I/O time).
+    /// For formats that natively support selective reading (TRR, GRO) the unwanted
+    /// bytes are skipped at the I/O level; for all others the data is read and discarded.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Coords only — forces/velocities stay None even if present in file
+    /// let state = fh.read_state_pick(ReadWhat::COORDS)?;
+    /// ```
+    ///
+    /// # Errors
+    /// Same as [`read_state`](Self::read_state).
+    pub fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileIoError> {
+        let t = std::time::Instant::now();
+
+        let res = self
+            .format_handler
+            .read_state_pick(what)
+            .map_err(|e| FileIoError(self.file_path.to_owned(), e));
+
         if res.is_ok() {
             self.stats.frames_processed += 1;
             self.stats.cur_t = res.as_ref().unwrap().get_time();

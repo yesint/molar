@@ -6,7 +6,7 @@ use std::{
 };
 use thiserror::Error;
 
-use super::{FileFormatError, FileFormatHandler, SaveState};
+use super::{FileFormatError, FileFormatHandler, ReadWhat, SaveState};
 
 //=============================== Error type ===============================
 
@@ -62,6 +62,30 @@ fn xdr_write_f32(w: &mut impl Write, v: f32) -> io::Result<()> {
 fn xdr_skip(r: &mut impl Read, n_bytes: usize) -> io::Result<()> {
     let mut buf = vec![0u8; n_bytes];
     r.read_exact(&mut buf)
+}
+
+/// Read `n` XDR-encoded 3D vectors (velocities or forces). Returns `Vec<Vel>`.
+/// Since `Vel` and `Force` are both `Vector3<f32>` the same function serves both.
+fn read_xvf(r: &mut impl Read, n: usize, b_double: bool) -> io::Result<Vec<Vel>> {
+    if b_double {
+        (0..n)
+            .map(|_| {
+                let x = xdr_read_f64(r)? as f32;
+                let y = xdr_read_f64(r)? as f32;
+                let z = xdr_read_f64(r)? as f32;
+                Ok(Vel::new(x, y, z))
+            })
+            .collect()
+    } else {
+        (0..n)
+            .map(|_| {
+                let x = xdr_read_f32(r)?;
+                let y = xdr_read_f32(r)?;
+                let z = xdr_read_f32(r)?;
+                Ok(Vel::new(x, y, z))
+            })
+            .collect()
+    }
 }
 
 //=============================== Header struct ============================
@@ -219,12 +243,15 @@ pub enum TrrFileHandler {
 
 //=============================== Helper to read a frame's data ============
 
-/// Read a frame's coordinates and box from current position (after header has been read).
+/// Read a frame's data from current position (after header has been read).
+/// `what` controls which fields are populated; unwanted data is skipped at the I/O level.
 fn read_frame_data(
     r: &mut impl Read,
     h: &TrrHeader,
+    what: ReadWhat,
 ) -> Result<State, TrrHandlerError> {
     let elem = if h.b_double { 8usize } else { 4usize };
+    let n = h.natoms as usize;
 
     // Box
     let pbox = if h.box_size != 0 {
@@ -251,38 +278,58 @@ fn read_frame_data(
 
     // Coordinates
     let coords: Vec<Pos> = if h.x_size != 0 {
-        let n = h.natoms as usize;
-        if h.b_double {
-            (0..n).map(|_| {
-                let x = xdr_read_f64(r)? as f32;
-                let y = xdr_read_f64(r)? as f32;
-                let z = xdr_read_f64(r)? as f32;
-                Ok(Pos::new(x, y, z))
-            }).collect::<io::Result<_>>()?
+        if what.contains(ReadWhat::COORDS) {
+            if h.b_double {
+                (0..n).map(|_| {
+                    let x = xdr_read_f64(r)? as f32;
+                    let y = xdr_read_f64(r)? as f32;
+                    let z = xdr_read_f64(r)? as f32;
+                    Ok(Pos::new(x, y, z))
+                }).collect::<io::Result<_>>()?
+            } else {
+                (0..n).map(|_| {
+                    let x = xdr_read_f32(r)?;
+                    let y = xdr_read_f32(r)?;
+                    let z = xdr_read_f32(r)?;
+                    Ok(Pos::new(x, y, z))
+                }).collect::<io::Result<_>>()?
+            }
         } else {
-            (0..n).map(|_| {
-                let x = xdr_read_f32(r)?;
-                let y = xdr_read_f32(r)?;
-                let z = xdr_read_f32(r)?;
-                Ok(Pos::new(x, y, z))
-            }).collect::<io::Result<_>>()?
+            xdr_skip(r, n * 3 * elem)?;
+            Vec::new()
         }
     } else {
         Vec::new()
     };
 
-    // velocities (skip)
-    if h.v_size != 0 {
-        xdr_skip(r, h.natoms as usize * 3 * elem)?;
-    }
+    // Velocities
+    let velocities = if h.v_size != 0 {
+        if what.contains(ReadWhat::VELOCITIES) {
+            Some(read_xvf(r, n, h.b_double)?)
+        } else {
+            xdr_skip(r, n * 3 * elem)?;
+            None
+        }
+    } else {
+        None
+    };
 
-    // forces (skip)
-    if h.f_size != 0 {
-        xdr_skip(r, h.natoms as usize * 3 * elem)?;
-    }
+    // Forces
+    let forces = if h.f_size != 0 {
+        if what.contains(ReadWhat::FORCES) {
+            Some(read_xvf(r, n, h.b_double)?)
+        } else {
+            xdr_skip(r, n * 3 * elem)?;
+            None
+        }
+    } else {
+        None
+    };
 
     Ok(State {
         coords,
+        velocities,
+        forces,
         pbox,
         time: h.time,
     })
@@ -337,7 +384,18 @@ impl FileFormatHandler for TrrFileHandler {
         };
 
         let h = read_trr_header(&mut r.file).map_err(trr_to_ff_err)?;
-        let st = read_frame_data(&mut r.file, &h).map_err(trr_to_ff_err)?;
+        let st = read_frame_data(&mut r.file, &h, ReadWhat::all()).map_err(trr_to_ff_err)?;
+        r.cur_frame += 1;
+        Ok(st)
+    }
+
+    fn read_state_pick(&mut self, what: ReadWhat) -> Result<State, FileFormatError> {
+        let TrrFileHandler::Reader(ref mut r) = self else {
+            return Err(FileFormatError::NotStateReadFormat);
+        };
+
+        let h = read_trr_header(&mut r.file).map_err(trr_to_ff_err)?;
+        let st = read_frame_data(&mut r.file, &h, what).map_err(trr_to_ff_err)?;
         r.cur_frame += 1;
         Ok(st)
     }

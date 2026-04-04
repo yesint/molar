@@ -77,6 +77,7 @@ impl FileFormatHandler for XtcFileHandler {
                     coords,
                     time,
                     pbox: Some(PeriodicBox::from_matrix(m).map_err(|e| XtcHandlerError::Pbc(e))?),
+                    ..Default::default()
                 })
             }
             Self::Writer(_) => unreachable!(),
