@@ -26,9 +26,9 @@ Molar is designed to simplify the analysis of molecular dynamics trajectories an
 MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies.
 
 # Features
-* Reading and writing PDB, GRO, XYZ, XTC, TRR, TPR, and AMBER NetCDF (.nc) files
+* Reading and writing PDB, GRO, XYZ, XTC, TRR, TPR, CPT, and AMBER NetCDF (.nc) files
     * Reading and writing trajectories with random access.
-    * Reading Gromacs TPR files (if Gromacs is installed).
+    * Reading Gromacs TPR and CPT (checkpoint) files (if Gromacs is installed).
 * Selections using the syntax similar to VMD and Pteros
     * Memory-safe selections for serial and parallel analysis tasks.
     * Powerful subselections and selection splitting.
@@ -54,9 +54,11 @@ To add MolAR to your Rust project just use `cargo add molar`.
 
 For installation of the Python bindings [look here](#python-bindings).
 
-## Gromacs TPR support
+## Gromacs TPR and CPT support
 
-TPR reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has no compile-time Gromacs dependency — the plugin is loaded dynamically when a `.tpr` file is opened. If the plugin is not found, attempt to load TPR files return an error.
+TPR and CPT (checkpoint) reading is implemented as a **runtime plugin** (`libmolar_gromacs_plugin`). MolAR itself has no compile-time Gromacs dependency — the plugin is loaded dynamically when a `.tpr` or `.cpt` file is opened. If the plugin is not found, attempts to open these files return an error.
+
+Opening a `.cpt` file returns a `State` containing the coordinates and periodic box at the checkpointed step. It can be used to, e.g., continue analysis from a specific checkpoint or to patch coordinates from a restart into an existing system.
 
 MolAR searches for plugin in this order:
 1. `MOLAR_GROMACS_PLUGIN` environment variable (runtime override).
@@ -785,11 +787,11 @@ It is highly recommended to use a Python virtual environment. It is assumed that
 pip install pymolar
 ```
 
-Installed package _does not_ include the Gromacs plugin. If you want to read TPR files you have to compile the plugin and link against the local Gromacs installation as described [here](#gromacs-tpr-support).
+Installed package _does not_ include the Gromacs plugin. If you want to read TPR or CPT files you have to compile the plugin and link against the local Gromacs installation as described [here](#gromacs-tpr-and-cpt-support).
 
 ### Compiling from source
 
-You may compile `pymolar` from source. In this case Gromacs plugin is also compiled if the corresponding paths are provided as described [here](#gromacs-tpr-support).
+You may compile `pymolar` from source. In this case Gromacs plugin is also compiled if the corresponding paths are provided as described [here](#gromacs-tpr-and-cpt-support).
 
 ```shell
 #1. Install maturin in the current virtual environment
