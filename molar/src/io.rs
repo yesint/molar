@@ -8,6 +8,7 @@ use std::{
 };
 use thiserror::Error;
 
+mod cpt_handler;
 mod dcd_handler;
 mod gro_handler;
 mod itp_handler;
@@ -18,6 +19,7 @@ mod trr_handler;
 mod xtc_handler;
 mod xyz_handler;
 
+use cpt_handler::{CptFileHandler, CptHandlerError};
 use dcd_handler::{DcdFileHandler, DcdHandlerError};
 use gro_handler::{GroFileHandler, GroHandlerError};
 use itp_handler::{ItpFileHandler, ItpHandlerError};
@@ -255,6 +257,9 @@ impl FileHandler {
             ),
             "tpr" => Box::new(
                 TprFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "cpt" => Box::new(
+                CptFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "trr" => Box::new(
                 TrrFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -618,6 +623,10 @@ pub(crate) enum FileFormatError {
     /// TRR format handler error
     #[error("in trr format handler")]
     Trr(#[from] TrrHandlerError),
+
+    /// CPT format handler error
+    #[error("in cpt format handler")]
+    Cpt(#[from] CptHandlerError),
 
     /// TPR format handler error
     #[error("in tpr format handler")]

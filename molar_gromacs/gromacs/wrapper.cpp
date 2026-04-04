@@ -1,15 +1,20 @@
+#include <cstdint>
 #include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "gromacs/fileio/checkpoint.h"
+#include "gromacs/fileio/gmxfio.h"
 #include "gromacs/fileio/tpxio.h"
+#include "gromacs/fileio/trxio.h"
 #include "gromacs/mdtypes/inputrec.h"
 #include "gromacs/mdtypes/state.h"
 #include "gromacs/topology/idef.h"
 #include "gromacs/topology/ifunc.h"
 #include "gromacs/topology/mtop_util.h"
 #include "gromacs/topology/topology.h"
+#include "gromacs/trajectory/trajectoryframe.h"
 
 #include "wrapper.hpp"
 
@@ -189,4 +194,83 @@ void tpr_fill_box(TprHandle* h, float* out9)
     memcpy(out9, h->state.box, 9 * sizeof(float));
 }
 
-} /* extern "C" */
+} /* extern "C" (TPR) */
+
+//=============================================================================
+// CPT (checkpoint) support
+//=============================================================================
+
+struct CptHandle {
+    int                natoms;
+    float              time;
+    int64_t            step;
+    std::vector<float> coords;  /* natoms*3 floats, nm */
+    float              box[9];  /* 3×3 row-major, nm  */
+};
+
+extern "C" {
+
+CptHandle* cpt_open(const char* path)
+{
+    try {
+        t_fileio* fp = gmx_fio_open(std::filesystem::path(path), "r");
+        if (!fp) {
+            s_last_error = "gmx_fio_open returned null";
+            return nullptr;
+        }
+
+        t_trxframe fr;
+        clear_trxframe(&fr, TRUE);
+        read_checkpoint_trxframe(fp, &fr);
+        gmx_fio_close(fp);
+
+        CptHandle* h = new CptHandle();
+        h->natoms = fr.natoms;
+        h->time   = fr.bTime ? static_cast<float>(fr.time) : 0.0f;
+        h->step   = fr.bStep ? fr.step : 0;
+
+        if (fr.bX && fr.x) {
+            h->coords.resize(fr.natoms * 3);
+            for (int i = 0; i < fr.natoms; ++i) {
+                h->coords[i * 3 + 0] = fr.x[i][XX];
+                h->coords[i * 3 + 1] = fr.x[i][YY];
+                h->coords[i * 3 + 2] = fr.x[i][ZZ];
+            }
+        }
+
+        if (fr.bBox) {
+            memcpy(h->box, fr.box, 9 * sizeof(float));
+        } else {
+            memset(h->box, 0, 9 * sizeof(float));
+        }
+
+        done_frame(&fr);
+        return h;
+    }
+    catch (const std::exception& e) {
+        s_last_error = e.what();
+        return nullptr;
+    }
+    catch (...) {
+        s_last_error = "unknown error in cpt_open";
+        return nullptr;
+    }
+}
+
+void    cpt_close(CptHandle* h)      { delete h; }
+size_t  cpt_natoms(CptHandle* h)     { return static_cast<size_t>(h->natoms); }
+float   cpt_time(CptHandle* h)       { return h->time; }
+int64_t cpt_step(CptHandle* h)       { return h->step; }
+
+void cpt_fill_coords(CptHandle* h, float* out)
+{
+    if (!h->coords.empty())
+        memcpy(out, h->coords.data(), h->coords.size() * sizeof(float));
+}
+
+void cpt_fill_box(CptHandle* h, float* out9)
+{
+    memcpy(out9, h->box, 9 * sizeof(float));
+}
+
+} /* extern "C" (CPT) */

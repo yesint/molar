@@ -24,7 +24,9 @@ fn main() {
             .include(format!("{src_env}/src/gromacs/topology/include"))
             .include(format!("{src_env}/api/legacy/include"))
             .include(format!("{src_env}/src/external"))
+            .include(format!("{src_env}/src/external/thread_mpi/include"))
             .include(format!("{bld_env}/api/legacy/include"))
+            .include(format!("{bld_env}/src/include"))
             .pic(true)
             .warnings(false)
             .compile_intermediates();

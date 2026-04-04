@@ -1,4 +1,4 @@
-use std::{ffi::CStr, os::raw::c_char};
+use std::{ffi::CStr, os::raw::c_char, sync::{Arc, OnceLock}};
 
 /// C-ABI atom data, layout matches `TprAtom` in `wrapper.hpp`.
 #[repr(C)]
@@ -37,6 +37,20 @@ pub struct TprMolecule {
 /// Opaque handle returned by `tpr_open`.
 pub enum TprHandle {}
 
+/// Opaque handle returned by `cpt_open`.
+pub enum CptHandle {}
+
+/// Function pointer table for CPT functions resolved from the plugin shared library.
+pub struct CptPluginFns {
+    pub cpt_open:        unsafe extern "C" fn(*const c_char) -> *mut CptHandle,
+    pub cpt_close:       unsafe extern "C" fn(*mut CptHandle),
+    pub cpt_natoms:      unsafe extern "C" fn(*mut CptHandle) -> usize,
+    pub cpt_time:        unsafe extern "C" fn(*mut CptHandle) -> f32,
+    pub cpt_step:        unsafe extern "C" fn(*mut CptHandle) -> i64,
+    pub cpt_fill_coords: unsafe extern "C" fn(*mut CptHandle, *mut f32),
+    pub cpt_fill_box:    unsafe extern "C" fn(*mut CptHandle, *mut f32),
+}
+
 /// Function pointer table resolved from the plugin shared library.
 pub struct TprPluginFns {
     pub tpr_open:          unsafe extern "C" fn(*const c_char) -> *mut TprHandle,
@@ -57,8 +71,9 @@ pub struct TprPluginFns {
 /// The `Library` must outlive all use of the function pointers.  Wrapping both
 /// in a single struct guarantees that invariant.
 pub struct TprPlugin {
-    _lib: libloading::Library,
-    pub fns: TprPluginFns,
+    _lib:     libloading::Library,
+    pub fns:  TprPluginFns,
+    pub cpt:  CptPluginFns,
 }
 
 // TprHandle is heap-allocated C++ data; TprPlugin is just a library + fn ptrs.
@@ -76,7 +91,8 @@ impl TprPlugin {
     pub fn load() -> Result<Self, libloading::Error> {
         let lib = Self::open_library()?;
         let fns = unsafe { Self::resolve(&lib)? };
-        Ok(TprPlugin { _lib: lib, fns })
+        let cpt = unsafe { Self::resolve_cpt(&lib)? };
+        Ok(TprPlugin { _lib: lib, fns, cpt })
     }
 
     fn open_library() -> Result<libloading::Library, libloading::Error> {
@@ -114,6 +130,41 @@ impl TprPlugin {
             tpr_fill_coords:    sym!(b"tpr_fill_coords\0",    unsafe extern "C" fn(*mut TprHandle, *mut f32)),
             tpr_fill_box:       sym!(b"tpr_fill_box\0",       unsafe extern "C" fn(*mut TprHandle, *mut f32)),
         })
+    }
+
+    unsafe fn resolve_cpt(lib: &libloading::Library) -> Result<CptPluginFns, libloading::Error> {
+        macro_rules! sym {
+            ($name:literal, $ty:ty) => {
+                *lib.get::<$ty>($name)?
+            };
+        }
+        Ok(CptPluginFns {
+            cpt_open:        sym!(b"cpt_open\0",        unsafe extern "C" fn(*const c_char) -> *mut CptHandle),
+            cpt_close:       sym!(b"cpt_close\0",       unsafe extern "C" fn(*mut CptHandle)),
+            cpt_natoms:      sym!(b"cpt_natoms\0",      unsafe extern "C" fn(*mut CptHandle) -> usize),
+            cpt_time:        sym!(b"cpt_time\0",        unsafe extern "C" fn(*mut CptHandle) -> f32),
+            cpt_step:        sym!(b"cpt_step\0",        unsafe extern "C" fn(*mut CptHandle) -> i64),
+            cpt_fill_coords: sym!(b"cpt_fill_coords\0", unsafe extern "C" fn(*mut CptHandle, *mut f32)),
+            cpt_fill_box:    sym!(b"cpt_fill_box\0",    unsafe extern "C" fn(*mut CptHandle, *mut f32)),
+        })
+    }
+
+    /// Return a cached `Arc<TprPlugin>`, loading the shared library at most once.
+    ///
+    /// On first call the library is loaded; on success the result is stored in a
+    /// process-wide `OnceLock`.  If loading fails the error is returned and the
+    /// next call will retry (the `OnceLock` is only set on success).  A harmless
+    /// race where two threads both succeed is resolved by letting one winner's
+    /// `Arc` persist and dropping the other.
+    pub fn get_cached() -> Result<Arc<Self>, libloading::Error> {
+        static CACHE: OnceLock<Arc<TprPlugin>> = OnceLock::new();
+        if let Some(p) = CACHE.get() {
+            return Ok(Arc::clone(p));
+        }
+        let plugin = Arc::new(Self::load()?);
+        // If another thread raced and won, use its copy; otherwise use ours.
+        let _ = CACHE.set(Arc::clone(&plugin));
+        Ok(CACHE.get().map(Arc::clone).unwrap_or(plugin))
     }
 
     /// Return the error message from the last failed `tpr_open` call.

@@ -45,8 +45,7 @@ impl FileFormatHandler for TprFileHandler {
     where
         Self: Sized,
     {
-        let plugin = TprPlugin::load()
-            .map(Arc::new)
+        let plugin = TprPlugin::get_cached()
             .map_err(|e| TprHandlerError::GromacsNotFound(e.to_string()))?;
 
         let c_path = CString::new(fname.as_ref().to_str().unwrap())

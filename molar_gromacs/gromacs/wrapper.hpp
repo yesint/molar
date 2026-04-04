@@ -31,8 +31,9 @@ typedef struct {
     uint32_t end;    /* last atom index, inclusive */
 } TprMolecule;
 
-/* Opaque handle — internals defined only in wrapper.cpp */
+/* Opaque handles — internals defined only in wrapper.cpp */
 typedef struct TprHandle TprHandle;
+typedef struct CptHandle CptHandle;
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,7 +42,7 @@ extern "C" {
 /* Open a TPR file; returns NULL on error (call tpr_last_error for message). */
 TprHandle*  tpr_open(const char* path);
 void        tpr_close(TprHandle* handle);
-/* Error message from the last failed tpr_open(); valid until the next call. */
+/* Error message from the last failed tpr_open() or cpt_open(); valid until next call. */
 const char* tpr_last_error(void);
 
 /* Counts — computed once at open, O(1) thereafter. */
@@ -58,6 +59,18 @@ void tpr_fill_molecules(TprHandle* handle, TprMolecule* out);
 void tpr_fill_coords(TprHandle* handle, float* out);
 /* out must hold 9 floats (box matrix flattened row-major). */
 void tpr_fill_box(TprHandle* handle, float* out9);
+
+/* Open a CPT (checkpoint) file; returns NULL on error (call tpr_last_error for message).
+   Reads and caches coordinates + box only; velocities and forces are ignored. */
+CptHandle* cpt_open(const char* path);
+void       cpt_close(CptHandle* handle);
+size_t     cpt_natoms(CptHandle* handle);
+float      cpt_time(CptHandle* handle);
+int64_t    cpt_step(CptHandle* handle);
+/* out must hold natoms*3 floats (row-major XYZ, nm). */
+void       cpt_fill_coords(CptHandle* handle, float* out);
+/* out must hold 9 floats (box matrix flattened row-major, nm). */
+void       cpt_fill_box(CptHandle* handle, float* out9);
 
 #ifdef __cplusplus
 }
