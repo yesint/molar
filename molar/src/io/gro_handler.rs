@@ -49,7 +49,7 @@ pub enum GroHandlerError {
 impl GroFileHandler {
     fn read_inner(
         &mut self,
-        read_coords: bool,
+        _read_coords: bool,
         read_vels: bool,
         _read_forces: bool,
     ) -> Result<(Topology, State), FileFormatError> {
@@ -86,81 +86,62 @@ impl GroFileHandler {
             .parse::<usize>()
             .map_err(GroHandlerError::ParseInt)?;
 
-        let mut vels: Vec<Vel> = if read_vels {
-            Vec::with_capacity(natoms)
+        state.coords.reserve(natoms);
+
+        // Peek at the first atom line to detect whether the file has velocity columns.
+        // This single check before the loop avoids per-atom branching.
+        let file_has_vels = if read_vels && natoms > 0 {
+            buf.fill_buf()?;
+            // fill_buf gives us the buffer without consuming it; check the line length.
+            // A GRO line with velocities has at least 68 bytes (cols 0-67).
+            let peek = buf.fill_buf()?;
+            let line_len = peek.iter().position(|&b| b == b'\n').map(|p| p + 1).unwrap_or(peek.len());
+            line_len >= 68
         } else {
-            Vec::new()
+            false
         };
 
-        // Go over atoms line by line
-        for i in 0..natoms {
-            line.clear();
-            buf.read_line(&mut line).unwrap();
+        if file_has_vels {
+            let mut vels: Vec<Vel> = Vec::with_capacity(natoms);
+            for i in 0..natoms {
+                line.clear();
+                buf.read_line(&mut line).unwrap();
 
-            let resid = line
-                .get(0..5)
-                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?
-                .trim()
-                .parse::<i32>()
-                .map_err(GroHandlerError::ParseInt)?;
-            let resname = line
-                .get(5..10)
-                .ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?
-                .trim();
-            let name = line
-                .get(10..15)
-                .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
-                .trim();
+                let resid = line.get(0..5).ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?.trim().parse::<i32>().map_err(GroHandlerError::ParseInt)?;
+                let resname = line.get(5..10).ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?.trim();
+                let name = line.get(10..15).ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?.trim();
+                top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
-            top.atoms.push(
-                Atom::new()
-                    .with_name(name)
-                    .with_resname(resname)
-                    .with_resid(resid)
-                    .guess(),
-            );
+                state.coords.push(Pos::new(
+                    line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(28..36).ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(36..44).ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                ));
 
-            // Coordinates (cols 20–43)
-            if read_coords {
-                let crd = Pos::new(
-                    line.get(20..28)
-                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
-                        .trim()
-                        .parse::<f32>()
-                        .map_err(GroHandlerError::ParseFloat)?,
-                    line.get(28..36)
-                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?
-                        .trim()
-                        .parse::<f32>()
-                        .map_err(GroHandlerError::ParseFloat)?,
-                    line.get(36..44)
-                        .ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?
-                        .trim()
-                        .parse::<f32>()
-                        .map_err(GroHandlerError::ParseFloat)?,
-                );
-                state.coords.push(crd);
+                vels.push(Vel::new(
+                    line.get(44..52).ok_or_else(|| GroHandlerError::AtomEntry(i, "vx".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(52..60).ok_or_else(|| GroHandlerError::AtomEntry(i, "vy".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(60..68).ok_or_else(|| GroHandlerError::AtomEntry(i, "vz".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                ));
             }
+            state.velocities = vels;
+        } else {
+            for i in 0..natoms {
+                line.clear();
+                buf.read_line(&mut line).unwrap();
 
-            // Velocities (cols 44–67, optional columns in GRO format)
-            if read_vels {
-                if let (Some(vx), Some(vy), Some(vz)) =
-                    (line.get(44..52), line.get(52..60), line.get(60..68))
-                {
-                    if let (Ok(vx), Ok(vy), Ok(vz)) = (
-                        vx.trim().parse::<f32>(),
-                        vy.trim().parse::<f32>(),
-                        vz.trim().parse::<f32>(),
-                    ) {
-                        vels.push(Vel::new(vx, vy, vz));
-                    }
-                }
-                // Absent velocity columns are silently skipped;
-                // read_state_pick() validates if they were explicitly requested.
+                let resid = line.get(0..5).ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?.trim().parse::<i32>().map_err(GroHandlerError::ParseInt)?;
+                let resname = line.get(5..10).ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?.trim();
+                let name = line.get(10..15).ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?.trim();
+                top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+
+                state.coords.push(Pos::new(
+                    line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(28..36).ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(36..44).ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                ));
             }
         }
-
-        state.velocities = vels;
 
         /* Read the box
         Format: (https://manual.gromacs.org/archive/5.0.3/online/gro.html)
@@ -242,29 +223,27 @@ impl FileFormatHandler for GroFileHandler {
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
 
-        // Write atom lines
-        let mut at_it = data.iter_atoms_dyn();
-        let mut pos_it = data.iter_pos_dyn();
-        let mut vel_it = data.iter_vel_dyn();
-        let has_vel = vel_it.len() > 0;
+        // Write atom lines — two separate loops to avoid per-atom velocity branch.
+        let at_it = data.iter_atoms_dyn();
+        let pos_it = data.iter_pos_dyn();
+        let vel_it = data.iter_vel_dyn();
 
-        for i in 0..natoms {
-            let at = at_it.next().unwrap();
-            let pos = pos_it.next().unwrap();
-
-            let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
-            let resid = at.resid % 99999; // Prevents overflow of resid field.
-
-            write!(
-                buf,
-                "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}",
-                resid, at.resname, at.name, ind, pos.x, pos.y, pos.z
-            )?;
-            if has_vel {
-                let v = vel_it.next().unwrap();
-                write!(buf, "{:>8.4}{:>8.4}{:>8.4}", v.x, v.y, v.z)?;
+        if vel_it.len() > 0 {
+            for (i, ((at, pos), v)) in at_it.zip(pos_it).zip(vel_it).enumerate() {
+                let ind = (i % 99999) + 1;
+                let resid = at.resid % 99999;
+                write!(buf, "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}{:>8.4}{:>8.4}{:>8.4}",
+                    resid, at.resname, at.name, ind, pos.x, pos.y, pos.z, v.x, v.y, v.z)?;
+                writeln!(buf)?;
             }
-            writeln!(buf)?;
+        } else {
+            for (i, (at, pos)) in at_it.zip(pos_it).enumerate() {
+                let ind = (i % 99999) + 1;
+                let resid = at.resid % 99999;
+                write!(buf, "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}",
+                    resid, at.resname, at.name, ind, pos.x, pos.y, pos.z)?;
+                writeln!(buf)?;
+            }
         }
 
         // Write periodic box
