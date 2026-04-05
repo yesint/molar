@@ -145,14 +145,20 @@ impl SaveState for SelOwnBound<'_> {
         Box::new(self.index.iter().map(|&i| &self.sys.st.coords[i]))
     }
 
-    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
-        let vels = self.sys.st.velocities.as_ref()?;
-        Some(Box::new(self.index.iter().map(|&i| &vels[i])))
+    fn iter_vel_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a> {
+        if self.sys.st.velocities.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+        let vels = &self.sys.st.velocities;
+        Box::new(self.index.iter().map(|&i| &vels[i]))
     }
 
-    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
-        let forces = self.sys.st.forces.as_ref()?;
-        Some(Box::new(self.index.iter().map(|&i| &forces[i])))
+    fn iter_force_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Force> + 'a> {
+        if self.sys.st.forces.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+        let forces = &self.sys.st.forces;
+        Box::new(self.index.iter().map(|&i| &forces[i]))
     }
 }
 
@@ -287,14 +293,20 @@ impl SaveState for SelBound<'_> {
         Box::new(self.index.iter().map(|&i| &self.sys.st.coords[i]))
     }
 
-    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
-        let vels = self.sys.st.velocities.as_ref()?;
-        Some(Box::new(self.index.iter().map(|&i| &vels[i])))
+    fn iter_vel_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a> {
+        if self.sys.st.velocities.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+        let vels = &self.sys.st.velocities;
+        Box::new(self.index.iter().map(|&i| &vels[i]))
     }
 
-    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
-        let forces = self.sys.st.forces.as_ref()?;
-        Some(Box::new(self.index.iter().map(|&i| &forces[i])))
+    fn iter_force_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Force> + 'a> {
+        if self.sys.st.forces.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+        let forces = &self.sys.st.forces;
+        Box::new(self.index.iter().map(|&i| &forces[i]))
     }
 }
 

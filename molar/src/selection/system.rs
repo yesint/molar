@@ -329,14 +329,12 @@ impl SaveState for System {
         Box::new(self.st.coords.iter())
     }
 
-    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
-        let vels = self.st.velocities.as_ref()?;
-        Some(Box::new(vels.iter()))
+    fn iter_vel_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a> {
+        Box::new(self.st.velocities.iter())
     }
 
-    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
-        let forces = self.st.forces.as_ref()?;
-        Some(Box::new(forces.iter()))
+    fn iter_force_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Force> + 'a> {
+        Box::new(self.st.forces.iter())
     }
 }
 

@@ -7,8 +7,8 @@ use thiserror::Error;
 use crate::prelude::*;
 
 pub struct CptFileHandler {
-    plugin:       Arc<TprPlugin>,
-    handle:       *mut CptHandle,
+    plugin: Arc<TprPlugin>,
+    handle: *mut CptHandle,
     already_read: bool,
 }
 
@@ -44,11 +44,11 @@ impl FileFormatHandler for CptFileHandler {
     where
         Self: Sized,
     {
-        let plugin = TprPlugin::get_cached()
-            .map_err(|e| CptHandlerError::GromacsNotFound(e.to_string()))?;
+        let plugin =
+            TprPlugin::get_cached().map_err(|e| CptHandlerError::GromacsNotFound(e.to_string()))?;
 
-        let c_path = CString::new(fname.as_ref().to_str().unwrap())
-            .map_err(CptHandlerError::CStringNull)?;
+        let c_path =
+            CString::new(fname.as_ref().to_str().unwrap()).map_err(CptHandlerError::CStringNull)?;
         let handle = unsafe { (plugin.cpt.cpt_open)(c_path.as_ptr()) };
 
         if handle.is_null() {
@@ -56,30 +56,39 @@ impl FileFormatHandler for CptFileHandler {
             return Err(CptHandlerError::OpenFailed(msg).into());
         }
 
-        Ok(CptFileHandler { plugin, handle, already_read: false })
+        Ok(CptFileHandler {
+            plugin,
+            handle,
+            already_read: false,
+        })
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
-        self.read_state_pick(true, true, true)
+        self.read_state_pick(true, true, false)
     }
 
-    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
+    fn read_state_pick(
+        &mut self,
+        read_coords: bool,
+        read_vels: bool,
+        read_forces: bool,
+    ) -> Result<State, FileFormatError> {
         if self.already_read {
             return Err(FileFormatError::Eof);
         }
         self.already_read = true;
 
         let cpt = &self.plugin.cpt;
-        let h   = self.handle;
+        let h = self.handle;
 
         let natoms = unsafe { (cpt.cpt_natoms)(h) };
-        let time   = unsafe { (cpt.cpt_time)(h) };
+        let time = unsafe { (cpt.cpt_time)(h) };
 
         let mut st = State::default();
         st.time = time;
 
         // Coordinates
-        if coords {
+        if read_coords {
             let mut buf: Vec<f32> = vec![0.0; natoms * 3];
             unsafe { (cpt.cpt_fill_coords)(h, buf.as_mut_ptr()) };
             st.coords.resize(natoms, Default::default());
@@ -96,7 +105,7 @@ impl FileFormatHandler for CptFileHandler {
         st.pbox = Some(PeriodicBox::from_matrix(m).map_err(CptHandlerError::Pbc)?);
 
         // Velocities
-        if velocities {
+        if read_vels {
             let has_v = unsafe { (cpt.cpt_has_velocities)(h) };
             if has_v != 0 {
                 let mut buf: Vec<f32> = vec![0.0; natoms * 3];
@@ -104,12 +113,14 @@ impl FileFormatHandler for CptFileHandler {
                 let vels: Vec<Vel> = (0..natoms)
                     .map(|i| Vel::new(buf[i * 3], buf[i * 3 + 1], buf[i * 3 + 2]))
                     .collect();
-                st.velocities = Some(vels);
+                st.velocities = vels;
+            } else {
+                return Err(FileFormatError::NoVelocities);
             }
         }
 
         // Forces
-        if forces {
+        if read_forces {
             let has_f = unsafe { (cpt.cpt_has_forces)(h) };
             if has_f != 0 {
                 let mut buf: Vec<f32> = vec![0.0; natoms * 3];
@@ -117,7 +128,9 @@ impl FileFormatHandler for CptFileHandler {
                 let force_data: Vec<Force> = (0..natoms)
                     .map(|i| Force::new(buf[i * 3], buf[i * 3 + 1], buf[i * 3 + 2]))
                     .collect();
-                st.forces = Some(force_data);
+                st.forces = force_data;
+            } else {
+                return Err(FileFormatError::NoForces);
             }
         }
 
@@ -135,11 +148,9 @@ mod tests {
         let mut h = match CptFileHandler::open("tests/state.cpt") {
             Ok(h) => h,
             Err(e) => {
-                let is_not_found = std::iter::successors(
-                    Some(&e as &dyn std::error::Error),
-                    |e| e.source(),
-                )
-                .any(|e| e.to_string().contains("plugin not found"));
+                let is_not_found =
+                    std::iter::successors(Some(&e as &dyn std::error::Error), |e| e.source())
+                        .any(|e| e.to_string().contains("plugin not found"));
                 if is_not_found {
                     eprintln!("Skipping test_cpt: Gromacs plugin not available");
                     return;
@@ -152,7 +163,11 @@ mod tests {
 
         // natoms and time from `gmx dump -cp tests/state.cpt`
         assert_eq!(st.len(), 96027);
-        assert!((st.time - 100000.0_f32).abs() < 1.0, "time mismatch: {}", st.time);
+        assert!(
+            (st.time - 100000.0_f32).abs() < 1.0,
+            "time mismatch: {}",
+            st.time
+        );
 
         // First atom coords from gmx dump: x[0..2] = 7.46414, 4.04902, 8.06754 (nm)
         let p = &st.coords[0];
@@ -165,20 +180,32 @@ mod tests {
         //   box[1] = {4.82052, 8.34932, 0}
         //   box[2] = {0, 0, 11.4521}
         let m = st.pbox.as_ref().unwrap().get_matrix();
-        assert!((m[(0, 0)] - 9.64104_f32).abs() < 1e-4, "box[0][0]: {}", m[(0, 0)]);
-        assert!((m[(1, 1)] - 8.34932_f32).abs() < 1e-4, "box[1][1]: {}", m[(1, 1)]);
-        assert!((m[(2, 2)] - 11.4521_f32).abs()  < 1e-3, "box[2][2]: {}", m[(2, 2)]);
+        assert!(
+            (m[(0, 0)] - 9.64104_f32).abs() < 1e-4,
+            "box[0][0]: {}",
+            m[(0, 0)]
+        );
+        assert!(
+            (m[(1, 1)] - 8.34932_f32).abs() < 1e-4,
+            "box[1][1]: {}",
+            m[(1, 1)]
+        );
+        assert!(
+            (m[(2, 2)] - 11.4521_f32).abs() < 1e-3,
+            "box[2][2]: {}",
+            m[(2, 2)]
+        );
 
         // Velocities from `gmx dump -cp tests/state.cpt`: v[0..2] = 0.816909, -0.184407, 0.448161 (nm/ps)
-        let vels = st.velocities.as_ref().expect("CPT should have velocities");
-        assert_eq!(vels.len(), 96027, "velocity count mismatch");
-        let v0 = &vels[0];
+        assert!(!st.velocities.is_empty(), "CPT should have velocities");
+        assert_eq!(st.velocities.len(), 96027, "velocity count mismatch");
+        let v0 = &st.velocities[0];
         assert!((v0.x - 0.816909_f32).abs() < 1e-4, "atom0 vx: {}", v0.x);
         assert!((v0.y - (-0.184407_f32)).abs() < 1e-4, "atom0 vy: {}", v0.y);
         assert!((v0.z - 0.448161_f32).abs() < 1e-4, "atom0 vz: {}", v0.z);
 
         // Forces are not present in this CPT file
-        assert!(st.forces.is_none(), "CPT should have no forces");
+        assert!(st.forces.is_empty(), "CPT should have no forces");
     }
 
     #[test]
@@ -188,11 +215,9 @@ mod tests {
         let mut h = match FileHandler::open("tests/state.cpt") {
             Ok(h) => h,
             Err(e) => {
-                let is_not_found = std::iter::successors(
-                    Some(&e as &dyn std::error::Error),
-                    |e| e.source(),
-                )
-                .any(|e| e.to_string().contains("plugin not found"));
+                let is_not_found =
+                    std::iter::successors(Some(&e as &dyn std::error::Error), |e| e.source())
+                        .any(|e| e.to_string().contains("plugin not found"));
                 if is_not_found {
                     eprintln!("Skipping test_cpt_pick: Gromacs plugin not available");
                     return;
@@ -201,10 +226,13 @@ mod tests {
             }
         };
 
-        // Read coords only — velocities should be None even though the file has them
+        // Read coords only — velocities should be empty even though the file has them
         let st = h.read_state_pick(true, false, false).unwrap();
         assert_eq!(st.len(), 96027);
-        assert!(st.velocities.is_none(), "velocities should be None when not requested");
-        assert!(st.forces.is_none());
+        assert!(
+            st.velocities.is_empty(),
+            "velocities should be empty when not requested"
+        );
+        assert!(st.forces.is_empty());
     }
 }

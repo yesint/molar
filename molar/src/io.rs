@@ -41,14 +41,14 @@ pub trait SaveTopology: LenProvider {
 pub trait SaveState: BoxProvider + TimeProvider + LenProvider {
     fn iter_pos_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Pos> + 'a>;
 
-    /// Returns an iterator over velocities, or `None` if not available.
-    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
-        None
+    /// Returns an iterator over velocities. Empty iterator if not available.
+    fn iter_vel_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a> {
+        Box::new(std::iter::empty())
     }
 
-    /// Returns an iterator over forces, or `None` if not available.
-    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
-        None
+    /// Returns an iterator over forces. Empty iterator if not available.
+    fn iter_force_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Force> + 'a> {
+        Box::new(std::iter::empty())
     }
 }
 
@@ -97,17 +97,13 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotStateReadFormat)
     }
 
-    /// Read a frame, loading only the requested fields.
-    ///
-    /// The default implementation reads everything (via [`read_state`](Self::read_state))
-    /// and then clears unwanted fields. Format handlers that support selective I/O
-    /// (e.g. TRR, GRO) override this for actual byte-skipping performance gains.
-    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
-        let mut st = self.read_state()?;
-        if !velocities { st.velocities = None; }
-        if !forces     { st.forces     = None; }
-        if !coords     { st.coords.clear(); }
-        Ok(st)
+    fn read_state_pick(
+        &mut self,
+        read_coords: bool,
+        read_vels: bool,
+        read_forces: bool,
+    ) -> Result<State, FileFormatError> {
+        Err(FileFormatError::NotStatePickFormat)
     }
 
     fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
@@ -122,13 +118,14 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotStateWriteFormat)
     }
 
-    /// Write a frame, outputting only the requested fields.
-    ///
-    /// The default implementation ignores the flags and calls [`write_state`](Self::write_state).
-    /// Format handlers that support selective I/O (e.g. TRR) override this.
-    fn write_state_pick(&mut self, data: &dyn SaveState, coords: bool, velocities: bool, forces: bool) -> Result<(), FileFormatError> {
-        let _ = (coords, velocities, forces);
-        self.write_state(data)
+    fn write_state_pick(
+        &mut self,
+        data: &dyn SaveState,
+        write_coords: bool,
+        write_vels: bool,
+        write_forces: bool,
+    ) -> Result<(), FileFormatError> {
+        Err(FileFormatError::NotStatePickFormat)
     }
 
     fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
@@ -494,7 +491,12 @@ impl FileHandler {
     ///
     /// # Errors
     /// Same as [`read_state`](Self::read_state).
-    pub fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileIoError> {
+    pub fn read_state_pick(
+        &mut self,
+        coords: bool,
+        velocities: bool,
+        forces: bool,
+    ) -> Result<State, FileIoError> {
         let t = std::time::Instant::now();
 
         let res = self
@@ -541,7 +543,13 @@ impl FileHandler {
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support state writing
-    pub fn write_state_pick(&mut self, data: &dyn SaveState, coords: bool, velocities: bool, forces: bool) -> Result<(), FileIoError> {
+    pub fn write_state_pick(
+        &mut self,
+        data: &dyn SaveState,
+        coords: bool,
+        velocities: bool,
+        forces: bool,
+    ) -> Result<(), FileIoError> {
         let t = std::time::Instant::now();
 
         self.format_handler
@@ -648,9 +656,9 @@ impl FileHandler {
     //         // Not a random access trajectory
     //         // Do serial read until reaching EOF
     //         while let Ok(_) = self.read_state() {}
-            
+
     //         Ok(())
-            
+
     //     })
     // }
 }
@@ -770,6 +778,18 @@ pub(crate) enum FileFormatError {
 
     #[error("file extension is not recognized")]
     NotRecognized,
+
+    #[error("reading velocities requested but there are none")]
+    NoVelocities,
+
+    #[error("reading forces requested but there are none")]
+    NoForces,
+
+    #[error("at least one of coords, velocities, or forces must be requested")]
+    NothingToRead,
+
+    #[error("format doesn't support picking state components")]
+    NotStatePickFormat,
 }
 //----------------------------------------
 
@@ -796,13 +816,13 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.xtc")?;
         r.seek_frame(2)?;
         let st = r.read_state()?;
-        println!("{} {}",r.stats.frames_processed, st.time);
+        println!("{} {}", r.stats.frames_processed, st.time);
         r.seek_frame(1)?;
         let st = r.read_state()?;
-        println!("{} {}",r.stats.frames_processed, st.time);
+        println!("{} {}", r.stats.frames_processed, st.time);
         r.seek_frame(3)?;
         let st = r.read_state()?;
-        println!("{} {}",r.stats.frames_processed, st.time);
+        println!("{} {}", r.stats.frames_processed, st.time);
         Ok(())
     }
 
@@ -811,7 +831,7 @@ mod tests {
         let mut r = FileHandler::open("tests/protein.xtc")?;
         r.seek_time(200_001.0)?;
         let st = r.read_state()?;
-        println!("{} {}",r.stats.frames_processed, st.time);
+        println!("{} {}", r.stats.frames_processed, st.time);
         Ok(())
     }
 
@@ -913,7 +933,11 @@ mod tests {
         assert_eq!(ref_states.len(), dcd_states.len(), "Frame count mismatch");
 
         for (fr, (ref_st, dcd_st)) in ref_states.iter().zip(dcd_states.iter()).enumerate() {
-            assert_eq!(ref_st.coords.len(), dcd_st.coords.len(), "Atom count mismatch at frame {fr}");
+            assert_eq!(
+                ref_st.coords.len(),
+                dcd_st.coords.len(),
+                "Atom count mismatch at frame {fr}"
+            );
             for (i, (rp, dp)) in ref_st.coords.iter().zip(dcd_st.coords.iter()).enumerate() {
                 let d = (rp - dp).norm();
                 assert!(d < 1e-3, "Coord mismatch at frame {fr} atom {i}: diff={d}");
@@ -924,8 +948,14 @@ mod tests {
                     let (rl, ra) = rb.to_vectors_angles();
                     let (dl, da) = db.to_vectors_angles();
                     for k in 0..3 {
-                        assert!((rl[k] - dl[k]).abs() < 1e-4, "Box length mismatch at frame {fr}");
-                        assert!((ra[k] - da[k]).abs() < 0.01, "Box angle mismatch at frame {fr}");
+                        assert!(
+                            (rl[k] - dl[k]).abs() < 1e-4,
+                            "Box length mismatch at frame {fr}"
+                        );
+                        assert!(
+                            (ra[k] - da[k]).abs() < 0.01,
+                            "Box angle mismatch at frame {fr}"
+                        );
                     }
                 }
                 (None, None) => {}
@@ -942,10 +972,7 @@ mod tests {
         let dcd_path = concat!(env!("OUT_DIR"), "/seek_test.dcd");
 
         // Write a few frames to DCD
-        let ref_states: Vec<State> = FileHandler::open(xtc_path)?
-            .into_iter()
-            .take(5)
-            .collect();
+        let ref_states: Vec<State> = FileHandler::open(xtc_path)?.into_iter().take(5).collect();
         let mut writer = FileHandler::create(dcd_path)?;
         for st in &ref_states {
             writer.write_state(st)?;
@@ -972,7 +999,9 @@ mod tests {
     #[test]
     fn trr_read() -> anyhow::Result<()> {
         // Read TRR and verify it parses correctly
-        let trr_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
+        let trr_states: Vec<State> = FileHandler::open("tests/protein.trr")?
+            .into_iter()
+            .collect();
         assert!(!trr_states.is_empty(), "No frames read from TRR");
 
         // All frames must have atoms and a periodic box
@@ -981,21 +1010,30 @@ mod tests {
             assert!(st.pbox.is_some(), "Frame {fr} has no periodic box");
             // Coordinates should be finite and within a sane range (~nm scale)
             for p in &st.coords {
-                assert!(p.x.is_finite() && p.y.is_finite() && p.z.is_finite(),
-                    "Non-finite coord at frame {fr}");
+                assert!(
+                    p.x.is_finite() && p.y.is_finite() && p.z.is_finite(),
+                    "Non-finite coord at frame {fr}"
+                );
             }
         }
 
         // Times should be monotonically increasing
         for w in trr_states.windows(2) {
-            assert!(w[1].time > w[0].time, "Times not monotonic: {} -> {}", w[0].time, w[1].time);
+            assert!(
+                w[1].time > w[0].time,
+                "Times not monotonic: {} -> {}",
+                w[0].time,
+                w[1].time
+            );
         }
 
-        println!("TRR: {} frames, {} atoms, t=[{:.1}..{:.1}] ps",
+        println!(
+            "TRR: {} frames, {} atoms, t=[{:.1}..{:.1}] ps",
             trr_states.len(),
             trr_states[0].coords.len(),
             trr_states[0].time,
-            trr_states.last().unwrap().time);
+            trr_states.last().unwrap().time
+        );
 
         Ok(())
     }
@@ -1004,7 +1042,9 @@ mod tests {
     fn trr_roundtrip() -> anyhow::Result<()> {
         let trr_path = concat!(env!("OUT_DIR"), "/roundtrip.trr");
 
-        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
+        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?
+            .into_iter()
+            .collect();
         assert!(!ref_states.is_empty(), "No frames read from TRR");
 
         let mut writer = FileHandler::create(trr_path)?;
@@ -1017,8 +1057,15 @@ mod tests {
         assert_eq!(ref_states.len(), rt_states.len(), "Frame count mismatch");
 
         for (fr, (rs, ts)) in ref_states.iter().zip(rt_states.iter()).enumerate() {
-            assert_eq!(rs.coords.len(), ts.coords.len(), "Atom count mismatch at frame {fr}");
-            assert!((rs.time - ts.time).abs() < 1e-4, "Time mismatch at frame {fr}");
+            assert_eq!(
+                rs.coords.len(),
+                ts.coords.len(),
+                "Atom count mismatch at frame {fr}"
+            );
+            assert!(
+                (rs.time - ts.time).abs() < 1e-4,
+                "Time mismatch at frame {fr}"
+            );
             for (i, (rp, tp)) in rs.coords.iter().zip(ts.coords.iter()).enumerate() {
                 let d = (rp - tp).norm();
                 assert!(d < 1e-6, "Coord mismatch at frame {fr} atom {i}: diff={d}");
@@ -1028,7 +1075,10 @@ mod tests {
                     let (rl, _) = rb.to_vectors_angles();
                     let (tl, _) = tb.to_vectors_angles();
                     for k in 0..3 {
-                        assert!((rl[k] - tl[k]).abs() < 1e-6, "Box length mismatch at frame {fr}");
+                        assert!(
+                            (rl[k] - tl[k]).abs() < 1e-6,
+                            "Box length mismatch at frame {fr}"
+                        );
                     }
                 }
                 (None, None) => {}
@@ -1042,8 +1092,13 @@ mod tests {
     #[test]
     fn trr_seek() -> anyhow::Result<()> {
         // Collect all frames as reference
-        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
-        assert!(ref_states.len() >= 3, "Need at least 3 frames for seek test");
+        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?
+            .into_iter()
+            .collect();
+        assert!(
+            ref_states.len() >= 3,
+            "Need at least 3 frames for seek test"
+        );
 
         let mut reader = FileHandler::open("tests/protein.trr")?;
 
@@ -1065,8 +1120,13 @@ mod tests {
 
     #[test]
     fn trr_seek_time() -> anyhow::Result<()> {
-        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?.into_iter().collect();
-        assert!(ref_states.len() >= 3, "Need at least 3 frames for seek_time test");
+        let ref_states: Vec<State> = FileHandler::open("tests/protein.trr")?
+            .into_iter()
+            .collect();
+        assert!(
+            ref_states.len() >= 3,
+            "Need at least 3 frames for seek_time test"
+        );
 
         // Pick a middle frame
         let mid = ref_states.len() / 2;
@@ -1076,7 +1136,12 @@ mod tests {
         reader.seek_time(target_time)?;
         let st = reader.read_state()?;
 
-        assert!((st.time - target_time).abs() < 1e-4, "Time mismatch: got {} expected {}", st.time, target_time);
+        assert!(
+            (st.time - target_time).abs() < 1e-4,
+            "Time mismatch: got {} expected {}",
+            st.time,
+            target_time
+        );
         let d = (st.coords[0] - ref_states[mid].coords[0]).norm();
         assert!(d < 1e-6, "seek_time coord diff={d}");
 
@@ -1089,13 +1154,15 @@ mod tests {
         let natoms = 10usize;
         let mut st = State::new_fake(natoms);
         st.time = 42.0;
-        st.velocities = Some(
-            (0..natoms).map(|i| Vel::new(i as f32 * 0.1, i as f32 * 0.2, i as f32 * 0.3)).collect(),
-        );
-        st.forces = Some(
-            (0..natoms).map(|i| Force::new(i as f32 * 1.0, i as f32 * 2.0, i as f32 * 3.0)).collect(),
-        );
-        st.pbox = Some(PeriodicBox::from_vectors_angles(5.0, 5.0, 5.0, 90.0, 90.0, 90.0)?);
+        st.velocities = (0..natoms)
+            .map(|i| Vel::new(i as f32 * 0.1, i as f32 * 0.2, i as f32 * 0.3))
+            .collect();
+        st.forces = (0..natoms)
+            .map(|i| Force::new(i as f32 * 1.0, i as f32 * 2.0, i as f32 * 3.0))
+            .collect();
+        st.pbox = Some(PeriodicBox::from_vectors_angles(
+            5.0, 5.0, 5.0, 90.0, 90.0, 90.0,
+        )?);
 
         let trr_path = concat!(env!("OUT_DIR"), "/vel_force.trr");
         let mut writer = FileHandler::create(trr_path)?;
@@ -1108,20 +1175,29 @@ mod tests {
         assert_eq!(rt.coords.len(), natoms);
         assert!((rt.time - 42.0_f32).abs() < 1e-4, "time mismatch");
 
-        let vels = rt.velocities.expect("velocities should be present");
-        assert_eq!(vels.len(), natoms);
-        for (i, v) in vels.iter().enumerate() {
+        assert!(!rt.velocities.is_empty(), "velocities should be present");
+        assert_eq!(rt.velocities.len(), natoms);
+        for (i, v) in rt.velocities.iter().enumerate() {
             assert!((v.x - i as f32 * 0.1).abs() < 1e-5, "vel.x mismatch at {i}");
             assert!((v.y - i as f32 * 0.2).abs() < 1e-5, "vel.y mismatch at {i}");
             assert!((v.z - i as f32 * 0.3).abs() < 1e-5, "vel.z mismatch at {i}");
         }
 
-        let forces = rt.forces.expect("forces should be present");
-        assert_eq!(forces.len(), natoms);
-        for (i, f) in forces.iter().enumerate() {
-            assert!((f.x - i as f32 * 1.0).abs() < 1e-4, "force.x mismatch at {i}");
-            assert!((f.y - i as f32 * 2.0).abs() < 1e-4, "force.y mismatch at {i}");
-            assert!((f.z - i as f32 * 3.0).abs() < 1e-4, "force.z mismatch at {i}");
+        assert!(!rt.forces.is_empty(), "forces should be present");
+        assert_eq!(rt.forces.len(), natoms);
+        for (i, f) in rt.forces.iter().enumerate() {
+            assert!(
+                (f.x - i as f32 * 1.0).abs() < 1e-4,
+                "force.x mismatch at {i}"
+            );
+            assert!(
+                (f.y - i as f32 * 2.0).abs() < 1e-4,
+                "force.y mismatch at {i}"
+            );
+            assert!(
+                (f.z - i as f32 * 3.0).abs() < 1e-4,
+                "force.z mismatch at {i}"
+            );
         }
 
         Ok(())
@@ -1131,10 +1207,10 @@ mod tests {
     fn trr_write_state_pick_coords_only() -> anyhow::Result<()> {
         let natoms = 5usize;
         let mut st = State::new_fake(natoms);
-        st.velocities = Some(
-            (0..natoms).map(|i| Vel::new(i as f32, 0.0, 0.0)).collect(),
-        );
-        st.pbox = Some(PeriodicBox::from_vectors_angles(4.0, 4.0, 4.0, 90.0, 90.0, 90.0)?);
+        st.velocities = (0..natoms).map(|i| Vel::new(i as f32, 0.0, 0.0)).collect();
+        st.pbox = Some(PeriodicBox::from_vectors_angles(
+            4.0, 4.0, 4.0, 90.0, 90.0, 90.0,
+        )?);
 
         let trr_path = concat!(env!("OUT_DIR"), "/coords_only.trr");
         let mut writer = FileHandler::create(trr_path)?;
@@ -1144,8 +1220,11 @@ mod tests {
         let mut reader = FileHandler::open(trr_path)?;
         let rt = reader.read_state()?;
         assert_eq!(rt.coords.len(), natoms);
-        assert!(rt.velocities.is_none(), "velocities should not have been written");
-        assert!(rt.forces.is_none(), "forces should not have been written");
+        assert!(
+            rt.velocities.is_empty(),
+            "velocities should not have been written"
+        );
+        assert!(rt.forces.is_empty(), "forces should not have been written");
 
         Ok(())
     }
@@ -1155,9 +1234,9 @@ mod tests {
         // membr.gro has velocity columns — read it and write it back, check vels survive
         let mut reader = FileHandler::open("tests/membr.gro")?;
         let (top, st) = reader.read()?;
-        assert!(st.velocities.is_some(), "membr.gro should have velocities");
+        assert!(!st.velocities.is_empty(), "membr.gro should have velocities");
 
-        let vels_in = st.velocities.clone().unwrap();
+        let vels_in = st.velocities.clone();
 
         let gro_path = concat!(env!("OUT_DIR"), "/vel_roundtrip.gro");
         let sys = System::new(top, st)?;
@@ -1167,7 +1246,8 @@ mod tests {
 
         let mut reader2 = FileHandler::open(gro_path)?;
         let (_, st2) = reader2.read()?;
-        let vels_out = st2.velocities.expect("velocities should survive GRO roundtrip");
+        let vels_out = &st2.velocities;
+        assert!(!vels_out.is_empty(), "velocities should survive GRO roundtrip");
         assert_eq!(vels_in.len(), vels_out.len());
         for (i, (vi, vo)) in vels_in.iter().zip(vels_out.iter()).enumerate() {
             assert!((vi.x - vo.x).abs() < 1e-3, "vel.x mismatch at atom {i}");

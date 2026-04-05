@@ -11,10 +11,16 @@ use crate::prelude::*;
 #[derive(Debug, Default, Clone)]
 pub struct State {
     pub coords: Vec<Pos>,
-    pub velocities: Option<Vec<Vel>>,
-    pub forces: Option<Vec<Force>>,
+    pub velocities: Vec<Vel>,
+    pub forces: Vec<Force>,
     pub time: f32,
     pub pbox: Option<PeriodicBox>,
+}
+
+impl State {
+    pub fn has_pos(&self) -> bool { !self.coords.is_empty() }
+    pub fn has_vel(&self) -> bool { !self.velocities.is_empty() }
+    pub fn has_force(&self) -> bool { !self.forces.is_empty() }
 }
 
 impl State {
@@ -40,17 +46,25 @@ impl State {
             ));
         }
 
-        let mut it = ind.iter().cloned();
-        let mut to_remove = it.next().unwrap_or(usize::MAX);
-        let mut i = 0;
-        self.coords.retain(|_| {
-            let ok = i != to_remove;
-            i += 1;
-            if !ok {
-                to_remove = it.next().unwrap_or(usize::MAX);
-            }
-            ok
-        });
+        macro_rules! retain_not_in {
+            ($vec:expr) => {
+                if !$vec.is_empty() {
+                    let mut it = ind.iter().cloned();
+                    let mut to_remove = it.next().unwrap_or(usize::MAX);
+                    let mut i = 0usize;
+                    $vec.retain(|_| {
+                        let ok = i != to_remove;
+                        i += 1;
+                        if !ok { to_remove = it.next().unwrap_or(usize::MAX); }
+                        ok
+                    });
+                }
+            };
+        }
+
+        retain_not_in!(self.coords);
+        retain_not_in!(self.velocities);
+        retain_not_in!(self.forces);
 
         Ok(())
     }
@@ -64,8 +78,8 @@ impl State {
     pub fn new_fake(n: usize) -> Self {
         Self {
             coords: vec![Pos::origin(); n],
-            velocities: None,
-            forces: None,
+            velocities: Vec::new(),
+            forces: Vec::new(),
             pbox: None,
             time: 0.0,
         }
@@ -77,14 +91,12 @@ impl SaveState for State {
         Box::new(self.coords.iter())
     }
 
-    fn iter_vel_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a>> {
-        let vels = self.velocities.as_ref()?;
-        Some(Box::new(vels.iter()))
+    fn iter_vel_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Vel> + 'a> {
+        Box::new(self.velocities.iter())
     }
 
-    fn iter_force_dyn<'a>(&'a self) -> Option<Box<dyn ExactSizeIterator<Item = &'a Force> + 'a>> {
-        let forces = self.forces.as_ref()?;
-        Some(Box::new(forces.iter()))
+    fn iter_force_dyn<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item = &'a Force> + 'a> {
+        Box::new(self.forces.iter())
     }
 }
 
@@ -102,7 +114,11 @@ impl TimeMutProvider for State {
 
 impl LenProvider for State {
     fn len(&self) -> usize {
-        self.coords.len()
+        let n = self.coords.len();
+        if n > 0 { return n; }
+        let n = self.velocities.len();
+        if n > 0 { return n; }
+        self.forces.len()
     }
 }
 

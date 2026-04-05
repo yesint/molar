@@ -305,27 +305,27 @@ fn read_frame_data(
     };
 
     // Velocities
-    let vel_data = if h.v_size != 0 {
+    let vel_data: Vec<Vel> = if h.v_size != 0 {
         if velocities {
-            Some(read_xvf(r, n, h.b_double)?)
+            read_xvf(r, n, h.b_double)?
         } else {
             xdr_skip(r, n * 3 * elem)?;
-            None
+            Vec::new()
         }
     } else {
-        None
+        Vec::new()
     };
 
     // Forces
-    let force_data = if h.f_size != 0 {
+    let force_data: Vec<Force> = if h.f_size != 0 {
         if forces {
-            Some(read_xvf(r, n, h.b_double)?)
+            read_xvf(r, n, h.b_double)?
         } else {
             xdr_skip(r, n * 3 * elem)?;
-            None
+            Vec::new()
         }
     } else {
-        None
+        Vec::new()
     };
 
     Ok(State {
@@ -392,6 +392,9 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
+        if !coords && !velocities && !forces {
+            return Err(FileFormatError::NothingToRead);
+        }
         let TrrFileHandler::Reader(ref mut r) = self else {
             return Err(FileFormatError::NotStateReadFormat);
         };
@@ -420,11 +423,11 @@ impl FileFormatHandler for TrrFileHandler {
         let box_size = if has_box { 9 * 4i32 } else { 0i32 };
         let x_size = if coords     { natoms as i32 * 3 * 4 } else { 0 };
 
-        let vels   = if velocities { data.iter_vel_dyn()   } else { None };
-        let forces = if forces     { data.iter_force_dyn() } else { None };
+        let vel_it   = if velocities { data.iter_vel_dyn()   } else { Box::new(std::iter::empty()) };
+        let force_it = if forces     { data.iter_force_dyn() } else { Box::new(std::iter::empty()) };
 
-        let v_size = if vels.is_some()   { natoms as i32 * 3 * 4 } else { 0 };
-        let f_size = if forces.is_some() { natoms as i32 * 3 * 4 } else { 0 };
+        let v_size = if vel_it.len() > 0   { natoms as i32 * 3 * 4 } else { 0 };
+        let f_size = if force_it.len() > 0 { natoms as i32 * 3 * 4 } else { 0 };
 
         let h = TrrHeader {
             box_size,
@@ -458,21 +461,17 @@ impl FileFormatHandler for TrrFileHandler {
         }
 
         // Write velocities
-        if let Some(vel_iter) = vels {
-            for v in vel_iter {
-                xdr_write_f32(&mut w.file, v.x)?;
-                xdr_write_f32(&mut w.file, v.y)?;
-                xdr_write_f32(&mut w.file, v.z)?;
-            }
+        for v in vel_it {
+            xdr_write_f32(&mut w.file, v.x)?;
+            xdr_write_f32(&mut w.file, v.y)?;
+            xdr_write_f32(&mut w.file, v.z)?;
         }
 
         // Write forces
-        if let Some(force_iter) = forces {
-            for f in force_iter {
-                xdr_write_f32(&mut w.file, f.x)?;
-                xdr_write_f32(&mut w.file, f.y)?;
-                xdr_write_f32(&mut w.file, f.z)?;
-            }
+        for f in force_it {
+            xdr_write_f32(&mut w.file, f.x)?;
+            xdr_write_f32(&mut w.file, f.y)?;
+            xdr_write_f32(&mut w.file, f.z)?;
         }
 
         w.cur_frame += 1;

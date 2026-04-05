@@ -1,11 +1,12 @@
+use super::FileFormatError;
 use crate::prelude::*;
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
-    num::{ParseFloatError, ParseIntError}, path::Path,
+    num::{ParseFloatError, ParseIntError},
+    path::Path,
 };
 use thiserror::Error;
-use super::FileFormatError;
 
 pub struct GroFileHandler {
     reader: Option<BufReader<File>>,
@@ -46,7 +47,12 @@ pub enum GroHandlerError {
 }
 
 impl GroFileHandler {
-    fn read_inner(&mut self, coords: bool, velocities: bool, _forces: bool) -> Result<(Topology, State), FileFormatError> {
+    fn read_inner(
+        &mut self,
+        read_coords: bool,
+        read_vels: bool,
+        _read_forces: bool,
+    ) -> Result<(Topology, State), FileFormatError> {
         let mut top = Topology::default();
         let mut state = State::default();
 
@@ -54,7 +60,7 @@ impl GroFileHandler {
         let mut line = String::new();
 
         // Check if we are at EOF
-        if buf.fill_buf()? .is_empty() {
+        if buf.fill_buf()?.is_empty() {
             if self.at_least_one_state_read {
                 return Err(GroHandlerError::Eof)?;
             } else {
@@ -75,11 +81,16 @@ impl GroFileHandler {
         // Read number of atoms
         line.clear();
         buf.read_line(&mut line).unwrap();
-        let natoms = line.trim().parse::<usize>().map_err(GroHandlerError::ParseInt)?;
+        let natoms = line
+            .trim()
+            .parse::<usize>()
+            .map_err(GroHandlerError::ParseInt)?;
 
-        let read_coords = coords;
-        let read_vels = velocities;
-        let mut vels: Vec<Vel> = if read_vels { Vec::with_capacity(natoms) } else { Vec::new() };
+        let mut vels: Vec<Vel> = if read_vels {
+            Vec::with_capacity(natoms)
+        } else {
+            Vec::new()
+        };
 
         // Go over atoms line by line
         for i in 0..natoms {
@@ -101,11 +112,17 @@ impl GroFileHandler {
                 .ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?
                 .trim();
 
-            top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+            top.atoms.push(
+                Atom::new()
+                    .with_name(name)
+                    .with_resname(resname)
+                    .with_resid(resid)
+                    .guess(),
+            );
 
             // Coordinates (cols 20–43)
             if read_coords {
-                let v = Pos::new(
+                let crd = Pos::new(
                     line.get(20..28)
                         .ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?
                         .trim()
@@ -122,7 +139,7 @@ impl GroFileHandler {
                         .parse::<f32>()
                         .map_err(GroHandlerError::ParseFloat)?,
                 );
-                state.coords.push(v);
+                state.coords.push(crd);
             }
 
             // Velocities (cols 44–67, optional columns in GRO format)
@@ -138,12 +155,12 @@ impl GroFileHandler {
                         vels.push(Vel::new(vx, vy, vz));
                     }
                 }
+                // Absent velocity columns are silently skipped;
+                // read_state_pick() validates if they were explicitly requested.
             }
         }
 
-        if !vels.is_empty() {
-            state.velocities = Some(vels);
-        }
+        state.velocities = vels;
 
         /* Read the box
         Format: (https://manual.gromacs.org/archive/5.0.3/online/gro.html)
@@ -188,10 +205,13 @@ impl GroFileHandler {
 }
 
 impl FileFormatHandler for GroFileHandler {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
         Ok(Self {
-            reader: BufReader::new(File::open(fname)
-                .map_err(|e| GroHandlerError::OpenRead(e))?).into(),
+            reader: BufReader::new(File::open(fname).map_err(|e| GroHandlerError::OpenRead(e))?)
+                .into(),
             writer: None,
             stored_state: None,
             stored_topology: None,
@@ -199,10 +219,13 @@ impl FileFormatHandler for GroFileHandler {
         })
     }
 
-    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError> where Self: Sized {
+    fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
         Ok(Self {
-            writer: BufWriter::new(File::create(fname)
-                .map_err(|e| GroHandlerError::OpenWrite(e))?).into(),
+            writer: BufWriter::new(File::create(fname).map_err(|e| GroHandlerError::OpenWrite(e))?)
+                .into(),
             reader: None,
             stored_state: None,
             stored_topology: None,
@@ -219,11 +242,16 @@ impl FileFormatHandler for GroFileHandler {
         // Write number of atoms
         writeln!(buf, "{natoms}")?;
 
-        // Collect velocities upfront (or None if unavailable)
-        let vels: Option<Vec<_>> = data.iter_vel_dyn().map(|it| it.collect());
-
         // Write atom lines
-        for (i,(at,pos)) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()).enumerate() {
+        let mut at_it = data.iter_atoms_dyn();
+        let mut pos_it = data.iter_pos_dyn();
+        let mut vel_it = data.iter_vel_dyn();
+        let has_vel = vel_it.len() > 0;
+
+        for i in 0..natoms {
+            let at = at_it.next().unwrap();
+            let pos = pos_it.next().unwrap();
+
             let ind = (i % 99999) + 1; // Prevents overflow of index field. It's not used anyway.
             let resid = at.resid % 99999; // Prevents overflow of resid field.
 
@@ -232,8 +260,8 @@ impl FileFormatHandler for GroFileHandler {
                 "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}",
                 resid, at.resname, at.name, ind, pos.x, pos.y, pos.z
             )?;
-            if let Some(ref vs) = vels {
-                let v = vs[i];
+            if has_vel {
+                let v = vel_it.next().unwrap();
                 write!(buf, "{:>8.4}{:>8.4}{:>8.4}", v.x, v.y, v.z)?;
             }
             writeln!(buf)?;
@@ -284,7 +312,7 @@ impl FileFormatHandler for GroFileHandler {
         if self.stored_topology.is_some() {
             Ok(self.stored_topology.take().unwrap())
         } else {
-            let (top,st) = self.read()?;
+            let (top, st) = self.read()?;
             self.stored_state.get_or_insert(st);
             Ok(top)
         }
@@ -300,16 +328,30 @@ impl FileFormatHandler for GroFileHandler {
         }
     }
 
-    fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
+    fn read_state_pick(
+        &mut self,
+        read_coords: bool,
+        read_vels: bool,
+        read_forces: bool,
+    ) -> Result<State, FileFormatError> {
+        if read_forces {
+            return Err(FileFormatError::NoForces);
+        }
         if self.stored_state.is_some() {
             // Stored state was produced by read_inner(all); trim unwanted fields.
             let mut st = self.stored_state.take().unwrap();
-            if !velocities { st.velocities = None; }
-            if !forces     { st.forces     = None; }
-            if !coords     { st.coords.clear(); }
+            if read_vels && st.velocities.is_empty() {
+                return Err(FileFormatError::NoVelocities);
+            }
+            if !read_vels {
+                st.velocities.clear();
+            }
+            if !read_coords {
+                st.coords.clear();
+            }
             Ok(st)
         } else {
-            let (top, st) = self.read_inner(coords, velocities, forces)?;
+            let (top, st) = self.read_inner(true, read_vels, false)?;
             self.stored_topology.get_or_insert(top);
             Ok(st)
         }

@@ -1,15 +1,21 @@
 use crate::prelude::*;
 use sorted_vec::SortedSet;
 
-/// Verifies that topology and state have matching number of atoms
+/// Verifies that topology and state have matching number of atoms.
+/// Coords must always match. Velocities and forces must match if non-empty.
 pub(crate) fn check_topology_state_sizes(
     topology: &Topology,
     state: &State,
 ) -> Result<(), super::TopologyStateSizesError> {
-    let n1 = topology.len();
-    let n2 = state.len();
-    if n1 != n2 {
-        Err(super::TopologyStateSizesError(n1, n2))?
+    let n = topology.len();
+    if state.coords.len() != n {
+        Err(super::TopologyStateSizesError(n, state.coords.len()))?
+    }
+    if !state.velocities.is_empty() && state.velocities.len() != n {
+        Err(super::TopologyStateSizesError(n, state.velocities.len()))?
+    }
+    if !state.forces.is_empty() && state.forces.len() != n {
+        Err(super::TopologyStateSizesError(n, state.forces.len()))?
     }
     Ok(())
 }
