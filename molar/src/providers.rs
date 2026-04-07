@@ -450,6 +450,181 @@ pub trait TimeMutProvider {
 }
 
 //--------------------------------------------------------------
+// Vel / Force providers
+//--------------------------------------------------------------
+
+/// Element trait providing immutable access to velocities via index.
+///
+/// Implementors supply one `unsafe` raw pointer method. Returns a null pointer
+/// when velocities are absent. All iteration and access methods are provided
+/// as defaults using `vel_ptr()` and `IndexProvider`.
+pub trait VelProvider: LenProvider + IndexProvider {
+    /// Raw pointer to the beginning of the velocities array, or **null** if absent.
+    ///
+    /// # Safety
+    /// If non-null, the pointer must remain valid as long as `self` is alive and
+    /// must point to a contiguous array of at least `max_global_index + 1` elements.
+    unsafe fn vel_ptr(&self) -> *const Vel;
+
+    /// Returns `true` when velocities are present in the current state.
+    fn has_vel(&self) -> bool {
+        !unsafe { self.vel_ptr() }.is_null()
+    }
+
+    /// Iterates over velocities of selected atoms, or returns [`StateError::NoVelocities`] if absent.
+    fn iter_vel(&self) -> Result<impl VelIterator<'_>, StateError> {
+        let vp = unsafe { self.vel_ptr() };
+        if vp.is_null() { return Err(StateError::NoVelocities); }
+        Ok(unsafe { self.iter_index().map(move |i| &*vp.add(i)) })
+    }
+
+    /// Parallel iterator over velocities. Requires [`IndexParProvider`].
+    fn par_iter_vel(&self) -> Result<impl IndexedParallelIterator<Item = &Vel>, StateError>
+    where
+        Self: IndexParProvider,
+    {
+        let vp = unsafe { self.vel_ptr() };
+        if vp.is_null() { return Err(StateError::NoVelocities); }
+        let p = vp as usize; // trick to make pointer Sync
+        Ok(unsafe { self.par_iter_index().map(move |i| &*(p as *const Vel).add(i)) })
+    }
+
+    /// Random access to a velocity by local (selection) index. Returns `None` if out-of-bounds or absent.
+    fn get_vel(&self, i: usize) -> Option<&Vel> {
+        if i >= self.len() { return None; }
+        let vp = unsafe { self.vel_ptr() };
+        if vp.is_null() { return None; }
+        Some(unsafe { &*vp.add(self.get_index_unchecked(i)) })
+    }
+}
+
+/// Element trait providing mutable access to velocities.
+///
+/// Extends [`VelProvider`] with mutable iteration and random access.
+pub trait VelMutProvider: VelProvider {
+    /// Raw mutable pointer to the velocities array, or **null** if absent.
+    ///
+    /// # Safety
+    /// Same contract as [`VelProvider::vel_ptr`].
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+        self.vel_ptr() as *mut Vel
+    }
+
+    /// Mutable iterator over velocities of selected atoms.
+    fn iter_vel_mut(&mut self) -> Result<impl VelMutIterator<'_>, StateError> {
+        let vp = unsafe { self.vel_ptr_mut() };
+        if vp.is_null() { return Err(StateError::NoVelocities); }
+        Ok((0..self.len()).map(move |i| {
+            let ind = unsafe { self.get_index_unchecked(i) };
+            unsafe { &mut *vp.add(ind) }
+        }))
+    }
+
+    /// Parallel mutable iterator over velocities.
+    fn par_iter_vel_mut(&mut self) -> Result<impl IndexedParallelIterator<Item = &mut Vel>, StateError>
+    where
+        Self: IndexParProvider,
+    {
+        let vp = unsafe { self.vel_ptr_mut() };
+        if vp.is_null() { return Err(StateError::NoVelocities); }
+        let p = vp as usize; // trick to make pointer Sync
+        Ok(unsafe { self.par_iter_index().map(move |i| &mut *(p as *mut Vel).add(i)) })
+    }
+
+    /// Mutable random access to a velocity by local (selection) index.
+    fn get_vel_mut(&mut self, i: usize) -> Option<&mut Vel> {
+        if i >= self.len() { return None; }
+        let vp = unsafe { self.vel_ptr_mut() };
+        if vp.is_null() { return None; }
+        Some(unsafe { &mut *vp.add(self.get_index_unchecked(i)) })
+    }
+}
+
+/// Element trait providing immutable access to forces via index.
+///
+/// Mirror of [`VelProvider`] for forces.
+pub trait ForceProvider: LenProvider + IndexProvider {
+    /// Raw pointer to the beginning of the forces array, or **null** if absent.
+    ///
+    /// # Safety
+    /// If non-null, the pointer must remain valid as long as `self` is alive.
+    unsafe fn force_ptr(&self) -> *const Force;
+
+    /// Returns `true` when forces are present in the current state.
+    fn has_force(&self) -> bool {
+        !unsafe { self.force_ptr() }.is_null()
+    }
+
+    /// Iterates over forces of selected atoms, or returns [`StateError::NoForces`] if absent.
+    fn iter_force(&self) -> Result<impl ForceIterator<'_>, StateError> {
+        let fp = unsafe { self.force_ptr() };
+        if fp.is_null() { return Err(StateError::NoForces); }
+        Ok(unsafe { self.iter_index().map(move |i| &*fp.add(i)) })
+    }
+
+    /// Parallel iterator over forces.
+    fn par_iter_force(&self) -> Result<impl IndexedParallelIterator<Item = &Force>, StateError>
+    where
+        Self: IndexParProvider,
+    {
+        let fp = unsafe { self.force_ptr() };
+        if fp.is_null() { return Err(StateError::NoForces); }
+        let p = fp as usize; // trick to make pointer Sync
+        Ok(unsafe { self.par_iter_index().map(move |i| &*(p as *const Force).add(i)) })
+    }
+
+    /// Random access to a force by local (selection) index.
+    fn get_force(&self, i: usize) -> Option<&Force> {
+        if i >= self.len() { return None; }
+        let fp = unsafe { self.force_ptr() };
+        if fp.is_null() { return None; }
+        Some(unsafe { &*fp.add(self.get_index_unchecked(i)) })
+    }
+}
+
+/// Element trait providing mutable access to forces.
+///
+/// Mirror of [`VelMutProvider`] for forces.
+pub trait ForceMutProvider: ForceProvider {
+    /// Raw mutable pointer to the forces array, or **null** if absent.
+    ///
+    /// # Safety
+    /// Same contract as [`ForceProvider::force_ptr`].
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+        self.force_ptr() as *mut Force
+    }
+
+    /// Mutable iterator over forces of selected atoms.
+    fn iter_force_mut(&mut self) -> Result<impl ForceMutIterator<'_>, StateError> {
+        let fp = unsafe { self.force_ptr_mut() };
+        if fp.is_null() { return Err(StateError::NoForces); }
+        Ok((0..self.len()).map(move |i| {
+            let ind = unsafe { self.get_index_unchecked(i) };
+            unsafe { &mut *fp.add(ind) }
+        }))
+    }
+
+    /// Parallel mutable iterator over forces.
+    fn par_iter_force_mut(&mut self) -> Result<impl IndexedParallelIterator<Item = &mut Force>, StateError>
+    where
+        Self: IndexParProvider,
+    {
+        let fp = unsafe { self.force_ptr_mut() };
+        if fp.is_null() { return Err(StateError::NoForces); }
+        let p = fp as usize; // trick to make pointer Sync
+        Ok(unsafe { self.par_iter_index().map(move |i| &mut *(p as *mut Force).add(i)) })
+    }
+
+    /// Mutable random access to a force by local (selection) index.
+    fn get_force_mut(&mut self, i: usize) -> Option<&mut Force> {
+        if i >= self.len() { return None; }
+        let fp = unsafe { self.force_ptr_mut() };
+        if fp.is_null() { return None; }
+        Some(unsafe { &mut *fp.add(self.get_index_unchecked(i)) })
+    }
+}
+
+//--------------------------------------------------------------
 // Particle iterator (for iter_particle, par_iter_particle, etc.)
 // These live here as concrete structs/methods are in Analysis trait
 //--------------------------------------------------------------

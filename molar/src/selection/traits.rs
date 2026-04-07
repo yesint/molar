@@ -85,6 +85,34 @@ impl<T: SystemProvider + IndexProvider> BondProvider for T {
     }
 }
 
+impl<T: SystemProvider + IndexProvider> VelProvider for T {
+    unsafe fn vel_ptr(&self) -> *const Vel {
+        let v = unsafe { &(*self.get_system_ptr()).st.velocities };
+        if v.is_empty() { std::ptr::null() } else { v.as_ptr() }
+    }
+}
+
+impl<T: SystemMutProvider + IndexProvider> VelMutProvider for T {
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+        let v = unsafe { &mut (*self.get_system_mut()).st.velocities };
+        if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
+    }
+}
+
+impl<T: SystemProvider + IndexProvider> ForceProvider for T {
+    unsafe fn force_ptr(&self) -> *const Force {
+        let v = unsafe { &(*self.get_system_ptr()).st.forces };
+        if v.is_empty() { std::ptr::null() } else { v.as_ptr() }
+    }
+}
+
+impl<T: SystemMutProvider + IndexProvider> ForceMutProvider for T {
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+        let v = unsafe { &mut (*self.get_system_mut()).st.forces };
+        if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
+    }
+}
+
 impl<T: SystemProvider + IndexProvider> MolProvider for T {
     fn num_molecules(&self) -> usize {
         unsafe { (*self.get_system_ptr()).top.num_molecules() }

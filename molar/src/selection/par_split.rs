@@ -78,6 +78,20 @@ impl AtomMutProvider for SelParMut<'_> {
         (*self.sys).top.atoms.as_mut_ptr()
     }
 }
+// VelMutProvider and ForceMutProvider are implemented directly (same reason as above).
+// VelProvider and ForceProvider are covered by blanket impls via SystemProvider.
+impl VelMutProvider for SelParMut<'_> {
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+        let v = &mut (*self.sys).st.velocities;
+        if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
+    }
+}
+impl ForceMutProvider for SelParMut<'_> {
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+        let v = &mut (*self.sys).st.forces;
+        if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
+    }
+}
 
 //============================================================================
 /// Collection of non-overlapping selections that could be mutated in parallel

@@ -51,3 +51,19 @@ impl<'a, T> ParticleIterator<'a> for T where T: ExactSizeIterator<Item = Particl
 /// Convenience alias for mutable iterator over particles
 pub trait ParticleMutIterator<'a>: ExactSizeIterator<Item = ParticleMut<'a>> {}
 impl<'a, T> ParticleMutIterator<'a> for T where T: ExactSizeIterator<Item = ParticleMut<'a>> {}
+
+/// Convenience alias for iterator over velocities
+pub trait VelIterator<'a>: ExactSizeIterator<Item = &'a Vel> {}
+impl<'a, T> VelIterator<'a> for T where T: ExactSizeIterator<Item = &'a Vel> {}
+
+/// Convenience alias for mutable iterator over velocities
+pub trait VelMutIterator<'a>: ExactSizeIterator<Item = &'a mut Vel> {}
+impl<'a, T> VelMutIterator<'a> for T where T: ExactSizeIterator<Item = &'a mut Vel> {}
+
+/// Convenience alias for iterator over forces
+pub trait ForceIterator<'a>: ExactSizeIterator<Item = &'a Force> {}
+impl<'a, T> ForceIterator<'a> for T where T: ExactSizeIterator<Item = &'a Force> {}
+
+/// Convenience alias for mutable iterator over forces
+pub trait ForceMutIterator<'a>: ExactSizeIterator<Item = &'a mut Force> {}
+impl<'a, T> ForceMutIterator<'a> for T where T: ExactSizeIterator<Item = &'a mut Force> {}

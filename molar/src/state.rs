@@ -1,4 +1,14 @@
+use thiserror::Error;
 use crate::prelude::*;
+
+/// Error type for missing optional state data (velocities or forces)
+#[derive(Error, Debug)]
+pub enum StateError {
+    #[error("velocities are not present in the current state")]
+    NoVelocities,
+    #[error("forces are not present in the current state")]
+    NoForces,
+}
 
 /// State of molecular system including its coordinates, time stamp
 /// and [periodic box](super::PeriodicBox).
@@ -154,6 +164,30 @@ impl BoxProvider for State {
 impl BoxMutProvider for State {
     fn get_box_mut(&mut self) -> Option<&mut PeriodicBox> {
         self.pbox.as_mut()
+    }
+}
+
+impl VelProvider for State {
+    unsafe fn vel_ptr(&self) -> *const Vel {
+        if self.velocities.is_empty() { std::ptr::null() } else { self.velocities.as_ptr() }
+    }
+}
+
+impl VelMutProvider for State {
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+        if self.velocities.is_empty() { std::ptr::null_mut() } else { self.velocities.as_mut_ptr() }
+    }
+}
+
+impl ForceProvider for State {
+    unsafe fn force_ptr(&self) -> *const Force {
+        if self.forces.is_empty() { std::ptr::null() } else { self.forces.as_ptr() }
+    }
+}
+
+impl ForceMutProvider for State {
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+        if self.forces.is_empty() { std::ptr::null_mut() } else { self.forces.as_mut_ptr() }
     }
 }
 

@@ -392,8 +392,8 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn read_state_pick(&mut self, coords: bool, velocities: bool, forces: bool) -> Result<State, FileFormatError> {
-        if !coords && !velocities && !forces {
-            return Err(FileFormatError::NothingToRead);
+        if !coords {
+            return Err(FileFormatError::NoCoords);
         }
         let TrrFileHandler::Reader(ref mut r) = self else {
             return Err(FileFormatError::NotStateReadFormat);

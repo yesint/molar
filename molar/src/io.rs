@@ -779,14 +779,14 @@ pub(crate) enum FileFormatError {
     #[error("file extension is not recognized")]
     NotRecognized,
 
+    #[error("reading coordinates is required")]
+    NoCoords,
+
     #[error("reading velocities requested but there are none")]
     NoVelocities,
 
     #[error("reading forces requested but there are none")]
     NoForces,
-
-    #[error("at least one of coords, velocities, or forces must be requested")]
-    NothingToRead,
 
     #[error("format doesn't support picking state components")]
     NotStatePickFormat,
