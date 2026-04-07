@@ -196,6 +196,12 @@ peg::parser! {
             ['x'|'X'] { MathNode::X }
             ['y'|'Y'] { MathNode::Y }
             ['z'|'Z'] { MathNode::Z }
+            "vx" { MathNode::Vx }
+            "vy" { MathNode::Vy }
+            "vz" { MathNode::Vz }
+            "fx" { MathNode::Fx }
+            "fy" { MathNode::Fy }
+            "fz" { MathNode::Fz }
             "vdw" {MathNode::Vdw}
             "mass" {MathNode::Mass}
             "charge" {MathNode::Charge}

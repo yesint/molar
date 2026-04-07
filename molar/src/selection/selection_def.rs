@@ -10,7 +10,7 @@ pub trait SelectionDef
     /// caller assumes that returned index is correct and does no additional checks..
     fn into_sel_index (
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider), // Something System-like
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider), // Something System-like
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError>;
 }
@@ -20,7 +20,7 @@ impl SelectionDef for &SelectionExpr
 {
     fn into_sel_index (
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {        
         let ind = match subset {
@@ -43,7 +43,7 @@ impl SelectionDef for &str
 {
     fn into_sel_index (
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         let expr = SelectionExpr::new(self)?;
@@ -64,7 +64,7 @@ impl SelectionDef for String
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         self.as_str().into_sel_index(sys, subset)
@@ -76,7 +76,7 @@ impl SelectionDef for &String
 {
     fn into_sel_index (
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         self.as_str().into_sel_index(sys, subset)
@@ -88,7 +88,7 @@ impl SelectionDef for std::ops::Range<usize>
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         let n = match subset {
@@ -112,7 +112,7 @@ impl SelectionDef for std::ops::Range<usize>
 impl SelectionDef for std::ops::RangeInclusive<usize> {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
@@ -129,7 +129,7 @@ impl SelectionDef for &[usize]
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
@@ -156,7 +156,7 @@ impl SelectionDef for &Vec<usize>
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         self.as_slice().into_sel_index(sys, subset)
@@ -168,7 +168,7 @@ impl SelectionDef for Vec<usize>
 {
     fn into_sel_index (
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         self.as_slice().into_sel_index(sys, subset)
@@ -180,7 +180,7 @@ impl SelectionDef for SVec
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         if self.is_empty() {
@@ -206,7 +206,7 @@ impl SelectionDef for &SVec
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         self.clone().into_sel_index(sys, subset)
@@ -218,7 +218,7 @@ impl SelectionDef for Sel
 {
     fn into_sel_index(
         self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
         subset: Option<&[usize]>,
     ) -> Result<SVec, SelectionError> {
         self.0.into_sel_index(sys, subset)

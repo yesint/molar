@@ -105,6 +105,20 @@ impl PosProvider for SystemPy {
 
 impl PosMutProvider for SystemPy {}
 
+impl VelProvider for SystemPy {
+    unsafe fn vel_ptr(&self) -> *const Vel {
+        let v = &self.r_st().velocities;
+        if v.is_empty() { std::ptr::null() } else { v.as_ptr() }
+    }
+}
+
+impl ForceProvider for SystemPy {
+    unsafe fn force_ptr(&self) -> *const Force {
+        let v = &self.r_st().forces;
+        if v.is_empty() { std::ptr::null() } else { v.as_ptr() }
+    }
+}
+
 impl BoxProvider for SystemPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.r_st().get_box()

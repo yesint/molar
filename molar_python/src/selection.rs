@@ -121,6 +121,20 @@ impl PosProvider for SelPy {
     }
 }
 
+impl VelProvider for SelPy {
+    unsafe fn vel_ptr(&self) -> *const Vel {
+        let v = &self.r_st().velocities;
+        if v.is_empty() { std::ptr::null() } else { v.as_ptr() }
+    }
+}
+
+impl ForceProvider for SelPy {
+    unsafe fn force_ptr(&self) -> *const Force {
+        let v = &self.r_st().forces;
+        if v.is_empty() { std::ptr::null() } else { v.as_ptr() }
+    }
+}
+
 impl BoxProvider for SelPy {
     fn get_box(&self) -> Option<&PeriodicBox> {
         let ptr = self.r_st().pbox.as_ref().map(|b| b as *const PeriodicBox)?;

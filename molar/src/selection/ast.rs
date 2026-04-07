@@ -38,6 +38,12 @@ pub(super) enum MathNode {
     Xof(VectorNode),
     Yof(VectorNode),
     Zof(VectorNode),
+    Vx,
+    Vy,
+    Vz,
+    Fx,
+    Fy,
+    Fz,
     Bfactor,
     Occupancy,
     Vdw,
@@ -210,27 +216,37 @@ pub(super) struct EvalContext<'a,S> {
     global_subset: EvalSubset<'a>,
     // Current subset used by default
     cur_subset: EvalSubset<'a>,
+    // Raw pointers to velocity/force arrays; null if absent.
+    // Stored here to avoid adding VelProvider+ForceProvider bounds throughout the eval chain.
+    vel_ptr: *const Vel,
+    force_ptr: *const Force,
 }
 
 impl<'a,S> EvalContext<'a,S> {
     pub(super) fn new(
         sys: &'a S,
         part: Option<&'a [usize]>,
-    ) -> Result<Self, SelectionParserError> 
+    ) -> Result<Self, SelectionParserError>
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider
     {
+        let vel_ptr = unsafe { sys.vel_ptr() };
+        let force_ptr = unsafe { sys.force_ptr() };
         if part.is_none() {
             Ok(Self {
                 sys,
                 global_subset: EvalSubset::Whole(0..sys.len()),
                 cur_subset: EvalSubset::Whole(0..sys.len()),
+                vel_ptr,
+                force_ptr,
             })
         } else {
             Ok(Self {
                 sys,
                 global_subset: EvalSubset::Part(part.unwrap()),
                 cur_subset: EvalSubset::Part(part.unwrap()),
+                vel_ptr,
+                force_ptr,
             })
         }
     }
@@ -240,6 +256,8 @@ impl<'a,S> EvalContext<'a,S> {
             cur_subset: EvalSubset::Part(custom_subset),
             global_subset: self.global_subset.clone(),
             sys: self.sys,
+            vel_ptr: self.vel_ptr,
+            force_ptr: self.force_ptr,
         }
     }
 
@@ -248,6 +266,8 @@ impl<'a,S> EvalContext<'a,S> {
             cur_subset: self.global_subset.clone(),
             global_subset: self.global_subset.clone(),
             sys: self.sys,
+            vel_ptr: self.vel_ptr,
+            force_ptr: self.force_ptr,
         }
     }
 }
@@ -875,6 +895,8 @@ impl MathNode {
             Self::Xof(vec) |
             Self::Yof(vec) |
             Self::Zof(vec) => vec.is_state_dependent(),
+            Self::Vx | Self::Vy | Self::Vz => true,
+            Self::Fx | Self::Fy | Self::Fz => true,
             Self::Bfactor | Self::Occupancy | Self::Vdw | Self::Mass | Self::Charge => false,
             Self::BinaryOp(a, _, b) => a.is_state_dependent() || b.is_state_dependent(),
             Self::UnaryMinus(v) |
@@ -895,6 +917,30 @@ impl MathNode {
             Self::Xof(vec) => Ok(vec.get_vec(data)?.x),
             Self::Yof(vec) => Ok(vec.get_vec(data)?.y),
             Self::Zof(vec) => Ok(vec.get_vec(data)?.z),
+            Self::Vx => {
+                if data.vel_ptr.is_null() { return Err(SelectionParserError::NoVelocities); }
+                Ok(unsafe { data.vel_ptr.add(p.id).read().x })
+            }
+            Self::Vy => {
+                if data.vel_ptr.is_null() { return Err(SelectionParserError::NoVelocities); }
+                Ok(unsafe { data.vel_ptr.add(p.id).read().y })
+            }
+            Self::Vz => {
+                if data.vel_ptr.is_null() { return Err(SelectionParserError::NoVelocities); }
+                Ok(unsafe { data.vel_ptr.add(p.id).read().z })
+            }
+            Self::Fx => {
+                if data.force_ptr.is_null() { return Err(SelectionParserError::NoForces); }
+                Ok(unsafe { data.force_ptr.add(p.id).read().x })
+            }
+            Self::Fy => {
+                if data.force_ptr.is_null() { return Err(SelectionParserError::NoForces); }
+                Ok(unsafe { data.force_ptr.add(p.id).read().y })
+            }
+            Self::Fz => {
+                if data.force_ptr.is_null() { return Err(SelectionParserError::NoForces); }
+                Ok(unsafe { data.force_ptr.add(p.id).read().z })
+            }
             Self::Bfactor => Ok(p.atom.bfactor),
             Self::Occupancy => Ok(p.atom.occupancy),
             Self::Vdw => Ok(p.atom.vdw()),
@@ -1146,4 +1192,10 @@ pub enum SelectionParserError {
 
     #[error("asked for atom {0} while selection inner expression has {1} atoms")]
     OutOfBounds(usize, usize),
+
+    #[error("velocities are not present; cannot use vx/vy/vz in selection")]
+    NoVelocities,
+
+    #[error("forces are not present; cannot use fx/fy/fz in selection")]
+    NoForces,
 }
