@@ -165,8 +165,8 @@ impl Atom {
             }
 
             // Find matching element name in periodic table
-            // Attempt 2-letter matching if possible
-            if self.atomic_number == 0 && self.name.len() >= 2 {
+            // Attempt 2-letter matching if possible (only when >= 2 chars remain from i)
+            if self.atomic_number == 0 && i + 1 < self.name.len() {
                 let c2 = self.name[i..=i + 1].to_ascii_uppercase();
                 for an in 1..ELEMENT_NAME_UPPER.len() {
                     let el = ELEMENT_NAME_UPPER[an];
