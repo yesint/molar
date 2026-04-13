@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Code analysis
 
-- Prefer Rust LSP to grep when exploring the code.
+- Always prefer Rust LSP to grep when exploring the code.
+- For “go to definition”, use LSP goToDefinition, not Grep.
+- For “find references”, use LSP findReferences, not Grep.
+- For type information or docs, use LSP hover.
+- Use Grep/Glob only for discovery:
+  - finding files
+  - searching plain-text patterns
+  - locating candidate symbols before LSP
+- After identifying the relevant Rust file/symbol, switch to LSP for navigation and understanding.
+- Do not use Grep as a substitute for semantic reference search in Rust code when LSP is available.
 
 ## Permissions
 
