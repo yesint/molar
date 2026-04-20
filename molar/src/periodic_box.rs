@@ -3,10 +3,66 @@ use nalgebra::{Const, Matrix, storage::Storage};
 use thiserror::Error;
 
 /// Periodic box allowing working with periodicity and computing periodic distances and images.
+///
+/// # Matrix convention
+///
+/// The box is stored as a 3x3 matrix whose **columns** are the box vectors `a`, `b`, `c`
+/// (not the rows). This is the opposite of the row convention used by
+/// mdtraj/MDAnalysis/`unitcell_vectors`. If you are porting a matrix from one of those
+/// libraries, transpose it first (or assign each vector to the corresponding column
+/// explicitly).
 #[derive(Debug, Default, Clone)]
 pub struct PeriodicBox {
     matrix: Matrix3f,
     inv: Matrix3f,
+    // Precomputed lattice-vector corrections i*a + j*b + k*c for (i,j,k) ∈
+    // {-1,0,1}^3 \ {(0,0,0)} that could shorten a displacement already
+    // reduced to the primary parallelepiped. Empty for orthogonal boxes
+    // (zero overhead on the hot path).
+    tric_corrections: Vec<Vector3f>,
+}
+
+fn build_tric_corrections(m: &Matrix3f) -> Vec<Vector3f> {
+    // Orthogonal fast path: every off-diagonal is zero => no correction needed.
+    if m[(0, 1)] == 0.0
+        && m[(0, 2)] == 0.0
+        && m[(1, 0)] == 0.0
+        && m[(1, 2)] == 0.0
+        && m[(2, 0)] == 0.0
+        && m[(2, 1)] == 0.0
+    {
+        return Vec::new();
+    }
+    let a: Vector3f = m.column(0).into();
+    let b: Vector3f = m.column(1).into();
+    let c: Vector3f = m.column(2).into();
+    // After fractional reduction, |dx| is bounded by half the longest
+    // space-diagonal of the primary parallelepiped. A shift s can shorten
+    // a displacement of norm d only if |s| < 2d. Using the upper bound
+    // on d as a conservative filter keeps only candidates that could ever
+    // help — for well-formed boxes this prunes 26 → a handful.
+    let half_diag = 0.5
+        * (a + b + c)
+            .norm()
+            .max((a + b - c).norm())
+            .max((a - b + c).norm())
+            .max((-a + b + c).norm());
+    let bound2 = (2.0 * half_diag).powi(2);
+    let mut out = Vec::with_capacity(26);
+    for i in -1_i32..=1 {
+        for j in -1_i32..=1 {
+            for k in -1_i32..=1 {
+                if i == 0 && j == 0 && k == 0 {
+                    continue;
+                }
+                let s: Vector3f = (i as f32) * a + (j as f32) * b + (k as f32) * c;
+                if s.norm_squared() < bound2 {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Representation of periodic dimensions in 3D space.
@@ -91,11 +147,13 @@ impl PeriodicBox {
     /// Creates a new PeriodicBox from a 3x3 matrix representing box vectors.
     /// 
     /// # Arguments
-    /// * `matrix` - 3x3 matrix where columns are box vectors
-    /// 
+    /// * `matrix` - 3x3 matrix where **columns** are the box vectors `a`, `b`, `c`.
+    ///   Note the convention: mdtraj/MDAnalysis use rows as box vectors — transpose
+    ///   their matrices before passing them here.
+    ///
     /// # Errors
     /// Returns error if any vector has zero length or matrix is not invertible
-    pub fn from_matrix<S>(matrix: Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError> 
+    pub fn from_matrix<S>(matrix: Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
     where S: Storage<f32, Const<3>, Const<3>>
     {
         // Sanity check
@@ -105,11 +163,15 @@ impl PeriodicBox {
             }
         }
 
+        let matrix = matrix.clone_owned();
+        let inv = matrix
+            .try_inverse()
+            .ok_or_else(|| PeriodicBoxError::InverseFailed)?;
+        let tric_corrections = build_tric_corrections(&matrix);
         Ok(Self {
-            matrix: matrix.clone_owned(),
-            inv: matrix
-                .try_inverse()
-                .ok_or_else(|| PeriodicBoxError::InverseFailed)?,
+            matrix,
+            inv,
+            tric_corrections,
         })
     }
 
@@ -213,30 +275,46 @@ impl PeriodicBox {
 
     /// Computes the shortest vector between two points considering periodicity.
     #[inline(always)]
-    pub fn shortest_vector<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
+    pub fn shortest_vector<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f
     where S: Storage<f32, Const<3>>,
     {
-        // Get vector in box fractional coordinates
-        let mut box_vec = self.inv * vec;
-        box_vec.apply(|v| {
-            *v -= v.round();
-        });
-        return self.matrix * box_vec;
+        self.shortest_vector_dims(vec, PBC_FULL)
     }
 
     /// Computes the shortest vector between two points considering periodicity only in specified dimensions.
     #[inline(always)]
-    pub fn shortest_vector_dims<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>, pbc_dims: PbcDims) -> Vector3f 
+    pub fn shortest_vector_dims<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>, pbc_dims: PbcDims) -> Vector3f
     where S: Storage<f32, Const<3>>,
     {
-        // Get vector in box fractional coordinates
+        // Step 1: fractional-coord reduction — collapses arbitrarily
+        // far-apart pairs into the primary parallelepiped cell.
         let mut box_vec = self.inv * vec;
         for i in 0..3 {
             if pbc_dims.get_dim(i) {
                 box_vec[i] -= box_vec[i].round();
             }
         }
-        return self.matrix * box_vec;
+        let start = self.matrix * box_vec;
+
+        // Step 2: GROMACS-style triclinic correction. The list is empty
+        // for orthogonal boxes, so orthogonal cells pay nothing beyond
+        // a `Vec::is_empty` check. Partial PBC on a triclinic box is
+        // ill-defined (triclinic vectors are not axis-aligned), so we
+        // only apply the correction under full PBC.
+        if self.tric_corrections.is_empty() || pbc_dims != PBC_FULL {
+            return start;
+        }
+        let mut best = start;
+        let mut best2 = start.norm_squared();
+        for s in &self.tric_corrections {
+            let cand = start + s;
+            let n2 = cand.norm_squared();
+            if n2 < best2 {
+                best2 = n2;
+                best = cand;
+            }
+        }
+        best
     }
 
     /// Returns the closest periodic image of a point relative to a target.
@@ -457,9 +535,87 @@ mod tests {
         let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
         let point = Pos::new(8.0, 8.0, 8.0);
         let target = Pos::origin();
-        
+
         let pbc_xy = PbcDims::new(true, true, false);
         let result = pbox.closest_image_dims(&point, &target, pbc_xy);
         assert_vec_eq(&result.coords, &Pos::new(-2.0, -2.0, 8.0).coords);
+    }
+
+    // Orthogonal boxes must carry no correction shifts — this guards the
+    // hot-path early-return in shortest_vector_dims.
+    #[test]
+    fn test_orthogonal_has_no_tric_corrections() {
+        let box_matrix = Matrix3f::from_diagonal(&Vector3f::new(10.0, 20.0, 30.0));
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        assert!(pbox.tric_corrections.is_empty());
+    }
+
+    // Regression for issue #6: a GROMACS-legal triclinic box with off-diagonal
+    // components exposes the former fractional-rounding bug. Box vectors here
+    // match mdtraj's row-convention interpretation of the reporter's numpy
+    // input: a=(10,0,0), b=(4,10,0), c=(-4,0,10). Points are the reporter's.
+    // Brute-force and mdtraj/MDAnalysis agree on 5.353627 nm; the old
+    // algorithm returned 5.597546 nm.
+    #[test]
+    fn test_triclinic_mdtraj_box_matches_brute_force() {
+        // Rows-as-matrix notation: columns are the box vectors.
+        let box_matrix = Matrix3f::new(
+            10.0, 4.0, -4.0,
+            0.0, 10.0,  0.0,
+            0.0,  0.0, 10.0,
+        );
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let p1 = Pos::new( 38.9214, 40.0078, -34.0795);
+        let p2 = Pos::new(-26.6187, 40.8926,  30.9709);
+        let d = pbox.distance(&p1, &p2, PBC_FULL);
+        assert!(
+            (d - 5.353627).abs() < 1e-3,
+            "expected ~5.353627, got {d} (prior buggy value ~5.597546)"
+        );
+    }
+
+    // Independent sanity check: a small triclinic box with a displacement
+    // deliberately placed where independent-axis fractional rounding lands
+    // in a neighboring image. Brute-force minimum is computed here too.
+    #[test]
+    fn test_triclinic_corner_matches_brute_force() {
+        // A skewed box with a large c_x shear.
+        let box_matrix = Matrix3f::new(
+            6.0, 0.0, 3.0,
+            0.0, 6.0, 3.0,
+            0.0, 0.0, 6.0,
+        );
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        let dx = Vector3f::new(2.9, 2.9, 2.9);
+
+        // Reference: exhaustive 5x5x5 brute-force minimum over lattice images.
+        let a: Vector3f = box_matrix.column(0).into();
+        let b: Vector3f = box_matrix.column(1).into();
+        let c: Vector3f = box_matrix.column(2).into();
+        let mut best = f32::INFINITY;
+        for i in -2..=2i32 { for j in -2..=2i32 { for k in -2..=2i32 {
+            let cand = dx + (i as f32)*a + (j as f32)*b + (k as f32)*c;
+            best = best.min(cand.norm());
+        }}}
+
+        let got = pbox.shortest_vector(&dx).norm();
+        assert!((got - best).abs() < 1e-5, "expected {best}, got {got}");
+    }
+
+    // Far-apart points (|dx| >> box) must still be handled correctly via the
+    // initial fractional-coord reduction step.
+    #[test]
+    fn test_triclinic_far_apart_reduction() {
+        let box_matrix = Matrix3f::new(
+            10.0, 4.0, -4.0,
+            0.0, 10.0,  0.0,
+            0.0,  0.0, 10.0,
+        );
+        let pbox = PeriodicBox::from_matrix(box_matrix).unwrap();
+        // p1 and p2 ~6 box-lengths apart.
+        let p1 = Pos::new(0.1, 0.2, 0.3);
+        let p2 = Pos::new(60.1, 0.2, 0.3);
+        let d = pbox.distance(&p1, &p2, PBC_FULL);
+        assert!(d < 1e-4, "pure a-vector shift should collapse to ~0, got {d}");
     }
 }

@@ -13,6 +13,14 @@ use pyo3::{
 ///
 /// Construct either from a `3x3` box matrix or from vectors and angles.
 ///
+/// .. warning::
+///
+///    **Matrix convention:** the ``3x3`` matrix is column-major — each **column** is
+///    a box vector (``a``, ``b``, ``c``). This is the opposite of the convention used
+///    by mdtraj (``unitcell_vectors``) and MDAnalysis, where each **row** is a box
+///    vector. If you are passing a matrix built for those libraries, transpose it
+///    first with ``matrix.T``.
+///
 /// **Example**
 ///
 /// .. code-block:: python
@@ -39,7 +47,9 @@ impl PeriodicBoxPy {
     /// :param py_args:
     ///     Positional arguments:
     ///
-    ///     - ``(matrix,)`` where ``matrix`` is a ``3x3`` array-like
+    ///     - ``(matrix,)`` where ``matrix`` is a ``3x3`` array-like whose **columns**
+    ///       are the box vectors ``a``, ``b``, ``c`` (transpose mdtraj/MDAnalysis
+    ///       matrices first — they use rows as box vectors).
     ///     - ``(vectors, angles)`` where each is length-3 array-like
     /// :returns: Initialized periodic box.
     /// :rtype: PeriodicBox
