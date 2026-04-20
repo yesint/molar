@@ -10,7 +10,10 @@ repository.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-exclude = ["tests/*.xtc"]
+exclude = [
+    "tests/",
+    "benches/comparison_with_other_libs/",
+]
 readme = "../README.md"
 
 [dependencies]
