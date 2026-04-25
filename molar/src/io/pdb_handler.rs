@@ -298,7 +298,7 @@ fn write_atom_record(
     let elem = element_symbol(at.atomic_number);
     writeln!(
         w,
-        "ATOM  {:>5} {:<4} {:<3} {:1}{:>4}    {:>8.3}{:>8.3}{:>8.3}{:>6.2}{:>6.2}          {:>2}",
+        "ATOM  {:>5} {:<4} {:<4.4}{:1}{:>4}    {:>8.3}{:>8.3}{:>8.3}{:>6.2}{:>6.2}          {:>2}",
         serial,
         name,
         at.resname,

@@ -397,7 +397,7 @@ impl SelPy {
     pub(crate) fn __getitem__(&self, i: isize) -> PyResult<ParticlePy> {
         let n = self.len();
 
-        let mut ind = if i < 0 {
+        let local = if i < 0 {
             if i.abs() > n as isize {
                 return Err(PyIndexError::new_err(format!(
                     "Negative index {i} is out of bounds {}:-1",
@@ -414,7 +414,7 @@ impl SelPy {
             i as usize
         };
 
-        ind += unsafe { self.index.get_unchecked(0) };
+        let ind = unsafe { *self.index.get_unchecked(local) };
 
         Python::attach(|py| {
             Ok(ParticlePy {
@@ -459,9 +459,9 @@ impl SelPy {
         unsafe {
             let arr = numpy::PyArray2::<f32>::new(py, [3, self.len()], true);
             let arr_ptr = arr.data();
-            for i in self.index.iter_index() {
+            for (j, i) in self.index.iter_index().enumerate() {
                 let pos_ptr = coord_ptr.add(i * 3);
-                std::ptr::copy_nonoverlapping(pos_ptr, arr_ptr.add(i * 3), 3);
+                std::ptr::copy_nonoverlapping(pos_ptr, arr_ptr.add(j * 3), 3);
             }
             arr
         }
@@ -514,9 +514,9 @@ impl SelPy {
         let coord_ptr = unsafe { (*self.st_ptr_mut()).coords.as_mut_ptr() } as *mut f32;
 
         unsafe {
-            for i in self.index.iter_index() {
+            for (j, i) in self.index.iter_index().enumerate() {
                 let pos_ptr = coord_ptr.add(i * 3);
-                std::ptr::copy_nonoverlapping(arr_ptr.add(i * 3), pos_ptr, 3);
+                std::ptr::copy_nonoverlapping(arr_ptr.add(j * 3), pos_ptr, 3);
             }
         }
         Ok(())
