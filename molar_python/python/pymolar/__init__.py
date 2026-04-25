@@ -99,7 +99,7 @@ class AnalysisTask:
                     # Call pre-processing
                     self.pre_process()
                 else:
-                    self.src.set_state(self.state)
+                    self.src.replace_state_deep(self.state)
 
                 if self.consumed_frames % self.args.log == 0:
                     self.__log_time()
