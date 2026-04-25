@@ -51,7 +51,7 @@ impl FileFormatHandler for XtcFileHandler {
                 let mut molly_fr = molly::Frame::default();
                 r.reader
                     .read_frame(&mut molly_fr)
-                    .map_err(|e| XtcHandlerError::ReadFrame(e))?;
+                    .map_err(|e| xtc_to_ff_err(XtcHandlerError::ReadFrame(e)))?;
                 // Destructure the frame
                 let molly::Frame {
                     positions,
@@ -168,5 +168,14 @@ pub enum XtcHandlerError {
 
     #[error("unexpected io error in xtc file")]
     Io(#[from] std::io::Error),
+}
+
+fn xtc_to_ff_err(e: XtcHandlerError) -> FileFormatError {
+    if let XtcHandlerError::ReadFrame(ref io_err) = e {
+        if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
+            return FileFormatError::Eof;
+        }
+    }
+    FileFormatError::from(e)
 }
 
