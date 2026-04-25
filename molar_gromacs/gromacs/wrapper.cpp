@@ -15,6 +15,7 @@
 #include "gromacs/topology/mtop_util.h"
 #include "gromacs/topology/topology.h"
 #include "gromacs/trajectory/trajectoryframe.h"
+#include "gromacs/version.h"
 
 #include "wrapper.hpp"
 
@@ -46,6 +47,40 @@ TprHandle* tpr_open(const char* path)
          *   [param_idx, atom1, atom2]        for 2-body interactions
          *   [param_idx, atom1, atom2, atom3] for F_SETTLE
          */
+#if GMX_VERSION >= 20260000
+        for (auto ftype : gmx::EnumerationWrapper<InteractionFunction>{}) {
+            const t_ilist& il = h->top.idef.il[ftype];
+            if (il.nr == 0) continue;
+
+            switch (ftype) {
+                case InteractionFunction::Bonds:
+                case InteractionFunction::GROMOS96Bonds:
+                case InteractionFunction::HarmonicPotential:
+                case InteractionFunction::FENEBonds:
+                case InteractionFunction::CubicBonds:
+                case InteractionFunction::Constraints:
+                case InteractionFunction::ConstraintsNoCoupling:
+                    for (int i = 0; i < il.nr; i += 3) {
+                        h->bonds.push_back({
+                            (uint32_t)il.iatoms[i + 1],
+                            (uint32_t)il.iatoms[i + 2]
+                        });
+                    }
+                    break;
+
+                case InteractionFunction::SETTLE:
+                    /* Each SETTLE entry covers O-H1-H2; represents 2 bonds. */
+                    for (int i = 0; i < il.nr; i += 4) {
+                        h->bonds.push_back({(uint32_t)il.iatoms[i+1], (uint32_t)il.iatoms[i+2]});
+                        h->bonds.push_back({(uint32_t)il.iatoms[i+1], (uint32_t)il.iatoms[i+3]});
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+        }
+#else
         for (int ftype = 0; ftype < F_NRE; ++ftype) {
             const t_ilist& il = h->top.idef.il[ftype];
             if (il.nr == 0) continue;
@@ -78,6 +113,7 @@ TprHandle* tpr_open(const char* path)
                     break;
             }
         }
+#endif
 
         /* --- Parse molecules from mols block --------------------------------
          * t_block.nr  = number of molecules
@@ -215,16 +251,20 @@ extern "C" {
 CptHandle* cpt_open(const char* path)
 {
     try {
+        t_trxframe fr;
+        clear_trxframe(&fr, TRUE);
+
+#if GMX_VERSION >= 20260000
+        read_checkpoint_trxframe(std::filesystem::path(path), &fr);
+#else
         t_fileio* fp = gmx_fio_open(std::filesystem::path(path), "r");
         if (!fp) {
             s_last_error = "gmx_fio_open returned null";
             return nullptr;
         }
-
-        t_trxframe fr;
-        clear_trxframe(&fr, TRUE);
         read_checkpoint_trxframe(fp, &fr);
         gmx_fio_close(fp);
+#endif
 
         CptHandle* h = new CptHandle();
         h->natoms = fr.natoms;
