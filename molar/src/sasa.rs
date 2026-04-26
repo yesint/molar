@@ -7,13 +7,13 @@ use crate::prelude::*;
 /// [`Sasa::new_with_volume`] and then call [`Sasa::update`] for subsequent frames to
 /// reuse the diagram structure without a full reconstruction.
 pub struct Sasa {
-    inner: powersasa::PowerSasa<f32>,
-    probe_r: f32,
+    inner: powersasa::PowerSasa<Float>,
+    probe_r: Float,
 }
 
 impl Sasa {
     /// Standard water probe radius in nm (0.14 nm).
-    pub const DEFAULT_PROBE_R: f32 = 0.14;
+    pub const DEFAULT_PROBE_R: Float = 0.14;
 
     /// Build power diagram + compute per-atom SASA (areas only).
     pub fn new<S>(sel: &S) -> Result<Self, MeasureError>
@@ -66,22 +66,22 @@ impl Sasa {
     }
 
     /// Per-atom solvent-accessible surface areas (nm²).
-    pub fn areas(&self) -> &[f32] {
+    pub fn areas(&self) -> &[Float] {
         self.inner.per_atom_sasa()
     }
 
     /// Sum of per-atom areas (nm²).
-    pub fn total_area(&self) -> f32 {
+    pub fn total_area(&self) -> Float {
         self.inner.per_atom_sasa().iter().sum()
     }
 
     /// Per-atom volumes. Only meaningful when constructed with [`Sasa::new_with_volume`].
-    pub fn volumes(&self) -> &[f32] {
+    pub fn volumes(&self) -> &[Float] {
         self.inner.per_atom_vol()
     }
 
     /// Sum of per-atom volumes. Only meaningful when constructed with [`Sasa::new_with_volume`].
-    pub fn total_volume(&self) -> f32 {
+    pub fn total_volume(&self) -> Float {
         self.inner.per_atom_vol().iter().sum()
     }
 }

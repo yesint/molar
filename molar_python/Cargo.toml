@@ -29,3 +29,5 @@ log.workspace = true
 triomphe.workspace = true
 
 [features]
+# Forward to molar to build pymolar in double precision (`pymolar-f64` wheel).
+f64 = ["molar/f64"]

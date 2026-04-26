@@ -1,5 +1,6 @@
 use anyhow::bail;
 use log::info;
+use molar::Float;
 use nalgebra::DVector;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use std::collections::HashMap;
@@ -11,13 +12,13 @@ use crate::LipidMolecule;
 
 #[derive(Debug,Default)]
 pub struct Histogram1D {
-    min: f32,
-    max: f32,
-    bins: Vec<f32>,
+    min: Float,
+    max: Float,
+    bins: Vec<Float>,
 }
 
 impl Histogram1D {
-    pub fn new(min: f32, max: f32, n_bins: usize) -> Self {
+    pub fn new(min: Float, max: Float, n_bins: usize) -> Self {
         Self {
             min,
             max,
@@ -25,17 +26,17 @@ impl Histogram1D {
         }
     }
 
-    pub fn add_one(&mut self, val: f32) {
+    pub fn add_one(&mut self, val: Float) {
         let n = self.bins.len() as isize;
-        let b = (n as f32 * (val-self.min)/(self.max-self.min)).floor() as isize;
+        let b = (n as Float * (val-self.min)/(self.max-self.min)).floor() as isize;
         if b>=0 && b<n {
             self.bins[b as usize] += 1.0;
         }
     }
 
     pub fn normalize_density(&mut self) {
-        let d = (self.max-self.min)/self.bins.len() as f32;
-        let sum = self.bins.iter().sum::<f32>() * d;
+        let d = (self.max-self.min)/self.bins.len() as Float;
+        let sum = self.bins.iter().sum::<Float>() * d;
         for bin in self.bins.iter_mut() {
             *bin /= sum;
         }
@@ -45,9 +46,9 @@ impl Histogram1D {
         use std::io::Write;
         let f = std::fs::File::create(fname)?;
         let mut buf = BufWriter::new(f);
-        let d = (self.max-self.min)/self.bins.len() as f32;
+        let d = (self.max-self.min)/self.bins.len() as Float;
         for (i,val) in self.bins.iter().enumerate() {
-            writeln!(buf,"{} {}",self.min + i as f32 * d + 0.5*d, val)?;
+            writeln!(buf,"{} {}",self.min + i as Float * d + 0.5*d, val)?;
         }
         Ok(())
     }
@@ -193,7 +194,7 @@ impl SpeciesStats {
                 self.order[tail].add(&lipids[id].order[tail])?;
             }
 
-            self.num_neib.add(lipids[id].neib_ids.len() as f32);
+            self.num_neib.add(lipids[id].neib_ids.len() as Float);
 
             // Update lipid counter
             self.num_lip_cur += 1;
@@ -216,10 +217,10 @@ impl SpeciesStats {
 
     pub fn finish_frame_update(&mut self) {
         // Number of lipids have to be counted once per frame
-        self.num_lip.add(self.num_lip_cur as f32);
+        self.num_lip.add(self.num_lip_cur as Float);
         // Take into account the number of lipids of the current type
         for (sp,val) in self.neib_species_cur.iter() {
-            let v = *val as f32 / self.num_lip_cur as f32;
+            let v = *val as Float / self.num_lip_cur as Float;
             //println!("{} {} {}",self.num_lip_cur,sp,val);
             self.neib_species.get_mut(sp).unwrap().add(v);
         }
@@ -240,7 +241,7 @@ impl SpeciesStats {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         // Array for average order
-        let mut ave_order = DVector::from_element(max_len, 0.0f32);
+        let mut ave_order = DVector::from_element(max_len, 0.0);
         // Average order is computed for each i only from the tails that have atom i
         for i in 0..max_len {
             let mut ave = 0.0;
@@ -251,7 +252,7 @@ impl SpeciesStats {
                     nave += 1;
                 }
             }
-            ave_order[i] = ave / nave as f32;
+            ave_order[i] = ave / nave as Float;
         }
 
         // Write to file. Missing value are written as "--"
@@ -293,13 +294,13 @@ impl SpeciesStats {
 
 #[derive(Default, Debug)]
 pub struct MeanStd {
-    x: f32,
-    x2: f32,
-    n: f32,
+    x: Float,
+    x2: Float,
+    n: Float,
 }
 
 impl MeanStd {
-    pub fn add(&mut self, val: f32) {
+    pub fn add(&mut self, val: Float) {
         self.x += val;
         self.x2 += val * val;
         self.n += 1.0;
@@ -324,8 +325,8 @@ impl MeanStd {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct MeanStdResult {
-    pub mean: f32,
-    pub stddev: f32,
+    pub mean: Float,
+    pub stddev: Float,
 }
 
 impl Serialize for MeanStd {
@@ -343,15 +344,15 @@ impl Serialize for MeanStd {
 
 #[derive(Debug)]
 pub struct MeanStdVec {
-    x: DVector<f32>,
-    x2: DVector<f32>,
-    n: f32,
+    x: DVector<Float>,
+    x2: DVector<Float>,
+    n: Float,
 }
 
 #[derive(Serialize, Debug, Clone)]
 pub struct MeanStdVecResult {
-    mean: DVector<f32>,
-    stddev: DVector<f32>,
+    mean: DVector<Float>,
+    stddev: DVector<Float>,
 }
 
 impl MeanStdVec {
@@ -363,7 +364,7 @@ impl MeanStdVec {
         }
     }
 
-    pub fn add(&mut self, val: &DVector<f32>) -> anyhow::Result<()> {
+    pub fn add(&mut self, val: &DVector<Float>) -> anyhow::Result<()> {
         if val.len() != self.x.len() {
             bail!(
                 "incompatible vector size in MeanStdVec::add: {} provided, {} expected",

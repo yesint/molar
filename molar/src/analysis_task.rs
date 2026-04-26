@@ -74,7 +74,7 @@ pub enum AnalysisError {
     NoTraj,
 }
 
-fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError> {
+fn process_suffix(s: &str) -> Result<(Option<usize>, Option<Float>), AnalysisError> {
     if s.is_empty() {
         return Ok((None, None));
     }
@@ -91,9 +91,9 @@ fn process_suffix(s: &str) -> Result<(Option<usize>, Option<f32>), AnalysisError
         } else {
             match suffix {
                 "fr" => frame = Some(num_part.parse::<usize>()?),
-                "ps" => time = Some(num_part.parse::<f32>()? * 1.0),
-                "ns" => time = Some(num_part.parse::<f32>()? * 1000.0),
-                "us" => time = Some(num_part.parse::<f32>()? * 1000_000.0),
+                "ps" => time = Some(num_part.parse::<Float>()? * 1.0),
+                "ns" => time = Some(num_part.parse::<Float>()? * 1000.0),
+                "us" => time = Some(num_part.parse::<Float>()? * 1000_000.0),
                 _ => return Err(AnalysisError::InvalidSuffix),
             }
         }

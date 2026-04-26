@@ -13,23 +13,23 @@ use nalgebra::Unit;
 /// The base supertrait is [`PosMutProvider`]. Methods that require additional
 /// capabilities carry `where Self: …` bounds.
 pub trait Modify: PosMutProvider {
-    fn translate<S>(&mut self, shift: &nalgebra::Matrix<f32, Const<3>, Const<1>, S>)
+    fn translate<S>(&mut self, shift: &nalgebra::Matrix<Float, Const<3>, Const<1>, S>)
     where
-        S: nalgebra::storage::Storage<f32, Const<3>, Const<1>>,
+        S: nalgebra::storage::Storage<Float, Const<3>, Const<1>>,
     {
         for el in self.iter_pos_mut() {
             *el += shift;
         }
     }
 
-    fn rotate(&mut self, ax: &Unit<Vector3f>, ang: f32) {
-        let tr = Rotation3::<f32>::from_axis_angle(ax, ang);
+    fn rotate(&mut self, ax: &Unit<Vector3f>, ang: Float) {
+        let tr = Rotation3::<Float>::from_axis_angle(ax, ang);
         for p in self.iter_pos_mut() {
             p.coords = tr * p.coords;
         }
     }
 
-    fn apply_transform(&mut self, tr: &nalgebra::IsometryMatrix3<f32>) {
+    fn apply_transform(&mut self, tr: &nalgebra::IsometryMatrix3<Float>) {
         for p in self.iter_pos_mut() {
             *p = tr * (*p);
         }
@@ -62,14 +62,14 @@ pub trait Modify: PosMutProvider {
 
     // ---- BoxProvider + Sized + Selectable methods ----
 
-    fn unwrap_connectivity(&mut self, cutoff: f32) -> Result<Vec<Sel>, MeasureError>
+    fn unwrap_connectivity(&mut self, cutoff: Float) -> Result<Vec<Sel>, MeasureError>
     where
         Self: BoxProvider + Sized + Selectable,
     {
         self.unwrap_connectivity_dim(cutoff, PBC_FULL)
     }
 
-    fn unwrap_connectivity_dim(&mut self, cutoff: f32, dims: PbcDims) -> Result<Vec<Sel>, MeasureError>
+    fn unwrap_connectivity_dim(&mut self, cutoff: Float, dims: PbcDims) -> Result<Vec<Sel>, MeasureError>
     where
         Self: BoxProvider + Sized + Selectable,
     {

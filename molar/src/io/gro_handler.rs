@@ -73,7 +73,7 @@ impl GroFileHandler {
 
         // Try to extract time from trailing "t=..."
         state.time = if let Some(i) = line.rfind("t=") {
-            line[i + 2..].trim().parse::<f32>().unwrap_or(0.0)
+            line[i + 2..].trim().parse::<Float>().unwrap_or(0.0)
         } else {
             0.0
         };
@@ -113,15 +113,15 @@ impl GroFileHandler {
                 top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
                 state.coords.push(Pos::new(
-                    line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                    line.get(28..36).ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                    line.get(36..44).ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(28..36).ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(36..44).ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
                 ));
 
                 vels.push(Vel::new(
-                    line.get(44..52).ok_or_else(|| GroHandlerError::AtomEntry(i, "vx".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                    line.get(52..60).ok_or_else(|| GroHandlerError::AtomEntry(i, "vy".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                    line.get(60..68).ok_or_else(|| GroHandlerError::AtomEntry(i, "vz".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(44..52).ok_or_else(|| GroHandlerError::AtomEntry(i, "vx".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(52..60).ok_or_else(|| GroHandlerError::AtomEntry(i, "vy".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(60..68).ok_or_else(|| GroHandlerError::AtomEntry(i, "vz".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
                 ));
             }
             state.velocities = vels;
@@ -136,9 +136,9 @@ impl GroFileHandler {
                 top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
                 state.coords.push(Pos::new(
-                    line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                    line.get(28..36).ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
-                    line.get(36..44).ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?.trim().parse::<f32>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(28..36).ok_or_else(|| GroHandlerError::AtomEntry(i, "y".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
+                    line.get(36..44).ok_or_else(|| GroHandlerError::AtomEntry(i, "z".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
                 ));
             }
         }
@@ -159,8 +159,8 @@ impl GroFileHandler {
         buf.read_line(&mut line).unwrap();
         let l = line
             .split_whitespace()
-            .map(|s| Ok(s.parse::<f32>()?))
-            .collect::<Result<Vec<f32>, GroHandlerError>>()?;
+            .map(|s| Ok(s.parse::<Float>()?))
+            .collect::<Result<Vec<Float>, GroHandlerError>>()?;
 
         let mut m = Matrix3f::zeros();
         m[(0, 0)] = l[0];

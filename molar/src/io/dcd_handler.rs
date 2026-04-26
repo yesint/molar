@@ -169,14 +169,15 @@ fn encode_unit_cell(pbox: Option<&PeriodicBox>) -> [u8; 48] {
     let mut buf = [0u8; 48];
     if let Some(b) = pbox {
         let (lengths, angles) = b.to_vectors_angles();
-        // DCD unit cell: [A, cos(γ), B, cos(β), cos(α), C] in Ångström + cosines
+        // DCD unit cell: [A, cos(γ), B, cos(β), cos(α), C] in Ångström + cosines.
+        // The on-disk format is f64; cast through f64 regardless of internal precision.
         let cell = [
-            (lengths[0] * 10.0) as f64,           // A in Å
+            (lengths[0] as f64 * 10.0),           // A in Å
             (angles[2] as f64).to_radians().cos(), // cos(γ)
-            (lengths[1] * 10.0) as f64,            // B in Å
+            (lengths[1] as f64 * 10.0),            // B in Å
             (angles[1] as f64).to_radians().cos(), // cos(β)
             (angles[0] as f64).to_radians().cos(), // cos(α)
-            (lengths[2] * 10.0) as f64,            // C in Å
+            (lengths[2] as f64 * 10.0),            // C in Å
         ];
         for (i, &v) in cell.iter().enumerate() {
             buf[i * 8..(i + 1) * 8].copy_from_slice(&v.to_le_bytes());
@@ -205,12 +206,12 @@ fn parse_unit_cell(cell: &[f64]) -> Result<Option<PeriodicBox>, DcdHandlerError>
         (cell[4], cell[3], cell[1])
     };
     Ok(Some(PeriodicBox::from_vectors_angles(
-        (a * 0.1) as f32,
-        (b * 0.1) as f32,
-        (c * 0.1) as f32,
-        alpha as f32,
-        beta as f32,
-        gamma as f32,
+        (a * 0.1) as Float,
+        (b * 0.1) as Float,
+        (c * 0.1) as Float,
+        alpha as Float,
+        beta as Float,
+        gamma as Float,
     )?))
 }
 
@@ -223,7 +224,7 @@ fn write_dcd_header(w: &mut impl Write, n_atoms: usize) -> io::Result<()> {
     // NSAVC = 1 at [12..16]
     header[12..16].copy_from_slice(&1i32.to_le_bytes());
     // NAMNF = 0 at [32..36] (no fixed atoms)
-    // DELTA = 0.0f32 at [36..40]
+    // DELTA = 0.0 at [36..40]
     // extra_block = 1 at [40..44] (always write unit cell)
     header[40..44].copy_from_slice(&1i32.to_le_bytes());
     // has_4dims = 0 at [44..48]
@@ -416,11 +417,11 @@ impl FileFormatHandler for DcdFileHandler {
             read_byte_record(&mut r.reader, swap)?;
         }
 
-        // Assemble coordinates in nm (Å × 0.1)
+        // Assemble coordinates in nm (Å × 0.1). DCD is f32-on-disk; cast at boundary.
         let coords: Vec<Pos> = if r.n_fixed == 0 || is_first_frame {
             // All atoms present in the coordinate arrays
             (0..r.n_atoms)
-                .map(|i| Pos::new(x[i] * 0.1, y[i] * 0.1, z[i] * 0.1))
+                .map(|i| Pos::new(x[i] as Float * 0.1, y[i] as Float * 0.1, z[i] as Float * 0.1))
                 .collect()
         } else {
             // Merge free (from file) and fixed (stored) atoms
@@ -437,10 +438,10 @@ impl FileFormatHandler for DcdFileHandler {
                     if fi < r.free_indices.len() && r.free_indices[fi] == i {
                         fi += 1;
                         let (xi, yi, zi) = free_iter.next().unwrap();
-                        Pos::new(xi * 0.1, yi * 0.1, zi * 0.1)
+                        Pos::new(xi as Float * 0.1, yi as Float * 0.1, zi as Float * 0.1)
                     } else {
                         let fc = r.fixed_coords[i];
-                        Pos::new(fc[0], fc[1], fc[2]) // already in nm
+                        Pos::new(fc[0] as Float, fc[1] as Float, fc[2] as Float) // already in nm
                     }
                 })
                 .collect()
@@ -448,10 +449,10 @@ impl FileFormatHandler for DcdFileHandler {
 
         // Save fixed_coords after first frame
         if is_first_frame && r.n_fixed > 0 {
-            r.fixed_coords = coords.iter().map(|p| [p.x, p.y, p.z]).collect();
+            r.fixed_coords = coords.iter().map(|p| [p.x as f32, p.y as f32, p.z as f32]).collect();
         }
 
-        let time = (r.istart + r.cur_frame as i32 * r.nsavc) as f32 * r.delta;
+        let time = (r.istart + r.cur_frame as i32 * r.nsavc) as Float * r.delta as Float;
         r.cur_frame += 1;
 
         Ok(State { coords, pbox, time, ..Default::default() })
@@ -474,14 +475,14 @@ impl FileFormatHandler for DcdFileHandler {
         let cell_bytes = encode_unit_cell(data.get_box());
         write_record(&mut w.writer, &cell_bytes).map_err(DcdHandlerError::Io)?;
 
-        // Collect X, Y, Z arrays in Å (nm × 10)
-        let mut xs = Vec::with_capacity(n);
-        let mut ys = Vec::with_capacity(n);
-        let mut zs = Vec::with_capacity(n);
+        // Collect X, Y, Z arrays in Å (nm × 10). DCD is f32-on-disk; cast at boundary.
+        let mut xs: Vec<f32> = Vec::with_capacity(n);
+        let mut ys: Vec<f32> = Vec::with_capacity(n);
+        let mut zs: Vec<f32> = Vec::with_capacity(n);
         for p in data.iter_pos_dyn() {
-            xs.push(p.x * 10.0);
-            ys.push(p.y * 10.0);
-            zs.push(p.z * 10.0);
+            xs.push((p.x * 10.0) as f32);
+            ys.push((p.y * 10.0) as f32);
+            zs.push((p.z * 10.0) as f32);
         }
 
         write_record(&mut w.writer, &f32_slice_to_bytes(&xs)).map_err(DcdHandlerError::Io)?;

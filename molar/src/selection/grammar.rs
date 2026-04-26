@@ -28,7 +28,7 @@ peg::parser! {
             = n:$(int_span())
             { n.parse().unwrap() }
 
-        rule float_val() -> f32
+        rule float_val() -> Float
             = n:$((int_span() ("." uint_span())? / ("-"/"+") "." uint_span()) (("e"/"E") int_span())?)
             { n.parse().unwrap() }
 

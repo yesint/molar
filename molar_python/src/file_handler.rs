@@ -284,7 +284,7 @@ impl FileHandlerPy {
     /// :param t: Target simulation time.
     /// :returns: ``None``.
     /// :rtype: None
-    fn skip_to_time(&mut self, t: f32) -> PyResult<()> {
+    fn skip_to_time(&mut self, t: Float) -> PyResult<()> {
         let h = self
             .0
             .as_mut()
@@ -375,7 +375,7 @@ impl FileStatsPy {
     /// :returns: Current frame time.
     /// :rtype: float
     #[getter]
-    fn cur_t(&self) -> f32 {
+    fn cur_t(&self) -> Float {
         self.0.cur_t
     }
 

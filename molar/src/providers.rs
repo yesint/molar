@@ -205,7 +205,7 @@ pub trait AtomProvider: LenProvider + IndexProvider {
         unsafe { self.par_iter_index().map(move |i| &*(p as *const Atom).add(i)) }
     }
 
-    fn iter_masses(&self) -> impl Iterator<Item = f32> {
+    fn iter_masses(&self) -> impl Iterator<Item = Float> {
         self.iter_atoms().map(|at| at.mass)
     }
 
@@ -319,7 +319,7 @@ pub trait AtomMutProvider: AtomProvider {
     }
 
     /// Sets same mass to all selected atoms
-    fn set_same_mass(&mut self, val: f32)
+    fn set_same_mass(&mut self, val: Float)
     where
         Self: Sized,
     {
@@ -329,7 +329,7 @@ pub trait AtomMutProvider: AtomProvider {
     }
 
     /// Sets same B-factor to all selected atoms
-    fn set_same_bfactor(&mut self, val: f32)
+    fn set_same_bfactor(&mut self, val: Float)
     where
         Self: Sized,
     {
@@ -436,7 +436,7 @@ pub trait BoxProvider {
 
 /// Trait for getting time
 pub trait TimeProvider {
-    fn get_time(&self) -> f32;
+    fn get_time(&self) -> Float;
 }
 
 /// Trait for providing mutable access to periodic box
@@ -446,7 +446,7 @@ pub trait BoxMutProvider {
 
 /// Trait for setting simulation time
 pub trait TimeMutProvider {
-    fn set_time(&mut self, t: f32);
+    fn set_time(&mut self, t: Float);
 }
 
 //--------------------------------------------------------------

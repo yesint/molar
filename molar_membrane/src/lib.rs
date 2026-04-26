@@ -1,14 +1,14 @@
 use anyhow::{anyhow, bail, Context};
 use molar::{
     prelude::*,
-    voronoi_cell::{Vector2f, VoronoiCell},
+    voronoi_cell::VoronoiCell,
 };
 use nalgebra::{DVector, SMatrix, SVector};
+use num_traits::FloatConst;
 use rayon::iter::IntoParallelRefMutIterator;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    f32::consts::FRAC_PI_2,
     path::{Path, PathBuf},
 };
 use triomphe::Arc;
@@ -57,7 +57,7 @@ struct MembraneOptions {
     order_type: OrderType,
     output_dir: PathBuf,
     max_smooth_iter: usize,
-    cutoff: f32,
+    cutoff: Float,
     lipids: HashMap<String, LipidSpeciesDescr>,
     groups: Vec<String>,
     sel: String,
@@ -243,7 +243,7 @@ impl Membrane {
         Ok(self)
     }
 
-    pub fn with_cutoff(mut self, cutoff: f32) -> Self {
+    pub fn with_cutoff(mut self, cutoff: Float) -> Self {
         self.options.cutoff = cutoff;
         self
     }
@@ -272,7 +272,7 @@ impl Membrane {
         }
     }
 
-    // pub fn compute_monolayers(&mut self, d: f32) -> anyhow::Result<()> {
+    // pub fn compute_monolayers(&mut self, d: Float) -> anyhow::Result<()> {
     //     let ind: Vec<(usize, usize)> = distance_search_single_pbc(
     //         d,
     //         self.iter_valid_lipids().map(|l| &l.head_marker),
@@ -470,7 +470,7 @@ impl Membrane {
                         if self.lipids[*l]
                             .tail_head_vec
                             .angle(&self.lipids[i].tail_head_vec)
-                            <= FRAC_PI_2
+                            <= Float::FRAC_PI_2()
                         {
                             Some(&self.lipids[*l].tail_head_vec)
                         } else {
@@ -491,7 +491,7 @@ impl Membrane {
                     .patch_ids
                     .iter()
                     .filter_map(|l| {
-                        if self.lipids[*l].normal.angle(&self.lipids[i].normal) <= FRAC_PI_2 {
+                        if self.lipids[*l].normal.angle(&self.lipids[i].normal) <= Float::FRAC_PI_2() {
                             Some(&self.lipids[*l].normal)
                         } else {
                             None
@@ -507,7 +507,7 @@ impl Membrane {
         // Correct normal orientations if needed
         // for i in 0..self.lipids.len() {
         //     if self.lipids[i].valid {
-        //         if self.lipids[i].normal.angle(&self.lipids[i].tail_head_vec) > FRAC_PI_2 {
+        //         if self.lipids[i].normal.angle(&self.lipids[i].tail_head_vec) > Float::FRAC_PI_2() {
         //             self.lipids[i].normal *= -1.0;
         //         }
         //     }
@@ -536,7 +536,7 @@ impl Membrane {
         Ok(())
     }
 
-    fn compute_patches(&mut self, sys: &System, d: f32) -> anyhow::Result<()> {
+    fn compute_patches(&mut self, sys: &System, d: Float) -> anyhow::Result<()> {
         let pairs: Vec<(usize, usize)> = distance_search_single_pbc(
             d,
             self.iter_valid_lipids().map(|l| &l.head_marker),
@@ -615,8 +615,8 @@ impl Membrane {
                 n_valid += 1;
             }
 
-            self.lipids[i].mean_curv = (mean_curv[i] + m) / (n_valid + 1) as f32;
-            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (n_valid + 1) as f32;
+            self.lipids[i].mean_curv = (mean_curv[i] + m) / (n_valid + 1) as Float;
+            self.lipids[i].gaussian_curv = (gauss_curv[i] + g) / (n_valid + 1) as Float;
         }
     }
 
@@ -812,17 +812,17 @@ impl Membrane {
     }
 }
 
-// pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<f32, 6>> {
+// pub fn get_quad_coefs<'a>(local_points: &'a Vec<Vector3f>) -> Option<SVector<Float, 6>> {
 //     //============================
 //     // Fitting polynomial
 //     //============================
 
 //     // We fit with polynomial fit = a*x^2 + b*y^2 + c*xy + d*x + e*y + f
 //     // Thus we need a linear system of size 6
-//     let mut m = SMatrix::<f32, 6, 6>::zeros();
-//     let mut rhs = SVector::<f32, 6>::zeros(); // Right hand side and result
+//     let mut m = SMatrix::<Float, 6, 6>::zeros();
+//     let mut rhs = SVector::<Float, 6>::zeros(); // Right hand side and result
 
-//     let mut powers = SVector::<f32, 6>::zeros();
+//     let mut powers = SVector::<Float, 6>::zeros();
 //     powers[5] = 1.0; //free term, the same everywhere
 //     for loc in local_points {
 //         // Compute powers
@@ -841,11 +841,11 @@ impl Membrane {
 //     m.solve_lower_triangular(&rhs)
 // }
 
-pub fn get_quad_coefs(local_points: &Vec<Vector3f>) -> Option<SVector<f32, 6>> {
-    let mut m = SMatrix::<f32, 6, 6>::zeros();
-    let mut rhs = SVector::<f32, 6>::zeros();
+pub fn get_quad_coefs(local_points: &Vec<Vector3f>) -> Option<SVector<Float, 6>> {
+    let mut m = SMatrix::<Float, 6, 6>::zeros();
+    let mut rhs = SVector::<Float, 6>::zeros();
 
-    let mut powers = SVector::<f32, 6>::zeros();
+    let mut powers = SVector::<Float, 6>::zeros();
     powers[5] = 1.0;
 
     for loc in local_points {
@@ -862,12 +862,12 @@ pub fn get_quad_coefs(local_points: &Vec<Vector3f>) -> Option<SVector<f32, 6>> {
     m.cholesky().map(|chol| chol.solve(&rhs))
 }
 
-fn project_to_surf(p: Vector2f, coefs: &SVector<f32, 6>) -> Vector3f {
+fn project_to_surf(p: Vector2f, coefs: &SVector<Float, 6>) -> Vector3f {
     // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
     Vector3f::new(p.x, p.y, z_surf(p.x, p.y, coefs))
 }
 
-fn z_surf(x: f32, y: f32, coefs: &SVector<f32, 6>) -> f32 {
+fn z_surf(x: Float, y: Float, coefs: &SVector<Float, 6>) -> Float {
     // local z coord of point is: z_local= a*x^2 + b*y^2 + c*xy + d*x + e*y + f,
     let z = coefs[0] * x * x
         + coefs[1] * y * y
@@ -883,6 +883,8 @@ mod tests {
     use std::{collections::HashMap, io::Read, path::PathBuf};
 
     use molar::prelude::*;
+    use molar::Float;
+    use num_traits::FloatConst;
 
     use crate::{
         get_quad_coefs, lipid_molecule::coeffs_to_curvature, LipidSpecies, LipidSpeciesDescr,
@@ -948,7 +950,7 @@ mod tests {
     #[allow(dead_code)]
     #[derive(Clone, Debug, serde::Deserialize)]
     struct TestInp {
-        cutoff: f32,
+        cutoff: Float,
         lipids: HashMap<String, LipidSpeciesDescr>,
     }
 
@@ -1094,17 +1096,17 @@ mod tests {
     #[test]
     fn test_curvature_sphere() -> anyhow::Result<()> {
         use rand::Rng;
-        use std::f32::consts::PI;
 
         let mut rng = rand::rng();
-        let radius = 5.0;
+        let radius: Float = 5.0;
+        let pi = Float::PI();
 
         // Generate random points on sphere segment around positive z axis
         let mut points = Vec::new();
         for _ in 0..6 {
             // Generate random angles with restrictions to stay near positive z
-            let theta = rng.random_range(0.0..PI / 3.0); // angle from z axis
-            let phi = rng.random_range(0.0..2.0 * PI); // angle in xy plane
+            let theta: Float = rng.random_range(0.0..pi / 3.0); // angle from z axis
+            let phi: Float = rng.random_range(0.0..2.0 * pi); // angle in xy plane
 
             // Convert to cartesian coordinates
             let x = radius * theta.sin() * phi.cos();

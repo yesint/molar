@@ -1,4 +1,5 @@
 use super::periodic_table::{ELEMENT_MASS, ELEMENT_NAME, ELEMENT_NAME_UPPER, ELEMENT_VDW};
+use crate::aliases::Float;
 use tinystr::TinyAsciiStr;
 
 /// Stack-allocated ASCII atom string (max 8 bytes, no heap allocation).
@@ -31,12 +32,12 @@ pub trait AtomLike {
     fn set_atomic_number(&mut self, atomic_number: u8);
 
     /// Mass in atomic units
-    fn get_mass(&self) -> f32;
-    fn set_mass(&mut self, mass: f32);
+    fn get_mass(&self) -> Float;
+    fn set_mass(&mut self, mass: Float);
 
     /// Charge in electric charges.
-    fn get_charge(&self) -> f32;
-    fn set_charge(&mut self, charge: f32);
+    fn get_charge(&self) -> Float;
+    fn set_charge(&mut self, charge: Float);
 
     /// Name of the atom type.
     fn get_type_name(&self) -> &str;
@@ -51,12 +52,12 @@ pub trait AtomLike {
     fn set_chain(&mut self, chain: char);
 
     /// PDB B-factor.
-    fn get_bfactor(&self) -> f32;
-    fn set_bfactor(&mut self, bfactor: f32);
+    fn get_bfactor(&self) -> Float;
+    fn set_bfactor(&mut self, bfactor: Float);
 
     /// PDB occupancy.
-    fn get_occupancy(&self) -> f32;
-    fn set_occupancy(&mut self, occupancy: f32);
+    fn get_occupancy(&self) -> Float;
+    fn set_occupancy(&mut self, occupancy: Float);
 }
 
 /// Information about the atom except its coordinates.
@@ -75,9 +76,9 @@ pub struct Atom {
     /// Atomic number in the periodic table.
     pub atomic_number: u8,
     /// Mass in atomic units
-    pub mass: f32,
+    pub mass: Float,
     /// Charge in electroc charges.
-    pub charge: f32,
+    pub charge: Float,
     /// Name of the atom type.
     pub type_name: AtomStr,
     /// Unique id of the atom type.
@@ -85,9 +86,9 @@ pub struct Atom {
     // PDB chain identifier.
     pub chain: char,
     // PDB B-factor.
-    pub bfactor: f32,
+    pub bfactor: Float,
     /// PDB occupancy.
-    pub occupancy: f32,
+    pub occupancy: Float,
 }
 
 impl Default for Atom {
@@ -127,16 +128,16 @@ impl Atom {
     pub fn with_resid(mut self, resid: i32) -> Self { self.resid = resid; self }
     pub fn with_resindex(mut self, resindex: usize) -> Self { self.resindex = resindex; self }
     pub fn with_atomic_number(mut self, n: u8) -> Self { self.atomic_number = n; self }
-    pub fn with_mass(mut self, mass: f32) -> Self { self.mass = mass; self }
-    pub fn with_charge(mut self, charge: f32) -> Self { self.charge = charge; self }
+    pub fn with_mass(mut self, mass: Float) -> Self { self.mass = mass; self }
+    pub fn with_charge(mut self, charge: Float) -> Self { self.charge = charge; self }
     pub fn with_type_name(mut self, type_name: &str) -> Self {
         self.type_name = AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT);
         self
     }
     pub fn with_type_id(mut self, type_id: u32) -> Self { self.type_id = type_id; self }
     pub fn with_chain(mut self, chain: char) -> Self { self.chain = chain; self }
-    pub fn with_bfactor(mut self, bfactor: f32) -> Self { self.bfactor = bfactor; self }
-    pub fn with_occupancy(mut self, occupancy: f32) -> Self { self.occupancy = occupancy; self }
+    pub fn with_bfactor(mut self, bfactor: Float) -> Self { self.bfactor = bfactor; self }
+    pub fn with_occupancy(mut self, occupancy: Float) -> Self { self.occupancy = occupancy; self }
 
     /// Chainable version of `guess_element_and_mass_from_name()`.
     pub fn guess(mut self) -> Self {
@@ -203,8 +204,8 @@ impl Atom {
 
     pub fn guess_element_and_mass_from_name(&mut self) {
         self.guess_element_from_name();
-        // Fill mass field
-        self.mass = ELEMENT_MASS[self.atomic_number as usize];
+        // Fill mass field — periodic table is stored as Float for compactness; cast at lookup.
+        self.mass = ELEMENT_MASS[self.atomic_number as usize] as Float;
     }
 
     /// Naive guessing of the mass and element from the atom name.
@@ -231,8 +232,8 @@ impl Atom {
 
     /// Returns atom's Van der Waals radius based on its atomic number.
     /// If the element is not recognized returns a default value of 0.15 nm (atomnum '0').
-    pub fn vdw(&self) -> f32 {
-        ELEMENT_VDW[self.atomic_number as usize] * 0.1
+    pub fn vdw(&self) -> Float {
+        ELEMENT_VDW[self.atomic_number as usize] as Float * 0.1
     }
 }
 
@@ -305,18 +306,18 @@ impl AtomLike for Atom {
     }
 
     // Mass
-    fn get_mass(&self) -> f32 {
+    fn get_mass(&self) -> Float {
         self.mass
     }
-    fn set_mass(&mut self, mass: f32) {
+    fn set_mass(&mut self, mass: Float) {
         self.mass = mass;
     }
 
     // Charge
-    fn get_charge(&self) -> f32 {
+    fn get_charge(&self) -> Float {
         self.charge
     }
-    fn set_charge(&mut self, charge: f32) {
+    fn set_charge(&mut self, charge: Float) {
         self.charge = charge;
     }
 
@@ -345,17 +346,17 @@ impl AtomLike for Atom {
     }
 
     // B-factor
-    fn get_bfactor(&self) -> f32 {
+    fn get_bfactor(&self) -> Float {
         self.bfactor
     }
-    fn set_bfactor(&mut self, bfactor: f32) {
+    fn set_bfactor(&mut self, bfactor: Float) {
         self.bfactor = bfactor;
     }
     // Occupancy
-    fn get_occupancy(&self) -> f32 {
+    fn get_occupancy(&self) -> Float {
         self.occupancy
     }
-    fn set_occupancy(&mut self, occupancy: f32) {
+    fn set_occupancy(&mut self, occupancy: Float) {
         self.occupancy = occupancy;
     }
 }  

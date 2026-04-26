@@ -26,3 +26,8 @@ serde.workspace = true
 toml = "0.8"
 rayon.workspace = true
 rand = "0.9"
+num-traits = "0.2"
+
+[features]
+# Forward to molar to build in double precision.
+f64 = ["molar/f64"]

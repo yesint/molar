@@ -24,7 +24,7 @@ pub(crate) fn to_py_runtime_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
 pub(crate) unsafe fn map_pyarray_to_pos<'py>(
     st: &Bound<'py,StatePy>,
     id: usize,
-) -> Bound<'py, PyArray1<f32>> {
+) -> Bound<'py, PyArray1<Float>> {
     use numpy::Element;
     use numpy::PyArrayDescrMethods;
 
@@ -35,7 +35,7 @@ pub(crate) unsafe fn map_pyarray_to_pos<'py>(
         let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
             py,
             PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-            f32::get_dtype(py).into_dtype_ptr(),
+            Float::get_dtype(py).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(), // no strides
@@ -51,9 +51,9 @@ pub(crate) unsafe fn map_pyarray_to_pos<'py>(
         pyo3::ffi::Py_IncRef(st.as_ptr());
         PY_ARRAY_API.PyArray_SetBaseObject(py, ptr.cast(), st.as_ptr());
 
-        // Turn raw pointer into a Bound<PyArray1<f32>>
+        // Turn raw pointer into a Bound<PyArray1<Float>>
         let any = Bound::from_owned_ptr(py, ptr.cast::<pyo3::ffi::PyObject>());
-        any.cast_into::<PyArray1<f32>>().unwrap()
+        any.cast_into::<PyArray1<Float>>().unwrap()
     }
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn map_const_pyarray_to_vec3<'py>(
         let ptr = PY_ARRAY_API.PyArray_NewFromDescr(
             py,
             PY_ARRAY_API.get_type_object(py, npyffi::NpyTypes::PyArray_Type),
-            f32::get_dtype(py).into_dtype_ptr(),
+            Float::get_dtype(py).into_dtype_ptr(),
             dims.ndim_cint(),
             dims.as_dims_ptr(),
             std::ptr::null_mut(),         // no strides

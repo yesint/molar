@@ -4,23 +4,23 @@ use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIte
 
 /// Trait for the results of distance seacrh
 pub trait DistanceSearchOutput {
-    fn from_ijd(i: usize, j: usize, d: f32) -> Self;
+    fn from_ijd(i: usize, j: usize, d: Float) -> Self;
 }
 
 impl DistanceSearchOutput for usize {
-    fn from_ijd(i: usize, _j: usize, _d: f32) -> Self {
+    fn from_ijd(i: usize, _j: usize, _d: Float) -> Self {
         i
     }
 }
 
 impl DistanceSearchOutput for (usize, usize) {
-    fn from_ijd(i: usize, j: usize, _d: f32) -> Self {
+    fn from_ijd(i: usize, j: usize, _d: Float) -> Self {
         (i, j)
     }
 }
 
-impl DistanceSearchOutput for (usize, usize, f32) {
-    fn from_ijd(i: usize, j: usize, d: f32) -> Self {
+impl DistanceSearchOutput for (usize, usize, Float) {
+    fn from_ijd(i: usize, j: usize, d: Float) -> Self {
         (i, j, d)
     }
 }
@@ -100,7 +100,7 @@ impl<'a> Grid<'a> {
         self.cells[ind].push((data.0, &*data.1));
     }
 
-    fn from_cutoff_and_extents(cutoff: f32, extents: &Vector3f) -> Self {
+    fn from_cutoff_and_extents(cutoff: Float, extents: &Vector3f) -> Self {
         let mut sz = [0, 0, 0];
         // Cell size should be >= cutoff for all dimentions
         for d in 0..3 {
@@ -109,11 +109,11 @@ impl<'a> Grid<'a> {
         Self::new_with_dims(sz)
     }
 
-    pub(crate) fn from_cutoff_and_min_max(cutoff: f32, min: &Vector3f, max: &Vector3f) -> Self {
+    pub(crate) fn from_cutoff_and_min_max(cutoff: Float, min: &Vector3f, max: &Vector3f) -> Self {
         Self::from_cutoff_and_extents(cutoff, &(max - min))
     }
 
-    pub(crate) fn from_cutoff_and_box(cutoff: f32, box_: &PeriodicBox) -> Self {
+    pub(crate) fn from_cutoff_and_box(cutoff: Float, box_: &PeriodicBox) -> Self {
         Self::from_cutoff_and_extents(cutoff, &box_.get_lab_extents())
     }
 
@@ -130,7 +130,7 @@ impl<'a> Grid<'a> {
         'outer: for (id, pos) in ids.zip(data) {
             let mut loc = [0usize, 0, 0];
             for d in 0..3 {
-                let n = (self.dims[d] as f32 * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
+                let n = (self.dims[d] as Float * (pos[d] - lower[d]) / dim_sz[d]).floor() as isize;
                 if n < 0 || n >= self.dims[d] as isize {
                     continue 'outer;
                 } else {
@@ -173,7 +173,7 @@ impl<'a> Grid<'a> {
             if correct {
                 // Wrapped correctly
                 for d in 0..3 {
-                    loc[d] = ((rel[d] * self.dims[d] as f32).floor() as usize)
+                    loc[d] = ((rel[d] * self.dims[d] as Float).floor() as usize)
                         .clamp(0, self.dims[d] - 1);
                     // Accounts for float point errors when loc[d] could be 1.00001
                 }
@@ -188,7 +188,7 @@ impl<'a> Grid<'a> {
                             rel[d] = 1.0 + rel[d] // red[d]<0, so add it, not substract!
                         }
                     }
-                    loc[d] = ((rel[d] * self.dims[d] as f32).floor() as usize)
+                    loc[d] = ((rel[d] * self.dims[d] as Float).floor() as usize)
                         .clamp(0, self.dims[d] - 1);
                     // Accounts for float point errors when loc[d] could be 1.00001
                 }
@@ -269,7 +269,7 @@ fn search_plan(
 }
 
 fn search_cell_pair_within(
-    cutoff2: f32,
+    cutoff2: Float,
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
@@ -293,7 +293,7 @@ fn search_cell_pair_within(
 }
 
 fn search_cell_pair_within_pbc(
-    cutoff2: f32,
+    cutoff2: Float,
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
@@ -322,7 +322,7 @@ fn search_cell_pair_within_pbc(
 }
 
 fn search_cell_pair_double<T: DistanceSearchOutput>(
-    cutoff2: f32,
+    cutoff2: Float,
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
@@ -345,7 +345,7 @@ fn search_cell_pair_double<T: DistanceSearchOutput>(
 }
 
 fn search_cell_pair_double_pbc<T: DistanceSearchOutput>(
-    cutoff2: f32,
+    cutoff2: Float,
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
@@ -376,8 +376,8 @@ fn search_cell_pair_double_vdw<T: DistanceSearchOutput>(
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
-    vdw1: &Vec<f32>,
-    vdw2: &Vec<f32>,
+    vdw1: &Vec<Float>,
+    vdw2: &Vec<Float>,
     found: &mut Vec<T>,
 ) {
     let n1 = grid1.cells[pair.0].len();
@@ -389,7 +389,7 @@ fn search_cell_pair_double_vdw<T: DistanceSearchOutput>(
             let (ind2, pos2) = grid2.cells[pair.1][j];
 
             let d2 = (pos2 - pos1).norm_squared();
-            let cutoff = vdw1[ind1] + vdw2[ind2] + f32::EPSILON;
+            let cutoff = vdw1[ind1] + vdw2[ind2] + Float::EPSILON;
             if d2 <= cutoff * cutoff {
                 found.push(T::from_ijd(ind1, ind2, d2.sqrt()));
             }
@@ -401,8 +401,8 @@ fn search_cell_pair_double_vdw_pbc<T: DistanceSearchOutput>(
     grid1: &Grid,
     grid2: &Grid,
     pair: (usize, usize, PbcDims),
-    vdw1: &Vec<f32>,
-    vdw2: &Vec<f32>,
+    vdw1: &Vec<Float>,
+    vdw2: &Vec<Float>,
     pbox: &PeriodicBox,
     found: &mut Vec<T>,
 ) {
@@ -420,7 +420,7 @@ fn search_cell_pair_double_vdw_pbc<T: DistanceSearchOutput>(
                 (pos2 - pos1).norm_squared()
             };
 
-            let cutoff = vdw1[ind1] + vdw2[ind2] + f32::EPSILON;
+            let cutoff = vdw1[ind1] + vdw2[ind2] + Float::EPSILON;
 
             if d2 <= cutoff * cutoff {
                 found.push(T::from_ijd(ind1, ind2, d2.sqrt()));
@@ -430,7 +430,7 @@ fn search_cell_pair_double_vdw_pbc<T: DistanceSearchOutput>(
 }
 
 fn search_cell_pair_single<T: DistanceSearchOutput>(
-    cutoff2: f32,
+    cutoff2: Float,
     grid: &Grid,
     pair: (usize, usize, PbcDims),
 ) -> Vec<T> {
@@ -468,7 +468,7 @@ fn search_cell_pair_single<T: DistanceSearchOutput>(
 }
 
 fn search_cell_pair_single_pbc<T: DistanceSearchOutput>(
-    cutoff2: f32,
+    cutoff2: Float,
     grid: &Grid,
     pair: (usize, usize, PbcDims),
     pbox: &PeriodicBox,
@@ -517,7 +517,7 @@ fn search_cell_pair_single_pbc<T: DistanceSearchOutput>(
 }
 
 pub(crate) fn distance_search_within<'a, C>(
-    cutoff: f32,
+    cutoff: Float,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
@@ -558,7 +558,7 @@ where
 }
 
 pub(crate) fn distance_search_within_pbc<C>(
-    cutoff: f32,
+    cutoff: Float,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
@@ -616,7 +616,7 @@ fn compute_min_max<'a>(data: impl Iterator<Item = &'a Pos>) -> (Vector3f, Vector
 }
 
 fn compute_bounding_box_double<'a>(
-    cutoff: f32,
+    cutoff: Float,
     data1: impl Iterator<Item = &'a Pos>,
     data2: impl Iterator<Item = &'a Pos>,
 ) -> (Vector3f, Vector3f) {
@@ -630,18 +630,18 @@ fn compute_bounding_box_double<'a>(
         u[d] = u1[d].max(u2[d]);
     }
 
-    l.add_scalar_mut(-cutoff - f32::EPSILON);
-    u.add_scalar_mut(cutoff + f32::EPSILON);
+    l.add_scalar_mut(-cutoff - Float::EPSILON);
+    u.add_scalar_mut(cutoff + Float::EPSILON);
     (l, u)
 }
 
 fn compute_bounding_box_single<'a>(
-    cutoff: f32,
+    cutoff: Float,
     data: impl Iterator<Item = &'a Pos>,
 ) -> (Vector3f, Vector3f) {
     let (mut l, mut u) = compute_min_max(data);
-    l.add_scalar_mut(-cutoff - f32::EPSILON);
-    u.add_scalar_mut(cutoff + f32::EPSILON);
+    l.add_scalar_mut(-cutoff - Float::EPSILON);
+    u.add_scalar_mut(cutoff + Float::EPSILON);
     (l, u)
 }
 
@@ -657,7 +657,7 @@ fn compute_bounding_box_single<'a>(
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double<T, C>(
-    cutoff: f32,
+    cutoff: Float,
     data1: &impl PosProvider,
     data2: &impl PosProvider,
     ids1: impl Iterator<Item = usize>,
@@ -711,7 +711,7 @@ where
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_double_pbc<'a, T, C>(
-    cutoff: f32,
+    cutoff: Float,
     data1: impl Iterator<Item = &'a Pos>,
     data2: impl Iterator<Item = &'a Pos>,
     ids1: impl Iterator<Item = usize>,
@@ -767,20 +767,20 @@ where
 pub fn distance_search_double_vdw<'a, T, C>(
     data1: &impl PosProvider,
     data2: &impl PosProvider,
-    vdw1: &Vec<f32>,
-    vdw2: &Vec<f32>,
+    vdw1: &Vec<Float>,
+    vdw2: &Vec<Float>,
 ) -> C
 where
     T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
-    // let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
-    //     + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
-    //     + f32::EPSILON;
-    let cutoff = vdw1.iter().cloned().reduce(f32::max).unwrap()
-        + vdw2.iter().cloned().reduce(f32::max).unwrap()
-        + f32::EPSILON;
+    // let cutoff = vdw1.par_iter().cloned().reduce(|| Float::MIN, Float::max)
+    //     + vdw2.par_iter().cloned().reduce(|| Float::MIN, Float::max)
+    //     + Float::EPSILON;
+    let cutoff = vdw1.iter().cloned().reduce(Float::max).unwrap()
+        + vdw2.iter().cloned().reduce(Float::max).unwrap()
+        + Float::EPSILON;
 
     // Compute the extents
     let (lower, upper) = compute_bounding_box_double(cutoff, data1.iter_pos(), data2.iter_pos());
@@ -829,8 +829,8 @@ where
 pub fn distance_search_double_vdw_pbc<'a, T, C>(
     data1: impl Iterator<Item = &'a Pos>,
     data2: impl Iterator<Item = &'a Pos>,
-    vdw1: &Vec<f32>,
-    vdw2: &Vec<f32>,
+    vdw1: &Vec<Float>,
+    vdw2: &Vec<Float>,
     pbox: &PeriodicBox,
     pbc_dims: PbcDims,
 ) -> C
@@ -839,12 +839,12 @@ where
     C: FromIterator<T> + FromParallelIterator<T>,
 {
     // We need to find the largest VdW distance pair to get the grid extents
-    // let cutoff = vdw1.par_iter().cloned().reduce(|| f32::MIN, f32::max)
-    //     + vdw2.par_iter().cloned().reduce(|| f32::MIN, f32::max)
-    //     + f32::EPSILON;
-    let cutoff = vdw1.iter().cloned().reduce(f32::max).unwrap()
-        + vdw2.iter().cloned().reduce(f32::max).unwrap()
-        + f32::EPSILON;
+    // let cutoff = vdw1.par_iter().cloned().reduce(|| Float::MIN, Float::max)
+    //     + vdw2.par_iter().cloned().reduce(|| Float::MIN, Float::max)
+    //     + Float::EPSILON;
+    let cutoff = vdw1.iter().cloned().reduce(Float::max).unwrap()
+        + vdw2.iter().cloned().reduce(Float::max).unwrap()
+        + Float::EPSILON;
 
     let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
     let mut grid2 = Grid::new_with_dims(grid1.get_dims());
@@ -890,7 +890,7 @@ where
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_single<T, C>(
-    cutoff: f32,
+    cutoff: Float,
     data: &impl PosProvider,
     ids: impl Iterator<Item = usize>,
 ) -> C
@@ -926,7 +926,7 @@ where
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
 pub fn distance_search_single_pbc<'a, T, C>(
-    cutoff: f32,
+    cutoff: Float,
     //data: &(impl PosProvider + ?Sized),
     data: impl Iterator<Item = &'a Pos>,
     ids: impl Iterator<Item = usize>,

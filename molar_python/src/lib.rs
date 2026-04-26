@@ -63,25 +63,25 @@ struct SasaPy(Sasa);
 impl SasaPy {
     /// Per-atom solvent-accessible areas (nm²).
     #[getter]
-    fn areas(&self) -> &[f32] {
+    fn areas(&self) -> &[Float] {
         self.0.areas()
     }
 
     /// Per-atom solvent-excluded volumes (only meaningful when built with ``sasa_vol``).
     #[getter]
-    fn volumes(&self) -> &[f32] {
+    fn volumes(&self) -> &[Float] {
         self.0.volumes()
     }
 
     /// Total solvent-accessible area (nm²).
     #[getter]
-    fn total_area(&self) -> f32 {
+    fn total_area(&self) -> Float {
         self.0.total_area()
     }
 
     /// Total solvent-excluded volume (only meaningful when built with ``sasa_vol``).
     #[getter]
-    fn total_volume(&self) -> f32 {
+    fn total_volume(&self) -> Float {
         self.0.total_volume()
     }
 
@@ -99,7 +99,7 @@ impl SasaPy {
 ///
 /// No public constructor; obtained from :func:`pymolar.fit_transform`.
 #[pyclass]
-struct IsometryTransform(nalgebra::IsometryMatrix3<f32>);
+struct IsometryTransform(nalgebra::IsometryMatrix3<Float>);
 
 #[pymethods]
 impl IsometryTransform {
@@ -189,7 +189,7 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
 ///    r = pymolar.rmsd(sel1, sel2)
 
 #[pyfunction]
-fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
+fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<Float> {
     Ok(rmsd(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 /// Compute mass-weighted RMSD between two selections.
@@ -207,7 +207,7 @@ fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
 ///    rw = pymolar.rmsd_mw(sel1, sel2)
 
 #[pyfunction(name = "rmsd_mw")]
-fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<f32> {
+fn rmsd_mw_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<Float> {
     Ok(rmsd_mw(sel1, sel2).map_err(to_py_runtime_err)?)
 }
 
@@ -257,12 +257,12 @@ fn distance_search<'py>(
     data2: Option<&Bound<'py, SelPy>>,
     dims: Option<[bool; 3]>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let mut res: Vec<(usize, usize, f32)>;
+    let mut res: Vec<(usize, usize, Float)>;
     let dims = dims.unwrap_or([false, false, false]);
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
     let sel1 = data1.borrow();
 
-    if let Ok(d) = cutoff.extract::<f32>() {
+    if let Ok(d) = cutoff.extract::<Float>() {
         // Distance cutoff
         if let Some(d2) = data2 {
             let sel2 = d2.borrow();
@@ -304,7 +304,7 @@ fn distance_search<'py>(
         }
 
         // VdW cutof
-        let vdw1: Vec<f32> = sel1.iter_atoms().map(|a| a.vdw()).collect();
+        let vdw1: Vec<Float> = sel1.iter_atoms().map(|a| a.vdw()).collect();
 
         if sel1.len() != vdw1.len() {
             return Err(PyValueError::new_err(format!(
@@ -316,7 +316,7 @@ fn distance_search<'py>(
 
         if let Some(d2) = data2 {
             let sel2 = d2.borrow();
-            let vdw2: Vec<f32> = sel2.iter_atoms().map(|a| a.vdw()).collect();
+            let vdw2: Vec<Float> = sel2.iter_atoms().map(|a| a.vdw()).collect();
 
             if sel2.len() != vdw2.len() {
                 return Err(PyValueError::new_err(format!(

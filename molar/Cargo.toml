@@ -46,6 +46,11 @@ criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [features]
 netcdf = ["dep:netcdf"]
+# Build the entire workspace in double precision (f64) instead of the
+# default f32. All coordinates, masses, charges, energies and time
+# fields switch to f64. f32-only on-disk file formats (XTC, DCD coords,
+# NetCDF coords, TPR via the C ABI) convert at the IO boundary.
+f64 = []
 
 # [[bench]]
 # name = "fit_benchmark"

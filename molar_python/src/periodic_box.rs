@@ -59,10 +59,10 @@ impl PeriodicBoxPy {
         match py_args.len() {
             1 => {
                 // From matrix
-                let arr: PyArrayLike2<'py, f32, AllowTypeChange> =
+                let arr: PyArrayLike2<'py, Float, AllowTypeChange> =
                     py_args.get_item(0)?.extract()?;
 
-                let m: MatrixView<f32, Const<3>, Const<3>, Dyn, Dyn> = arr
+                let m: MatrixView<Float, Const<3>, Const<3>, Dyn, Dyn> = arr
                     .try_as_matrix()
                     .ok_or_else(|| PyValueError::new_err("conversion to 3x3 matrix has failed"))?;
 
@@ -73,16 +73,16 @@ impl PeriodicBoxPy {
             }
             2 => {
                 // From vectors and angles
-                let v_arr: PyArrayLike1<'py, f32, AllowTypeChange> =
+                let v_arr: PyArrayLike1<'py, Float, AllowTypeChange> =
                     py_args.get_item(0)?.extract()?;
-                let a_arr: PyArrayLike1<'py, f32, AllowTypeChange> =
+                let a_arr: PyArrayLike1<'py, Float, AllowTypeChange> =
                     py_args.get_item(1)?.extract()?;
 
-                let v: VectorView<f32, Const<3>, Dyn> = v_arr.try_as_matrix().ok_or_else(|| {
+                let v: VectorView<Float, Const<3>, Dyn> = v_arr.try_as_matrix().ok_or_else(|| {
                     PyValueError::new_err("conversion of vectors to Vector3 has failed")
                 })?;
 
-                let a: VectorView<f32, Const<3>, Dyn> = a_arr.try_as_matrix().ok_or_else(|| {
+                let a: VectorView<Float, Const<3>, Dyn> = a_arr.try_as_matrix().ok_or_else(|| {
                     PyValueError::new_err("conversion of angles to Vector3 has failed")
                 })?;
 
@@ -103,7 +103,7 @@ impl PeriodicBoxPy {
     /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
     fn to_vectors_angles<'py>(
         slf: Bound<'py, Self>,
-    ) -> (Bound<'py, PyArray1<f32>>, Bound<'py, PyArray1<f32>>) {
+    ) -> (Bound<'py, PyArray1<Float>>, Bound<'py, PyArray1<Float>>) {
         let (v, a) = slf.borrow().0.to_vectors_angles();
         let v_arr = clone_vec_to_pyarray1(&v, slf.py());
         let a_arr = clone_vec_to_pyarray1(&a, slf.py());
@@ -128,11 +128,11 @@ impl PeriodicBoxPy {
     fn shortest_vector<'py>(
         &self,
         py: Python<'py>,
-        arr: PyArrayLike1<'py, f32, AllowTypeChange>,
+        arr: PyArrayLike1<'py, Float, AllowTypeChange>,
         dims: Option<[bool; 3]>,
-    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
         let dims = dims.unwrap_or([true, true, true]);
-        let v: VectorView<f32, Const<3>, Dyn> = arr
+        let v: VectorView<Float, Const<3>, Dyn> = arr
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion to Vector3 has failed"))?;
 
@@ -154,15 +154,15 @@ impl PeriodicBoxPy {
     fn closest_image<'py>(
         &self,
         py: Python<'py>,
-        point: PyArrayLike1<'py, f32, AllowTypeChange>,
-        target: PyArrayLike1<'py, f32, AllowTypeChange>,
+        point: PyArrayLike1<'py, Float, AllowTypeChange>,
+        target: PyArrayLike1<'py, Float, AllowTypeChange>,
         dims: Option<[bool; 3]>,
-    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
         let dims = dims.unwrap_or([true, true, true]);
-        let p: VectorView<f32, Const<3>, Dyn> = point
+        let p: VectorView<Float, Const<3>, Dyn> = point
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of point to Vector3 has failed"))?;
-        let t: VectorView<f32, Const<3>, Dyn> = target
+        let t: VectorView<Float, Const<3>, Dyn> = target
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of target to Vector3 has failed"))?;
 
@@ -175,7 +175,7 @@ impl PeriodicBoxPy {
     ///
     /// :returns: ``3x3`` box matrix.
     /// :rtype: numpy.ndarray
-    fn get_matrix<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
+    fn get_matrix<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<Float>> {
         self.0.get_matrix().to_pyarray(py)
     }
 
@@ -188,9 +188,9 @@ impl PeriodicBoxPy {
     fn to_box_coords<'py>(
         &self,
         py: Python<'py>,
-        point: PyArrayLike1<'py, f32, AllowTypeChange>,
-    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
-        let p: VectorView<f32, Const<3>, Dyn> = point
+        point: PyArrayLike1<'py, Float, AllowTypeChange>,
+    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
+        let p: VectorView<Float, Const<3>, Dyn> = point
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of point to Vector3 has failed"))?;
         let v = self.0.to_box_coords(&p);
@@ -206,9 +206,9 @@ impl PeriodicBoxPy {
     fn to_lab_coords<'py>(
         &self,
         py: Python<'py>,
-        point: PyArrayLike1<'py, f32, AllowTypeChange>,
-    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
-        let p: VectorView<f32, Const<3>, Dyn> = point
+        point: PyArrayLike1<'py, Float, AllowTypeChange>,
+    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
+        let p: VectorView<Float, Const<3>, Dyn> = point
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of point to Vector3 has failed"))?;
         let v = self.0.to_lab_coords(&p);
@@ -219,7 +219,7 @@ impl PeriodicBoxPy {
     ///
     /// :returns: Length-3 vector of extents.
     /// :rtype: numpy.ndarray
-    fn get_box_extents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
+    fn get_box_extents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<Float>> {
         clone_vec_to_pyarray1(&self.0.get_box_extents(), py)
     }
 
@@ -227,7 +227,7 @@ impl PeriodicBoxPy {
     ///
     /// :returns: Length-3 vector of extents in lab basis.
     /// :rtype: numpy.ndarray
-    fn get_lab_extents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
+    fn get_lab_extents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<Float>> {
         clone_vec_to_pyarray1(&self.0.get_box_extents(), py)
     }
 
@@ -257,14 +257,14 @@ impl PeriodicBoxPy {
     /// :raises ValueError: If vector conversion fails.
     fn distance_squared<'py>(
         &self,
-        p1: PyArrayLike1<'py, f32, AllowTypeChange>,
-        p2: PyArrayLike1<'py, f32, AllowTypeChange>,
+        p1: PyArrayLike1<'py, Float, AllowTypeChange>,
+        p2: PyArrayLike1<'py, Float, AllowTypeChange>,
         dims: [bool; 3],
-    ) -> PyResult<f32> {
-        let p1: VectorView<f32, Const<3>, Dyn> = p1
+    ) -> PyResult<Float> {
+        let p1: VectorView<Float, Const<3>, Dyn> = p1
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of point to Vector3 has failed"))?;
-        let p2: VectorView<f32, Const<3>, Dyn> = p2
+        let p2: VectorView<Float, Const<3>, Dyn> = p2
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of target to Vector3 has failed"))?;
 
@@ -287,10 +287,10 @@ impl PeriodicBoxPy {
     ///    d = box.distance([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [True, True, True])
     fn distance<'py>(
         &self,
-        p1: PyArrayLike1<'py, f32, AllowTypeChange>,
-        p2: PyArrayLike1<'py, f32, AllowTypeChange>,
+        p1: PyArrayLike1<'py, Float, AllowTypeChange>,
+        p2: PyArrayLike1<'py, Float, AllowTypeChange>,
         dims: [bool; 3],
-    ) -> PyResult<f32> {
+    ) -> PyResult<Float> {
         Ok(self.distance_squared(p1, p2, dims)?.sqrt())
     }
 
@@ -309,9 +309,9 @@ impl PeriodicBoxPy {
     fn wrap_point<'py>(
         &self,
         py: Python<'py>,
-        p: PyArrayLike1<'py, f32, AllowTypeChange>,
-    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
-        let v: VectorView<f32, Const<3>, Dyn> = p
+        p: PyArrayLike1<'py, Float, AllowTypeChange>,
+    ) -> PyResult<Bound<'py, PyArray1<Float>>> {
+        let v: VectorView<Float, Const<3>, Dyn> = p
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion of point to Vector3 has failed"))?;
         Ok(clone_vec_to_pyarray1(&self.0.wrap_vec(&v), py))

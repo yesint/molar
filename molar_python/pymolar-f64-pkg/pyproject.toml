@@ -1,0 +1,40 @@
+# Maturin project for the `pymolar-f64` PyPI wheel — molar_python compiled
+# with the `f64` feature, exposing double-precision coordinates and a
+# `pymolar_f64.molar` native module so the wheel can coexist with the default
+# `pymolar` (f32) wheel in the same venv.
+#
+# Build with:
+#   cd molar_python/pymolar-f64-pkg && maturin build --release
+#
+# The Rust crate lives one level up; we point at it via `manifest-path`.
+
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pymolar-f64"
+description = "Python bindings for MolAR — molecular analysis library (double-precision build)"
+requires-python = ">=3.8"
+license = { text = "Artistic-2.0" }
+dependencies = ["numpy"]
+classifiers = [
+    "License :: OSI Approved :: Artistic License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/yesint/molar"
+Repository = "https://github.com/yesint/molar"
+Documentation = "https://yesint.github.io/molar/"
+
+[tool.maturin]
+manifest-path = "../Cargo.toml"
+features = ["pyo3/extension-module", "f64"]
+module-name = "pymolar_f64.molar"
+python-source = "python"

@@ -157,7 +157,7 @@ impl BondProvider for SelPy {
 }
 
 impl TimeProvider for SelPy {
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         self.r_st().time
     }
 }
@@ -301,7 +301,7 @@ impl SelPosIterator {
     }
 
     /// Return next selected position as NumPy array view.
-    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
+    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<Float>>> {
         let s = slf.get();
         let sel = s.sel.get();
         if s.cur.load(Ordering::Relaxed) >= sel.len() {
@@ -454,10 +454,10 @@ impl SelPy {
     /// :returns: Coordinate array.
     /// :rtype: numpy.ndarray
     #[getter("coords")]
-    fn get_coords<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f32>> {
-        let coord_ptr = unsafe { self.coords_ptr() } as *const f32;
+    fn get_coords<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<Float>> {
+        let coord_ptr = unsafe { self.coords_ptr() } as *const Float;
         unsafe {
-            let arr = numpy::PyArray2::<f32>::new(py, [3, self.len()], true);
+            let arr = numpy::PyArray2::<Float>::new(py, [3, self.len()], true);
             let arr_ptr = arr.data();
             for (j, i) in self.index.iter_index().enumerate() {
                 let pos_ptr = coord_ptr.add(i * 3);
@@ -502,7 +502,7 @@ impl SelPy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter("coords")]
-    fn set_coords(&self, arr: PyReadonlyArray2<f32>) -> PyResult<()> {
+    fn set_coords(&self, arr: PyReadonlyArray2<Float>) -> PyResult<()> {
         if arr.shape() != [3, self.__len__()] {
             return Err(PyValueError::new_err(format!(
                 "Array shape must be [3, {}], not {:?}",
@@ -511,7 +511,7 @@ impl SelPy {
             )));
         }
         let arr_ptr = arr.data();
-        let coord_ptr = unsafe { (*self.st_ptr_mut()).coords.as_mut_ptr() } as *mut f32;
+        let coord_ptr = unsafe { (*self.st_ptr_mut()).coords.as_mut_ptr() } as *mut Float;
 
         unsafe {
             for (j, i) in self.index.iter_index().enumerate() {
@@ -666,14 +666,14 @@ impl SelPy {
     /// Set atomic mass for all selected atoms in-place.
     ///
     /// :param val: New mass in Da.
-    pub fn set_same_mass(&self, val: f32) {
+    pub fn set_same_mass(&self, val: Float) {
         AtomMutProvider::set_same_mass(self.r_top_mut(), val)
     }
 
     /// Set B-factor for all selected atoms in-place.
     ///
     /// :param val: New B-factor value.
-    pub fn set_same_bfactor(&self, val: f32) {
+    pub fn set_same_bfactor(&self, val: Float) {
         AtomMutProvider::set_same_bfactor(self.r_top_mut(), val)
     }
 
@@ -682,7 +682,7 @@ impl SelPy {
     /// :returns: Time value.
     /// :rtype: float
     #[getter]
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         TimeProvider::get_time(self)
     }
 
@@ -692,7 +692,7 @@ impl SelPy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter]
-    fn set_time(&self, t: f32) {
+    fn set_time(&self, t: Float) {
         self.r_st_mut().time = t;
     }
 
@@ -744,7 +744,7 @@ impl SelPy {
         &self,
         py: Python<'py>,
         dims: Option<[bool; 3]>,
-    ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+    ) -> PyResult<Bound<'py, numpy::PyArray1<Float>>> {
         let dims = dims.unwrap_or([false, false, false]);
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
@@ -773,7 +773,7 @@ impl SelPy {
         &self,
         py: Python<'py>,
         dims: Option<[bool; 3]>,
-    ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+    ) -> PyResult<Bound<'py, numpy::PyArray1<Float>>> {
         let dims = dims.unwrap_or([false, false, false]);
         let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
         Ok(clone_vec_to_pyarray1(
@@ -834,7 +834,7 @@ impl SelPy {
     ///
     ///    rg = sel.gyration()         # no PBC
     ///    rg = sel.gyration(pbc=True) # with PBC
-    fn gyration(&self, pbc: bool) -> PyResult<f32> {
+    fn gyration(&self, pbc: bool) -> PyResult<Float> {
         if pbc {
             Ok(Measure::gyration_pbc(self).map_err(to_py_runtime_err)?)
         } else {
@@ -913,7 +913,7 @@ impl SelPy {
     fn min_max<'py>(
         &self,
         py: Python<'py>,
-    ) -> (Bound<'py, PyArray1<f32>>, Bound<'py, PyArray1<f32>>) {
+    ) -> (Bound<'py, PyArray1<Float>>, Bound<'py, PyArray1<Float>>) {
         let (min, max) = Measure::min_max(self);
         let minpy = clone_vec_to_pyarray1(&min.coords, py);
         let maxpy = clone_vec_to_pyarray1(&max.coords, py);
@@ -937,8 +937,8 @@ impl SelPy {
         py: Python<'py>,
         pbc: bool,
     ) -> PyResult<(
-        Bound<'py, numpy::PyArray1<f32>>,
-        Bound<'py, numpy::PyArray2<f32>>,
+        Bound<'py, numpy::PyArray1<Float>>,
+        Bound<'py, numpy::PyArray2<Float>>,
     )> {
         let (moments, axes) = if pbc {
             Measure::inertia_pbc(self).map_err(to_py_runtime_err)?
@@ -977,8 +977,8 @@ impl SelPy {
     ///
     ///    import numpy as np
     ///    sel.translate(np.array([0.5, 0.0, 0.0], dtype=np.float32))  # shift 0.5 nm along x
-    fn translate<'py>(&self, arg: PyArrayLike1<'py, f32>) -> PyResult<()> {
-        let vec: VectorView<f32, Const<3>, Dyn> = arg
+    fn translate<'py>(&self, arg: PyArrayLike1<'py, Float>) -> PyResult<()> {
+        let vec: VectorView<Float, Const<3>, Dyn> = arg
             .try_as_matrix()
             .ok_or_else(|| PyValueError::new_err("conversion to Vector3 has failed"))?;
         TmpSelMut {

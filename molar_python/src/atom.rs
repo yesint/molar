@@ -1,5 +1,6 @@
 use crate::topology_state::TopologyPy;
 use molar::prelude::{Atom, AtomLike};
+use molar::Float;
 use pyo3::{exceptions::PyIndexError, prelude::*};
 /// Mutable atom container.
 ///
@@ -78,24 +79,24 @@ impl AtomPy {
     // mass
     /// Atomic mass.
     #[getter(mass)]
-    fn get_mass(&self) -> f32 {
+    fn get_mass(&self) -> Float {
         self.0.mass
     }
 
     #[setter(mass)]
-    fn set_mass(&mut self, value: f32) {
+    fn set_mass(&mut self, value: Float) {
         self.0.mass = value;
     }
 
     // charge
     /// Atom charge.
     #[getter(charge)]
-    fn get_charge(&self) -> f32 {
+    fn get_charge(&self) -> Float {
         self.0.charge
     }
 
     #[setter(charge)]
-    fn set_charge(&mut self, value: f32) {
+    fn set_charge(&mut self, value: Float) {
         self.0.charge = value;
     }
 
@@ -138,24 +139,24 @@ impl AtomPy {
     // bfactor
     /// Temperature factor (B-factor).
     #[getter(bfactor)]
-    fn get_bfactor(&self) -> f32 {
+    fn get_bfactor(&self) -> Float {
         self.0.bfactor
     }
 
     #[setter(bfactor)]
-    fn set_bfactor(&mut self, value: f32) {
+    fn set_bfactor(&mut self, value: Float) {
         self.0.bfactor = value;
     }
 
     // occupancy
     /// Occupancy value.
     #[getter(occupancy)]
-    fn get_occupancy(&self) -> f32 {
+    fn get_occupancy(&self) -> Float {
         self.0.occupancy
     }
 
     #[setter(occupancy)]
-    fn set_occupancy(&mut self, value: f32) {
+    fn set_occupancy(&mut self, value: Float) {
         self.0.occupancy = value;
     }
 
@@ -287,7 +288,7 @@ impl AtomView {
     /// :returns: Atomic mass.
     /// :rtype: float
     #[getter(mass)]
-    fn get_mass(&self) -> PyResult<f32> {
+    fn get_mass(&self) -> PyResult<Float> {
         Ok(self.atom()?.mass)
     }
 
@@ -295,7 +296,7 @@ impl AtomView {
     ///
     /// :param value: New atomic mass.
     #[setter(mass)]
-    fn set_mass(&self, value: f32) -> PyResult<()> {
+    fn set_mass(&self, value: Float) -> PyResult<()> {
         self.atom_mut()?.mass = value;
         Ok(())
     }
@@ -305,7 +306,7 @@ impl AtomView {
     /// :returns: Partial charge.
     /// :rtype: float
     #[getter(charge)]
-    fn get_charge(&self) -> PyResult<f32> {
+    fn get_charge(&self) -> PyResult<Float> {
         Ok(self.atom()?.charge)
     }
 
@@ -313,7 +314,7 @@ impl AtomView {
     ///
     /// :param value: New partial charge.
     #[setter(charge)]
-    fn set_charge(&self, value: f32) -> PyResult<()> {
+    fn set_charge(&self, value: Float) -> PyResult<()> {
         self.atom_mut()?.charge = value;
         Ok(())
     }
@@ -377,7 +378,7 @@ impl AtomView {
     /// :returns: B-factor value.
     /// :rtype: float
     #[getter(bfactor)]
-    fn get_bfactor(&self) -> PyResult<f32> {
+    fn get_bfactor(&self) -> PyResult<Float> {
         Ok(self.atom()?.bfactor)
     }
 
@@ -385,7 +386,7 @@ impl AtomView {
     ///
     /// :param value: New B-factor.
     #[setter(bfactor)]
-    fn set_bfactor(&self, value: f32) -> PyResult<()> {
+    fn set_bfactor(&self, value: Float) -> PyResult<()> {
         self.atom_mut()?.bfactor = value;
         Ok(())
     }
@@ -395,7 +396,7 @@ impl AtomView {
     /// :returns: Occupancy value.
     /// :rtype: float
     #[getter(occupancy)]
-    fn get_occupancy(&self) -> PyResult<f32> {
+    fn get_occupancy(&self) -> PyResult<Float> {
         Ok(self.atom()?.occupancy)
     }
 
@@ -403,7 +404,7 @@ impl AtomView {
     ///
     /// :param value: New occupancy.
     #[setter(occupancy)]
-    fn set_occupancy(&self, value: f32) -> PyResult<()> {
+    fn set_occupancy(&self, value: Float) -> PyResult<()> {
         self.atom_mut()?.occupancy = value;
         Ok(())
     }

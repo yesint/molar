@@ -5,8 +5,7 @@ use std::io::Write;
 
 use crate::prelude::*;
 
-pub type Vector2f = nalgebra::Vector2<f32>;
-const TOL: f32 = 1e-10;
+const TOL: Float = 1e-10;
 
 #[derive(Debug)]
 pub struct Vertex {
@@ -34,7 +33,7 @@ impl Vertex {
 
 struct CuttingLine {
     pos: Vector2f,
-    r2: f32,
+    r2: Float,
 }
 
 impl CuttingLine {
@@ -54,13 +53,13 @@ pub struct VoronoiCell {
 #[derive(Default,Debug)]
 struct EdgeCut {
     in_ind: usize,
-    in_dist: f32,
+    in_dist: Float,
     out_ind: usize,
-    out_dist: f32,
+    out_dist: Float,
 }
 
 impl VoronoiCell {
-    pub fn new(xmin: f32, xmax: f32, ymin: f32, ymax: f32) -> Self {
+    pub fn new(xmin: Float, xmax: Float, ymin: Float, ymax: Float) -> Self {
         let mut ret = Self {
             vert: Vec::with_capacity(8),
             init_vert: 0,
@@ -81,7 +80,7 @@ impl VoronoiCell {
     }
 
     #[inline(always)]
-    fn dist(&self, i: usize, line: &CuttingLine) -> f32 {
+    fn dist(&self, i: usize, line: &CuttingLine) -> Float {
         line.pos.dot(&self.pos(i))-line.r2
     }
 
@@ -228,7 +227,7 @@ impl VoronoiCell {
         write!(out,"{}",s).unwrap();
     }
 
-    pub fn area(&self) -> f32 {
+    pub fn area(&self) -> Float {
         let mut a = 0.0;
         let mut i = self.init_vert;
         loop {

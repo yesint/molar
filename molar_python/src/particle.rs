@@ -1,3 +1,4 @@
+use molar::Float;
 use super::topology_state::TopologyPy;
 use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
@@ -56,7 +57,7 @@ impl ParticlePy {
     /// :returns: Position vector ``[x, y, z]``.
     /// :rtype: numpy.ndarray
     #[getter(pos)]
-    fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<f32>> {
+    fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<Float>> {
         let s = slf.get();
         unsafe {
             map_pyarray_to_pos(s.st.bind(slf.py()), s.id)
@@ -69,14 +70,14 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(pos)]
-    fn set_pos(&self, pos: PyArrayLike1<f32>) -> PyResult<()> {
+    fn set_pos(&self, pos: PyArrayLike1<Float>) -> PyResult<()> {
         if pos.len() != 3 {
             return Err(pyo3::exceptions::PyTypeError::new_err(
                 "pos must have 3 elements",
             ));
         }
         let src = pos.data();
-        let dst = self.st_mut().coords.as_mut_ptr() as *mut f32;
+        let dst = self.st_mut().coords.as_mut_ptr() as *mut Float;
         if src != dst {
             unsafe { std::ptr::copy_nonoverlapping(src, dst, 3) };
         }
@@ -88,7 +89,7 @@ impl ParticlePy {
     /// :returns: X coordinate.
     /// :rtype: float
     #[getter(x)]
-    fn get_x(&self) -> f32 {
+    fn get_x(&self) -> Float {
         unsafe { self.st().coords.get_unchecked(self.id).x }
     }
 
@@ -98,7 +99,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(x)]
-    fn set_x(&self, value: f32) {
+    fn set_x(&self, value: Float) {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).x = value }
     }
 
@@ -107,7 +108,7 @@ impl ParticlePy {
     /// :returns: Y coordinate.
     /// :rtype: float
     #[getter(y)]
-    fn get_y(&self) -> f32 {
+    fn get_y(&self) -> Float {
         unsafe { self.st().coords.get_unchecked(self.id).y }
     }
 
@@ -117,7 +118,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(y)]
-    fn set_y(&self, value: f32) {
+    fn set_y(&self, value: Float) {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).y = value }
     }
 
@@ -126,7 +127,7 @@ impl ParticlePy {
     /// :returns: Z coordinate.
     /// :rtype: float
     #[getter(z)]
-    fn get_z(&self) -> f32 {
+    fn get_z(&self) -> Float {
         unsafe { self.st().coords.get_unchecked(self.id).z }
     }
 
@@ -136,7 +137,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(z)]
-    fn set_z(&self, value: f32) {
+    fn set_z(&self, value: Float) {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).z = value }
     }
 
@@ -308,7 +309,7 @@ impl ParticlePy {
     /// :returns: Atomic mass.
     /// :rtype: float
     #[getter(mass)]
-    fn get_mass(&self) -> f32 {
+    fn get_mass(&self) -> Float {
         unsafe { self.top().atoms.get_unchecked(self.id).mass }
     }
 
@@ -318,7 +319,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(mass)]
-    fn set_mass(&self, value: f32) {
+    fn set_mass(&self, value: Float) {
         unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).mass = value }
     }
 
@@ -328,7 +329,7 @@ impl ParticlePy {
     /// :returns: Atom charge.
     /// :rtype: float
     #[getter(charge)]
-    fn get_charge(&self) -> f32 {
+    fn get_charge(&self) -> Float {
         unsafe { self.top().atoms.get_unchecked(self.id).charge }
     }
 
@@ -338,7 +339,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(charge)]
-    fn set_charge(&self, value: f32) {
+    fn set_charge(&self, value: Float) {
         unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).charge = value }
     }
 
@@ -420,7 +421,7 @@ impl ParticlePy {
     /// :returns: B-factor value.
     /// :rtype: float
     #[getter(bfactor)]
-    fn get_bfactor(&self) -> f32 {
+    fn get_bfactor(&self) -> Float {
         unsafe { self.top().atoms.get_unchecked(self.id).bfactor }
     }
 
@@ -430,7 +431,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(bfactor)]
-    fn set_bfactor(&self, value: f32) {
+    fn set_bfactor(&self, value: Float) {
         unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).bfactor = value }
     }
 
@@ -440,7 +441,7 @@ impl ParticlePy {
     /// :returns: Occupancy value.
     /// :rtype: float
     #[getter(occupancy)]
-    fn get_occupancy(&self) -> f32 {
+    fn get_occupancy(&self) -> Float {
         unsafe { self.top().atoms.get_unchecked(self.id).occupancy }
     }
 
@@ -450,7 +451,7 @@ impl ParticlePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter(occupancy)]
-    fn set_occupancy(&self, value: f32) {
+    fn set_occupancy(&self, value: Float) {
         unsafe {
             self.top_mut()
                 .atoms

@@ -1,7 +1,6 @@
 use std::{ffi::CString, path::Path, sync::Arc};
 
 use molar_gromacs::{TprAtom, TprBond, TprHandle, TprMolecule, TprPlugin};
-use nalgebra::Matrix3;
 use thiserror::Error;
 
 use crate::atom::{AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME_EXPECT};
@@ -109,10 +108,11 @@ impl FileFormatHandler for TprFileHandler {
                 resid:         a.resind as i32,
                 type_id:       a.type_id,
                 atomic_number: a.atomic_number as u8,
-                charge:        a.charge,
-                mass:          a.mass,
-                occupancy:     a.occupancy,
-                bfactor:       a.bfactor,
+                // TPR plugin C ABI exposes f32; cast at boundary.
+                charge:        a.charge   as Float,
+                mass:          a.mass     as Float,
+                occupancy:     a.occupancy as Float,
+                bfactor:       a.bfactor  as Float,
                 ..Default::default()
             });
         }
@@ -130,13 +130,18 @@ impl FileFormatHandler for TprFileHandler {
         //====================
         // Build State
         //====================
+        // TPR plugin returns f32 buffers (see wrapper.hpp). Cast at boundary.
         let mut st = State::default();
-        st.coords.resize(natoms, Default::default());
+        st.coords.reserve(natoms);
         for i in 0..natoms {
-            st.coords[i].coords.copy_from_slice(&coords_buf[i * 3..i * 3 + 3]);
+            st.coords.push(Pos::new(
+                coords_buf[i * 3]     as Float,
+                coords_buf[i * 3 + 1] as Float,
+                coords_buf[i * 3 + 2] as Float,
+            ));
         }
 
-        let m = Matrix3::from_column_slice(&box_buf);
+        let m = Matrix3f::from_iterator(box_buf.iter().map(|x| *x as Float));
         st.pbox = Some(PeriodicBox::from_matrix(m).map_err(TprHandlerError::Pbc)?);
 
         Ok((top, st))

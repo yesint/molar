@@ -48,16 +48,16 @@ pub enum PdbHandlerError {
 
 // ── helper parsers ──────────────────────────────────────────────────────────
 
-fn parse_f32(line: &str, start: usize, end: usize) -> Result<f32, PdbHandlerError> {
+fn parse_f32(line: &str, start: usize, end: usize) -> Result<Float, PdbHandlerError> {
     line.get(start..end)
         .unwrap_or("")
         .trim()
-        .parse::<f32>()
+        .parse::<Float>()
         .map_err(PdbHandlerError::ParseFloat)
 }
 
-fn parse_f32_opt(line: &str, start: usize, end: usize) -> Option<f32> {
-    line.get(start..end)?.trim().parse::<f32>().ok()
+fn parse_f32_opt(line: &str, start: usize, end: usize) -> Option<Float> {
+    line.get(start..end)?.trim().parse::<Float>().ok()
 }
 
 fn parse_i32_opt(line: &str, start: usize, end: usize) -> Option<i32> {

@@ -17,7 +17,7 @@ impl VmdVisual {
         Ok(())
     }
 
-    pub fn sphere(&mut self, point: &Pos, radius: f32, color: &str) {
+    pub fn sphere(&mut self, point: &Pos, radius: Float, color: &str) {
         use std::fmt::Write;
         writeln!(self.buf, "draw color {color}").unwrap();
         writeln!(
@@ -33,7 +33,7 @@ impl VmdVisual {
     pub fn arrow(&mut self, point: &Pos, dir: &Vector3f, color: &str) {
         use std::fmt::Write;
 
-        const LENGTH: f32 = 5.0;
+        const LENGTH: Float = 5.0;
 
         let p1 = point * 10.0;
         let p2 = p1 + dir * 0.5 * LENGTH;

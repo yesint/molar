@@ -593,7 +593,7 @@ fn main() -> Result<()> {
 
     // Parallel iteration over positions
     // Calculate sum of X coordinates of all CA atoms in parallel
-    let sum_x: f32 = sel.par_iter_pos()
+    let sum_x: Float = sel.par_iter_pos()
         .map(|pos| pos.x)
         .sum();
     println!("Sum of X coordinates: {}", sum_x);
@@ -707,7 +707,7 @@ struct ComTask {
     // Selection to use
     sel: Sel,
     // COM vector
-    com_aver: nalgebra::Vector3<f32>,
+    com_aver: Vector3f,
 }
 
 // Implement AnalysisTask trait
@@ -729,7 +729,7 @@ impl AnalysisTask<UserArgs> for ComTask {
         // Create our analysis type instance
         Ok(Self {
             sel,
-            com_aver: nalgebra::Vector3::zeros(),
+            com_aver: Vector3f::zeros(),
         })
     }
 
@@ -747,7 +747,7 @@ impl AnalysisTask<UserArgs> for ComTask {
     // Post-processing
     fn post_process(&mut self, context: &mut AnalysisContext<UserArgs>) -> anyhow::Result<()> {
         // Compute average
-        self.com_aver /= context.consumed_frames as f32;
+        self.com_aver /= context.consumed_frames as Float;
         println!("average com={}", self.com_aver);
         Ok(())
     }

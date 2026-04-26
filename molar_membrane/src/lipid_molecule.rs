@@ -26,22 +26,22 @@ pub struct LipidMolecule {
     pub voro_vertexes: Vec<Pos>,
     // Curvature
     pub normal: Vector3f,
-    pub mean_curv: f32,
-    pub gaussian_curv: f32,
-    pub princ_dirs: SMatrix<f32, 3, 2>,
-    pub princ_curvs: SVector<f32, 2>,
-    pub area: f32,
+    pub mean_curv: Float,
+    pub gaussian_curv: Float,
+    pub princ_dirs: SMatrix<Float, 3, 2>,
+    pub princ_curvs: SVector<Float, 2>,
+    pub area: Float,
     // Order
-    pub order: Vec<DVector<f32>>,
+    pub order: Vec<DVector<Float>>,
     pub tail_head_vec: Vector3f,
 }
 
 pub(crate) struct LocalCurvature {
-    pub(crate) mean: f32,
-    pub(crate) gauss: f32,
+    pub(crate) mean: Float,
+    pub(crate) gauss: Float,
     pub(crate) normal: Vector3f,
-    pub(crate) princ_curvs: SVector<f32, 2>,
-    pub(crate) princ_dirs: SMatrix<f32, 3, 2>,
+    pub(crate) princ_curvs: SVector<Float, 2>,
+    pub(crate) princ_dirs: SMatrix<Float, 3, 2>,
 }
 
 impl LipidMolecule {
@@ -101,8 +101,8 @@ impl LipidMolecule {
     #[allow(non_snake_case)]
     pub(super) fn compute_curvature_and_normal(
         &mut self,
-        coefs: &SVector<f32, 6>,
-        to_lab: &SMatrix<f32, 3, 3>,
+        coefs: &SVector<Float, 6>,
+        to_lab: &SMatrix<Float, 3, 3>,
     ) {
         /* Compute the curvatures
 
@@ -170,7 +170,7 @@ impl LipidMolecule {
             W = 1/(EG - F^2) * [E L - F M, E M - F N]
                                 [G M - F L, G N - F M]
         */
-        let mut W = SMatrix::<f32, 2, 2>::zeros();
+        let mut W = SMatrix::<Float, 2, 2>::zeros();
         W[(0, 0)] = E * L - F * M;
         W[(0, 1)] = E * M - F * N;
         W[(1, 0)] = G * M - F * L;
@@ -179,7 +179,7 @@ impl LipidMolecule {
         // W is symmetric despite the equations seems to be not!
         let eig = W.symmetric_eigen();
 
-        self.princ_dirs = SMatrix::<f32, 3, 2>::from_columns(&[
+        self.princ_dirs = SMatrix::<Float, 3, 2>::from_columns(&[
             to_lab * Vector3f::new(eig.eigenvectors[(0, 0)], eig.eigenvectors[(1, 0)], 0.0),
             to_lab * Vector3f::new(eig.eigenvectors[(0, 1)], eig.eigenvectors[(1, 1)], 0.0),
         ]);
@@ -197,7 +197,7 @@ impl LipidMolecule {
 }
 
 #[allow(non_snake_case)]
-pub(super) fn coeffs_to_curvature(coefs: &SVector<f32, 6>) -> LocalCurvature {
+pub(super) fn coeffs_to_curvature(coefs: &SVector<Float, 6>) -> LocalCurvature {
     /* Compute the curvatures
 
     First fundamental form:  I = E du^2 + 2F du dv + G dv^2
@@ -262,7 +262,7 @@ pub(super) fn coeffs_to_curvature(coefs: &SVector<f32, 6>) -> LocalCurvature {
         W = 1/(EG - F^2) * [E L - F M, E M - F N]
                             [G M - F L, G N - F M]
     */
-    let mut W = SMatrix::<f32, 2, 2>::zeros();
+    let mut W = SMatrix::<Float, 2, 2>::zeros();
     W[(0, 0)] = E * L - F * M;
     W[(0, 1)] = E * M - F * N;
     W[(1, 0)] = G * M - F * L;
@@ -271,7 +271,7 @@ pub(super) fn coeffs_to_curvature(coefs: &SVector<f32, 6>) -> LocalCurvature {
     // W is symmetric despite the equations seems to be not!
     let eig = W.symmetric_eigen();
 
-    let princ_dirs = SMatrix::<f32, 3, 2>::from_columns(&[
+    let princ_dirs = SMatrix::<Float, 3, 2>::from_columns(&[
         Vector3f::new(eig.eigenvectors[(0, 0)], eig.eigenvectors[(1, 0)], 0.0),
         Vector3f::new(eig.eigenvectors[(0, 1)], eig.eigenvectors[(1, 1)], 0.0),
     ]);

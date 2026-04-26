@@ -3,17 +3,28 @@ use crate::prelude::*;
 /// Alias to sorted vector
 pub type SVec = sorted_vec::SortedSet<usize>;
 
+/// Scalar floating-point type used throughout MolAR.
+///
+/// Defaults to [`f32`]. When the `f64` feature is enabled, the entire
+/// workspace switches to [`f64`] precision.
+#[cfg(not(feature = "f64"))]
+pub type Float = f32;
+#[cfg(feature = "f64")]
+pub type Float = f64;
+
 // Aliases for vector and points
+/// Convenience alias for 2D vector
+pub type Vector2f = nalgebra::Vector2<Float>;
 /// Convenience alias for 3D vector
-pub type Vector3f = nalgebra::Vector3<f32>;
+pub type Vector3f = nalgebra::Vector3<Float>;
 /// Convenience alias for 3x3 matrix
-pub type Matrix3f = nalgebra::Matrix3<f32>;
+pub type Matrix3f = nalgebra::Matrix3<Float>;
 /// Atom position
-pub type Pos = nalgebra::Point3<f32>;
+pub type Pos = nalgebra::Point3<Float>;
 /// Atom velocity (nm/ps)
-pub type Vel = nalgebra::Vector3<f32>;
+pub type Vel = nalgebra::Vector3<Float>;
 /// Atom force (kJ/mol/nm)
-pub type Force = nalgebra::Vector3<f32>;
+pub type Force = nalgebra::Vector3<Float>;
 
 // Define alias traits for iterators to make it less verbose
 /// Convenience alias for iterator over indices

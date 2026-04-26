@@ -148,7 +148,7 @@ mod tests {
         let (_, ind2) = make_sel_prot()?;
 
         sys.try_bind_mut(&ind2)?
-            .rotate(&Vector3f::x_axis(), 80.0_f32.to_radians());
+            .rotate(&Vector3f::x_axis(), (80.0 as Float).to_radians());
 
         let sel1 = sys.try_bind(&ind1)?;
         let sel2 = sys.try_bind(&ind2)?;

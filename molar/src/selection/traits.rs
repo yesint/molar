@@ -60,13 +60,13 @@ impl<T: SystemMutProvider + IndexProvider> BoxMutProvider for T {
 }
 
 impl<T: SystemProvider + IndexProvider> TimeProvider for T {
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         unsafe { (*self.get_system_ptr()).st.time }
     }
 }
 
 impl<T: SystemMutProvider + IndexProvider> TimeMutProvider for T {
-    fn set_time(&mut self, t: f32) {
+    fn set_time(&mut self, t: Float) {
         unsafe { (*self.get_system_mut()).st.time = t; }
     }
 }

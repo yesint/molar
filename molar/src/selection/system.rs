@@ -275,16 +275,16 @@ impl System {
                     }
                     let added = self.append_from_self(&all)?;
                     let shift =
-                        m.column(0) * x as f32 + m.column(1) * y as f32 + m.column(2) * z as f32;
+                        m.column(0) * x as Float + m.column(1) * y as Float + m.column(2) * z as Float;
                     self.select_bound_mut(added)?.translate(&shift);
                 }
             }
         }
         // Scale the box
         self.get_box_mut().unwrap().scale_vectors([
-            nbox[0] as f32,
-            nbox[1] as f32,
-            nbox[2] as f32,
+            nbox[0] as Float,
+            nbox[1] as Float,
+            nbox[2] as Float,
         ])?;
 
         // Re-assign resindex

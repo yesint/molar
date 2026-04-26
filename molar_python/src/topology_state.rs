@@ -99,7 +99,7 @@ impl StatePy {
     /// :returns: Frame time.
     /// :rtype: float
     #[getter]
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         self.inner().time
     }
 
@@ -109,7 +109,7 @@ impl StatePy {
     /// :returns: ``None``.
     /// :rtype: None
     #[setter]
-    fn set_time(&self, t: f32) {
+    fn set_time(&self, t: Float) {
         self.inner_mut().time = t;
     }
 
@@ -147,7 +147,7 @@ impl LenProvider for StatePy {
 }
 
 impl TimeProvider for StatePy {
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         self.inner().time
     }
 }

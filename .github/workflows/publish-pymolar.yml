@@ -8,15 +8,44 @@ on:
 permissions:
   contents: read
 
+# `pymolar` (default, float32) and `pymolar-f64` (float64) are built from the
+# same `molar_python` Rust crate but live in two separate project directories,
+# each with its own `pyproject.toml`. The `precision` matrix dimension below
+# selects which one to build:
+#
+#   - precision=f32 → root crate (`molar_python/`), default features.
+#   - precision=f64 → sibling project (`molar_python/pymolar-f64-pkg/`)
+#                      pointing at the shared `Cargo.toml` via `manifest-path`,
+#                      with the `f64` feature enabled.
+#
+# Wheels are emitted to `${{ github.workspace }}/dist` regardless of which
+# project directory `maturin` is invoked from, so the artifact upload step
+# is identical in both cases.
+
 jobs:
   linux:
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # f32 wheels
           - runs-on: ubuntu-latest
             target: x86_64
+            precision: f32
+            working-directory: molar_python
           - runs-on: ubuntu-24.04-arm
             target: aarch64
+            precision: f32
+            working-directory: molar_python
+          # f64 wheels
+          - runs-on: ubuntu-latest
+            target: x86_64
+            precision: f64
+            working-directory: molar_python/pymolar-f64-pkg
+          - runs-on: ubuntu-24.04-arm
+            target: aarch64
+            precision: f64
+            working-directory: molar_python/pymolar-f64-pkg
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -24,51 +53,84 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: auto
-          args: --release --out dist -m molar_python/Cargo.toml --find-interpreter
+          working-directory: ${{ matrix.working-directory }}
+          args: --release --out ${{ github.workspace }}/dist --find-interpreter
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.target }}
+          name: wheels-linux-${{ matrix.target }}-${{ matrix.precision }}
           path: dist
 
   macos:
-    runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            precision: f32
+            working-directory: molar_python
+          - target: aarch64
+            precision: f32
+            working-directory: molar_python
+          - target: x86_64
+            precision: f64
+            working-directory: molar_python/pymolar-f64-pkg
+          - target: aarch64
+            precision: f64
+            working-directory: molar_python/pymolar-f64-pkg
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m molar_python/Cargo.toml
+          working-directory: ${{ matrix.working-directory }}
+          args: --release --out ${{ github.workspace }}/dist
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.target }}
+          name: wheels-macos-${{ matrix.target }}-${{ matrix.precision }}
           path: dist
 
   windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - precision: f32
+            working-directory: molar_python
+          - precision: f64
+            working-directory: molar_python/pymolar-f64-pkg
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
-          args: --release --out dist -m molar_python/Cargo.toml
+          working-directory: ${{ matrix.working-directory }}
+          args: --release --out ${{ github.workspace }}/dist
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-x86_64
+          name: wheels-windows-x86_64-${{ matrix.precision }}
           path: dist
 
   sdist:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - precision: f32
+            working-directory: molar_python
+          - precision: f64
+            working-directory: molar_python/pymolar-f64-pkg
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
-          args: --out dist -m molar_python/Cargo.toml
+          working-directory: ${{ matrix.working-directory }}
+          args: --out ${{ github.workspace }}/dist
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-sdist
+          name: wheels-sdist-${{ matrix.precision }}
           path: dist
 
   publish:
@@ -76,6 +138,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: [linux, macos, windows, sdist]
     runs-on: ubuntu-latest
+    # Both `pymolar` and `pymolar-f64` are published from this single job. The
+    # `pypi` environment must have Trusted Publishing configured for *both*
+    # PyPI projects (or the second project will fail with an OIDC error).
     environment:
       name: pypi
       url: https://pypi.org/p/pymolar

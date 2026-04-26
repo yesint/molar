@@ -140,7 +140,7 @@ impl BondProvider for SystemPy {
 }
 
 impl TimeProvider for SystemPy {
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         self.r_st().get_time()
     }
 }
@@ -434,8 +434,8 @@ impl SystemPy {
                 arg1.cast::<crate::atom::AtomView>()?.borrow().atom()?.clone()
             };
             
-            let pos = args.get_item(1)?.extract::<PyArrayLike1<f32>>()?;
-            let v: VectorView<f32, Const<3>> = pos.try_as_matrix().unwrap();
+            let pos = args.get_item(1)?.extract::<PyArrayLike1<Float>>()?;
+            let v: VectorView<Float, Const<3>> = pos.try_as_matrix().unwrap();
             
             slf_b.r_top_mut().add_atoms(std::iter::once(&ab).cloned());
             slf_b
@@ -452,7 +452,7 @@ impl SystemPy {
     /// :returns: Frame time in ps.
     /// :rtype: float
     #[getter]
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         TimeProvider::get_time(self)
     }
 
@@ -481,7 +481,7 @@ impl SystemPy {
     ///
     /// :param t: New frame time.
     #[setter]
-    fn set_time(&self, t: f32) {
+    fn set_time(&self, t: Float) {
         self.r_st_mut().time = t;
     }
 
@@ -580,7 +580,7 @@ impl SysPosIterator {
     }
 
     /// Return next position as a NumPy array view.
-    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<f32>>> {
+    fn __next__<'py>(slf: &Bound<'py, Self>) -> Option<Bound<'py, PyArray1<Float>>> {
         let s = slf.get();
         let idx = s.cur.fetch_add(1, Ordering::Relaxed);
         if idx >= s.st.get().len() {

@@ -23,7 +23,7 @@ pub struct State {
     pub coords: Vec<Pos>,
     pub velocities: Vec<Vel>,
     pub forces: Vec<Force>,
-    pub time: f32,
+    pub time: Float,
     pub pbox: Option<PeriodicBox>,
 }
 
@@ -111,13 +111,13 @@ impl SaveState for State {
 }
 
 impl TimeProvider for State {
-    fn get_time(&self) -> f32 {
+    fn get_time(&self) -> Float {
         self.time
     }
 }
 
 impl TimeMutProvider for State {
-    fn set_time(&mut self, t: f32) {
+    fn set_time(&mut self, t: Float) {
         self.time = t;
     }
 }

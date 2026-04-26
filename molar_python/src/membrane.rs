@@ -1,3 +1,4 @@
+use molar::Float;
 use crate::{map_const_pyarray_to_vec3, Sel, System};
 use pyo3::prelude::*;
 use triomphe::Arc;
@@ -165,17 +166,17 @@ impl LipidMolecule {
     }
 
     #[getter]
-    fn get_area(&self) -> f32 {
+    fn get_area(&self) -> Float {
         self.get().area
     }
 
     #[getter]
-    fn get_mean_curv(&self) -> f32 {
+    fn get_mean_curv(&self) -> Float {
         self.get().mean_curv
     }
 
     #[getter]
-    fn get_gauss_curv(&self) -> f32 {
+    fn get_gauss_curv(&self) -> Float {
         self.get().gaussian_curv
     }
 
@@ -192,11 +193,11 @@ pub(crate) struct Histogram1D(molar_membrane::Histogram1D);
 #[pymethods]
 impl Histogram1D {
     #[new]
-    fn new(min: f32, max: f32, n_bins: usize) -> Self {
+    fn new(min: Float, max: Float, n_bins: usize) -> Self {
         Self(molar_membrane::Histogram1D::new(min, max, n_bins))
     }
 
-    pub fn add_one(&mut self, val: f32) {
+    pub fn add_one(&mut self, val: Float) {
         self.0.add_one(val);
     }
 

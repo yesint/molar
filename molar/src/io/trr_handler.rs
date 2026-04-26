@@ -22,7 +22,7 @@ pub enum TrrHandlerError {
     SeekFrame(usize, #[source] io::Error),
 
     #[error("TRR seek to time {0} failed")]
-    SeekTime(f32, #[source] io::Error),
+    SeekTime(Float, #[source] io::Error),
 
     #[error("invalid periodic box")]
     Pbc(#[from] PeriodicBoxError),
@@ -65,23 +65,24 @@ fn xdr_skip(r: &mut impl Read, n_bytes: usize) -> io::Result<()> {
 }
 
 /// Read `n` XDR-encoded 3D vectors (velocities or forces). Returns `Vec<Vel>`.
-/// Since `Vel` and `Force` are both `Vector3<f32>` the same function serves both.
+/// Since `Vel` and `Force` share the same alias, the same function serves both.
+/// TRR is f32 or f64 on disk depending on the writer; we cast to `Float` at the boundary.
 fn read_xvf(r: &mut impl Read, n: usize, b_double: bool) -> io::Result<Vec<Vel>> {
     if b_double {
         (0..n)
             .map(|_| {
-                let x = xdr_read_f64(r)? as f32;
-                let y = xdr_read_f64(r)? as f32;
-                let z = xdr_read_f64(r)? as f32;
+                let x = xdr_read_f64(r)? as Float;
+                let y = xdr_read_f64(r)? as Float;
+                let z = xdr_read_f64(r)? as Float;
                 Ok(Vel::new(x, y, z))
             })
             .collect()
     } else {
         (0..n)
             .map(|_| {
-                let x = xdr_read_f32(r)?;
-                let y = xdr_read_f32(r)?;
-                let z = xdr_read_f32(r)?;
+                let x = xdr_read_f32(r)? as Float;
+                let y = xdr_read_f32(r)? as Float;
+                let z = xdr_read_f32(r)? as Float;
                 Ok(Vel::new(x, y, z))
             })
             .collect()
@@ -255,12 +256,12 @@ fn read_frame_data(
     let elem = if h.b_double { 8usize } else { 4usize };
     let n = h.natoms as usize;
 
-    // Box
+    // Box (TRR is f32 or f64 on disk; cast to Float at the boundary)
     let pbox = if h.box_size != 0 {
-        let vals: Vec<f32> = if h.b_double {
-            (0..9).map(|_| xdr_read_f64(r).map(|v| v as f32)).collect::<io::Result<_>>()?
+        let vals: Vec<Float> = if h.b_double {
+            (0..9).map(|_| xdr_read_f64(r).map(|v| v as Float)).collect::<io::Result<_>>()?
         } else {
-            (0..9).map(|_| xdr_read_f32(r)).collect::<io::Result<_>>()?
+            (0..9).map(|_| xdr_read_f32(r).map(|v| v as Float)).collect::<io::Result<_>>()?
         };
         let m = Matrix3f::from_iterator(vals.into_iter());
         Some(PeriodicBox::from_matrix(m)?)
@@ -278,21 +279,21 @@ fn read_frame_data(
         xdr_skip(r, 9 * elem)?;
     }
 
-    // Coordinates
+    // Coordinates (cast to Float at the boundary)
     let coord_data: Vec<Pos> = if h.x_size != 0 {
         if coords {
             if h.b_double {
                 (0..n).map(|_| {
-                    let x = xdr_read_f64(r)? as f32;
-                    let y = xdr_read_f64(r)? as f32;
-                    let z = xdr_read_f64(r)? as f32;
+                    let x = xdr_read_f64(r)? as Float;
+                    let y = xdr_read_f64(r)? as Float;
+                    let z = xdr_read_f64(r)? as Float;
                     Ok(Pos::new(x, y, z))
                 }).collect::<io::Result<_>>()?
             } else {
                 (0..n).map(|_| {
-                    let x = xdr_read_f32(r)?;
-                    let y = xdr_read_f32(r)?;
-                    let z = xdr_read_f32(r)?;
+                    let x = xdr_read_f32(r)? as Float;
+                    let y = xdr_read_f32(r)? as Float;
+                    let z = xdr_read_f32(r)? as Float;
                     Ok(Pos::new(x, y, z))
                 }).collect::<io::Result<_>>()?
             }
@@ -333,7 +334,7 @@ fn read_frame_data(
         velocities: vel_data,
         forces: force_data,
         pbox,
-        time: h.time,
+        time: h.time as Float,
     })
 }
 
@@ -438,40 +439,40 @@ impl FileFormatHandler for TrrFileHandler {
             f_size,
             natoms: natoms as i32,
             step: w.cur_frame as i32,
-            time: data.get_time(),
+            time: data.get_time() as f32,
             b_double: false,
         };
 
         write_trr_header(&mut w.file, &h)?;
 
-        // Write box (row-major, 9 f32)
+        // Write box (row-major, 9 f32). f64 builds downcast at the boundary.
         if let Some(b) = data.get_box() {
             for &v in b.get_matrix().as_slice() {
-                xdr_write_f32(&mut w.file, v)?;
+                xdr_write_f32(&mut w.file, v as f32)?;
             }
         }
 
         // Write coordinates
         if coords {
             for p in data.iter_pos_dyn() {
-                xdr_write_f32(&mut w.file, p.x)?;
-                xdr_write_f32(&mut w.file, p.y)?;
-                xdr_write_f32(&mut w.file, p.z)?;
+                xdr_write_f32(&mut w.file, p.x as f32)?;
+                xdr_write_f32(&mut w.file, p.y as f32)?;
+                xdr_write_f32(&mut w.file, p.z as f32)?;
             }
         }
 
         // Write velocities
         for v in vel_it {
-            xdr_write_f32(&mut w.file, v.x)?;
-            xdr_write_f32(&mut w.file, v.y)?;
-            xdr_write_f32(&mut w.file, v.z)?;
+            xdr_write_f32(&mut w.file, v.x as f32)?;
+            xdr_write_f32(&mut w.file, v.y as f32)?;
+            xdr_write_f32(&mut w.file, v.z as f32)?;
         }
 
         // Write forces
         for f in force_it {
-            xdr_write_f32(&mut w.file, f.x)?;
-            xdr_write_f32(&mut w.file, f.y)?;
-            xdr_write_f32(&mut w.file, f.z)?;
+            xdr_write_f32(&mut w.file, f.x as f32)?;
+            xdr_write_f32(&mut w.file, f.y as f32)?;
+            xdr_write_f32(&mut w.file, f.z as f32)?;
         }
 
         w.cur_frame += 1;
@@ -555,7 +556,7 @@ impl FileFormatHandler for TrrFileHandler {
         }
     }
 
-    fn seek_time(&mut self, t: f32) -> Result<(), FileFormatError> {
+    fn seek_time(&mut self, t: Float) -> Result<(), FileFormatError> {
         let TrrFileHandler::Reader(ref mut r) = self else {
             return Err(FileFormatError::NotRandomAccessFormat);
         };
@@ -566,12 +567,14 @@ impl FileFormatHandler for TrrFileHandler {
             .map_err(TrrHandlerError::Io)?;
 
         let mut frame_idx: usize = 0;
+        // TRR header time is on-disk f32; compare in f32 space to match.
+        let t_disk = t as f32;
 
         loop {
             let pos = r.file.stream_position().map_err(TrrHandlerError::Io)?;
             match read_trr_header(&mut r.file) {
                 Ok(h) => {
-                    if h.time >= t {
+                    if h.time >= t_disk {
                         // Seek back to this frame's start
                         r.file
                             .seek(SeekFrom::Start(pos))

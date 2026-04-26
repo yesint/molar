@@ -55,7 +55,7 @@ fn build_tric_corrections(m: &Matrix3f) -> Vec<Vector3f> {
                 if i == 0 && j == 0 && k == 0 {
                     continue;
                 }
-                let s: Vector3f = (i as f32) * a + (j as f32) * b + (k as f32) * c;
+                let s: Vector3f = (i as Float) * a + (j as Float) * b + (k as Float) * c;
                 if s.norm_squared() < bound2 {
                     out.push(s);
                 }
@@ -153,8 +153,8 @@ impl PeriodicBox {
     ///
     /// # Errors
     /// Returns error if any vector has zero length or matrix is not invertible
-    pub fn from_matrix<S>(matrix: Matrix<f32,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
-    where S: Storage<f32, Const<3>, Const<3>>
+    pub fn from_matrix<S>(matrix: Matrix<Float,Const<3>,Const<3>,S>) -> Result<Self, PeriodicBoxError>
+    where S: Storage<Float, Const<3>, Const<3>>
     {
         // Sanity check
         for col in matrix.column_iter() {
@@ -186,12 +186,12 @@ impl PeriodicBox {
     /// # Errors
     /// Returns error if any length is zero or any angle is less than 60 degrees
     pub fn from_vectors_angles(
-        a: f32,
-        b: f32,
-        c: f32,
-        alpha: f32,
-        beta: f32,
-        gamma: f32,
+        a: Float,
+        b: Float,
+        c: Float,
+        alpha: Float,
+        beta: Float,
+        gamma: Float,
     ) -> Result<Self, PeriodicBoxError> {
         let mut m = Matrix3f::zeros();
 
@@ -275,16 +275,16 @@ impl PeriodicBox {
 
     /// Computes the shortest vector between two points considering periodicity.
     #[inline(always)]
-    pub fn shortest_vector<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f
-    where S: Storage<f32, Const<3>>,
+    pub fn shortest_vector<S>(&self, vec: &nalgebra::Vector<Float,Const<3>,S>) -> Vector3f
+    where S: Storage<Float, Const<3>>,
     {
         self.shortest_vector_dims(vec, PBC_FULL)
     }
 
     /// Computes the shortest vector between two points considering periodicity only in specified dimensions.
     #[inline(always)]
-    pub fn shortest_vector_dims<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>, pbc_dims: PbcDims) -> Vector3f
-    where S: Storage<f32, Const<3>>,
+    pub fn shortest_vector_dims<S>(&self, vec: &nalgebra::Vector<Float,Const<3>,S>, pbc_dims: PbcDims) -> Vector3f
+    where S: Storage<Float, Const<3>>,
     {
         // Step 1: fractional-coord reduction — collapses arbitrarily
         // far-apart pairs into the primary parallelepiped cell.
@@ -337,8 +337,8 @@ impl PeriodicBox {
 
     /// Converts coordinates from lab frame to box frame (fractional coordinates).
     #[inline(always)]
-    pub fn to_box_coords<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f
-    where S: Storage<f32, Const<3>>,
+    pub fn to_box_coords<S>(&self, vec: &nalgebra::Vector<Float,Const<3>,S>) -> Vector3f
+    where S: Storage<Float, Const<3>>,
     {
         self.inv * vec
     }
@@ -353,8 +353,8 @@ impl PeriodicBox {
 
     /// Converts coordinates from box frame to lab frame.
     #[inline(always)]
-    pub fn to_lab_coords<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
-    where S: Storage<f32, Const<3>>,
+    pub fn to_lab_coords<S>(&self, vec: &nalgebra::Vector<Float,Const<3>,S>) -> Vector3f 
+    where S: Storage<Float, Const<3>>,
     {
         self.matrix * vec
     }
@@ -376,13 +376,13 @@ impl PeriodicBox {
 
     /// Computes squared distance between two points considering periodic boundary conditions.
     #[inline(always)]
-    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: PbcDims) -> f32 {
+    pub fn distance_squared(&self, p1: &Pos, p2: &Pos, pbc_dims: PbcDims) -> Float {
         self.shortest_vector_dims(&(p2 - p1), pbc_dims).norm_squared()
     }
 
     /// Computes distance between two points considering periodic boundary conditions.
     #[inline(always)]
-    pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: PbcDims) -> f32 {
+    pub fn distance(&self, p1: &Pos, p2: &Pos, pbc: PbcDims) -> Float {
         self.distance_squared(p1, p2, pbc).sqrt()
     }
 
@@ -394,7 +394,7 @@ impl PeriodicBox {
     }
     
     /// Scales box vectors by given factors.
-    pub(crate) fn scale_vectors(&mut self, scale_factors: [f32; 3]) -> Result<(),PeriodicBoxError> {
+    pub(crate) fn scale_vectors(&mut self, scale_factors: [Float; 3]) -> Result<(),PeriodicBoxError> {
         for c in 0..3 {
             self.matrix.column_mut(c).apply(|el| *el *= scale_factors[c]);
         }
@@ -419,8 +419,8 @@ impl PeriodicBox {
     }
 
     #[inline(always)]
-    pub fn wrap_vec<S>(&self, vec: &nalgebra::Vector<f32,Const<3>,S>) -> Vector3f 
-    where S: Storage<f32, Const<3>>,
+    pub fn wrap_vec<S>(&self, vec: &nalgebra::Vector<Float,Const<3>,S>) -> Vector3f 
+    where S: Storage<Float, Const<3>>,
     {
         // Get vector in box fractional coordinates
         let mut bv = self.inv * vec;
@@ -439,7 +439,7 @@ mod tests {
     use crate::prelude::*;
     use super::PeriodicBox;
 
-    const EPSILON: f32 = 1e-6;
+    const EPSILON: Float = 1e-6;
 
     fn assert_vec_eq(v1: &Vector3f, v2: &Vector3f) {
         assert!((v1 - v2).norm() < EPSILON, "Vectors not equal: {:?} != {:?}", v1, v2);
@@ -592,9 +592,9 @@ mod tests {
         let a: Vector3f = box_matrix.column(0).into();
         let b: Vector3f = box_matrix.column(1).into();
         let c: Vector3f = box_matrix.column(2).into();
-        let mut best = f32::INFINITY;
+        let mut best = Float::INFINITY;
         for i in -2..=2i32 { for j in -2..=2i32 { for k in -2..=2i32 {
-            let cand = dx + (i as f32)*a + (j as f32)*b + (k as f32)*c;
+            let cand = dx + (i as Float)*a + (j as Float)*b + (k as Float)*c;
             best = best.min(cand.norm());
         }}}
 

@@ -1,7 +1,6 @@
 use std::{ffi::CString, path::Path, sync::Arc};
 
 use molar_gromacs::{CptHandle, TprPlugin};
-use nalgebra::Matrix3;
 use thiserror::Error;
 
 use crate::prelude::*;
@@ -85,15 +84,20 @@ impl FileFormatHandler for CptFileHandler {
         let time = unsafe { (cpt.cpt_time)(h) };
 
         let mut st = State::default();
-        st.time = time;
+        // CPT plugin C ABI exposes f32; cast at boundary.
+        st.time = time as Float;
 
         // Coordinates
         if read_coords {
             let mut buf: Vec<f32> = vec![0.0; natoms * 3];
             unsafe { (cpt.cpt_fill_coords)(h, buf.as_mut_ptr()) };
-            st.coords.resize(natoms, Default::default());
+            st.coords.reserve(natoms);
             for i in 0..natoms {
-                st.coords[i].coords.copy_from_slice(&buf[i * 3..i * 3 + 3]);
+                st.coords.push(Pos::new(
+                    buf[i * 3]     as Float,
+                    buf[i * 3 + 1] as Float,
+                    buf[i * 3 + 2] as Float,
+                ));
             }
         }
 
@@ -101,7 +105,7 @@ impl FileFormatHandler for CptFileHandler {
         let mut box_buf = std::mem::MaybeUninit::<[f32; 9]>::uninit();
         unsafe { (cpt.cpt_fill_box)(h, box_buf.as_mut_ptr() as *mut f32) };
         let box_buf = unsafe { box_buf.assume_init() };
-        let m = Matrix3::from_column_slice(&box_buf);
+        let m = Matrix3f::from_iterator(box_buf.iter().map(|x| *x as Float));
         st.pbox = Some(PeriodicBox::from_matrix(m).map_err(CptHandlerError::Pbc)?);
 
         // Velocities
@@ -111,7 +115,11 @@ impl FileFormatHandler for CptFileHandler {
                 let mut buf: Vec<f32> = vec![0.0; natoms * 3];
                 unsafe { (cpt.cpt_fill_velocities)(h, buf.as_mut_ptr()) };
                 let vels: Vec<Vel> = (0..natoms)
-                    .map(|i| Vel::new(buf[i * 3], buf[i * 3 + 1], buf[i * 3 + 2]))
+                    .map(|i| Vel::new(
+                        buf[i * 3]     as Float,
+                        buf[i * 3 + 1] as Float,
+                        buf[i * 3 + 2] as Float,
+                    ))
                     .collect();
                 st.velocities = vels;
             } else {
@@ -126,7 +134,11 @@ impl FileFormatHandler for CptFileHandler {
                 let mut buf: Vec<f32> = vec![0.0; natoms * 3];
                 unsafe { (cpt.cpt_fill_forces)(h, buf.as_mut_ptr()) };
                 let force_data: Vec<Force> = (0..natoms)
-                    .map(|i| Force::new(buf[i * 3], buf[i * 3 + 1], buf[i * 3 + 2]))
+                    .map(|i| Force::new(
+                        buf[i * 3]     as Float,
+                        buf[i * 3 + 1] as Float,
+                        buf[i * 3 + 2] as Float,
+                    ))
                     .collect();
                 st.forces = force_data;
             } else {
@@ -164,16 +176,16 @@ mod tests {
         // natoms and time from `gmx dump -cp tests/state.cpt`
         assert_eq!(st.len(), 96027);
         assert!(
-            (st.time - 100000.0_f32).abs() < 1.0,
+            (st.time - 100000.0).abs() < 1.0,
             "time mismatch: {}",
             st.time
         );
 
         // First atom coords from gmx dump: x[0..2] = 7.46414, 4.04902, 8.06754 (nm)
         let p = &st.coords[0];
-        assert!((p.x - 7.46414_f32).abs() < 1e-4, "atom0 x: {}", p.x);
-        assert!((p.y - 4.04902_f32).abs() < 1e-4, "atom0 y: {}", p.y);
-        assert!((p.z - 8.06754_f32).abs() < 1e-4, "atom0 z: {}", p.z);
+        assert!((p.x - 7.46414).abs() < 1e-4, "atom0 x: {}", p.x);
+        assert!((p.y - 4.04902).abs() < 1e-4, "atom0 y: {}", p.y);
+        assert!((p.z - 8.06754).abs() < 1e-4, "atom0 z: {}", p.z);
 
         // Box diagonal from gmx dump:
         //   box[0] = {9.64104, 0, 0}
@@ -181,17 +193,17 @@ mod tests {
         //   box[2] = {0, 0, 11.4521}
         let m = st.pbox.as_ref().unwrap().get_matrix();
         assert!(
-            (m[(0, 0)] - 9.64104_f32).abs() < 1e-4,
+            (m[(0, 0)] - 9.64104).abs() < 1e-4,
             "box[0][0]: {}",
             m[(0, 0)]
         );
         assert!(
-            (m[(1, 1)] - 8.34932_f32).abs() < 1e-4,
+            (m[(1, 1)] - 8.34932).abs() < 1e-4,
             "box[1][1]: {}",
             m[(1, 1)]
         );
         assert!(
-            (m[(2, 2)] - 11.4521_f32).abs() < 1e-3,
+            (m[(2, 2)] - 11.4521).abs() < 1e-3,
             "box[2][2]: {}",
             m[(2, 2)]
         );
@@ -200,9 +212,9 @@ mod tests {
         assert!(!st.velocities.is_empty(), "CPT should have velocities");
         assert_eq!(st.velocities.len(), 96027, "velocity count mismatch");
         let v0 = &st.velocities[0];
-        assert!((v0.x - 0.816909_f32).abs() < 1e-4, "atom0 vx: {}", v0.x);
-        assert!((v0.y - (-0.184407_f32)).abs() < 1e-4, "atom0 vy: {}", v0.y);
-        assert!((v0.z - 0.448161_f32).abs() < 1e-4, "atom0 vz: {}", v0.z);
+        assert!((v0.x - 0.816909).abs() < 1e-4, "atom0 vx: {}", v0.x);
+        assert!((v0.y - (-0.184407)).abs() < 1e-4, "atom0 vy: {}", v0.y);
+        assert!((v0.z - 0.448161).abs() < 1e-4, "atom0 vz: {}", v0.z);
 
         // Forces are not present in this CPT file
         assert!(st.forces.is_empty(), "CPT should have no forces");

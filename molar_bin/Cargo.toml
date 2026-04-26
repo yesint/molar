@@ -21,6 +21,10 @@ log.workspace = true
 nalgebra.workspace = true
 anyhow.workspace = true
 
+[features]
+# Forward to molar to build in double precision.
+f64 = ["molar/f64"]
+
 [[bin]]
 path = "src/main.rs"
 name = "molar"

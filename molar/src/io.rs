@@ -132,7 +132,7 @@ pub(crate) trait FileFormatHandler: Send {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 
-    fn seek_time(&mut self, t: f32) -> Result<(), FileFormatError> {
+    fn seek_time(&mut self, t: Float) -> Result<(), FileFormatError> {
         Err(FileFormatError::NotRandomAccessFormat)
     }
 
@@ -219,7 +219,7 @@ pub struct FileStats {
     /// Number of frames processed
     pub frames_processed: usize,
     /// Current time in the trajectory
-    pub cur_t: f32,
+    pub cur_t: Float,
 }
 
 impl Display for FileStats {
@@ -585,7 +585,7 @@ impl FileHandler {
     /// Returns [FileIoError] if:
     /// - Format doesn't support random access
     /// - Time value is invalid
-    pub fn seek_time(&mut self, t: f32) -> Result<(), FileIoError> {
+    pub fn seek_time(&mut self, t: Float) -> Result<(), FileIoError> {
         Ok(self
             .format_handler
             .seek_time(t)
@@ -630,7 +630,7 @@ impl FileHandler {
 
     /// Skips frames until reaching beyond time `t` (frame with time exactly equal to `t` is not consumed)
     /// This uses random-access if available and falls back to serial reading if it is not.
-    pub fn skip_to_time(&mut self, t: f32) -> Result<(), FileIoError> {
+    pub fn skip_to_time(&mut self, t: Float) -> Result<(), FileIoError> {
         // Try random-access first
         self.seek_time(t).or_else(|_| {
             // Not a random access trajectory
@@ -771,7 +771,7 @@ pub(crate) enum FileFormatError {
     SeekFrame(usize),
 
     #[error("can't seek to time {0}")]
-    SeekTime(f32),
+    SeekTime(Float),
 
     #[error("unexpected io error")]
     Io(#[from] std::io::Error),
@@ -854,7 +854,7 @@ mod tests {
 
         let mut sys = System::new(top1, st2)?;
         let mut sel = sys.select_all_bound_mut();
-        sel.rotate(&Vector3f::x_axis(), 45.0_f32.to_radians());
+        sel.rotate(&Vector3f::x_axis(), (45.0 as Float).to_radians());
 
         let outname = concat!(env!("OUT_DIR"), "/2.pdb");
         println!("{outname}");
@@ -1155,10 +1155,10 @@ mod tests {
         let mut st = State::new_fake(natoms);
         st.time = 42.0;
         st.velocities = (0..natoms)
-            .map(|i| Vel::new(i as f32 * 0.1, i as f32 * 0.2, i as f32 * 0.3))
+            .map(|i| Vel::new(i as Float * 0.1, i as Float * 0.2, i as Float * 0.3))
             .collect();
         st.forces = (0..natoms)
-            .map(|i| Force::new(i as f32 * 1.0, i as f32 * 2.0, i as f32 * 3.0))
+            .map(|i| Force::new(i as Float * 1.0, i as Float * 2.0, i as Float * 3.0))
             .collect();
         st.pbox = Some(PeriodicBox::from_vectors_angles(
             5.0, 5.0, 5.0, 90.0, 90.0, 90.0,
@@ -1173,29 +1173,29 @@ mod tests {
         let rt = reader.read_state()?;
 
         assert_eq!(rt.coords.len(), natoms);
-        assert!((rt.time - 42.0_f32).abs() < 1e-4, "time mismatch");
+        assert!((rt.time - 42.0).abs() < 1e-4, "time mismatch");
 
         assert!(!rt.velocities.is_empty(), "velocities should be present");
         assert_eq!(rt.velocities.len(), natoms);
         for (i, v) in rt.velocities.iter().enumerate() {
-            assert!((v.x - i as f32 * 0.1).abs() < 1e-5, "vel.x mismatch at {i}");
-            assert!((v.y - i as f32 * 0.2).abs() < 1e-5, "vel.y mismatch at {i}");
-            assert!((v.z - i as f32 * 0.3).abs() < 1e-5, "vel.z mismatch at {i}");
+            assert!((v.x - i as Float * 0.1).abs() < 1e-5, "vel.x mismatch at {i}");
+            assert!((v.y - i as Float * 0.2).abs() < 1e-5, "vel.y mismatch at {i}");
+            assert!((v.z - i as Float * 0.3).abs() < 1e-5, "vel.z mismatch at {i}");
         }
 
         assert!(!rt.forces.is_empty(), "forces should be present");
         assert_eq!(rt.forces.len(), natoms);
         for (i, f) in rt.forces.iter().enumerate() {
             assert!(
-                (f.x - i as f32 * 1.0).abs() < 1e-4,
+                (f.x - i as Float * 1.0).abs() < 1e-4,
                 "force.x mismatch at {i}"
             );
             assert!(
-                (f.y - i as f32 * 2.0).abs() < 1e-4,
+                (f.y - i as Float * 2.0).abs() < 1e-4,
                 "force.y mismatch at {i}"
             );
             assert!(
-                (f.z - i as f32 * 3.0).abs() < 1e-4,
+                (f.z - i as Float * 3.0).abs() < 1e-4,
                 "force.z mismatch at {i}"
             );
         }
@@ -1207,7 +1207,7 @@ mod tests {
     fn trr_write_state_pick_coords_only() -> anyhow::Result<()> {
         let natoms = 5usize;
         let mut st = State::new_fake(natoms);
-        st.velocities = (0..natoms).map(|i| Vel::new(i as f32, 0.0, 0.0)).collect();
+        st.velocities = (0..natoms).map(|i| Vel::new(i as Float, 0.0, 0.0)).collect();
         st.pbox = Some(PeriodicBox::from_vectors_angles(
             4.0, 4.0, 4.0, 90.0, 90.0, 90.0,
         )?);

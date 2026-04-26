@@ -2,10 +2,9 @@ use crate::prelude::*;
 use crate::sasa::Sasa;
 use itertools::izip;
 use nalgebra::{DVector, IsometryMatrix3, Rotation3, SymmetricEigen, Translation3};
-use num_traits::Bounded;
+use num_traits::{Bounded, FloatConst};
 use powersasa::SasaError;
 use serde::Deserialize;
-use std::f32::consts::PI;
 use std::iter::zip;
 use thiserror::Error;
 
@@ -44,10 +43,10 @@ pub trait Measure: PosProvider {
         for c in iter {
             cog += c.coords;
         }
-        Pos::from(cog / n as f32)
+        Pos::from(cog / n as Float)
     }
 
-    fn rmsd<S>(&self, other: &S) -> Result<f32, MeasureError>
+    fn rmsd<S>(&self, other: &S) -> Result<Float, MeasureError>
     where
         Self: Sized,
         S: Measure,
@@ -76,7 +75,7 @@ pub trait Measure: PosProvider {
     }
 
     /// Calculates the radius of gyration
-    fn gyration(&self) -> Result<f32, MeasureError>
+    fn gyration(&self) -> Result<Float, MeasureError>
     where
         Self: AtomProvider,
     {
@@ -100,7 +99,7 @@ pub trait Measure: PosProvider {
     }
 
     /// Computes transformation to principal axes of inertia
-    fn principal_transform(&self) -> Result<IsometryMatrix3<f32>, MeasureError>
+    fn principal_transform(&self) -> Result<IsometryMatrix3<Float>, MeasureError>
     where
         Self: AtomProvider,
     {
@@ -112,7 +111,7 @@ pub trait Measure: PosProvider {
     fn fit_transform(
         &self,
         other: &(impl Measure + AtomProvider),
-    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
+    ) -> Result<nalgebra::IsometryMatrix3<Float>, MeasureError>
     where
         Self: AtomProvider + Sized,
     {
@@ -123,7 +122,7 @@ pub trait Measure: PosProvider {
     fn fit_transform_at_origin(
         &self,
         other: &(impl Measure + AtomProvider),
-    ) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError>
+    ) -> Result<nalgebra::IsometryMatrix3<Float>, MeasureError>
     where
         Self: AtomProvider + Sized,
     {
@@ -131,7 +130,7 @@ pub trait Measure: PosProvider {
     }
 
     /// Calculates the mass-weighted Root Mean Square Deviation between two selections
-    fn rmsd_mw(&self, other: &(impl Measure + AtomProvider)) -> Result<f32, MeasureError>
+    fn rmsd_mw(&self, other: &(impl Measure + AtomProvider)) -> Result<Float, MeasureError>
     where
         Self: AtomProvider + Sized,
     {
@@ -151,7 +150,7 @@ pub trait Measure: PosProvider {
         for c in pos_iter {
             cm += b.closest_image(c, p0).coords;
         }
-        Ok(Pos::from(cm / self.len() as f32))
+        Ok(Pos::from(cm / self.len() as Float))
     }
 
     fn center_of_geometry_pbc_dims(&self, dims: PbcDims) -> Result<Pos, MeasureError>
@@ -165,7 +164,7 @@ pub trait Measure: PosProvider {
         for c in pos_iter {
             cm += b.closest_image_dims(c, p0, dims).coords;
         }
-        Ok(Pos::from(cm / self.len() as f32))
+        Ok(Pos::from(cm / self.len() as Float))
     }
 
     // ---- AtomProvider + BoxProvider methods ----
@@ -220,7 +219,7 @@ pub trait Measure: PosProvider {
         }
     }
 
-    fn gyration_pbc(&self) -> Result<f32, MeasureError>
+    fn gyration_pbc(&self) -> Result<Float, MeasureError>
     where
         Self: AtomProvider + BoxProvider,
     {
@@ -244,7 +243,7 @@ pub trait Measure: PosProvider {
         ))
     }
 
-    fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<f32>, MeasureError>
+    fn principal_transform_pbc(&self) -> Result<IsometryMatrix3<Float>, MeasureError>
     where
         Self: AtomProvider + BoxProvider,
     {
@@ -273,7 +272,7 @@ pub trait Measure: PosProvider {
         order_type: OrderType,
         normals: &Vec<Vector3f>,
         bond_orders: &Vec<u8>,
-    ) -> Result<DVector<f32>, LipidOrderError> {
+    ) -> Result<DVector<Float>, LipidOrderError> {
         //atoms:  0 - 1 - 2 - 3 = 4 - 5 - 6
         //bonds:    0   1   2   3   4   5
         //normals:  0   1   2   3   4   5
@@ -366,8 +365,8 @@ pub trait Measure: PosProvider {
                     let p3 = unsafe { self.get_pos_unchecked(i + 1) };
                     let p4 = unsafe { self.get_pos_unchecked(i + 2) };
 
-                    let a1 = 0.5 * (PI - (p1 - p2).angle(&(p3 - p2)));
-                    let a2 = 0.5 * (PI - (p2 - p3).angle(&(p4 - p3)));
+                    let a1 = 0.5 * (Float::PI() -(p1 - p2).angle(&(p3 - p2)));
+                    let a2 = 0.5 * (Float::PI() -(p2 - p3).angle(&(p4 - p3)));
 
                     // For atom i
                     let local_z = (p3 - p2).normalize();
@@ -390,7 +389,7 @@ pub trait Measure: PosProvider {
                         order[i - 1] = -(a1.cos().powi(2) * syy + a1.sin().powi(2) * szz
                             - 2.0 * a1.cos() * a1.sin() * syz);
                     } else {
-                        order[i - 1] = -(szz / 4.0 + 3.0 * syy / 4.0 - 3.0_f32.sqrt() * syz / 2.0);
+                        order[i - 1] = -(szz / 4.0 + 3.0 * syy / 4.0 - (3.0 as Float).sqrt() * syz / 2.0);
                     }
 
                     // For atom i+1 (same local_z)
@@ -414,7 +413,7 @@ pub trait Measure: PosProvider {
                             + a2.sin().powi(2) * szz
                             + 2.0 * a2.cos() * a2.sin() * syz);
                     } else {
-                        order[i] = -(szz / 4.0 + 3.0 * syy / 4.0 + 3.0_f32.sqrt() * syz / 2.0);
+                        order[i] = -(szz / 4.0 + 3.0 * syy / 4.0 + (3.0 as Float).sqrt() * syz / 2.0);
                     }
                 } // if single/double
             } // for bonds
@@ -458,7 +457,7 @@ pub trait Measure: PosProvider {
 }
 
 /// Calculates the Root Mean Square Deviation between two selections
-pub fn rmsd<S1, S2>(sel1: &S1, sel2: &S2) -> Result<f32, MeasureError>
+pub fn rmsd<S1, S2>(sel1: &S1, sel2: &S2) -> Result<Float, MeasureError>
 where
     S1: Measure,
     S2: Measure,
@@ -476,14 +475,14 @@ where
         res += (p2 - p1).norm_squared();
     }
 
-    Ok((res / n as f32).sqrt())
+    Ok((res / n as Float).sqrt())
 }
 
 /// Computes the transformation that best fits sel1 onto sel2
 pub fn fit_transform(
     sel1: &(impl Measure + AtomProvider),
     sel2: &(impl Measure + AtomProvider),
-) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+) -> Result<nalgebra::IsometryMatrix3<Float>, MeasureError> {
     let cm1 = sel1.center_of_mass()?;
     let cm2 = sel2.center_of_mass()?;
 
@@ -501,7 +500,7 @@ pub fn fit_transform(
 pub fn fit_transform_at_origin(
     sel1: &(impl Measure + AtomProvider),
     sel2: &(impl Measure + AtomProvider),
-) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+) -> Result<nalgebra::IsometryMatrix3<Float>, MeasureError> {
     let rot = rot_transform(
         sel1.iter_pos().map(|p| p.coords),
         sel2.iter_pos().map(|p| p.coords),
@@ -511,7 +510,7 @@ pub fn fit_transform_at_origin(
 }
 
 /// Calculates the mass-weighted Root Mean Square Deviation between two selections
-pub fn rmsd_mw(sel1: &(impl Measure + AtomProvider), sel2: &(impl Measure + AtomProvider)) -> Result<f32, MeasureError> {
+pub fn rmsd_mw(sel1: &(impl Measure + AtomProvider), sel2: &(impl Measure + AtomProvider)) -> Result<Float, MeasureError> {
     let mut res = 0.0;
     let mut m_tot = 0.0;
     let iter1 = sel1.iter_pos();
@@ -534,7 +533,7 @@ pub fn rmsd_mw(sel1: &(impl Measure + AtomProvider), sel2: &(impl Measure + Atom
 }
 
 /// Helper function to calculate radius of gyration from a set of distances and masses
-fn do_gyration(dists: impl Iterator<Item = Vector3f>, masses: impl Iterator<Item = f32>) -> f32 {
+fn do_gyration(dists: impl Iterator<Item = Vector3f>, masses: impl Iterator<Item = Float>) -> Float {
     let mut sd = 0.0;
     let mut sm = 0.0;
     for (d, m) in zip(dists, masses) {
@@ -548,7 +547,7 @@ fn do_gyration(dists: impl Iterator<Item = Vector3f>, masses: impl Iterator<Item
 /// Helper function to calculate inertia tensor from a set of distances and masses
 fn do_inertia(
     dists: impl Iterator<Item = Vector3f>,
-    masses: impl Iterator<Item = f32>,
+    masses: impl Iterator<Item = Float>,
 ) -> (Vector3f, Matrix3f) {
     let mut tens = Matrix3f::zeros();
 
@@ -589,8 +588,8 @@ fn do_inertia(
 fn rot_transform(
     pos1: impl Iterator<Item = Vector3f>,
     pos2: impl Iterator<Item = Vector3f>,
-    masses: impl Iterator<Item = f32>,
-) -> Result<Rotation3<f32>, MeasureError> {
+    masses: impl Iterator<Item = Float>,
+) -> Result<Rotation3<Float>, MeasureError> {
     //Calculate the covariance matrix
     let mut cov = Matrix3f::zeros();
 
@@ -619,7 +618,7 @@ fn rot_transform(
 }
 
 /// Creates a transformation that aligns a structure with its principal axes
-fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<f32> {
+fn do_principal_transform(mut axes: Matrix3f, cm: Vector3f) -> IsometryMatrix3<Float> {
     axes.try_inverse_mut();
     Translation3::from(cm) * Rotation3::from_matrix_unchecked(axes) * Translation3::from(-cm)
 }
@@ -671,7 +670,7 @@ where
 pub fn fit_transform_matching(
     sel1: &(impl IndexSliceProvider + SelectableBound),
     sel2: &(impl IndexSliceProvider + SelectableBound),
-) -> Result<nalgebra::IsometryMatrix3<f32>, MeasureError> {
+) -> Result<nalgebra::IsometryMatrix3<Float>, MeasureError> {
     // Returns *local* selection indices
     let (ind1, ind2) = get_matching_atoms_by_name(sel1, sel2);
     let matched_sel1 = sel1.select_bound(ind1).unwrap();

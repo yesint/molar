@@ -48,7 +48,7 @@ mod enabled {
 
     use crate::io::{FileFormatError, FileFormatHandler, SaveState};
     use crate::periodic_box::{PeriodicBox, PeriodicBoxError};
-    use crate::{Pos, State};
+    use crate::{Float, Pos, State};
 
     //------------------------------------------------------------------
     // Sub-types
@@ -224,9 +224,10 @@ mod enabled {
                         .get_values(([fr, 0, 0], [1, r.n_atoms, 3]))
                         .map_err(NetCdfHandlerError::Nc)?;
 
+                    // NetCDF coords are f32 on disk; cast to Float at the boundary.
                     let coords: Vec<Pos> = raw
                         .chunks_exact(3)
-                        .map(|c| Pos::new(c[0] * 0.1, c[1] * 0.1, c[2] * 0.1))
+                        .map(|c| Pos::new(c[0] as Float * 0.1, c[1] as Float * 0.1, c[2] as Float * 0.1))
                         .collect();
 
                     // Read time (ps)
@@ -234,12 +235,12 @@ mod enabled {
                         let t_var = r.file.variable("time").unwrap();
                         t_var
                             .get_value::<f32, _>([fr])
-                            .map_err(NetCdfHandlerError::Nc)?
+                            .map_err(NetCdfHandlerError::Nc)? as Float
                     } else {
-                        fr as f32
+                        fr as Float
                     };
 
-                    // Read periodic box
+                    // Read periodic box (f64 on disk)
                     let pbox = if r.has_box {
                         let len_var = r.file.variable("cell_lengths").unwrap();
                         let ang_var = r.file.variable("cell_angles").unwrap();
@@ -253,12 +254,12 @@ mod enabled {
 
                         Some(
                             PeriodicBox::from_vectors_angles(
-                                (lengths[0] * 0.1) as f32,
-                                (lengths[1] * 0.1) as f32,
-                                (lengths[2] * 0.1) as f32,
-                                angles[0] as f32,
-                                angles[1] as f32,
-                                angles[2] as f32,
+                                (lengths[0] * 0.1) as Float,
+                                (lengths[1] * 0.1) as Float,
+                                (lengths[2] * 0.1) as Float,
+                                angles[0] as Float,
+                                angles[1] as Float,
+                                angles[2] as Float,
                             )
                             .map_err(NetCdfHandlerError::Pbc)?,
                         )
@@ -267,7 +268,7 @@ mod enabled {
                     };
 
                     r.cur_frame += 1;
-                    Ok(State { coords, time, pbox })
+                    Ok(State { coords, time, pbox, ..Default::default() })
                 }
                 Self::Writer(_) => unreachable!(),
             }
@@ -286,20 +287,20 @@ mod enabled {
                     let n_atoms = w.n_atoms;
                     let file = w.file.as_mut().unwrap();
 
-                    // Write coordinates: nm → Å
+                    // Write coordinates: nm → Å (NetCDF coord variable is f32 on disk)
                     let raw: Vec<f32> = data
                         .iter_pos_dyn()
-                        .flat_map(|p| [p.x * 10.0, p.y * 10.0, p.z * 10.0])
+                        .flat_map(|p| [(p.x * 10.0) as f32, (p.y * 10.0) as f32, (p.z * 10.0) as f32])
                         .collect();
                     file.variable_mut("coordinates")
                         .unwrap()
                         .put_values(&raw, ([fr, 0, 0], [1, n_atoms, 3]))
                         .map_err(NetCdfHandlerError::Nc)?;
 
-                    // Write time (ps)
+                    // Write time (ps) — netcdf variable is f32 on disk.
                     file.variable_mut("time")
                         .unwrap()
-                        .put_value(data.get_time(), [fr])
+                        .put_value(data.get_time() as f32, [fr])
                         .map_err(NetCdfHandlerError::Nc)?;
 
                     // Write periodic box if present
@@ -340,7 +341,7 @@ mod enabled {
             }
         }
 
-        fn seek_time(&mut self, t: f32) -> Result<(), FileFormatError> {
+        fn seek_time(&mut self, t: Float) -> Result<(), FileFormatError> {
             match self {
                 Self::Reader(r) => {
                     if !r.has_time {
@@ -355,7 +356,8 @@ mod enabled {
                         .map_err(NetCdfHandlerError::Nc)?;
                     // Find the last frame whose time is strictly less than `t`,
                     // matching the serial-read fallback semantics in FileHandler.
-                    let fr = times.partition_point(|&ts| ts < t);
+                    let t_disk = t as f32;
+                    let fr = times.partition_point(|&ts| ts < t_disk);
                     if fr >= r.n_frames {
                         return Err(FileFormatError::SeekTime(t));
                     }

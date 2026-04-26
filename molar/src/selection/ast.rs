@@ -30,7 +30,7 @@ pub(super) enum BinaryOperator {
 
 #[derive(Debug,Clone)]
 pub(super) enum MathNode {
-    Float(f32),
+    Float(Float),
     Function(MathFunctionName, Box<Self>),
     X,
     Y,
@@ -124,7 +124,7 @@ pub(super) enum SameAttr {
 
 #[derive(Debug, PartialEq, Clone)]
 pub(super) struct WithinParams {
-    pub(super) cutoff: f32,
+    pub(super) cutoff: Float,
     pub(super) pbc: PbcDims,
     pub(super) include_inner: bool,
 }
@@ -592,8 +592,8 @@ impl Evaluate for LogicalNode {
                     // Non-periodic variant
                     // Find extents
                     let (mut lower, mut upper) = data.min_max();
-                    lower.coords.add_scalar_mut(-params.cutoff - f32::EPSILON);
-                    upper.coords.add_scalar_mut(params.cutoff + f32::EPSILON);
+                    lower.coords.add_scalar_mut(-params.cutoff - Float::EPSILON);
+                    upper.coords.add_scalar_mut(params.cutoff + Float::EPSILON);
 
                     distance_search_within(
                         params.cutoff,
@@ -631,8 +631,8 @@ impl Evaluate for LogicalNode {
                 let res: Vec<usize> = if prop.pbc == PBC_NONE {
                     // Non-periodic variant
                     // Find extents
-                    let lower = pvec.coords.add_scalar(-prop.cutoff - f32::EPSILON);
-                    let upper = pvec.coords.add_scalar(prop.cutoff + f32::EPSILON);
+                    let lower = pvec.coords.add_scalar(-prop.cutoff - Float::EPSILON);
+                    let upper = pvec.coords.add_scalar(prop.cutoff + Float::EPSILON);
 
                     distance_search_within(
                         prop.cutoff,
@@ -905,7 +905,7 @@ impl MathNode {
         }
     }
 
-    fn eval<'a,S>(&mut self, p: &Particle<'_>, data: &EvalContext<'a,S>) -> Result<f32, SelectionParserError> 
+    fn eval<'a,S>(&mut self, p: &Particle<'_>, data: &EvalContext<'a,S>) -> Result<Float, SelectionParserError> 
     where
         S: PosProvider + AtomProvider + BoxProvider
     {
@@ -1041,7 +1041,7 @@ impl ComparisonNode {
         data: &EvalContext<'_,S>,
         v1: &mut MathNode,
         v2: &mut MathNode,
-        op: fn(f32, f32) -> bool,
+        op: fn(Float, Float) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> 
     where
         S: PosProvider + AtomProvider + BoxProvider
@@ -1061,8 +1061,8 @@ impl ComparisonNode {
         v1: &mut MathNode,
         v2: &mut MathNode,
         v3: &mut MathNode,
-        op1: fn(f32, f32) -> bool,
-        op2: fn(f32, f32) -> bool,
+        op1: fn(Float, Float) -> bool,
+        op2: fn(Float, Float) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> 
     where
         S: PosProvider + AtomProvider + BoxProvider

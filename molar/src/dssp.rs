@@ -464,8 +464,8 @@ impl Dssp {
     fn detect_polyproline(&mut self, sel: &impl PosProvider) {
         let n = self.backbone.len();
 
-        let mut phi = vec![360.0f32; n];
-        let mut psi = vec![360.0f32; n];
+        let mut phi = vec![360.0; n];
+        let mut psi = vec![360.0; n];
 
         for i in 1..n.saturating_sub(1) {
             let (prev_c_idx, n_idx, ca_idx, c_idx) = match (&self.backbone[i - 1], &self.backbone[i]) {
@@ -486,10 +486,10 @@ impl Dssp {
             }
         }
 
-        let phi_min = -75.0_f32 - 29.0; // -104°
-        let phi_max = -75.0_f32 + 29.0; // -46°
-        let psi_min = 145.0_f32 - 29.0; // 116°
-        let psi_max = 145.0_f32 + 29.0; // 174°
+        let phi_min = -75.0 - 29.0; // -104°
+        let phi_max = -75.0 + 29.0; // -46°
+        let psi_min = 145.0 - 29.0; // 116°
+        let psi_max = 145.0 + 29.0; // 174°
 
         let in_phi = |k: usize| phi[k] >= phi_min && phi[k] <= phi_max;
         let in_psi = |k: usize| psi[k] >= psi_min && psi[k] <= psi_max;
@@ -510,11 +510,11 @@ impl Dssp {
 //──────────────────────────────────────────────────────────────────────────────
 
 /// Electrostatic H-bond factor: 0.084 × 33.2 (nm units, kcal/mol).
-const HBOND_FACTOR: f32 = 0.084 * 33.2;
-const HBOND_THRESHOLD: f32 = -0.5; // kcal/mol
+const HBOND_FACTOR: Float = 0.084 * 33.2;
+const HBOND_THRESHOLD: Float = -0.5; // kcal/mol
 
 #[inline]
-fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos) -> f32 {
+fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos) -> Float {
     let r_on = (acceptor_o - donor_n).norm();
     let r_ch = (acceptor_c - donor_h).norm();
     let r_oh = (acceptor_o - donor_h).norm();
@@ -530,7 +530,7 @@ fn hbond_energy(donor_n: &Pos, donor_h: &Pos, acceptor_c: &Pos, acceptor_o: &Pos
 /// Dihedral angle A-B-C-D using the Gromacs formula (degrees).
 /// Returns 360.0 for degenerate geometry.
 #[inline]
-fn dihedral_gmx(a: &Pos, b: &Pos, c: &Pos, d: &Pos) -> f32 {
+fn dihedral_gmx(a: &Pos, b: &Pos, c: &Pos, d: &Pos) -> Float {
     let vec_ba = a - b;
     let vec_cd = d - c;
     let vec_cb = b - c;
@@ -585,7 +585,7 @@ mod tests {
     }
 
     /// Load PDB, run DSSP, compare with reference `.dat` file.
-    fn check_dssp(pdb: &str, dat: &str, threshold: f32, strip_breaks: bool) -> anyhow::Result<()> {
+    fn check_dssp(pdb: &str, dat: &str, threshold: Float, strip_breaks: bool) -> anyhow::Result<()> {
         let sys = System::from_file(pdb)?;
         let sel = sys.select_bound("protein")?;
         let ss_string = sel.dssp_string();
@@ -604,7 +604,7 @@ mod tests {
             .filter(|(a, b)| a == b)
             .count();
 
-        let accuracy = matches as f32 / ss_string.len() as f32;
+        let accuracy = matches as Float / ss_string.len() as Float;
         println!("DSSP accuracy: {:.1}% ({}/{} residues)", accuracy * 100.0, matches, ss_string.len());
         println!("Got:      {}", ss_string);
         println!("Expected: {}", expected);

@@ -114,17 +114,17 @@ impl FileFormatHandler for XyzFileHandler {
             let mut tokens = line.split_whitespace();
 
             let elem = tokens.next().ok_or(XyzHandlerError::TruncatedLine(i))?;
-            let x: f32 = tokens
+            let x: Float = tokens
                 .next()
                 .ok_or(XyzHandlerError::TruncatedLine(i))?
                 .parse()
                 .map_err(|e| XyzHandlerError::BadCoord(i, e))?;
-            let y: f32 = tokens
+            let y: Float = tokens
                 .next()
                 .ok_or(XyzHandlerError::TruncatedLine(i))?
                 .parse()
                 .map_err(|e| XyzHandlerError::BadCoord(i, e))?;
-            let z: f32 = tokens
+            let z: Float = tokens
                 .next()
                 .ok_or(XyzHandlerError::TruncatedLine(i))?
                 .parse()
