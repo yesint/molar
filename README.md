@@ -8,6 +8,7 @@
 
 # Table of contents
 - [What is MolAR?](#what-is-molar)
+- [Citation](#citation)
 - [Features](#features)
 - [Current status](#current-status)
 - [Design and performance](#design-and-performance)
@@ -24,6 +25,26 @@ MolAR is a library for molecular modeling and analysis written in Rust with an e
 Molar is designed to simplify the analysis of molecular dynamics trajectories and to implement new analysis algorithms. Molar is intended to provide facilities, which are routinely used in all molecular analysis programs, namely input/output of popular file formats, powerful and flexible atom selections, geometry transformations, RMSD fitting and alignment, etc.
 
 MolAR is a logical successor of [Pteros](https://github.com/yesint/pteros) molecular modeling library, which is written in C++ and become hard to develop and maintain due to all C++ idiosyncrasies.
+
+# Citation
+
+If you use MolAR in your research, please cite the following paper:
+
+> Yesylevskyy, S. (2024). MolAR: A new molecular analysis and modeling library written in Rust. *Journal of Computational Chemistry*, 45(32), 2749-2761. [doi:10.1002/jcc.27536](https://doi.org/10.1002/jcc.27536)
+
+BibTeX:
+```bibtex
+@article{yesylevskyy2024molar,
+  title   = {MolAR: A new molecular analysis and modeling library written in Rust},
+  author  = {Yesylevskyy, Semen},
+  journal = {Journal of Computational Chemistry},
+  volume  = {45},
+  number  = {32},
+  pages   = {2749--2761},
+  year    = {2024},
+  doi     = {10.1002/jcc.27536}
+}
+```
 
 # Features
 * Reading and writing PDB, GRO, XYZ, XTC, TRR, TPR, CPT, and AMBER NetCDF (.nc) files
