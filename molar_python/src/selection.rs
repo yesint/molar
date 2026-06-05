@@ -821,6 +821,29 @@ impl SelPy {
         .apply_transform(&tr.0);
     }
 
+    /// Unwrap selected atoms relative to the first atom of the selection.
+    ///
+    /// For each atom after the first, replace its position with the
+    /// closest-image position to atom 0 under the current periodic box. This
+    /// makes a molecule that straddles the box boundary contiguous in space
+    /// (equivalent to ``gmx trjconv -pbc mol`` for a single molecule). Call
+    /// this on each per-residue or per-molecule sub-selection (e.g. obtained
+    /// from :meth:`split_resindex` / :meth:`split_molecule`) before computing
+    /// densities or other position-derived quantities.
+    ///
+    /// :returns: ``None``.
+    /// :rtype: None
+    fn unwrap_simple(&self) -> PyResult<()> {
+        TmpSelMut {
+            top: self.top_ptr_mut(),
+            st: self.st_ptr_mut(),
+            index: &self.index,
+        }
+        .unwrap_simple()
+        .map_err(to_py_runtime_err)?;
+        Ok(())
+    }
+
     #[pyo3(signature = (pbc = false))]
     /// Radius of gyration.
     ///
