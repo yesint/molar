@@ -7,9 +7,11 @@ use crate::atom::{AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT, ATOM_TYPE_NAME
 use crate::prelude::*;
 
 pub struct TprFileHandler {
-    plugin:       Arc<TprPlugin>,
-    handle:       *mut TprHandle,
-    already_read: bool,
+    plugin:           Arc<TprPlugin>,
+    handle:           *mut TprHandle,
+    already_read:     bool,
+    stored_topology:  Option<Topology>,
+    stored_state:     Option<State>,
 }
 
 // TprHandle is heap-allocated C++ data managed through the plugin functions.
@@ -56,10 +58,22 @@ impl FileFormatHandler for TprFileHandler {
             return Err(TprHandlerError::OpenFailed(msg).into());
         }
 
-        Ok(TprFileHandler { plugin, handle, already_read: false })
+        Ok(TprFileHandler {
+            plugin,
+            handle,
+            already_read: false,
+            stored_topology: None,
+            stored_state: None,
+        })
     }
 
     fn read(&mut self) -> Result<(Topology, State), FileFormatError> {
+        // If an earlier read_topology() / read_state() stashed the other half,
+        // hand back the pair without re-reading.
+        if let (Some(top), Some(st)) = (self.stored_topology.take(),
+                                        self.stored_state.take()) {
+            return Ok((top, st));
+        }
         if self.already_read {
             return Err(FileFormatError::Eof);
         }
@@ -145,6 +159,24 @@ impl FileFormatHandler for TprFileHandler {
         st.pbox = Some(PeriodicBox::from_matrix(m).map_err(TprHandlerError::Pbc)?);
 
         Ok((top, st))
+    }
+
+    fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
+        if let Some(top) = self.stored_topology.take() {
+            return Ok(top);
+        }
+        let (top, st) = self.read()?;
+        self.stored_state.get_or_insert(st);
+        Ok(top)
+    }
+
+    fn read_state(&mut self) -> Result<State, FileFormatError> {
+        if let Some(st) = self.stored_state.take() {
+            return Ok(st);
+        }
+        let (top, st) = self.read()?;
+        self.stored_topology.get_or_insert(top);
+        Ok(st)
     }
 }
 
