@@ -10,92 +10,6 @@
 use crate::prelude::*;
 use std::collections::{BTreeMap, HashSet};
 
-//──────────────────────────────────────────────────────────────────────────────
-// Public types
-//──────────────────────────────────────────────────────────────────────────────
-
-/// Secondary structure code assigned to a single residue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SS {
-    /// Alpha helix (4-turn helix, NH(i) → C=O(i-4)). Output: `H`
-    AlphaHelix,
-    /// 3₁₀ helix (3-turn helix, NH(i) → C=O(i-3)). Output: `G`
-    Helix310,
-    /// π helix (5-turn helix, NH(i) → C=O(i-5)). Output: `I`
-    PiHelix,
-    /// Poly-proline II helix (torsion-angle based). Output: `P`
-    PolyProline,
-    /// Extended beta strand in beta sheet (ladder). Output: `E`
-    BetaSheet,
-    /// Isolated beta bridge residue. Output: `B`
-    BetaBridge,
-    /// Hydrogen-bonded turn. Output: `T`
-    Turn,
-    /// Bend (Cα angle ≥ 70°). Output: `S`
-    Bend,
-    /// Loop / coil (no special designation). Output: `~`
-    #[default]
-    Coil,
-    /// Break (missing backbone atoms). Output: `=`
-    Break,
-}
-
-impl SS {
-    /// Single-character code used by DSSP / Gromacs output.
-    pub fn to_char(self) -> char {
-        match self {
-            SS::AlphaHelix  => 'H',
-            SS::Helix310    => 'G',
-            SS::PiHelix     => 'I',
-            SS::PolyProline => 'P',
-            SS::BetaSheet   => 'E',
-            SS::BetaBridge  => 'B',
-            SS::Turn        => 'T',
-            SS::Bend        => 'S',
-            SS::Coil        => '~',
-            SS::Break       => '=',
-        }
-    }
-
-    /// Parse a single DSSP character back to an `SS` variant.
-    pub fn from_char(c: char) -> Option<Self> {
-        Some(match c {
-            'H' => SS::AlphaHelix,
-            'G' => SS::Helix310,
-            'I' => SS::PiHelix,
-            'P' => SS::PolyProline,
-            'E' => SS::BetaSheet,
-            'B' => SS::BetaBridge,
-            'T' => SS::Turn,
-            'S' => SS::Bend,
-            '~' | 'C' => SS::Coil,
-            '=' => SS::Break,
-            _ => return None,
-        })
-    }
-
-    /// Assignment priority: higher wins; `Break` is never overwritten.
-    fn priority(self) -> u8 {
-        match self {
-            SS::Break       => 255,
-            SS::AlphaHelix  => 8,
-            SS::BetaBridge  => 7,
-            SS::BetaSheet   => 6,
-            SS::Helix310    => 5,
-            SS::PiHelix     => 4,
-            SS::Turn        => 3,
-            SS::Bend        => 2,
-            SS::PolyProline => 1,
-            SS::Coil        => 0,
-        }
-    }
-
-    fn try_assign(&mut self, new: SS) {
-        if new.priority() > self.priority() {
-            *self = new;
-        }
-    }
-}
 
 //──────────────────────────────────────────────────────────────────────────────
 // Internal types
@@ -127,9 +41,29 @@ pub struct Dssp {
     ss:       Vec<SS>,
 }
 
+/// Which β-strand detection variant the DSSP pipeline uses (everything else is
+/// shared). `Vanilla` is canonical Kabsch–Sander (ladders + bounded bulge);
+/// `Gmx` reproduces GROMACS `analyzeBridgesAndStrandsPatterns` (range-fill),
+/// which over-extends strands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BetaMode {
+    Vanilla,
+    Gmx,
+}
+
 impl Dssp {
-    /// Run the full DSSP algorithm on `sel` and return the result.
+    /// Run canonical Kabsch–Sander DSSP on `sel`.
     pub fn new(sel: &(impl ParticleIterProvider + PosProvider)) -> Self {
+        Self::with_beta(sel, BetaMode::Vanilla)
+    }
+
+    /// Run DSSP with the GROMACS-flavored β detection (range-fill); reproduces
+    /// `gmx dssp`. Strands may be over-extended relative to canonical DSSP.
+    pub fn new_gmx(sel: &(impl ParticleIterProvider + PosProvider)) -> Self {
+        Self::with_beta(sel, BetaMode::Gmx)
+    }
+
+    fn with_beta(sel: &(impl ParticleIterProvider + PosProvider), beta: BetaMode) -> Self {
         let backbone = Self::extract_backbone(sel);
         let ss = backbone.iter().map(|b| match b {
             BackboneResidue::Break => SS::Break,
@@ -140,7 +74,10 @@ impl Dssp {
         this.reconstruct_h(sel);
         this.hbond = this.compute_hbonds(sel);
         this.detect_helices();
-        this.detect_beta();
+        match beta {
+            BetaMode::Vanilla => this.detect_beta_vanilla(),
+            BetaMode::Gmx => this.detect_beta_gmx(),
+        }
         this.detect_bends(sel);
         this.detect_polyproline(sel);
         this
@@ -338,11 +275,13 @@ impl Dssp {
     }
 
     //──────────────────────────────────────────────────────────────────────────
-    // Stage 5: Beta bridge / sheet detection
-    // Algorithm matches Gromacs 2025 dssp.cpp analyzeBridgesAndStrandsPatterns()
+    // Stage 5 (gmx flavor): Beta bridge / sheet detection
+    // Matches Gromacs dssp.cpp analyzeBridgesAndStrandsPatterns(): it fills the
+    // residue span between any two bridge partners closer than 6, which
+    // over-extends strands vs canonical DSSP. Kept for `gmx dssp` fidelity.
     //──────────────────────────────────────────────────────────────────────────
 
-    fn detect_beta(&mut self) {
+    fn detect_beta_gmx(&mut self) {
         let n = self.backbone.len();
         if n < 5 { return; }
 
@@ -413,6 +352,132 @@ impl Dssp {
                 && (!ap_partners[i].is_empty() || !par_partners[i].is_empty())
             {
                 self.ss[i].try_assign(SS::BetaBridge);
+            }
+        }
+    }
+
+    //──────────────────────────────────────────────────────────────────────────
+    // Stage 5 (vanilla): canonical Kabsch–Sander β bridges/ladders/bulges.
+    // Bridges → ladders (consecutive bridges) → bounded ASYMMETRIC bulge merge
+    // (mkdssp: gap < 6 on one strand AND < 3 on the other). `E` only for ladders
+    // of >1 bridge (else `B`); residues are assigned only inside ladder spans —
+    // no range-fill of unbridged residues (that is the gmx defect).
+    //──────────────────────────────────────────────────────────────────────────
+
+    fn detect_beta_vanilla(&mut self) {
+        let n = self.backbone.len();
+        if n < 5 {
+            return;
+        }
+
+        // One ladder: i-strand residues [i0..=i1] (contiguous), paired with
+        // j-strand residues; j0 pairs with i0, j1 with i1. `anti` = antiparallel.
+        #[derive(Clone, Copy)]
+        struct Ladder {
+            anti: bool,
+            i0: usize,
+            i1: usize,
+            j0: usize,
+            j1: usize,
+        }
+
+        // 1. Enumerate bridges in i-order and grow ladders.
+        let mut ladders: Vec<Ladder> = Vec::new();
+        for i in 1..n.saturating_sub(4) {
+            if self.backbone[i - 1].is_break() || self.backbone[i].is_break() || self.backbone[i + 1].is_break() {
+                continue;
+            }
+            for j in (i + 3)..n.saturating_sub(1) {
+                if self.backbone[j - 1].is_break() || self.backbone[j].is_break() || self.backbone[j + 1].is_break() {
+                    continue;
+                }
+                let anti = (self.hbond.contains(&(i + 1, j - 1)) && self.hbond.contains(&(j + 1, i - 1)))
+                    || (self.hbond.contains(&(j, i)) && self.hbond.contains(&(i, j)));
+                let par = (self.hbond.contains(&(i + 1, j)) && self.hbond.contains(&(j, i - 1)))
+                    || (self.hbond.contains(&(j + 1, i)) && self.hbond.contains(&(i, j - 1)));
+                let anti = if anti {
+                    true
+                } else if par {
+                    false
+                } else {
+                    continue;
+                };
+
+                // Try to extend an open ladder (same type, i contiguous, j stepping).
+                let mut extended = false;
+                for lad in ladders.iter_mut() {
+                    if lad.anti == anti
+                        && lad.i1 + 1 == i
+                        && (if anti { lad.j1 == j + 1 } else { lad.j1 + 1 == j })
+                    {
+                        lad.i1 = i;
+                        lad.j1 = j;
+                        extended = true;
+                        break;
+                    }
+                }
+                if !extended {
+                    ladders.push(Ladder { anti, i0: i, i1: i, j0: j, j1: j });
+                }
+            }
+        }
+
+        // 2. Merge ladders separated by a bounded β-bulge.
+        let has_break = |bb: &[BackboneResidue], lo: usize, hi: usize| {
+            (lo.min(hi)..=lo.max(hi)).any(|k| bb[k].is_break())
+        };
+        ladders.sort_by_key(|l| l.i0);
+        let mut merged = true;
+        while merged {
+            merged = false;
+            'pairs: for a in 0..ladders.len() {
+                for b in 0..ladders.len() {
+                    if a == b || ladders[a].anti != ladders[b].anti {
+                        continue;
+                    }
+                    let (la, lb) = (ladders[a], ladders[b]);
+                    // Require lb to follow la on the i-strand (forward bulge).
+                    let gap_i = lb.i0 as i64 - la.i1 as i64;
+                    if gap_i <= 0 || gap_i >= 6 {
+                        continue;
+                    }
+                    let gap_j = if la.anti {
+                        la.j0 as i64 - lb.j1 as i64 // jbi - jej
+                    } else {
+                        lb.j0 as i64 - la.j1 as i64 // jbj - jei
+                    };
+                    if gap_j <= 0 {
+                        continue;
+                    }
+                    let bulge = (gap_j < 6 && gap_i < 3) || gap_j < 3;
+                    if !bulge {
+                        continue;
+                    }
+                    // Don't bridge a chain break on either strand.
+                    if has_break(&self.backbone, la.i1, lb.i0)
+                        || has_break(&self.backbone, la.j1, lb.j1)
+                    {
+                        continue;
+                    }
+                    // Merge lb into la, then drop lb and restart.
+                    ladders[a].i1 = lb.i1;
+                    ladders[a].j1 = lb.j1;
+                    ladders.remove(b);
+                    merged = true;
+                    break 'pairs;
+                }
+            }
+        }
+
+        // 3. Assign: E for ladders of >1 bridge, B for isolated bridges. Fill only
+        //    the residues inside each strand's span.
+        for lad in &ladders {
+            let code = if lad.i1 > lad.i0 { SS::BetaSheet } else { SS::BetaBridge };
+            for k in lad.i0..=lad.i1 {
+                self.ss[k].try_assign(code);
+            }
+            for k in lad.j0.min(lad.j1)..=lad.j0.max(lad.j1) {
+                self.ss[k].try_assign(code);
             }
         }
     }
@@ -584,11 +649,13 @@ mod tests {
         assert!(e > HBOND_THRESHOLD, "No H-bond expected at long distance, got {:.3}", e);
     }
 
-    /// Load PDB, run DSSP, compare with reference `.dat` file.
+    /// Load PDB, run the GROMACS-flavored DSSP, compare with the `gmx dssp`
+    /// reference `.dat`. (The references were generated by GROMACS, so they
+    /// validate the gmx flavor, not canonical vanilla DSSP.)
     fn check_dssp(pdb: &str, dat: &str, threshold: Float, strip_breaks: bool) -> anyhow::Result<()> {
         let sys = System::from_file(pdb)?;
         let sel = sys.select_bound("protein")?;
-        let ss_string = sel.dssp_string();
+        let ss_string = Dssp::new_gmx(&sel).ss_string();
 
         let raw = std::fs::read_to_string(dat)?;
         let expected: String = if strip_breaks {
@@ -615,17 +682,44 @@ mod tests {
     }
 
     #[test]
-    fn dssp_protein_pdb() -> anyhow::Result<()> {
+    fn dssp_gmx_protein_pdb() -> anyhow::Result<()> {
         check_dssp("tests/protein.pdb", "tests/protein_dssp.dat", 0.98, false)
     }
 
     #[test]
-    fn dssp_2lao() -> anyhow::Result<()> {
+    fn dssp_gmx_2lao() -> anyhow::Result<()> {
         check_dssp("tests/2lao.pdb", "tests/2lao_dssp.dat", 0.95, false)
     }
 
     #[test]
-    fn dssp_7pbd() -> anyhow::Result<()> {
+    fn dssp_gmx_7pbd() -> anyhow::Result<()> {
         check_dssp("tests/7pbd.pdb", "tests/7pbd_dssp.dat", 0.95, true)
+    }
+
+    /// Canonical (vanilla) DSSP must NOT over-extend the 2lao strand the way the
+    /// gmx flavor does. The PDB author SHEET record (and PyMOL/STRIDE) put this
+    /// strand at resid 178–181; gmx range-fills it to 178–185. Vanilla should
+    /// give `E` around 178–181 and coil (`~`) at 182–185.
+    #[test]
+    fn dssp_vanilla_2lao_strand() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/2lao.pdb")?;
+        let sel = sys.select_bound("protein")?;
+        let vanilla = Dssp::new(&sel).ss_string();
+        let gmx = Dssp::new_gmx(&sel).ss_string();
+        println!("vanilla 175-190: {}", &vanilla[174..190]);
+        println!("gmx     175-190: {}", &gmx[174..190]);
+
+        let v = vanilla.as_bytes();
+        // gmx over-extends 182-185 to strand; vanilla must not.
+        assert_eq!(&gmx[181..185], "EEEE", "gmx flavor should over-extend 182-185");
+        for resid in 182..=185 {
+            assert_ne!(v[resid - 1], b'E', "vanilla resid {resid} must not be strand");
+        }
+        // The genuine strand (≈178-181) should still be detected.
+        assert!(
+            (178..=181).any(|r| v[r - 1] == b'E'),
+            "vanilla should still call the 178-181 strand"
+        );
+        Ok(())
     }
 }

@@ -17,6 +17,7 @@ mod periodic_box;
 mod periodic_table;
 mod providers;
 mod sasa;
+mod secondary_structure;
 mod selection;
 mod state;
 mod topology;
@@ -30,7 +31,7 @@ pub mod prelude {
     pub use crate::{
         aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*,
         io::*, measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
-        dss::*, sasa::*, selection::*, state::*, topology::*,
+        dss::*, sasa::*, secondary_structure::*, selection::*, state::*, topology::*,
     };
     pub use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 }
@@ -38,7 +39,7 @@ pub mod prelude {
 pub use crate::{
     aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dss::*, dssp::*, io::*,
     measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, sasa::*,
-    selection::*, state::*, topology::*,
+    secondary_structure::*, selection::*, state::*, topology::*,
 };
 
 const BOLD: &str = "\x1b[1m";

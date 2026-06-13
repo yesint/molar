@@ -439,25 +439,40 @@ pub trait Measure: PosProvider {
         Sasa::new_with_volume(self)
     }
 
-    /// Compute per-residue secondary structure assignments (DSSP).
+    /// Per-residue secondary structure via the chosen [`SsAlgorithm`] — the
+    /// unified entry point. Returns an [`SsResult`] (`.ss()` / `.ss_string()`)
+    /// regardless of algorithm.
+    fn ss_compute(&self, algo: SsAlgorithm) -> SsResult
+    where
+        Self: ParticleIterProvider + Sized,
+    {
+        let ss = match algo {
+            SsAlgorithm::Dssp => Dssp::new(self).ss().to_vec(),
+            SsAlgorithm::DsspGmx => Dssp::new_gmx(self).ss().to_vec(),
+            SsAlgorithm::Dss => Dss::new(self).ss().to_vec(),
+        };
+        SsResult::new(ss)
+    }
+
+    /// Compute secondary structure with canonical Kabsch–Sander DSSP.
+    /// (Use [`Self::ss_compute`] to pick a different algorithm.)
     fn dssp(&self) -> Dssp
     where
-        Self: AtomProvider + Sized,
+        Self: ParticleIterProvider + Sized,
     {
         Dssp::new(self)
     }
 
-    /// Compact string of DSSP codes, one character per residue.
+    /// Compact string of canonical DSSP codes, one character per residue.
     fn dssp_string(&self) -> String
     where
-        Self: AtomProvider + Sized,
+        Self: ParticleIterProvider + Sized,
     {
         self.dssp().ss_string()
     }
 
     /// Per-residue secondary structure via PyMOL's `dss` algorithm — a cleaner,
-    /// shorter-element alternative to [`Self::dssp`] (DSSP tends to over-extend
-    /// β-strands). See [`Dss`].
+    /// shorter-element alternative to [`Self::dssp`]. See [`Dss`].
     fn dss(&self) -> Dss
     where
         Self: ParticleIterProvider + Sized,

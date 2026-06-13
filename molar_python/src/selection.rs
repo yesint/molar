@@ -923,6 +923,41 @@ impl SelPy {
         Measure::dssp(self).ss_string()
     }
 
+    /// Per-residue secondary structure via the chosen algorithm.
+    ///
+    /// :param algo: ``"dssp"`` (canonical Kabsch–Sander, the default),
+    ///    ``"dssp_gmx"`` (GROMACS flavor, over-extends β-strands), or
+    ///    ``"dss"`` (PyMOL's algorithm, 3-state).
+    /// :returns: list of one-character codes, like :meth:`dssp`.
+    /// :rtype: list[str]
+    ///
+    /// **Example**
+    ///
+    /// .. code-block:: python
+    ///
+    ///    prot = sys("protein")
+    ///    codes = prot.ss("dss")        # ['H', 'H', '~', 'E', ...]
+    #[pyo3(signature = (algo="dssp"))]
+    fn ss(&self, algo: &str) -> PyResult<Vec<String>> {
+        let algo: SsAlgorithm = algo.parse().map_err(PyValueError::new_err)?;
+        Ok(Measure::ss_compute(self, algo)
+            .ss()
+            .iter()
+            .map(|ss| ss.to_char().to_string())
+            .collect())
+    }
+
+    /// Compact secondary-structure string via the chosen algorithm.
+    ///
+    /// :param algo: ``"dssp"`` (default), ``"dssp_gmx"``, or ``"dss"`` — see :meth:`ss`.
+    /// :returns: one character per residue, e.g. ``"HHHHHTTEEEE~~~~~"``.
+    /// :rtype: str
+    #[pyo3(signature = (algo="dssp"))]
+    fn ss_string(&self, algo: &str) -> PyResult<String> {
+        let algo: SsAlgorithm = algo.parse().map_err(PyValueError::new_err)?;
+        Ok(Measure::ss_compute(self, algo).ss_string())
+    }
+
     /// Axis-aligned bounding-box min and max coordinates.
     ///
     /// :returns: Tuple ``(min_xyz, max_xyz)`` as NumPy arrays.
