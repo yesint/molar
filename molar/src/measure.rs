@@ -454,6 +454,16 @@ pub trait Measure: PosProvider {
     {
         self.dssp().ss_string()
     }
+
+    /// Per-residue secondary structure via PyMOL's `dss` algorithm — a cleaner,
+    /// shorter-element alternative to [`Self::dssp`] (DSSP tends to over-extend
+    /// β-strands). See [`Dss`].
+    fn dss(&self) -> Dss
+    where
+        Self: ParticleIterProvider + Sized,
+    {
+        Dss::new(self)
+    }
 }
 
 /// Calculates the Root Mean Square Deviation between two selections

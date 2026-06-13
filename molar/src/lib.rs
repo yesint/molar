@@ -7,6 +7,7 @@ mod analysis_task;
 mod atom;
 mod connectivity;
 mod distance_search;
+mod dss;
 mod dssp;
 mod measure;
 mod modify;
@@ -29,13 +30,13 @@ pub mod prelude {
     pub use crate::{
         aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*,
         io::*, measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
-        sasa::*, selection::*, state::*, topology::*,
+        dss::*, sasa::*, selection::*, state::*, topology::*,
     };
     pub use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 }
 
 pub use crate::{
-    aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*, io::*,
+    aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dss::*, dssp::*, io::*,
     measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, sasa::*,
     selection::*, state::*, topology::*,
 };
