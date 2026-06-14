@@ -4,31 +4,77 @@ use crate::prelude::*;
 use log::{debug, warn};
 use std::{
     fmt::Display,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
 
-mod cpt_handler;
+/// A pluggable byte source for reading molecular files: any `Read + Seek` source
+/// that is `Send`. On native this is a `std::fs::File`; in the browser it can be a
+/// reader over a `Blob`. Feed one to [`FileHandler::from_reader`] to read any
+/// format from a non-file source while keeping the synchronous reading API.
+pub trait DataSource: Read + Seek + Send {}
+impl<T: Read + Seek + Send + ?Sized> DataSource for T {}
+
+/// Boxed [`DataSource`] used as the concrete reader type inside the format
+/// handlers, so `Box<dyn FileFormatHandler>` stays monomorphic regardless of the
+/// underlying source. Read/Seek calls are forwarded to the inner trait object
+/// (via deref), so this works whether or not `std` forwards them for `Box`.
+pub struct DynSource(pub Box<dyn DataSource>);
+
+impl Read for DynSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl Seek for DynSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
+    }
+}
+
 mod dcd_handler;
 mod gro_handler;
 mod itp_handler;
 mod netcdf_handler;
 mod pdb_handler;
-mod tpr_handler;
 mod trr_handler;
 mod xtc_handler;
 mod xyz_handler;
+// tpr/cpt go through molar_gromacs (C++ plugin via libloading) — native only.
+#[cfg(not(target_arch = "wasm32"))]
+mod cpt_handler;
+#[cfg(not(target_arch = "wasm32"))]
+mod tpr_handler;
 
-use cpt_handler::{CptFileHandler, CptHandlerError};
-use dcd_handler::{DcdFileHandler, DcdHandlerError};
-use gro_handler::{GroFileHandler, GroHandlerError};
-use itp_handler::{ItpFileHandler, ItpHandlerError};
-use netcdf_handler::{NetCdfFileHandler, NetCdfHandlerError};
-use pdb_handler::{PdbFileHandler, PdbHandlerError};
-use tpr_handler::{TprFileHandler, TprHandlerError};
-use trr_handler::{TrrFileHandler, TrrHandlerError};
-use xtc_handler::{XtcFileHandler, XtcHandlerError};
-use xyz_handler::{XyzFileHandler, XyzHandlerError};
+use dcd_handler::DcdFileHandler;
+use gro_handler::GroFileHandler;
+use itp_handler::ItpFileHandler;
+use netcdf_handler::NetCdfFileHandler;
+use pdb_handler::PdbFileHandler;
+use trr_handler::TrrFileHandler;
+use xtc_handler::XtcFileHandler;
+use xyz_handler::XyzFileHandler;
+#[cfg(not(target_arch = "wasm32"))]
+use cpt_handler::CptFileHandler;
+#[cfg(not(target_arch = "wasm32"))]
+use tpr_handler::TprFileHandler;
+
+// The per-format error types are part of `FileFormatError`'s public variants,
+// so they must be publicly reachable (otherwise the now-`pub` enum trips E0446).
+pub use dcd_handler::DcdHandlerError;
+pub use gro_handler::GroHandlerError;
+pub use itp_handler::ItpHandlerError;
+pub use netcdf_handler::NetCdfHandlerError;
+pub use pdb_handler::PdbHandlerError;
+pub use trr_handler::TrrHandlerError;
+pub use xtc_handler::XtcHandlerError;
+pub use xyz_handler::XyzHandlerError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use cpt_handler::CptHandlerError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tpr_handler::TprHandlerError;
 
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: LenProvider {
@@ -284,9 +330,11 @@ impl FileHandler {
             "itp" => Box::new(
                 ItpFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
+            #[cfg(not(target_arch = "wasm32"))]
             "tpr" => Box::new(
                 TprFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
+            #[cfg(not(target_arch = "wasm32"))]
             "cpt" => Box::new(
                 CptFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
@@ -301,6 +349,44 @@ impl FileHandler {
         };
         Ok(Self {
             file_path: fname.to_path_buf(),
+            format_handler,
+            stats: Default::default(),
+        })
+    }
+
+    /// Opens a reader for a trajectory/structure of the given format (by file
+    /// extension, e.g. `"xtc"`) from an arbitrary byte source instead of a path.
+    /// The source can be a file, an in-memory buffer, or — in the browser — a
+    /// reader over a `Blob`; reading then uses the same synchronous API as
+    /// [`open`](Self::open).
+    ///
+    /// Supported formats: pdb/ent, gro, xyz, dcd, trr, xtc (the pure-Rust
+    /// readers). tpr/cpt (GROMACS C plugin) and netcdf are path/native only.
+    ///
+    /// # Errors
+    /// Returns [FileIoError] if the format is unsupported or the header is invalid.
+    pub fn from_reader(
+        ext: &str,
+        src: impl Read + Seek + Send + 'static,
+    ) -> Result<Self, FileIoError> {
+        let path = PathBuf::from(format!("<reader:{ext}>"));
+        let s = DynSource(Box::new(src));
+        macro_rules! h {
+            ($ty:ident) => {
+                Box::new($ty::from_source(s).map_err(|e| FileIoError(path.clone(), e))?)
+            };
+        }
+        let format_handler: Box<dyn FileFormatHandler> = match ext {
+            "pdb" | "ent" => h!(PdbFileHandler),
+            "gro" => h!(GroFileHandler),
+            "xyz" => h!(XyzFileHandler),
+            "dcd" => h!(DcdFileHandler),
+            "trr" => h!(TrrFileHandler),
+            "xtc" => h!(XtcFileHandler),
+            _ => return Err(FileIoError(path, FileFormatError::NotRecognized)),
+        };
+        Ok(Self {
+            file_path: path,
             format_handler,
             stats: Default::default(),
         })
@@ -688,9 +774,22 @@ impl IntoIterator for FileHandler {
 #[error("in file {0}:")]
 pub struct FileIoError(pub(crate) PathBuf, #[source] pub(crate) FileFormatError);
 
+impl FileIoError {
+    /// The underlying format error. Match this to detect specific conditions,
+    /// e.g. `matches!(err.kind(), FileFormatError::Eof)` for end-of-trajectory.
+    pub fn kind(&self) -> &FileFormatError {
+        &self.1
+    }
+
+    /// The path of the file that produced the error.
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
 /// Errors that can occur when handling different file formats
 #[derive(Error, Debug)]
-pub(crate) enum FileFormatError {
+pub enum FileFormatError {
     #[error("end of file reached")]
     Eof,
 
@@ -711,10 +810,12 @@ pub(crate) enum FileFormatError {
     Trr(#[from] TrrHandlerError),
 
     /// CPT format handler error
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("in cpt format handler")]
     Cpt(#[from] CptHandlerError),
 
     /// TPR format handler error
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("in tpr format handler")]
     Tpr(#[from] TprHandlerError),
 
@@ -840,6 +941,44 @@ mod tests {
         let it = FileHandler::open("tests/protein.xtc")?.into_iter();
         for st in it {
             println!("{}", st.get_time());
+        }
+        Ok(())
+    }
+
+    // Reads every frame of a freshly opened handler (stops at EOF).
+    fn read_all(mut h: FileHandler) -> Vec<State> {
+        let mut v = Vec::new();
+        while let Ok(st) = h.read_state() {
+            v.push(st);
+        }
+        v
+    }
+
+    /// `from_reader` over an in-memory `Cursor` must yield byte-identical frames
+    /// to `open(path)`, and the generic (non-`File`) seek must match random access.
+    /// Covers XTC (molly sequential + the in-molar generic seek port) and TRR.
+    #[test]
+    fn from_reader_matches_open() -> Result<()> {
+        for path in ["tests/protein.xtc", "tests/protein.trr"] {
+            let ext = path.rsplit('.').next().unwrap();
+            let reference = read_all(FileHandler::open(path)?);
+            assert!(reference.len() >= 3, "{path}: need ≥3 frames to test seek");
+
+            // Sequential read from an in-memory source.
+            let bytes = std::fs::read(path)?;
+            let got = read_all(FileHandler::from_reader(ext, std::io::Cursor::new(bytes.clone()))?);
+            assert_eq!(got.len(), reference.len(), "{path}: frame count");
+            for (i, (a, b)) in reference.iter().zip(&got).enumerate() {
+                assert_eq!(a.time, b.time, "{path}: frame {i} time");
+                assert_eq!(a.coords, b.coords, "{path}: frame {i} coords");
+            }
+
+            // Generic random-access seek over the Cursor source: forward + backward.
+            let mut h = FileHandler::from_reader(ext, std::io::Cursor::new(bytes))?;
+            h.seek_frame(2)?;
+            assert_eq!(h.read_state()?.coords, reference[2].coords, "{path}: seek fwd to 2");
+            h.seek_frame(1)?;
+            assert_eq!(h.read_state()?.coords, reference[1].coords, "{path}: seek back to 1");
         }
         Ok(())
     }

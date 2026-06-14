@@ -28,7 +28,7 @@ pub enum DcdHandlerError {
 //=============================== Structs ==================================
 
 pub struct DcdReader {
-    reader: BufReader<File>,
+    reader: BufReader<DynSource>,
     n_atoms: usize,
     n_frames: usize,
     cur_frame: usize,
@@ -254,14 +254,10 @@ fn dcd_to_ff_err(e: DcdHandlerError) -> FileFormatError {
 
 //=============================== FileFormatHandler impl ===================
 
-impl FileFormatHandler for DcdFileHandler {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-    where
-        Self: Sized,
-    {
-        let fname = fname.as_ref();
-        let file = File::open(fname).map_err(|e| DcdHandlerError::Io(e))?;
-        let mut reader = BufReader::new(file);
+impl DcdFileHandler {
+    /// Build a reading handler from an arbitrary byte source (parses the DCD header).
+    pub(crate) fn from_source(src: DynSource) -> Result<Self, FileFormatError> {
+        let mut reader = BufReader::new(src);
 
         // Endianness detection via first 4-byte record marker (must equal 84)
         let mut marker_buf = [0u8; 4];
@@ -366,6 +362,16 @@ impl FileFormatHandler for DcdFileHandler {
             nsavc,
             delta,
         }))
+    }
+}
+
+impl FileFormatHandler for DcdFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        let file = File::open(fname.as_ref()).map_err(DcdHandlerError::Io)?;
+        Self::from_source(DynSource(Box::new(file)))
     }
 
     fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>

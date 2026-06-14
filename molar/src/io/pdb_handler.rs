@@ -10,7 +10,7 @@ use thiserror::Error;
 
 pub struct PdbFileHandler {
     // Reading
-    reader: Option<BufReader<File>>,
+    reader: Option<BufReader<DynSource>>,
     bonds: Vec<[usize; 2]>, // 0-indexed, collected from CONECT records
     stored_topology: Option<Topology>,
     stored_state: Option<State>,
@@ -29,9 +29,6 @@ pub enum PdbHandlerError {
 
     #[error("pdb file is empty or contains no ATOM/HETATM records")]
     Empty,
-
-    #[error("unexpected end of file reached")]
-    Eof,
 
     #[error(transparent)]
     ParseInt(#[from] ParseIntError),
@@ -86,21 +83,28 @@ fn format_atom_name(name: &str) -> String {
 
 // ── FileFormatHandler ────────────────────────────────────────────────────────
 
-impl FileFormatHandler for PdbFileHandler {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-    where
-        Self: Sized,
-    {
+impl PdbFileHandler {
+    /// Build a reading handler from an arbitrary byte source (file, in-memory
+    /// buffer, browser blob, …). `open` is this plus opening the file.
+    pub(crate) fn from_source(src: DynSource) -> Result<Self, FileFormatError> {
         Ok(Self {
-            reader: Some(BufReader::new(
-                File::open(fname).map_err(PdbHandlerError::OpenRead)?,
-            )),
+            reader: Some(BufReader::new(src)),
             writer: None,
             bonds: Vec::new(),
             stored_topology: None,
             stored_state: None,
             at_least_one_state_read: false,
         })
+    }
+}
+
+impl FileFormatHandler for PdbFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        let file = File::open(fname).map_err(PdbHandlerError::OpenRead)?;
+        Self::from_source(DynSource(Box::new(file)))
     }
 
     fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
@@ -125,7 +129,7 @@ impl FileFormatHandler for PdbFileHandler {
         // Check if we are at EOF
         if buf.fill_buf()?.is_empty() {
             return if self.at_least_one_state_read {
-                Err(PdbHandlerError::Eof)?
+                Err(FileFormatError::Eof)?
             } else {
                 Err(PdbHandlerError::Empty)?
             };
@@ -216,7 +220,7 @@ impl FileFormatHandler for PdbFileHandler {
 
         if !has_atoms {
             return if self.at_least_one_state_read {
-                Err(PdbHandlerError::Eof)?
+                Err(FileFormatError::Eof)?
             } else {
                 Err(PdbHandlerError::Empty)?
             };

@@ -9,7 +9,7 @@ use std::{
 use thiserror::Error;
 
 pub struct XyzFileHandler {
-    reader: Option<BufReader<File>>,
+    reader: Option<BufReader<DynSource>>,
     writer: Option<BufWriter<File>>,
 
     // For separating IO of state and topology
@@ -30,9 +30,6 @@ pub enum XyzHandlerError {
     #[error("xyz file is empty or contains no atoms")]
     Empty,
 
-    #[error("unexpected end of file reached")]
-    Eof,
-
     #[error("malformed atom count line")]
     BadAtomCount(#[from] ParseIntError),
 
@@ -46,20 +43,26 @@ pub enum XyzHandlerError {
     Io(#[from] std::io::Error),
 }
 
-impl FileFormatHandler for XyzFileHandler {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-    where
-        Self: Sized,
-    {
+impl XyzFileHandler {
+    /// Build a reading handler from an arbitrary byte source.
+    pub(crate) fn from_source(src: DynSource) -> Result<Self, FileFormatError> {
         Ok(Self {
-            reader: Some(BufReader::new(
-                File::open(fname).map_err(XyzHandlerError::OpenRead)?,
-            )),
+            reader: Some(BufReader::new(src)),
             writer: None,
             stored_topology: None,
             stored_state: None,
             at_least_one_state_read: false,
         })
+    }
+}
+
+impl FileFormatHandler for XyzFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        let file = File::open(fname).map_err(XyzHandlerError::OpenRead)?;
+        Self::from_source(DynSource(Box::new(file)))
     }
 
     fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
@@ -83,7 +86,7 @@ impl FileFormatHandler for XyzFileHandler {
         // Check if we are at EOF
         if buf.fill_buf()?.is_empty() {
             return if self.at_least_one_state_read {
-                Err(XyzHandlerError::Eof)?
+                Err(FileFormatError::Eof)?
             } else {
                 Err(XyzHandlerError::Empty)?
             };
@@ -94,7 +97,7 @@ impl FileFormatHandler for XyzFileHandler {
         let n = buf.read_line(&mut line)?;
         if n == 0 || line.trim().is_empty() {
             return if self.at_least_one_state_read {
-                Err(XyzHandlerError::Eof)?
+                Err(FileFormatError::Eof)?
             } else {
                 Err(XyzHandlerError::Empty)?
             };

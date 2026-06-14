@@ -88,6 +88,34 @@ impl System {
         }
     }
 
+    /// Borrow the current state (coordinates, box, time).
+    pub fn state(&self) -> &State {
+        &self.st
+    }
+
+    /// Borrow the topology.
+    pub fn topology(&self) -> &Topology {
+        &self.top
+    }
+
+    /// Bind `sel` using this system's **topology** but coordinates from an
+    /// **external** `state` (e.g. a trajectory frame), without copying the state
+    /// into the system. The disjoint counterpart of [`bind`](Self::bind), which
+    /// uses the system's own state. The selection's indices must be valid for the
+    /// topology (guaranteed when `sel` was made from this system); `state` must
+    /// have the same atom count.
+    pub fn bind_with_state<'a>(&'a self, sel: &'a Sel, state: &'a State) -> SelBoundParts<'a> {
+        let last = unsafe { *sel.0.get_unchecked(sel.0.len() - 1) };
+        if last >= self.top.len() {
+            panic!("selection is out of bounds");
+        }
+        SelBoundParts {
+            top: &self.top,
+            st: state,
+            index: sel.0.as_slice(),
+        }
+    }
+
     /// Binds detached selection index to make borrowed selection.
     /// `sel`  is not consumed.
     pub fn try_bind<'a>(&'a self, sel: &'a Sel) -> Result<SelBound<'a>, SelectionError> {
@@ -383,5 +411,42 @@ impl<'a> std::ops::Shr<&'a mut System> for &'a Sel {
     type Output = SelBoundMut<'a>;
     fn shr(self, rhs: &'a mut System) -> Self::Output {
         rhs.bind_mut(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+
+    /// `bind_with_state` must read coordinates from the supplied external state
+    /// (atoms still from the system's topology), and must NOT touch the system.
+    #[test]
+    fn bind_with_state_reads_external_coords() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/2lao.pdb")?;
+        let sel = sys.select("name CA")?;
+
+        // Baseline coords via the normal (system-owned) bind.
+        let base: Vec<Pos> = sys.bind(&sel).iter_pos().cloned().collect();
+        assert!(!base.is_empty());
+
+        // An external state = the system's state shifted by +1 nm in x.
+        let mut frame = sys.state().clone();
+        for p in frame.coords.iter_mut() {
+            p.coords.x += 1.0;
+        }
+
+        // bind_with_state reads the shifted coords (not the system's own).
+        let got: Vec<Pos> = sys.bind_with_state(&sel, &frame).iter_pos().cloned().collect();
+        assert_eq!(base.len(), got.len());
+        for (b, g) in base.iter().zip(&got) {
+            assert!((g.coords.x - (b.coords.x + 1.0)).abs() < 1e-4);
+            assert_eq!(b.coords.y, g.coords.y);
+            assert_eq!(b.coords.z, g.coords.z);
+        }
+
+        // The system's own state is untouched.
+        let after: Vec<Pos> = sys.bind(&sel).iter_pos().cloned().collect();
+        assert_eq!(base, after);
+        Ok(())
     }
 }

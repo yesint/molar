@@ -9,7 +9,7 @@ use std::{
 use thiserror::Error;
 
 pub struct GroFileHandler {
-    reader: Option<BufReader<File>>,
+    reader: Option<BufReader<DynSource>>,
     writer: Option<BufWriter<File>>,
 
     // For separating IO of state and topology
@@ -41,12 +41,20 @@ pub enum GroHandlerError {
 
     #[error("gro file is empty")]
     EmptyFile,
-
-    #[error("unexpcted end of file reached")]
-    Eof,
 }
 
 impl GroFileHandler {
+    /// Build a reading handler from an arbitrary byte source.
+    pub(crate) fn from_source(src: DynSource) -> Result<Self, FileFormatError> {
+        Ok(Self {
+            reader: Some(BufReader::new(src)),
+            writer: None,
+            stored_state: None,
+            stored_topology: None,
+            at_least_one_state_read: false,
+        })
+    }
+
     fn read_inner(
         &mut self,
         _read_coords: bool,
@@ -62,7 +70,7 @@ impl GroFileHandler {
         // Check if we are at EOF
         if buf.fill_buf()?.is_empty() {
             if self.at_least_one_state_read {
-                return Err(GroHandlerError::Eof)?;
+                return Err(FileFormatError::Eof);
             } else {
                 return Err(GroHandlerError::EmptyFile)?;
             }
@@ -190,14 +198,8 @@ impl FileFormatHandler for GroFileHandler {
     where
         Self: Sized,
     {
-        Ok(Self {
-            reader: BufReader::new(File::open(fname).map_err(|e| GroHandlerError::OpenRead(e))?)
-                .into(),
-            writer: None,
-            stored_state: None,
-            stored_topology: None,
-            at_least_one_state_read: false,
-        })
+        let file = File::open(fname).map_err(GroHandlerError::OpenRead)?;
+        Self::from_source(DynSource(Box::new(file)))
     }
 
     fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>

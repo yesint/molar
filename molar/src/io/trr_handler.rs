@@ -227,7 +227,7 @@ fn frame_data_size(h: &TrrHeader) -> usize {
 //=============================== Structs ==================================
 
 pub(crate) struct TrrReader {
-    file: BufReader<File>,
+    file: BufReader<DynSource>,
     cur_frame: usize,
 }
 
@@ -347,14 +347,10 @@ fn skip_frame_data(r: &mut (impl Read + Seek), h: &TrrHeader) -> io::Result<()> 
 
 //=============================== FileFormatHandler impl ===================
 
-impl FileFormatHandler for TrrFileHandler {
-    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
-    where
-        Self: Sized,
-    {
-        let fname = fname.as_ref();
-        let file = File::open(fname).map_err(TrrHandlerError::Io)?;
-        let mut reader = BufReader::new(file);
+impl TrrFileHandler {
+    /// Build a reading handler from an arbitrary byte source (validates the header).
+    pub(crate) fn from_source(src: DynSource) -> Result<Self, FileFormatError> {
+        let mut reader = BufReader::new(src);
 
         // Read first header to get natoms, then rewind
         let h = read_trr_header(&mut reader).map_err(trr_to_ff_err)?;
@@ -366,6 +362,16 @@ impl FileFormatHandler for TrrFileHandler {
             file: reader,
             cur_frame: 0,
         }))
+    }
+}
+
+impl FileFormatHandler for TrrFileHandler {
+    fn open(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>
+    where
+        Self: Sized,
+    {
+        let file = File::open(fname.as_ref()).map_err(TrrHandlerError::Io)?;
+        Self::from_source(DynSource(Box::new(file)))
     }
 
     fn create(fname: impl AsRef<Path>) -> Result<Self, FileFormatError>

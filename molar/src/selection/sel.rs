@@ -313,6 +313,80 @@ impl SaveState for SelBound<'_> {
 impl SaveTopologyState for SelBound<'_> {}
 
 //================================================
+/// Read-only bound selection over a **disjoint** topology and state — i.e. atoms
+/// and coordinates that are NOT owned by a single [`System`]. Lets a [`Sel`] read
+/// atoms from one place and positions from another (e.g. a trajectory frame held
+/// separately from the topology) with no copy into a `System`. Borrows its index.
+///
+/// Unlike [`SelBound`] it does not implement [`SystemProvider`]; instead it
+/// implements the element providers directly, so it still gets `iter_particle`,
+/// `Measure`, `Analysis`, … via the usual blanket impls. Construct it with
+/// [`Sel::bind_to`] or [`System::bind_with_state`].
+//================================================
+#[derive(Clone, Debug)]
+pub struct SelBoundParts<'a> {
+    pub(super) top: &'a Topology,
+    pub(super) st: &'a State,
+    pub(super) index: &'a [usize],
+}
+
+impl SelBoundParts<'_> {
+    pub fn clone_index(&self) -> Sel {
+        Sel(SVec::from_iter(self.index.iter().cloned()))
+    }
+}
+
+impl IndexSliceProvider for SelBoundParts<'_> {
+    fn get_index_slice(&self) -> &[usize] {
+        self.index
+    }
+}
+
+impl PosProvider for SelBoundParts<'_> {
+    unsafe fn coords_ptr(&self) -> *const Pos {
+        self.st.coords.as_ptr()
+    }
+}
+
+impl AtomProvider for SelBoundParts<'_> {
+    unsafe fn atoms_ptr(&self) -> *const Atom {
+        self.top.atoms.as_ptr()
+    }
+}
+
+impl BoxProvider for SelBoundParts<'_> {
+    fn get_box(&self) -> Option<&PeriodicBox> {
+        self.st.pbox.as_ref()
+    }
+}
+
+impl VelProvider for SelBoundParts<'_> {
+    unsafe fn vel_ptr(&self) -> *const Vel {
+        if self.st.velocities.is_empty() {
+            std::ptr::null()
+        } else {
+            self.st.velocities.as_ptr()
+        }
+    }
+}
+
+impl ForceProvider for SelBoundParts<'_> {
+    unsafe fn force_ptr(&self) -> *const Force {
+        if self.st.forces.is_empty() {
+            std::ptr::null()
+        } else {
+            self.st.forces.as_ptr()
+        }
+    }
+}
+
+impl TimeProvider for SelBoundParts<'_> {
+    fn get_time(&self) -> Float {
+        self.st.time
+    }
+}
+
+//================================================
 /// Read-write selection that borrows its index
 //================================================
 pub struct SelBoundMut<'a> {
