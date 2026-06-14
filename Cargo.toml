@@ -36,3 +36,8 @@ clap = {version = "4.5.53", features=["derive"]}
 triomphe = "0.1.15"
 rayon = "1.11.0"
 tinystr = ">=0.8.2"
+
+# Develop powersasa (ours) from the local clone instead of the published git rev,
+# so its surface-mesh additions are picked up. Drop/bump once pushed & released.
+[patch."https://github.com/yesint/powersasa-llm.git"]
+powersasa = { path = "../powersasa-llm" }

@@ -1,5 +1,10 @@
 use crate::prelude::*;
 
+/// Triangle mesh of the solvent-accessible surface (vertices/normals in nm, `u32`
+/// indices, per-vertex source-atom index in selection order). Re-exported from the
+/// `powersasa` backend; produced by [`Sasa::surface_mesh`].
+pub use powersasa::SurfaceMesh;
+
 /// Solvent-Accessible Surface Area calculator backed by the pure-Rust PowerSASA algorithm.
 ///
 /// `Sasa` holds both the power diagram (which is expensive to build) and the computed
@@ -20,7 +25,7 @@ impl Sasa {
     where
         S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
-        Self::build(sel, false)
+        Self::build(sel, false, Self::DEFAULT_PROBE_R)
     }
 
     /// Build power diagram + compute per-atom SASA and volumes.
@@ -28,14 +33,22 @@ impl Sasa {
     where
         S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
-        Self::build(sel, true)
+        Self::build(sel, true, Self::DEFAULT_PROBE_R)
     }
 
-    fn build<S>(sel: &S, with_vol: bool) -> Result<Self, MeasureError>
+    /// Build with a custom probe radius (nm). `probe = 0` gives the van-der-Waals
+    /// surface (union of vdW spheres); the default (0.14 nm) gives the water SAS.
+    pub fn new_with_probe<S>(sel: &S, probe: Float) -> Result<Self, MeasureError>
     where
         S: AtomProvider + PosProvider + LenProvider + ?Sized,
     {
-        let probe_r = Self::DEFAULT_PROBE_R;
+        Self::build(sel, false, probe)
+    }
+
+    fn build<S>(sel: &S, with_vol: bool, probe_r: Float) -> Result<Self, MeasureError>
+    where
+        S: AtomProvider + PosProvider + LenProvider + ?Sized,
+    {
         let mut inner = powersasa::PowerSasa::new(
             sel.iter_pos().map(|p| p.coords),
             sel.iter_atoms().map(|a| a.vdw() + probe_r),
@@ -83,5 +96,55 @@ impl Sasa {
     /// Sum of per-atom volumes. Only meaningful when constructed with [`Sasa::new_with_volume`].
     pub fn total_volume(&self) -> Float {
         self.inner.per_atom_vol().iter().sum()
+    }
+
+    /// Extract the solvent-accessible surface as a triangle mesh (vertices/normals
+    /// in nm, in the selection's coordinate frame). `subdiv` is the per-atom
+    /// icosphere subdivision level (0 → 20 triangles, 1 → 80, 2 → 320, …): higher
+    /// is smoother and heavier. Per-vertex `atom_ids` index into the selection in
+    /// iteration order (the same order the areas are reported), so callers can
+    /// color the surface per atom. The SAS radius is `vdw + probe` (the probe used
+    /// at construction). The diagram + per-atom SASA computed at construction make
+    /// fully-buried atoms drop out automatically.
+    pub fn surface_mesh(&self, subdiv: usize) -> SurfaceMesh<Float> {
+        self.inner.surface_mesh(subdiv)
+    }
+
+    /// Extract the **solvent-excluded surface** (SES / Connolly / rolling-probe) as
+    /// a smooth triangle mesh (vertices/normals in nm). Unlike [`Self::surface_mesh`]
+    /// (the creased SAS union of spheres), this is the smooth surface traced by the
+    /// probe rolling over the atoms — convex contact patches bridged by toroidal and
+    /// concave reentrant patches. `subdiv` controls tessellation density. Per-vertex
+    /// `atom_ids` index into the selection in iteration order, for per-atom coloring.
+    pub fn ses_mesh(&self, subdiv: usize) -> SurfaceMesh<Float> {
+        self.inner.ses_mesh(self.probe_r, subdiv)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn surface_mesh_is_nonempty_and_consistent() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/albumin.pdb")?;
+        let sel = sys.select_bound("resindex 1:20")?;
+        let sasa = Sasa::new(&sel)?;
+        let mesh = sasa.surface_mesh(2);
+
+        assert!(!mesh.vertices.is_empty(), "surface mesh is empty");
+        assert_eq!(mesh.vertices.len(), mesh.normals.len());
+        assert_eq!(mesh.vertices.len(), mesh.atom_ids.len());
+        assert_eq!(mesh.indices.len() % 3, 0);
+        let n = sel.len();
+        assert!(
+            mesh.atom_ids.iter().all(|&a| (a as usize) < n),
+            "atom id out of selection range"
+        );
+        assert!(
+            *mesh.indices.iter().max().unwrap() < mesh.vertices.len() as u32,
+            "index out of vertex range"
+        );
+        Ok(())
     }
 }
