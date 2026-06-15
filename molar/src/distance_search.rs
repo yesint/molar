@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use num_traits::clamp_min;
-use rayon::iter::{FromParallelIterator, IndexedParallelIterator, IntoParallelIterator};
+use crate::par::*;
 
 /// Trait for the results of distance seacrh
 pub trait DistanceSearchOutput {
@@ -963,7 +963,7 @@ mod tests {
     #[test]
     fn within_plan_test() -> anyhow::Result<()> {
         let src = System::from_file("tests/albumin.pdb")?;
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
         src.select("within 4.0 of resid 10:300")?;
         println!("elapsed {}", t.elapsed().as_secs_f32());
         Ok(())

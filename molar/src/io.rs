@@ -187,13 +187,22 @@ pub(crate) trait FileFormatHandler: Send {
     }
 }
 
-/// Iterator over states in a trajectory file
+/// Iterator over states in a trajectory file.
+///
+/// Native: a background reader thread feeds states through a bounded channel so
+/// reading overlaps with consumption. `wasm32` has no threads (no
+/// `SharedArrayBuffer`), so there the file is read **synchronously** in `next()`.
 pub struct IoStateIterator {
+    #[cfg(not(target_arch = "wasm32"))]
     receiver: std::sync::mpsc::Receiver<Result<State, FileIoError>>,
+    #[cfg(target_arch = "wasm32")]
+    fh: FileHandler,
 }
 
 impl IoStateIterator {
-    /// Create new state iterator by consuming the file handler
+    /// Create a new state iterator by consuming the file handler (native: spawns a
+    /// background reader thread).
+    #[cfg(not(target_arch = "wasm32"))]
     fn new(mut fh: FileHandler) -> Self {
         use std::sync::mpsc::sync_channel;
         let (sender, receiver) = sync_channel(10);
@@ -219,14 +228,27 @@ impl IoStateIterator {
 
         IoStateIterator { receiver }
     }
+
+    /// Create a new state iterator by consuming the file handler (wasm: serial
+    /// reads on the calling thread, since wasm has no threads).
+    #[cfg(target_arch = "wasm32")]
+    fn new(fh: FileHandler) -> Self {
+        IoStateIterator { fh }
+    }
 }
 
 impl Iterator for IoStateIterator {
     type Item = State;
     fn next(&mut self) -> Option<Self::Item> {
-        // Reader thread should never crash since it catches errors and ends on them.
-        // If it does then something is horrible wrong anyway, so panicing is fine here.
-        match self.receiver.recv().expect("reader thread shouldn't crash") {
+        // Native: pull the next state the reader thread produced (it catches errors
+        // and ends on them, so a recv error means something is horribly wrong).
+        #[cfg(not(target_arch = "wasm32"))]
+        let res = self.receiver.recv().expect("reader thread shouldn't crash");
+        // wasm: read the next state directly.
+        #[cfg(target_arch = "wasm32")]
+        let res = self.fh.read_state();
+
+        match res {
             Ok(opt_st) => Some(opt_st),
             Err(FileIoError(f, e)) => {
                 match e {
@@ -458,7 +480,7 @@ impl FileHandler {
     /// - File format is invalid
     /// - State doesn't match topology size
     pub fn read(&mut self) -> Result<(Topology, State), FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         let ret = self
             .format_handler
@@ -480,7 +502,7 @@ impl FileHandler {
     /// # Errors
     /// Returns [FileIoError] if format doesn't support writing both topology and state
     pub fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         self.format_handler
             .write(data)
@@ -506,7 +528,7 @@ impl FileHandler {
     /// - Format doesn't support topology reading
     /// - File format is invalid
     pub fn read_topology(&mut self) -> Result<Topology, FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         let top = self
             .format_handler
@@ -528,7 +550,7 @@ impl FileHandler {
     /// # Errors
     /// Returns [FileIoError] if format doesn't support topology writing
     pub fn write_topology(&mut self, data: &dyn SaveTopology) -> Result<(), FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         self.format_handler
             .write_topology(data)
@@ -551,7 +573,7 @@ impl FileHandler {
     /// - Format doesn't support state reading
     /// - File format is invalid
     pub fn read_state(&mut self) -> Result<State, FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         let res = self
             .format_handler
@@ -583,7 +605,7 @@ impl FileHandler {
         velocities: bool,
         forces: bool,
     ) -> Result<State, FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         let res = self
             .format_handler
@@ -610,7 +632,7 @@ impl FileHandler {
     /// # Errors
     /// Returns [FileIoError] if format doesn't support state writing
     pub fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         self.format_handler
             .write_state(data)
@@ -636,7 +658,7 @@ impl FileHandler {
         velocities: bool,
         forces: bool,
     ) -> Result<(), FileIoError> {
-        let t = std::time::Instant::now();
+        let t = web_time::Instant::now();
 
         self.format_handler
             .write_state_pick(data, coords, velocities, forces)

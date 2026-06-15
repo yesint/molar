@@ -12,6 +12,7 @@ mod dssp;
 mod measure;
 mod modify;
 mod ndx_file;
+mod par;
 mod particle;
 mod periodic_box;
 mod periodic_table;
@@ -33,7 +34,9 @@ pub mod prelude {
         io::*, measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
         dss::*, sasa::*, secondary_structure::*, selection::*, state::*, topology::*,
     };
-    pub use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+    // Parallel-iterator traits via the `par` shim: rayon on native, serial
+    // std-iterator fallbacks on wasm32 (which has no threads). See `crate::par`.
+    pub use crate::par::*;
 }
 
 pub use crate::{

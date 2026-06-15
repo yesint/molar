@@ -1,4 +1,4 @@
-use rayon::iter::IndexedParallelIterator;
+use crate::par::*;
 use crate::{prelude::*, selection::utils::{difference_sorted, intersection_sorted, union_sorted}};
 
 /// Trait for objects that support creating selections

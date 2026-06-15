@@ -1,4 +1,4 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
+use crate::par::*;
 
 use crate::atom::{ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
 use crate::prelude::*;

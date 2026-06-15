@@ -1,4 +1,4 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
+use crate::par::*;
 
 use super::utils::check_topology_state_sizes;
 use crate::prelude::*;

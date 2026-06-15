@@ -1,5 +1,7 @@
+// On wasm the only prelude use (the rayon `FromParallelIterator` impl below) is
+// cfg'd out, leaving this import unused there; on native it's needed.
+#[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 use crate::prelude::*;
-use rayon::iter::{FromParallelIterator, IntoParallelIterator};
 
 /// Contacts between atoms in the format of `atom -> neib1 neib2 neib3...`
 #[derive(Debug, Default)]
@@ -43,6 +45,10 @@ impl FromIterator<(usize, usize)> for SearchConnectivity {
     }
 }
 
+// Native only: collecting a rayon parallel iterator of bonds. On wasm the `par`
+// shim's blanket `FromParallelIterator for C: FromIterator` covers the bound, and
+// `.collect()` routes through the `FromIterator` impl above.
+#[cfg(not(target_arch = "wasm32"))]
 impl FromParallelIterator<(usize, usize)> for SearchConnectivity {
     fn from_par_iter<I>(par_iter: I) -> Self
     where

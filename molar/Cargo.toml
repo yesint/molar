@@ -32,16 +32,21 @@ sorted-vec.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
-rayon.workspace = true
 tinystr.workspace = true
 molly = {version = ">=0.6.1", git = "https://github.com/ma3ke/molly.git"}
 powersasa = {version = ">=0.1", git = "https://github.com/yesint/powersasa-llm.git"}
 netcdf = { version = "0.12", optional = true }
+# Browser-safe `Instant`/`SystemTime`: a no-op re-export of `std::time` on native,
+# backed by `performance.now()`/`Date.now()` on wasm (std's clock panics there).
+web-time = "1"
 
 # GROMACS tpr/cpt support links a C++ plugin via libloading, which has no wasm
 # support. Native-only; the tpr/cpt handlers are #[cfg]-gated out on wasm.
+# rayon is likewise native-only: wasm32 has no threads without SharedArrayBuffer,
+# so molar runs single-threaded there via the `src/par.rs` serial shim.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 molar_gromacs = { path = "../molar_gromacs", version = "1.0.0" }
+rayon.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
