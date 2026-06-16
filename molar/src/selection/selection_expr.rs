@@ -102,6 +102,34 @@ mod tests {
         let _ast = SelectionExpr::new("within 0.5 pbc yyy of resid 555").unwrap();
     }
 
+    /// A bareword keyword/operator must be a whole word: a following identifier
+    /// character means it is *not* that keyword. So "backboneand x<4" and
+    /// "name CAand x<4" must NOT parse (the missing space is a syntax error),
+    /// while their spaced forms must.
+    #[test]
+    fn keywords_require_word_boundary() {
+        // Glued operator after a compound / a value: rejected.
+        assert!(SelectionExpr::new("backboneand x<4").is_err());
+        assert!(SelectionExpr::new("name CAand x<4").is_err());
+        assert!(SelectionExpr::new("proteinor water").is_err());
+        assert!(SelectionExpr::new("notprotein").is_err());
+
+        // Properly spaced forms: accepted.
+        assert!(SelectionExpr::new("backbone and x<4").is_ok());
+        assert!(SelectionExpr::new("name CA and x<4").is_ok());
+        assert!(SelectionExpr::new("protein or water").is_ok());
+        assert!(SelectionExpr::new("not protein").is_ok());
+
+        // Plain keywords and multi-value lists still parse.
+        assert!(SelectionExpr::new("backbone").is_ok());
+        assert!(SelectionExpr::new("name CA CB CG").is_ok());
+        assert!(SelectionExpr::new("all").is_ok());
+
+        // A name that merely *starts* with "and"/"or" is a valid value, not an
+        // operator (the guard is whole-word) — previously these were rejected.
+        assert!(SelectionExpr::new("name android orbital").is_ok());
+    }
+
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
         ast.apply_whole(&*SYS)

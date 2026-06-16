@@ -13,6 +13,11 @@ peg::parser! {
         rule __ = (" " / "\t")+
         // Mandatory whitespace unless followed by paren
         rule ___ = _ &"(" / __
+        // Word boundary: a bareword keyword/operator must not be immediately
+        // followed by another identifier character. Without this, "backbone"
+        // matches inside "backboneand" and "and" is parsed as a glued operator;
+        // requiring a boundary makes "backboneand" a syntax error instead.
+        rule wb() = !['a'..='z' | 'A'..='Z' | '0'..='9' | '_']
 
         rule uint_span()
         = ['0'..='9']+
@@ -96,7 +101,8 @@ peg::parser! {
         }
 
         rule str_value() -> StrKeywordArg
-        = !("and"/"or") s:$((![' '|'/'|')'] [_])+)
+        = !(("and" / "or") wb())
+          s:$((![' ' | '\t' | '/' | '(' | ')' | '<' | '>' | '=' | '!' | '&' | '|' | ','] [_])+)
         { StrKeywordArg::Str(s.to_owned()) }
 
 
@@ -334,23 +340,23 @@ peg::parser! {
         = protein() / backbone() / sidechain() /
           water() / not_water() / hydrogen() / not_hydrogen ();
 
-        pub rule protein() -> ChemicalNode = "protein" _ { ChemicalNode::Protein };
-        pub rule sidechain() -> ChemicalNode = "sidechain" _ { ChemicalNode::Sidechain };
-        pub rule backbone() -> ChemicalNode = "backbone" _ { ChemicalNode::Backbone };
-        pub rule water() -> ChemicalNode = "water" _ { ChemicalNode::Water };
-        pub rule not_water() -> ChemicalNode = "now" _ { ChemicalNode::NotWater };
-        pub rule hydrogen() -> ChemicalNode = "hydrogen" _ { ChemicalNode::Hydrogen };
-        pub rule not_hydrogen() -> ChemicalNode = "noh" _ { ChemicalNode::NotHydrogen };
+        pub rule protein() -> ChemicalNode = "protein" wb() _ { ChemicalNode::Protein };
+        pub rule sidechain() -> ChemicalNode = "sidechain" wb() _ { ChemicalNode::Sidechain };
+        pub rule backbone() -> ChemicalNode = "backbone" wb() _ { ChemicalNode::Backbone };
+        pub rule water() -> ChemicalNode = "water" wb() _ { ChemicalNode::Water };
+        pub rule not_water() -> ChemicalNode = "now" wb() _ { ChemicalNode::NotWater };
+        pub rule hydrogen() -> ChemicalNode = "hydrogen" wb() _ { ChemicalNode::Hydrogen };
+        pub rule not_hydrogen() -> ChemicalNode = "noh" wb() _ { ChemicalNode::NotHydrogen };
 
         // Logic
         pub rule logical_expr() -> LogicalNode
         = precedence!{
             // Binary
-            x:(@) _ "or" _ y:@ { LogicalNode::Or(x.into(), y.into()) }
-            x:(@) _ "and" _ y:@ { LogicalNode::And(x.into(), y.into()) }
+            x:(@) _ "or" wb() _ y:@ { LogicalNode::Or(x.into(), y.into()) }
+            x:(@) _ "and" wb() _ y:@ { LogicalNode::And(x.into(), y.into()) }
             --
             // Unary prefixes
-            "not" ___ v:@ { LogicalNode::Not(v.into()) }
+            "not" wb() ___ v:@ { LogicalNode::Not(v.into()) }
             t:same_expr() ___ v:@ { LogicalNode::Same(t, v.into()) }
             // Within from inner selection
             p:within_expr() ___ v:@ {LogicalNode::Within(p, v.into())}
@@ -361,7 +367,7 @@ peg::parser! {
             v:compound() {LogicalNode::Chemical(v)}
             // Within from point
             p:within_expr() ___ v:vec3()  {LogicalNode::WithinPoint(p,v)}
-            "all" _ { LogicalNode::All }
+            "all" wb() _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
         }
     } // grammar
