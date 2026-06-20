@@ -14,6 +14,7 @@ mod modify;
 mod ndx_file;
 mod par;
 mod particle;
+mod perception;
 mod periodic_box;
 mod periodic_table;
 mod providers;
@@ -31,8 +32,8 @@ pub mod voronoi_cell;
 pub mod prelude {
     pub use crate::{
         aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*,
-        io::*, measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*,
-        dss::*, sasa::*, secondary_structure::*, selection::*, state::*, topology::*,
+        io::*, measure::*, modify::*, ndx_file::*, particle::*, perception::*, periodic_box::*,
+        providers::*, dss::*, sasa::*, secondary_structure::*, selection::*, state::*, topology::*,
     };
     // Parallel-iterator traits via the `par` shim: rayon on native, serial
     // std-iterator fallbacks on wasm32 (which has no threads). See `crate::par`.
@@ -41,7 +42,7 @@ pub mod prelude {
 
 pub use crate::{
     aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dss::*, dssp::*, io::*,
-    measure::*, modify::*, ndx_file::*, particle::*, periodic_box::*, providers::*, sasa::*,
+    measure::*, modify::*, ndx_file::*, particle::*, perception::*, periodic_box::*, providers::*, sasa::*,
     secondary_structure::*, selection::*, state::*, topology::*,
 };
 

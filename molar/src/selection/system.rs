@@ -98,6 +98,14 @@ impl System {
         &self.top
     }
 
+    /// Perceive rings + aromaticity, annotating this system's topology in place: sets
+    /// `BondOrder::Aromatic` on aromatic-ring bonds and the in-ring/aromatic flag bits on
+    /// the atoms (see [`crate::perception`]). Returns the [`Perception`] (SSSR rings + net
+    /// charge). Coordinate-free — works on the connection table alone.
+    pub fn perceive(&mut self) -> Perception {
+        crate::perception::perceive(&mut self.top)
+    }
+
     /// Bind `sel` using this system's **topology** but coordinates from an
     /// **external** `state` (e.g. a trajectory frame), without copying the state
     /// into the system. The disjoint counterpart of [`bind`](Self::bind), which

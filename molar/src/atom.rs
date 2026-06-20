@@ -139,6 +139,45 @@ impl Atom {
     pub fn with_bfactor(mut self, bfactor: Float) -> Self { self.bfactor = bfactor; self }
     pub fn with_occupancy(mut self, occupancy: Float) -> Self { self.occupancy = occupancy; self }
 
+    // --- Perception flags packed into the top two bits of `type_id` ---------
+    // Molecular perception ([`crate::perception`]) records per-atom "is in a ring"
+    // and "is aromatic" here rather than in a parallel array. The flags occupy the
+    // two highest bits of `type_id`; every real force-field type id (< 2^30) lives
+    // in the low 30 bits and is preserved. The bits are only ever set by an explicit
+    // `perceive` call, so a plain-loaded atom keeps `type_id` exactly as read.
+
+    /// Bit 31 of `type_id`: this atom is a member of some ring.
+    pub const IN_RING_FLAG: u32 = 1 << 31;
+    /// Bit 30 of `type_id`: this atom belongs to an aromatic ring.
+    pub const AROMATIC_FLAG: u32 = 1 << 30;
+
+    /// The real force-field type id, with the perception flag bits masked off.
+    pub fn type_id_value(&self) -> u32 {
+        self.type_id & !(Self::IN_RING_FLAG | Self::AROMATIC_FLAG)
+    }
+
+    pub fn is_in_ring(&self) -> bool {
+        self.type_id & Self::IN_RING_FLAG != 0
+    }
+    pub fn set_in_ring(&mut self, v: bool) {
+        if v {
+            self.type_id |= Self::IN_RING_FLAG;
+        } else {
+            self.type_id &= !Self::IN_RING_FLAG;
+        }
+    }
+
+    pub fn is_aromatic(&self) -> bool {
+        self.type_id & Self::AROMATIC_FLAG != 0
+    }
+    pub fn set_aromatic(&mut self, v: bool) {
+        if v {
+            self.type_id |= Self::AROMATIC_FLAG;
+        } else {
+            self.type_id &= !Self::AROMATIC_FLAG;
+        }
+    }
+
     /// Chainable version of `guess_element_and_mass_from_name()`.
     pub fn guess(mut self) -> Self {
         self.guess_element_and_mass_from_name();
