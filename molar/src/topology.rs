@@ -1,10 +1,55 @@
 use crate::prelude::*;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+/// Chemical bond order. File formats that don't record it (PDB, GRO, XYZ, …) yield
+/// [`BondOrder::Unspecified`]; formats that do (e.g. SDF, in the future) set the
+/// concrete order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BondOrder {
+    /// The source didn't record an order (the common case for guessed/PDB bonds).
+    #[default]
+    Unspecified,
+    Single,
+    Double,
+    Triple,
+    Aromatic,
+}
+
+/// A bond between two atoms (by global index) with an optional chemical order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Bond {
+    pub i1: usize,
+    pub i2: usize,
+    pub order: BondOrder,
+}
+
+impl Bond {
+    /// A bond between `i1` and `i2` with an unspecified order.
+    pub fn new(i1: usize, i2: usize) -> Self {
+        Self { i1, i2, order: BondOrder::Unspecified }
+    }
+
+    /// A bond with an explicit order.
+    pub fn with_order(i1: usize, i2: usize, order: BondOrder) -> Self {
+        Self { i1, i2, order }
+    }
+
+    /// The two atom indices as a pair (for code that just needs the endpoints).
+    pub fn pair(&self) -> [usize; 2] {
+        [self.i1, self.i2]
+    }
+
+    /// Whether `idx` is one of this bond's endpoints.
+    pub fn contains(&self, idx: usize) -> bool {
+        self.i1 == idx || self.i2 == idx
+    }
+}
 
 pub trait TopLike: Default + BondProvider + MolProvider + SaveTopology {
     // Construction methods (to use with format readers)
     fn add_atom_dyn(&mut self, atom: &dyn AtomLike);
-    fn add_bond(&mut self, bond: &[usize;2]);
+    fn add_bond(&mut self, bond: Bond);
     fn add_molecule(&mut self, bond: &[usize;2]);
     // Retrieval methods (to use with format writers) are provided by base traits
 }
@@ -19,7 +64,7 @@ pub trait TopLike: Default + BondProvider + MolProvider + SaveTopology {
 #[derive(Debug, Default, Clone)]
 pub struct Topology {
     pub atoms: Vec<Atom>,
-    pub bonds: Vec<[usize; 2]>,
+    pub bonds: Vec<Bond>,
     pub molecules: Vec<[usize; 2]>,
 }
 
@@ -94,7 +139,7 @@ impl SaveTopology for Topology {
     fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
         Box::new(self.iter_atoms())
     }
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
@@ -136,11 +181,11 @@ impl BondProvider for Topology {
         self.bonds.len()
     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
         self.bonds.get_unchecked(i)
     }
 
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         self.bonds.iter()
     }
 }

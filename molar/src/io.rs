@@ -79,7 +79,7 @@ pub use tpr_handler::TprHandlerError;
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: LenProvider {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a>;
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a>;
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a>;
     fn num_bonds(&self) -> usize;
 }
 

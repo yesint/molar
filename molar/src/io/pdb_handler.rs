@@ -231,7 +231,8 @@ impl FileFormatHandler for PdbFileHandler {
 
         let mut top = Topology::default();
         top.atoms = atoms;
-        top.bonds = self.bonds.clone();
+        // CONECT records carry no bond order → Unspecified.
+        top.bonds = self.bonds.iter().map(|&[a, b]| Bond::new(a, b)).collect();
         top.assign_resindex();
 
         self.at_least_one_state_read = true;

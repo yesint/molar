@@ -132,7 +132,8 @@ impl FileFormatHandler for TprFileHandler {
         }
 
         for b in &bonds_buf {
-            top.bonds.push([b.atom1 as usize, b.atom2 as usize]);
+            // TPR records connectivity without an explicit chemical order.
+            top.bonds.push(Bond::new(b.atom1 as usize, b.atom2 as usize));
         }
 
         for m in &mols_buf {

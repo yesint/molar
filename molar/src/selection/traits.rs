@@ -76,11 +76,11 @@ impl<T: SystemProvider + IndexProvider> BondProvider for T {
         unsafe { BondProvider::num_bonds(&(*self.get_system_ptr()).top) }
     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &[usize; 2] {
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
         unsafe { (*self.get_system_ptr()).top.get_bond_unchecked(i) }
     }
 
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         unsafe { (*self.get_system_ptr()).top.iter_bonds() }
     }
 }
