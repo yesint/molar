@@ -39,6 +39,7 @@ mod gro_handler;
 mod itp_handler;
 mod netcdf_handler;
 mod pdb_handler;
+mod sdf_handler;
 mod trr_handler;
 mod xtc_handler;
 mod xyz_handler;
@@ -53,6 +54,7 @@ use gro_handler::GroFileHandler;
 use itp_handler::ItpFileHandler;
 use netcdf_handler::NetCdfFileHandler;
 use pdb_handler::PdbFileHandler;
+use sdf_handler::SdfFileHandler;
 use trr_handler::TrrFileHandler;
 use xtc_handler::XtcFileHandler;
 use xyz_handler::XyzFileHandler;
@@ -68,6 +70,7 @@ pub use gro_handler::GroHandlerError;
 pub use itp_handler::ItpHandlerError;
 pub use netcdf_handler::NetCdfHandlerError;
 pub use pdb_handler::PdbHandlerError;
+pub use sdf_handler::SdfHandlerError;
 pub use trr_handler::TrrHandlerError;
 pub use xtc_handler::XtcHandlerError;
 pub use xyz_handler::XyzHandlerError;
@@ -340,6 +343,9 @@ impl FileHandler {
             "xyz" => Box::new(
                 XyzFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
+            "sdf" | "mol" => Box::new(
+                SdfFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
             "dcd" => Box::new(
                 DcdFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
@@ -402,6 +408,7 @@ impl FileHandler {
             "pdb" | "ent" => h!(PdbFileHandler),
             "gro" => h!(GroFileHandler),
             "xyz" => h!(XyzFileHandler),
+            "sdf" | "mol" => h!(SdfFileHandler),
             "dcd" => h!(DcdFileHandler),
             "trr" => h!(TrrFileHandler),
             "xtc" => h!(XtcFileHandler),
@@ -437,6 +444,9 @@ impl FileHandler {
             ),
             "xyz" => Box::new(
                 XyzFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "sdf" | "mol" => Box::new(
+                SdfFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "dcd" => Box::new(
                 DcdFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -848,6 +858,9 @@ pub enum FileFormatError {
     /// PDB format handler error
     #[error("in pdb format handler")]
     Pdb(#[from] PdbHandlerError),
+
+    #[error("in sdf/mol format handler")]
+    Sdf(#[from] SdfHandlerError),
 
     /// XYZ format handler error
     #[error("in xyz format handler")]
