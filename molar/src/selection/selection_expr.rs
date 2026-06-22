@@ -1,5 +1,35 @@
 use std::cell::RefCell;
-use crate::{prelude::*, selection::ast::{Evaluate, SelectionParserError}};
+use crate::{prelude::*, selection::ast::{Evaluate, SelectionParserError, SyntaxError}};
+
+/// Byte range of the token at/around `offset` (where the PEG parser failed), so the
+/// whole offending word can be highlighted rather than a single character. If `offset`
+/// lands on whitespace or past the end (an "expected more" failure), anchors on the
+/// previous non-whitespace byte. Selection strings are single-line ASCII, so byte and
+/// character positions coincide.
+fn offending_token_span(s: &str, offset: usize) -> std::ops::Range<usize> {
+    let b = s.as_bytes();
+    let n = b.len();
+    if n == 0 {
+        return 0..0;
+    }
+    let is_ws = |c: u8| c == b' ' || c == b'\t';
+    let mut i = offset.min(n - 1);
+    while i > 0 && is_ws(b[i]) {
+        i -= 1;
+    }
+    if is_ws(b[i]) {
+        return offset..offset; // input is all whitespace up to the caret
+    }
+    let mut start = i;
+    while start > 0 && !is_ws(b[start - 1]) {
+        start -= 1;
+    }
+    let mut end = i + 1;
+    while end < n && !is_ws(b[end]) {
+        end += 1;
+    }
+    start..end
+}
 
 //mod grammar3;
 
@@ -46,12 +76,24 @@ impl SelectionExpr {
         Ok(Self {
             ast: RefCell::new(
                 super::grammar::selection_parser::logical_expr(s).map_err(|e| {
-                    let err_str = format!(
-                        "\n{s}\n{}^\nExpected {}",
-                        "-".repeat(e.location.column - 1),
-                        e.expected
-                    );
-                    SelectionParserError::SyntaxError(err_str)
+                    let offset = e.location.offset;
+                    // Curate peg's raw "expected" set: strip the quotes it puts around
+                    // literals ("and" -> and), drop empty/whitespace tokens that slip
+                    // through, dedupe, and sort for a stable message.
+                    let mut expected: Vec<String> = e
+                        .expected
+                        .tokens()
+                        .map(|t| t.trim_matches('"').to_string())
+                        .filter(|t| !t.trim().is_empty())
+                        .collect();
+                    expected.sort();
+                    expected.dedup();
+                    SelectionParserError::SyntaxError(SyntaxError {
+                        input: s.to_owned(),
+                        offset,
+                        span: offending_token_span(s, offset),
+                        expected,
+                    })
                 })?,
             ),
             sel_str: s.to_owned(),
@@ -92,6 +134,21 @@ mod tests {
     use super::SelectionExpr;
     use crate::System;
     use std::sync::LazyLock;
+
+    #[test]
+    fn syntax_error_has_word_span_and_curated_expected() {
+        use crate::prelude::SelectionParserError;
+        let Err(SelectionParserError::SyntaxError(e)) = SelectionExpr::new("chain A an resid 5")
+        else {
+            panic!("expected a syntax error");
+        };
+        // The span covers the whole offending word, not a single character.
+        assert_eq!(&e.input[e.span.clone()], "an");
+        // Whitespace tokens are curated out; only meaningful tokens remain.
+        assert!(!e.expected.iter().any(|t| t.trim().is_empty()));
+        assert!(e.expected.contains(&"and".to_string()));
+        assert!(e.expected.contains(&"or".to_string()));
+    }
 
     static SYS: LazyLock<System> = LazyLock::new(|| {
         System::from_file("tests/albumin.pdb").unwrap()

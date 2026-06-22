@@ -1170,10 +1170,52 @@ impl Evaluate for ComparisonNode {
     // }
 }
 
+/// A selection-syntax parse error, carrying the data needed to render it informatively
+/// rather than a pre-baked string: the (whitespace-trimmed) `input`, the failure
+/// `offset`, the `span` of the offending token (for highlighting the whole bad word),
+/// and the curated set of `expected` tokens. `Display` renders the classic caret block,
+/// so existing message-only consumers are unaffected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxError {
+    /// The whitespace-trimmed selection string that was parsed.
+    pub input: String,
+    /// Byte offset into `input` where parsing failed (the start of the offending token).
+    pub offset: usize,
+    /// Byte range of the offending token within `input`, for highlighting the whole word.
+    pub span: std::ops::Range<usize>,
+    /// Human-facing tokens expected at `offset` (curated: whitespace/duplicates removed,
+    /// sorted). Empty means "expected end of input".
+    pub expected: Vec<String>,
+}
+
+impl std::fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Classic caret block: the input, a `---^` pointer, then the expected list.
+        // (Selections are single-line ASCII, so the byte offset is the visual column.)
+        // Cap a long expected-set (a leading-token failure can list every keyword) so
+        // the message stays readable.
+        const CAP: usize = 8;
+        let expected = if self.expected.is_empty() {
+            "end of input".to_string()
+        } else if self.expected.len() == 1 {
+            self.expected[0].clone()
+        } else if self.expected.len() <= CAP {
+            format!("one of {}", self.expected.join(", "))
+        } else {
+            format!(
+                "one of {}, … (+{} more)",
+                self.expected[..CAP].join(", "),
+                self.expected.len() - CAP
+            )
+        };
+        write!(f, "\n{}\n{}^\nExpected {}", self.input, "-".repeat(self.offset), expected)
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum SelectionParserError {
     #[error("syntax error: {0}")]
-    SyntaxError(String),
+    SyntaxError(SyntaxError),
 
     #[error("selection has incompatible topology and state: {0}")]
     DifferentSizes(#[from] TopologyStateSizesError),

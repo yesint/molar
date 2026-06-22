@@ -7,10 +7,12 @@ use crate::prelude::*;
 
 peg::parser! {
     pub(super) grammar selection_parser() for str {
-        // Optional whitespace
-        rule _ = (" " / "\t")*
+        // Optional whitespace. `quiet!` keeps the whitespace literals (" ", "\t") out
+        // of the parser's "expected" set, so syntax errors report meaningful tokens
+        // (keywords, operators) instead of noise like `Expected one of " ", "\t", …`.
+        rule _ = quiet!{ (" " / "\t")* }
         // Mandatory whitespace
-        rule __ = (" " / "\t")+
+        rule __ = quiet!{ (" " / "\t")+ }
         // Mandatory whitespace unless followed by paren
         rule ___ = _ &"(" / __
         // Word boundary: a bareword keyword/operator must not be immediately

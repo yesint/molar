@@ -1,4 +1,7 @@
 mod ast;
+// The selection-parser error types are public API (consumers render the structured
+// error); the rest of `ast` stays private.
+pub use ast::{SelectionParserError, SyntaxError};
 mod grammar;
 
 #[allow(dead_code)]
