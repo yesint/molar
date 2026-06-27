@@ -16,7 +16,9 @@ categories.workspace = true
 
 [lib]
 name = "molar_python"
-crate-type = ["cdylib"]
+# `rlib` in addition to `cdylib` so other Rust crates (e.g. the molar_vis native
+# Python module) can depend on pymolar's pyclasses and reuse its module registration.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = {version = "0.27", features =["extension-module"] }

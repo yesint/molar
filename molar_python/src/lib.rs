@@ -32,6 +32,12 @@ use system::SystemPy;
 mod selection;
 use selection::SelPy;
 
+// Public re-exports so a Rust consumer (the molar_vis native Python module) can name
+// pymolar's pyclasses to accept/share them across the FFI boundary.
+pub use selection::SelPy as Sel;
+pub use system::SystemPy as System;
+pub use topology_state::{StatePy as State, TopologyPy as Topology};
+
 // mod membrane;
 // use membrane::*;
 
@@ -424,6 +430,13 @@ fn greeting() {
 //#[pymodule]
 fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
+    register_molar(m)
+}
+
+/// Add all pymolar pyclasses + free functions to `m`. Exposed so another extension
+/// module (the molar_vis native viewer) can register pymolar into its **own** module,
+/// giving `System`/`Sel`/… one consistent PyO3 type identity across both APIs.
+pub fn register_molar(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AtomPy>()?;
     m.add_class::<ParticlePy>()?;
     m.add_class::<TopologyPy>()?;
