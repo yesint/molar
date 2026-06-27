@@ -34,6 +34,25 @@ impl Sel {
         let index: Vec<_> = iter.collect();
         Ok(Self::from_vec(index)?)
     }
+
+    /// Bind this selection to a disjoint `(topology, state)` pair, reading both by
+    /// reference (zero-copy). This is the [`SelBoundParts`] companion to
+    /// [`System::bind_with_state`] for callers that hold the topology and state
+    /// **separately** from any `System` — e.g. a viewer rendering coordinates owned
+    /// by an external source. `state` must have the same atom count as `topology`,
+    /// and the selection's indices must be in bounds for `topology` (it panics
+    /// otherwise, like `bind_with_state`).
+    pub fn bind_to<'a>(&'a self, topology: &'a Topology, state: &'a State) -> SelBoundParts<'a> {
+        let last = unsafe { *self.0.get_unchecked(self.0.len() - 1) };
+        if last >= topology.len() {
+            panic!("selection is out of bounds");
+        }
+        SelBoundParts {
+            top: topology,
+            st: state,
+            index: self.0.as_slice(),
+        }
+    }
 }
 
 impl IndexSliceProvider for Sel {

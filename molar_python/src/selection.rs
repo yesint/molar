@@ -46,39 +46,39 @@ impl SelPy {
         }
     }
 
-    pub(crate) fn index(&self) -> &[usize] {
+    pub fn index(&self) -> &[usize] {
         &self.index
     }
 
-    pub(crate) fn r_top(&self) -> &Topology {
+    pub fn r_top(&self) -> &Topology {
         unsafe { &*self.top.get() }.get().inner()
     }
 
-    pub(crate) fn r_top_mut(&self) -> &mut Topology {
+    pub fn r_top_mut(&self) -> &mut Topology {
         unsafe { &*self.top.get() }.get().inner_mut()
     }
 
-    pub(crate) fn r_st(&self) -> &State {
+    pub fn r_st(&self) -> &State {
         unsafe { &*self.st.get() }.get().inner()
     }
 
-    pub(crate) fn r_st_mut(&self) -> &mut State {
+    pub fn r_st_mut(&self) -> &mut State {
         unsafe { &*self.st.get() }.get().inner_mut()
     }
 
-    pub(crate) fn py_top(&self) -> &Py<TopologyPy> {
+    pub fn py_top(&self) -> &Py<TopologyPy> {
         unsafe { &*self.top.get() }
     }
 
-    pub(crate) fn py_top_mut(&self) -> &mut Py<TopologyPy> {
+    pub fn py_top_mut(&self) -> &mut Py<TopologyPy> {
         unsafe { &mut *self.top.get() }
     }
 
-    pub(crate) fn py_st(&self) -> &Py<StatePy> {
+    pub fn py_st(&self) -> &Py<StatePy> {
         unsafe { &*self.st.get() }
     }
 
-    pub(crate) fn py_st_mut(&self) -> &mut Py<StatePy> {
+    pub fn py_st_mut(&self) -> &mut Py<StatePy> {
         unsafe { &mut *self.st.get() }
     }
 
@@ -147,11 +147,11 @@ impl BondProvider for SelPy {
         0
     }
 
-    unsafe fn get_bond_unchecked(&self, _i: usize) -> &[usize; 2] {
+    unsafe fn get_bond_unchecked(&self, _i: usize) -> &Bond {
         unreachable!()
     }
 
-    fn iter_bonds(&self) -> impl Iterator<Item = &[usize; 2]> {
+    fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         std::iter::empty()
     }
 }
@@ -166,7 +166,7 @@ impl SaveTopology for SelPy {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
         Box::new(self.iter_atoms())
     }
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a [usize; 2]> + 'a> {
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
