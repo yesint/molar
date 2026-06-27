@@ -84,7 +84,13 @@ impl SelPy {
 
     /// Get `*mut State` via UnsafeCell chain, without materializing `&State`.
     pub(crate) fn st_ptr_mut(&self) -> *mut State {
-        self.py_st().get().0.get()
+        self.py_st().get().st.get()
+    }
+
+    /// Bump the backing state's coordinate generation counter (after an in-place
+    /// coordinate edit), so an embedding viewer re-renders. See [`StatePy`].
+    pub(crate) fn bump_coords_version(&self) {
+        self.py_st().get().bump_coords_version();
     }
 
     /// Get `*mut Topology` via UnsafeCell chain, without materializing `&Topology`.
@@ -519,6 +525,7 @@ impl SelPy {
                 std::ptr::copy_nonoverlapping(arr_ptr.add(j * 3), pos_ptr, 3);
             }
         }
+        self.bump_coords_version();
         Ok(())
     }
 
@@ -819,6 +826,7 @@ impl SelPy {
             index: &self.index,
         }
         .apply_transform(&tr.0);
+        self.bump_coords_version();
     }
 
     /// Unwrap selected atoms relative to the first atom of the selection.
@@ -841,6 +849,7 @@ impl SelPy {
         }
         .unwrap_simple()
         .map_err(to_py_runtime_err)?;
+        self.bump_coords_version();
         Ok(())
     }
 
@@ -1045,6 +1054,7 @@ impl SelPy {
             index: &self.index,
         }
         .translate(&vec);
+        self.bump_coords_version();
         Ok(())
     }
 

@@ -48,6 +48,12 @@ impl ParticlePy {
     pub(crate) fn st_mut(&self) -> &mut State {
         self.st.get().inner_mut()
     }
+
+    /// Bump the backing state's coordinate generation counter (after an in-place
+    /// position edit), so an embedding viewer re-renders. See [`StatePy`].
+    pub(crate) fn bump_coords_version(&self) {
+        self.st.get().bump_coords_version();
+    }
 }
 
 #[pymethods]
@@ -81,6 +87,7 @@ impl ParticlePy {
         if src != dst {
             unsafe { std::ptr::copy_nonoverlapping(src, dst, 3) };
         }
+        self.bump_coords_version();
         Ok(())
     }
 
@@ -101,6 +108,7 @@ impl ParticlePy {
     #[setter(x)]
     fn set_x(&self, value: Float) {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).x = value }
+        self.bump_coords_version();
     }
 
     /// Y coordinate.
@@ -120,6 +128,7 @@ impl ParticlePy {
     #[setter(y)]
     fn set_y(&self, value: Float) {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).y = value }
+        self.bump_coords_version();
     }
 
     /// Z coordinate.
@@ -139,6 +148,7 @@ impl ParticlePy {
     #[setter(z)]
     fn set_z(&self, value: Float) {
         unsafe { self.st_mut().coords.get_unchecked_mut(self.id).z = value }
+        self.bump_coords_version();
     }
 
     fn __repr__(&self) -> String {

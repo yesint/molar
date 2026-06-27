@@ -24,24 +24,49 @@ use pyo3::{
 ///    sys.state = st    # hot-swap coordinates into system
 
 #[pyclass(name = "State", frozen)]
-pub struct StatePy(pub(crate) UnsafeCell<State>);
+pub struct StatePy {
+    pub(crate) st: UnsafeCell<State>,
+    /// Monotonic generation counter, bumped on every in-place coordinate mutation
+    /// (`translate` / `apply_transform` / `coords` setter / `Particle` position
+    /// setters / …). An embedding viewer (molar_vis) polls it lock-free to re-render
+    /// only when coordinates actually change. Unused — and ~free (one relaxed
+    /// increment per mutation) — for standalone pymolar.
+    coords_version: std::sync::atomic::AtomicU64,
+}
 
 unsafe impl Send for StatePy {}
 unsafe impl Sync for StatePy {}
 
 impl From<State> for StatePy {
     fn from(value: State) -> Self {
-        Self(UnsafeCell::new(value))
+        Self {
+            st: UnsafeCell::new(value),
+            coords_version: std::sync::atomic::AtomicU64::new(0),
+        }
     }
 }
 
 impl StatePy {
     pub(crate) fn inner(&self) -> &State {
-        unsafe { &*self.0.get() }
+        unsafe { &*self.st.get() }
     }
 
     pub(crate) fn inner_mut(&self) -> &mut State {
-        unsafe { &mut *self.0.get() }
+        unsafe { &mut *self.st.get() }
+    }
+
+    /// Bump the coordinate generation counter — call after any in-place coordinate
+    /// edit. `Release` so a viewer that observes the new value (with `Acquire`) also
+    /// sees the coordinate writes that preceded it.
+    pub fn bump_coords_version(&self) {
+        self.coords_version
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+
+    /// The coordinate generation atomic, for an embedding viewer to poll lock-free
+    /// (no GIL needed for the load).
+    pub fn coords_version_atomic(&self) -> &std::sync::atomic::AtomicU64 {
+        &self.coords_version
     }
 
     pub(crate) fn into_py(self) -> Py<StatePy> {

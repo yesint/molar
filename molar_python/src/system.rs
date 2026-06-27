@@ -199,7 +199,7 @@ impl SystemPy {
             // Empty System
             Ok(SystemPy::new(
                 TopologyPy(Default::default()).into_py(),
-                StatePy(Default::default()).into_py(),
+                StatePy::from(State::default()).into_py(),
             ))
         }
     }
