@@ -130,7 +130,7 @@ impl FileFormatHandler for SdfFileHandler {
         let sdf = fname
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("sdf"))
+            .map(|e| e.eq_ignore_ascii_case("sdf") || e.eq_ignore_ascii_case("sd"))
             .unwrap_or(false);
         Ok(Self {
             reader: None,
