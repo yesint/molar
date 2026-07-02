@@ -103,7 +103,7 @@ impl SelectionExpr {
     /// Applies selection expression to all atoms in the system
     pub(super) fn apply_whole (
         &self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider)
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider)
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvalContext::new(sys, None)?;
         let mut ast = self.ast.borrow_mut();
@@ -115,7 +115,7 @@ impl SelectionExpr {
     /// Applies the selection expression to a subset of atoms
     pub(super) fn apply_subset (
         &self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider + VelProvider + ForceProvider),
+        sys: &(impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider),
         subset: &[usize],
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvalContext::new(sys, Some(subset))?;
@@ -199,6 +199,33 @@ mod tests {
         ast.apply_whole(&*SYS)
             .expect("Error applying AST")
             .to_vec()
+    }
+
+    #[test]
+    fn polar_hydrogen_uses_bonds() {
+        use crate::prelude::*;
+        let atom = |name: &str, z: u8| {
+            Atom::new().with_name(name).with_atomic_number(z).with_resname("MOL")
+        };
+        // O–H1, O–H2 are polar; C–HC is a nonpolar C–H.
+        let top = Topology {
+            atoms: vec![atom("O", 8), atom("H1", 1), atom("H2", 1), atom("C", 6), atom("HC", 1)],
+            bonds: vec![Bond::new(0, 1), Bond::new(0, 2), Bond::new(3, 4)],
+            ..Default::default()
+        };
+        let sys = System::new(top, State::new_fake(5)).unwrap();
+        let mut idx = SelectionExpr::new("polarh").unwrap().apply_whole(&sys).unwrap().to_vec();
+        idx.sort_unstable();
+        assert_eq!(idx, vec![1, 2], "polar H = hydrogens bonded to O, not the C–H");
+
+        // No bonds → nothing is polar → an empty selection (an error via `select`).
+        let bare = Topology {
+            atoms: vec![atom("O", 8), atom("H1", 1)],
+            ..Default::default()
+        };
+        let sys2 = System::new(bare, State::new_fake(2)).unwrap();
+        assert!(SelectionExpr::new("polarh").unwrap().apply_whole(&sys2).unwrap().to_vec().is_empty());
+        assert!(sys2.select("polarh").is_err(), "no bonds → empty selection → error");
     }
 
     #[test]

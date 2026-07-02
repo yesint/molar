@@ -340,7 +340,7 @@ peg::parser! {
 
         pub rule compound() -> ChemicalNode
         = protein() / backbone() / sidechain() /
-          water() / not_water() / hydrogen() / not_hydrogen ();
+          water() / not_water() / polar_hydrogen() / hydrogen() / not_hydrogen ();
 
         pub rule protein() -> ChemicalNode = "protein" wb() _ { ChemicalNode::Protein };
         pub rule sidechain() -> ChemicalNode = "sidechain" wb() _ { ChemicalNode::Sidechain };
@@ -349,6 +349,7 @@ peg::parser! {
         pub rule not_water() -> ChemicalNode = "now" wb() _ { ChemicalNode::NotWater };
         pub rule hydrogen() -> ChemicalNode = "hydrogen" wb() _ { ChemicalNode::Hydrogen };
         pub rule not_hydrogen() -> ChemicalNode = "noh" wb() _ { ChemicalNode::NotHydrogen };
+        pub rule polar_hydrogen() -> ChemicalNode = "polarh" wb() _ { ChemicalNode::PolarH };
 
         // Logic
         pub rule logical_expr() -> LogicalNode

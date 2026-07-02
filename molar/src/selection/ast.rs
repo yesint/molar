@@ -175,6 +175,10 @@ pub(super) enum ChemicalNode {
     NotWater,
     Hydrogen,
     NotHydrogen,
+    /// Polar hydrogens (common chemical sense): hydrogens covalently bonded to an
+    /// electronegative atom (N, O, F, S) — the H-bond-capable ones. Requires the bond
+    /// graph (topology bonds); with no bonds it matches nothing.
+    PolarH,
 }
 
 //##############################
@@ -274,7 +278,7 @@ impl<'a,S> EvalContext<'a,S> {
 
 impl<S> EvalContext<'_,S> 
 where
-    S: PosProvider + AtomProvider + BoxProvider
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
     fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
         self.iter_index().zip(self.iter_atoms())
@@ -283,7 +287,7 @@ where
 
 impl<S> IndexProvider for EvalContext<'_,S> 
 where
-    S: PosProvider + AtomProvider + BoxProvider
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
     unsafe fn get_index_unchecked(&self, i: usize) -> usize {
         // This matches cur_subset for each i, so the performance is
@@ -295,7 +299,7 @@ where
 
 impl<S> LenProvider for EvalContext<'_,S> 
 where
-    S: PosProvider + AtomProvider + BoxProvider
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
     fn len(&self) -> usize {
         self.cur_subset.len()
@@ -304,7 +308,7 @@ where
 
 impl<S> PosProvider for EvalContext<'_,S>
 where
-    S: PosProvider + AtomProvider + BoxProvider
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
     unsafe fn coords_ptr(&self) -> *const Pos {
         self.sys.coords_ptr()
@@ -313,7 +317,7 @@ where
 
 impl<S> AtomProvider for EvalContext<'_,S>
 where
-    S: PosProvider + AtomProvider + BoxProvider
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
     unsafe fn atoms_ptr(&self) -> *const Atom {
         self.sys.atoms_ptr()
@@ -322,7 +326,7 @@ where
 
 impl<S> BoxProvider for EvalContext<'_,S> 
 where
-    S: PosProvider + AtomProvider + BoxProvider
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
     fn get_box(&self) -> Option<&PeriodicBox> {
         self.sys.get_box()
@@ -340,13 +344,13 @@ pub(super) trait Evaluate {
     fn apply<'a,S>(&'a mut self, data: &'a EvalContext<'a,S>)
         -> Result<Cow<'a, [usize]>, SelectionParserError>
         where
-            S: PosProvider + AtomProvider + BoxProvider;
+            S: PosProvider + AtomProvider + BoxProvider + BondProvider;
 }
 
 impl DistanceNode {
     fn closest_image<S>(&mut self, point: &mut Pos, data: &EvalContext<'_,S>) 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         if let Some(pbox) = data.get_box() {
             match self {
@@ -368,7 +372,7 @@ impl DistanceNode {
 impl VectorNode {
     fn get_vec<S>(&mut self, data: &EvalContext<'_,S>) -> Result<&Pos, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         match self {
             Self::Const(v) => Ok(v),
@@ -407,7 +411,7 @@ impl VectorNode {
 
     fn get_unit_vec<S>(&mut self, data: &EvalContext<'_,S>) -> Result<&Pos, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         match self {
             Self::UnitConst(v) => Ok(v),
@@ -434,7 +438,7 @@ impl LogicalNode {
     ) -> Vec<usize>
     where
         T: Eq + std::hash::Hash + Copy,
-        S: PosProvider + AtomProvider + BoxProvider,
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider,
     {
         // Collect all properties from the inner
         let mut properties = HashSet::<T>::new();
@@ -498,7 +502,7 @@ impl Evaluate for LogicalNode {
         data: &'a EvalContext<'a,S>,
     ) -> Result<Cow<'a, [usize]>, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         use rustc_hash::FxHashSet;
         match self {
@@ -711,17 +715,24 @@ impl ChemicalNode {
             false
         }
     }
+
+    /// An electronegative atom (N, O, F, S) — a hydrogen bonded to one is polar.
+    fn is_polar_heavy(atom: &Atom) -> bool {
+        matches!(atom.atomic_number, 7 | 8 | 9 | 16)
+    }
 }
 
 impl Evaluate for ChemicalNode {
     fn is_state_dependent(&self) -> bool {
+        // All chemical keywords are topology-only (names / elements / bonds), never
+        // coordinate-dependent — `polarh` reads the bond graph, not positions.
         false
     }
 
     fn apply<'a,S>(&mut self, data: &EvalContext<'a,S>)
             -> Result<Cow<'_, [usize]>, SelectionParserError> 
         where
-            S: PosProvider + AtomProvider + BoxProvider
+            S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
         match self {
@@ -780,6 +791,37 @@ impl Evaluate for ChemicalNode {
                     }
                 }
             }
+
+            Self::PolarH => {
+                // Polar hydrogens = hydrogens covalently bonded to an electronegative
+                // atom (N/O/F/S), determined from the **bond graph**. With no bonds
+                // computed nothing is selected (an empty selection → error upstream).
+                if data.sys.num_bonds() > 0 {
+                    // Classify atoms of the current domain by global index.
+                    let mut is_h: HashSet<usize> = HashSet::new();
+                    let mut is_polar: HashSet<usize> = HashSet::new();
+                    for (i, at) in data.iter_ind_atom() {
+                        if Self::is_hydrogen(at) {
+                            is_h.insert(i);
+                        } else if Self::is_polar_heavy(at) {
+                            is_polar.insert(i);
+                        }
+                    }
+                    // An H bonded to a polar heavy atom is a polar hydrogen (bonds carry
+                    // global atom indices; the domain is classified by the same).
+                    for bond in data.sys.iter_bonds() {
+                        let [i, j] = bond.pair();
+                        if is_h.contains(&i) && is_polar.contains(&j) {
+                            res.push(i);
+                        }
+                        if is_h.contains(&j) && is_polar.contains(&i) {
+                            res.push(j);
+                        }
+                    }
+                    res.sort_unstable();
+                    res.dedup();
+                }
+            }
         }
 
         Ok(Cow::from(res))
@@ -794,7 +836,7 @@ impl KeywordNode {
         f: fn(&Atom) -> &str,
     ) -> Vec<usize> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
         
@@ -826,7 +868,7 @@ impl KeywordNode {
         f: fn(&Atom, usize) -> isize,
     ) -> Vec<usize> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
         
@@ -861,7 +903,7 @@ impl Evaluate for KeywordNode {
     fn apply<'a,S>(&mut self, data: &EvalContext<'a,S>)
             -> Result<Cow<'_, [usize]>, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let res = match &*self {
             Self::Name(args) => self.map_str_args(data, args, |a| &a.name),
@@ -907,7 +949,7 @@ impl MathNode {
 
     fn eval<'a,S>(&mut self, p: &Particle<'_>, data: &EvalContext<'a,S>) -> Result<Float, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         match self {
             Self::Float(v) => Ok(*v),
@@ -1044,7 +1086,7 @@ impl ComparisonNode {
         op: fn(Float, Float) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
         
@@ -1065,7 +1107,7 @@ impl ComparisonNode {
         op2: fn(Float, Float) -> bool,
     ) -> Result<Vec<usize>, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
         
@@ -1105,7 +1147,7 @@ impl Evaluate for ComparisonNode {
     fn apply<'a,S>(&mut self, data: &EvalContext<'a,S>)
             -> Result<Cow<'_, [usize]>, SelectionParserError> 
     where
-        S: PosProvider + AtomProvider + BoxProvider
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let res = match self {
             // Simple
