@@ -214,18 +214,22 @@ mod tests {
             ..Default::default()
         };
         let sys = System::new(top, State::new_fake(5)).unwrap();
-        let mut idx = SelectionExpr::new("polarh").unwrap().apply_whole(&sys).unwrap().to_vec();
-        idx.sort_unstable();
-        assert_eq!(idx, vec![1, 2], "polar H = hydrogens bonded to O, not the C–H");
+        let mut polh = SelectionExpr::new("polh").unwrap().apply_whole(&sys).unwrap().to_vec();
+        polh.sort_unstable();
+        assert_eq!(polh, vec![1, 2], "polar H = hydrogens bonded to O, not the C–H");
+        // Apolar hydrogens = bonded to a non-electronegative heavy atom (the C–H).
+        let apolh = SelectionExpr::new("apolh").unwrap().apply_whole(&sys).unwrap().to_vec();
+        assert_eq!(apolh, vec![4], "apolar H = the C–H hydrogen");
 
-        // No bonds → nothing is polar → an empty selection (an error via `select`).
+        // No bonds → nothing is polar/apolar → an empty selection (an error via `select`).
         let bare = Topology {
             atoms: vec![atom("O", 8), atom("H1", 1)],
             ..Default::default()
         };
         let sys2 = System::new(bare, State::new_fake(2)).unwrap();
-        assert!(SelectionExpr::new("polarh").unwrap().apply_whole(&sys2).unwrap().to_vec().is_empty());
-        assert!(sys2.select("polarh").is_err(), "no bonds → empty selection → error");
+        assert!(SelectionExpr::new("polh").unwrap().apply_whole(&sys2).unwrap().to_vec().is_empty());
+        assert!(sys2.select("polh").is_err(), "no bonds → empty selection → error");
+        assert!(sys2.select("apolh").is_err(), "no bonds → empty selection → error");
     }
 
     #[test]

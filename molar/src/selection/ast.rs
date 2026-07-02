@@ -175,10 +175,13 @@ pub(super) enum ChemicalNode {
     NotWater,
     Hydrogen,
     NotHydrogen,
-    /// Polar hydrogens (common chemical sense): hydrogens covalently bonded to an
-    /// electronegative atom (N, O, F, S) — the H-bond-capable ones. Requires the bond
-    /// graph (topology bonds); with no bonds it matches nothing.
+    /// Polar hydrogens (`polh`): hydrogens covalently bonded to an electronegative atom
+    /// (N, O, F, S) — the H-bond-capable ones. Requires the bond graph (topology bonds);
+    /// with no bonds it matches nothing.
     PolarH,
+    /// Apolar hydrogens (`apolh`): hydrogens bonded to a non-electronegative heavy atom
+    /// (carbon, etc. — anything heavy that is not N/O/F/S). Also bond-graph-based.
+    ApolarH,
 }
 
 //##############################
@@ -720,6 +723,46 @@ impl ChemicalNode {
     fn is_polar_heavy(atom: &Atom) -> bool {
         matches!(atom.atomic_number, 7 | 8 | 9 | 16)
     }
+
+    /// Hydrogens bonded to a heavy atom, split by whether that heavy atom is polar
+    /// (N/O/F/S) or not, from the **bond graph**. `want_polar` selects `polh` (bonded to
+    /// an electronegative atom) vs `apolh` (bonded to a non-electronegative heavy atom,
+    /// e.g. carbon). Empty when no bonds are computed (→ empty selection upstream).
+    fn hydrogens_by_polarity<S>(data: &EvalContext<'_, S>, want_polar: bool) -> Vec<usize>
+    where
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider,
+    {
+        let mut res = Vec::new();
+        if data.sys.num_bonds() == 0 {
+            return res;
+        }
+        // Classify the current domain's atoms by global index.
+        let mut is_h: HashSet<usize> = HashSet::new();
+        let mut heavy_polar: HashSet<usize> = HashSet::new();
+        let mut heavy_apolar: HashSet<usize> = HashSet::new();
+        for (i, at) in data.iter_ind_atom() {
+            if Self::is_hydrogen(at) {
+                is_h.insert(i);
+            } else if Self::is_polar_heavy(at) {
+                heavy_polar.insert(i);
+            } else {
+                heavy_apolar.insert(i); // non-H, non-electronegative (carbon, …)
+            }
+        }
+        let partner = if want_polar { &heavy_polar } else { &heavy_apolar };
+        for bond in data.sys.iter_bonds() {
+            let [i, j] = bond.pair();
+            if is_h.contains(&i) && partner.contains(&j) {
+                res.push(i);
+            }
+            if is_h.contains(&j) && partner.contains(&i) {
+                res.push(j);
+            }
+        }
+        res.sort_unstable();
+        res.dedup();
+        res
+    }
 }
 
 impl Evaluate for ChemicalNode {
@@ -792,36 +835,9 @@ impl Evaluate for ChemicalNode {
                 }
             }
 
-            Self::PolarH => {
-                // Polar hydrogens = hydrogens covalently bonded to an electronegative
-                // atom (N/O/F/S), determined from the **bond graph**. With no bonds
-                // computed nothing is selected (an empty selection → error upstream).
-                if data.sys.num_bonds() > 0 {
-                    // Classify atoms of the current domain by global index.
-                    let mut is_h: HashSet<usize> = HashSet::new();
-                    let mut is_polar: HashSet<usize> = HashSet::new();
-                    for (i, at) in data.iter_ind_atom() {
-                        if Self::is_hydrogen(at) {
-                            is_h.insert(i);
-                        } else if Self::is_polar_heavy(at) {
-                            is_polar.insert(i);
-                        }
-                    }
-                    // An H bonded to a polar heavy atom is a polar hydrogen (bonds carry
-                    // global atom indices; the domain is classified by the same).
-                    for bond in data.sys.iter_bonds() {
-                        let [i, j] = bond.pair();
-                        if is_h.contains(&i) && is_polar.contains(&j) {
-                            res.push(i);
-                        }
-                        if is_h.contains(&j) && is_polar.contains(&i) {
-                            res.push(j);
-                        }
-                    }
-                    res.sort_unstable();
-                    res.dedup();
-                }
-            }
+            // Polar / apolar hydrogens, from the bond graph (see `hydrogens_by_polarity`).
+            Self::PolarH => res = Self::hydrogens_by_polarity(data, true),
+            Self::ApolarH => res = Self::hydrogens_by_polarity(data, false),
         }
 
         Ok(Cow::from(res))
