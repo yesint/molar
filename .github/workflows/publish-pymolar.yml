@@ -153,3 +153,8 @@ jobs:
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Both pymolar and pymolar-f64 are uploaded in this one step; without
+          # this, a re-run (or a partial prior upload) aborts on the first
+          # already-present file before reaching the rest.
+          skip-existing: true
