@@ -151,15 +151,19 @@ pub trait AnalysisTask<A: clap::Args> {
 
         // Number of frames actually processed (passed to the task).
         let mut consumed_frames = 0;
-        // Number of frames read since `begin`. This advances for *every* frame,
-        // including skipped ones. `--skip` is relative to this counter, so the
-        // `begin` frame is always the first one processed.
-        let mut read_frames = 0;
-        // Absolute index of the first read frame, used to make the `-e <frame>`
-        // window bound absolute (consistent with `-e <time>` and `-b`). When
-        // `begin` is given as a time the absolute index is unknown, so it falls
-        // back to 0 (i.e. relative to the begin-time position).
-        let begin_offset = begin_frame.unwrap_or(0);
+        // Absolute frame index in the concatenation of all trajectory files.
+        // Drives the `-e <frame>` window bound (absolute, like `-e <time>`/`-b`).
+        let mut global_frame = 0;
+        // Frames counted since `begin`; drives `--skip`, so the `begin` frame is
+        // always the first one processed and the cadence is continuous across
+        // trajectory files.
+        let mut phase = 0;
+
+        // With a single trajectory file we jump straight to `begin` via random
+        // access (fast for XTC/DCD, correct via the serial fallback for
+        // streaming formats). With several files the position is global across
+        // the concatenation, so `begin` is filtered serially inside the loop.
+        let random_access_begin = traj_args.files[1..].len() == 1;
 
         // Process state from structure file if asked
         if traj_args.use_struct_file {
@@ -174,47 +178,70 @@ pub trait AnalysisTask<A: clap::Args> {
             consumed_frames += 1;
         }
 
-        // Cycle over trajectory files (file 0 is structure)
-        for trj_file in &traj_args.files[1..] {
+        // Cycle over trajectory files (file 0 is structure). All trajectory
+        // files are treated as one continuous stream: `begin`/`end`/`skip` count
+        // frames across file boundaries, not per file.
+        'files: for trj_file in &traj_args.files[1..] {
             info!("Processing trajectory '{}'...", trj_file.display());
             let mut trj_handler = FileHandler::open(trj_file)?;
 
-            // Skip frames in the beginning if asked
-            if let Some(fr) = begin_frame {
-                trj_handler.skip_to_frame(fr)?;
-            } else if let Some(t) = begin_time {
-                trj_handler.skip_to_time(t)?;
+            // Fast path for a single trajectory: seek directly to `begin`.
+            if random_access_begin {
+                if let Some(fr) = begin_frame {
+                    if fr > 0 {
+                        trj_handler.skip_to_frame(fr)?;
+                        global_frame = fr;
+                    }
+                } else if let Some(t) = begin_time {
+                    trj_handler.skip_to_time(t)?;
+                }
             }
 
             let mut trj_iter = trj_handler.into_iter();
 
             while let Some(state) = trj_iter.next() {
-                // Absolute trajectory frame index of the current frame.
-                let abs_frame = begin_offset + read_frames;
+                // With several files `begin` is applied here against the global
+                // position (a single file was already seeked past it above).
+                if !random_access_begin {
+                    let before_begin = match (begin_frame, begin_time) {
+                        (Some(fr), _) => global_frame < fr,
+                        (None, Some(t)) => state.get_time() < t,
+                        (None, None) => false,
+                    };
+                    if before_begin {
+                        global_frame += 1;
+                        continue;
+                    }
+                }
 
                 // Check if the end of the requested window is reached. `-e` is
                 // an absolute bound (frame index or time), exclusive.
-                if end_frame.map_or(false, |ef| abs_frame >= ef)
+                if end_frame.map_or(false, |ef| global_frame >= ef)
                     || end_time.map_or(false, |et| state.get_time() > et)
                 {
-                    break;
+                    break 'files;
                 }
 
-                // Process only every `skip`-th frame. `read_frames` advances for
-                // every frame read, so the cadence follows the trajectory
-                // position rather than how many frames were kept (which was the
-                // bug that capped processing at 2 frames for any `--skip > 1`).
-                let frame_index = read_frames;
-                read_frames += 1;
-                if frame_index % traj_args.skip != 0 {
+                // Process only every `skip`-th frame. `phase` counts frames from
+                // `begin`, so the cadence is continuous across files and the
+                // `begin` frame is always processed (this replaces the old logic
+                // that capped processing at 2 frames for any `--skip > 1`).
+                let keep = phase % traj_args.skip == 0;
+                phase += 1;
+                global_frame += 1;
+                if !keep {
                     continue;
                 }
 
                 if consumed_frames % traj_args.log == 0 {
-                    info!("At frame {}, time {}", abs_frame, get_log_time(&state));
+                    info!(
+                        "At frame {}, time {}",
+                        global_frame - 1,
+                        get_log_time(&state)
+                    );
                 }
 
-                // If we are here than the frame is valid
+                // If we are here then the frame is valid
                 if let Some(ref mut ctx) = context {
                     // Context is initialized already, update it with current state
                     ctx.sys.set_state(state)?;
