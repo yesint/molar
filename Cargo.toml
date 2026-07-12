@@ -23,7 +23,11 @@ categories = ["science", "simulation", "external-ffi-bindings"]
 description = "Molar is a rust library for analysis of MD trajectories and molecular modeling"
 
 [workspace.dependencies]
-nalgebra = ">=0.33"
+# Capped below 0.35: the `numpy` crate (molar_python) only supports nalgebra
+# <0.35, and an unbounded `>=` lets molar/powersasa float to 0.35 while numpy
+# stays on 0.34, producing two incompatible nalgebra types. Bump this in lockstep
+# with numpy's nalgebra support.
+nalgebra = "0.34"
 peg = "0.8.5"
 regex = "1.12.2"
 thiserror = "2.0.17"
