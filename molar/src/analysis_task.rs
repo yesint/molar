@@ -28,8 +28,8 @@ pub struct TrajAnalysisArgs {
     #[clap(short = 'e', long = "end", default_value = "")]
     pub end: String,
 
-    /// Frame skip interval
-    #[clap(long = "skip", default_value_t = 1)]
+    /// Frame skip interval (process every N-th frame; must be >= 1)
+    #[clap(long = "skip", default_value_t = 1, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..))]
     pub skip: usize,
 
     /// Use coordinates in structure file for analysis
@@ -74,32 +74,39 @@ pub enum AnalysisError {
     NoTraj,
 }
 
+/// Parses a `-b`/`-e` value into an optional frame index and/or time (in ps).
+///
+/// An empty string yields `(None, None)` (no limit). A bare number is a frame
+/// index; a number with an explicit unit suffix is either a frame (`fr`) or a
+/// time (`ps`/`ns`/`us`, all converted to ps).
 fn process_suffix(s: &str) -> Result<(Option<usize>, Option<Float>), AnalysisError> {
+    let s = s.trim();
     if s.is_empty() {
         return Ok((None, None));
     }
 
-    let mut frame = None;
-    let mut time = None;
+    // A bare number (no unit) is interpreted as a frame index.
+    if let Ok(fr) = s.parse::<usize>() {
+        return Ok((Some(fr), None));
+    }
 
-    if s.len() >= 2 {
-        let suffix = &s[s.len() - 2..];
-        let num_part = &s[..s.len() - 2];
+    // Explicit frame suffix.
+    if let Some(num) = s.strip_suffix("fr") {
+        return Ok((Some(num.trim().parse::<usize>()?), None));
+    }
 
-        if let Ok(fr) = s.parse() {
-            frame = Some(fr);
-        } else {
-            match suffix {
-                "fr" => frame = Some(num_part.parse::<usize>()?),
-                "ps" => time = Some(num_part.parse::<Float>()? * 1.0),
-                "ns" => time = Some(num_part.parse::<Float>()? * 1000.0),
-                "us" => time = Some(num_part.parse::<Float>()? * 1000_000.0),
-                _ => return Err(AnalysisError::InvalidSuffix),
-            }
+    // Time suffixes, all converted to ps.
+    for (suffix, scale) in [
+        ("ps", 1.0 as Float),
+        ("ns", 1000.0 as Float),
+        ("us", 1_000_000.0 as Float),
+    ] {
+        if let Some(num) = s.strip_suffix(suffix) {
+            return Ok((None, Some(num.trim().parse::<Float>()? * scale)));
         }
     }
 
-    Ok((frame, time))
+    Err(AnalysisError::InvalidSuffix)
 }
 
 /// Analysis task trait. Should be implemented by user's types.
@@ -142,7 +149,17 @@ pub trait AnalysisTask<A: clap::Args> {
         let (begin_frame, begin_time) = process_suffix(&traj_args.begin)?;
         let (end_frame, end_time) = process_suffix(&traj_args.end)?;
 
+        // Number of frames actually processed (passed to the task).
         let mut consumed_frames = 0;
+        // Number of frames read since `begin`. This advances for *every* frame,
+        // including skipped ones. `--skip` is relative to this counter, so the
+        // `begin` frame is always the first one processed.
+        let mut read_frames = 0;
+        // Absolute index of the first read frame, used to make the `-e <frame>`
+        // window bound absolute (consistent with `-e <time>` and `-b`). When
+        // `begin` is given as a time the absolute index is unknown, so it falls
+        // back to 0 (i.e. relative to the begin-time position).
+        let begin_offset = begin_frame.unwrap_or(0);
 
         // Process state from structure file if asked
         if traj_args.use_struct_file {
@@ -172,24 +189,29 @@ pub trait AnalysisTask<A: clap::Args> {
             let mut trj_iter = trj_handler.into_iter();
 
             while let Some(state) = trj_iter.next() {
-                // Check if end is reached
-                if end_frame.map_or(false, |ef| consumed_frames >= ef)
+                // Absolute trajectory frame index of the current frame.
+                let abs_frame = begin_offset + read_frames;
+
+                // Check if the end of the requested window is reached. `-e` is
+                // an absolute bound (frame index or time), exclusive.
+                if end_frame.map_or(false, |ef| abs_frame >= ef)
                     || end_time.map_or(false, |et| state.get_time() > et)
                 {
                     break;
                 }
 
-                // Skip frames if needed
-                if consumed_frames > 0 && (consumed_frames - 1) % traj_args.skip > 0 {
+                // Process only every `skip`-th frame. `read_frames` advances for
+                // every frame read, so the cadence follows the trajectory
+                // position rather than how many frames were kept (which was the
+                // bug that capped processing at 2 frames for any `--skip > 1`).
+                let frame_index = read_frames;
+                read_frames += 1;
+                if frame_index % traj_args.skip != 0 {
                     continue;
                 }
 
                 if consumed_frames % traj_args.log == 0 {
-                    info!(
-                        "At frame {}, time {}",
-                        consumed_frames,
-                        get_log_time(&state)
-                    );
+                    info!("At frame {}, time {}", abs_frame, get_log_time(&state));
                 }
 
                 // If we are here than the frame is valid
@@ -270,5 +292,49 @@ fn get_log_time(state: &State) -> String {
         format!("{} ns", state.get_time() / 1000.0)
     } else {
         format!("{} us", state.get_time() / 1000_000.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suffix_empty_is_no_limit() {
+        assert_eq!(process_suffix("").unwrap(), (None, None));
+        assert_eq!(process_suffix("   ").unwrap(), (None, None));
+    }
+
+    #[test]
+    fn suffix_bare_number_is_frame() {
+        // Regression: single-digit values used to be silently dropped.
+        assert_eq!(process_suffix("0").unwrap(), (Some(0), None));
+        assert_eq!(process_suffix("5").unwrap(), (Some(5), None));
+        assert_eq!(process_suffix("42").unwrap(), (Some(42), None));
+        assert_eq!(process_suffix("100").unwrap(), (Some(100), None));
+    }
+
+    #[test]
+    fn suffix_explicit_frame() {
+        assert_eq!(process_suffix("5fr").unwrap(), (Some(5), None));
+        assert_eq!(process_suffix("100fr").unwrap(), (Some(100), None));
+    }
+
+    #[test]
+    fn suffix_time_units_convert_to_ps() {
+        assert_eq!(process_suffix("5ps").unwrap(), (None, Some(5.0)));
+        assert_eq!(process_suffix("2ns").unwrap(), (None, Some(2000.0)));
+        assert_eq!(process_suffix("1us").unwrap(), (None, Some(1_000_000.0)));
+        assert_eq!(process_suffix("1.5ns").unwrap(), (None, Some(1500.0)));
+    }
+
+    #[test]
+    fn suffix_invalid() {
+        assert!(matches!(
+            process_suffix("5km"),
+            Err(AnalysisError::InvalidSuffix)
+        ));
+        // A unit with no number is a parse error, not a panic.
+        assert!(process_suffix("fr").is_err());
     }
 }
