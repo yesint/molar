@@ -8,19 +8,11 @@ on:
 permissions:
   contents: read
 
-# `pymolar` (default, float32) and `pymolar-f64` (float64) are built from the
-# same `molar_python` Rust crate but live in two separate project directories,
-# each with its own `pyproject.toml`. The `precision` matrix dimension below
-# selects which one to build:
-#
-#   - precision=f32 → root crate (`molar_python/`), default features.
-#   - precision=f64 → sibling project (`molar_python/pymolar-f64-pkg/`)
-#                      pointing at the shared `Cargo.toml` via `manifest-path`,
-#                      with the `f64` feature enabled.
-#
-# Wheels are emitted to `${{ github.workspace }}/dist` regardless of which
-# project directory `maturin` is invoked from, so the artifact upload step
-# is identical in both cases.
+# Builds and publishes only `pymolar` (float32) from `molar_python/`. The
+# `precision` matrix dimension is kept (single f32 value) so the f64
+# project (`molar_python/pymolar-f64-pkg/`) can be re-added later if we ever
+# decide to ship the float64 wheels to PyPI. Wheels are emitted to
+# `${{ github.workspace }}/dist`.
 
 jobs:
   linux:
@@ -28,7 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # f32 wheels
           - runs-on: ubuntu-latest
             target: x86_64
             precision: f32
@@ -37,15 +28,6 @@ jobs:
             target: aarch64
             precision: f32
             working-directory: molar_python
-          # f64 wheels
-          - runs-on: ubuntu-latest
-            target: x86_64
-            precision: f64
-            working-directory: molar_python/pymolar-f64-pkg
-          - runs-on: ubuntu-24.04-arm
-            target: aarch64
-            precision: f64
-            working-directory: molar_python/pymolar-f64-pkg
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -71,12 +53,6 @@ jobs:
           - target: aarch64
             precision: f32
             working-directory: molar_python
-          - target: x86_64
-            precision: f64
-            working-directory: molar_python/pymolar-f64-pkg
-          - target: aarch64
-            precision: f64
-            working-directory: molar_python/pymolar-f64-pkg
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,8 +73,6 @@ jobs:
         include:
           - precision: f32
             working-directory: molar_python
-          - precision: f64
-            working-directory: molar_python/pymolar-f64-pkg
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,8 +92,6 @@ jobs:
         include:
           - precision: f32
             working-directory: molar_python
-          - precision: f64
-            working-directory: molar_python/pymolar-f64-pkg
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -138,9 +110,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: [linux, macos, windows, sdist]
     runs-on: ubuntu-latest
-    # Both `pymolar` and `pymolar-f64` are published from this single job. The
-    # `pypi` environment must have Trusted Publishing configured for *both*
-    # PyPI projects (or the second project will fail with an OIDC error).
+    # Publishes `pymolar` to PyPI via Trusted Publishing (configured for the
+    # `pymolar` project + this repo/workflow/`pypi` environment).
     environment:
       name: pypi
       url: https://pypi.org/p/pymolar
@@ -154,7 +125,6 @@ jobs:
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # Both pymolar and pymolar-f64 are uploaded in this one step; without
-          # this, a re-run (or a partial prior upload) aborts on the first
-          # already-present file before reaching the rest.
+          # Idempotent re-runs: skip wheels already on PyPI instead of failing
+          # with "File already exists".
           skip-existing: true
