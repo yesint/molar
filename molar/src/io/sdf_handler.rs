@@ -17,6 +17,7 @@
 //!   than being forced through the generic `read` interface.
 
 use crate::atom::element_symbol;
+use crate::periodic_table::ELEMENT_MASS;
 use crate::prelude::*;
 use std::{
     fs::File,
@@ -85,6 +86,13 @@ fn next_line(buf: &mut impl BufRead) -> std::io::Result<Option<String>> {
     } else {
         Ok(Some(s))
     }
+}
+
+/// Resolve an SDF element symbol (e.g. `Cl`, `C`) to its atomic number by reverse
+/// lookup against the periodic table, case-insensitively. Returns 0 if unrecognised.
+fn symbol_to_atomic_number(sym: &str) -> u8 {
+    let up = sym.trim().to_ascii_uppercase();
+    (1u8..=118).find(|&z| element_symbol(z) == up).unwrap_or(0)
 }
 
 /// Parse a fixed-width integer field `[start, start+len)` of a molfile line
@@ -202,14 +210,21 @@ impl FileFormatHandler for SdfFileHandler {
             }
             let elem = t.next().ok_or(SdfHandlerError::TruncatedAtoms(i))?;
             coords.push(Pos::new(coord[0], coord[1], coord[2]));
-            atoms.push(
-                Atom::new()
-                    .with_name(elem)
-                    .with_resname("MOL")
-                    .with_resid(1)
-                    .with_chain('A')
-                    .guess(),
-            );
+            // The SDF atom block carries the explicit element symbol, so resolve the
+            // element directly instead of the name-based heuristic (which mishandles
+            // two-letter symbols like `Cl`/`Br` whose first letter is C/N/O/H/P).
+            let atom = Atom::new()
+                .with_name(elem)
+                .with_resname("MOL")
+                .with_resid(1)
+                .with_chain('A');
+            let z = symbol_to_atomic_number(elem);
+            atoms.push(if z != 0 {
+                atom.with_atomic_number(z)
+                    .with_mass(ELEMENT_MASS[z as usize] as Float)
+            } else {
+                atom.guess() // unrecognised symbol: fall back to name-based guessing
+            });
         }
 
         // Bond block: `atom1 atom2 type …`, fixed 3-wide columns, 1-based indices.
