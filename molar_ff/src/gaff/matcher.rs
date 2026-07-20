@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use crate::{FFError, FFType};
 
 use super::props::Props;
-use super::tables::{Atom, Bead, Pred, Prop, Rule, RULES, WILDATOMS};
+use super::tables::{Atom, Bead, Pred, Prop, Rule, WILDATOMS};
 use super::LocalBond;
 
 /// A matched path: `id` = chain index it satisfies, `at` = the path atoms (excluding the
@@ -33,6 +33,10 @@ pub(crate) struct Ctx<'a> {
     ar: &'a [[u16; 6]],
     nr: &'a [bool],
     ewd: &'a [i8],
+    /// The rule set to match against (GAFF or GAFF2), in definition order.
+    rules: &'static [Rule],
+    /// Which force field is being applied (for error reporting).
+    ff: FFType,
     /// Bond order between an unordered atom pair.
     bond_order: HashMap<(usize, usize), u8>,
 }
@@ -47,12 +51,14 @@ impl<'a> Ctx<'a> {
         ar: &'a [[u16; 6]],
         nr: &'a [bool],
         ewd: &'a [i8],
+        rules: &'static [Rule],
+        ff: FFType,
     ) -> Self {
         let mut bond_order = HashMap::new();
         for b in bonds {
             bond_order.insert((b.i.min(b.j), b.i.max(b.j)), b.order);
         }
-        Ctx { z, con, props, rg, ar, nr, ewd, bond_order }
+        Ctx { z, con, props, rg, ar, nr, ewd, rules, ff, bond_order }
     }
 
     /// True iff atoms `a` and `b` are joined by a bond of the given order.
@@ -277,7 +283,7 @@ impl<'a> Ctx<'a> {
 
     /// Type a single atom `i` by testing the rules in DEF order (first match wins).
     fn type_atom(&self, i: usize) -> Option<&'static str> {
-        for rule in RULES.iter() {
+        for rule in self.rules.iter() {
             if let Some(name) = self.try_rule(i, rule) {
                 return Some(name);
             }
@@ -328,7 +334,7 @@ pub(crate) fn jat(ctx: &Ctx) -> Result<Vec<String>, FFError> {
         match ctx.type_atom(i) {
             Some(name) => out.push(name.to_string()),
             None => {
-                return Err(FFError::UntypedAtom { ff: FFType::Gaff, local: i, z: ctx.z[i] })
+                return Err(FFError::UntypedAtom { ff: ctx.ff, local: i, z: ctx.z[i] })
             }
         }
     }

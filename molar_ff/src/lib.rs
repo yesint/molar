@@ -1,6 +1,6 @@
 //! Force-field atom typing for MolAR.
 //!
-//! This crate assigns GAFF (and, later, GAFF2) atom types to a molecule. Typing is
+//! This crate assigns GAFF and GAFF2 atom types to a molecule. Typing is
 //! exposed through the [`ApplyFF`] trait, which is blanket-implemented for every MolAR
 //! object that exposes atoms and bonds — [`System`], [`Topology`], and the bound
 //! selection types.
@@ -33,17 +33,13 @@ mod gaff;
 pub enum FFType {
     /// General Amber Force Field (GAFF, `gaff.dat` / `ATOMTYPE_GFF.DEF`).
     Gaff,
-    /// General Amber Force Field 2 (GAFF2). Not implemented yet.
+    /// General Amber Force Field 2 (GAFF2, `gaff2.dat` / `ATOMTYPE_GFF2.DEF`).
     Gaff2,
 }
 
 /// Errors returned by [`ApplyFF::apply_ff`].
 #[derive(Debug, thiserror::Error)]
 pub enum FFError {
-    /// GAFF2 typing is not implemented yet.
-    #[error("GAFF2 typing is not implemented yet")]
-    Gaff2NotImplemented,
-
     /// A bond in scope has no known order. Force-field typing requires known bond
     /// orders; supply an SDF/mol2 input (this crate does not perceive bond orders).
     #[error(
@@ -82,11 +78,6 @@ pub trait ApplyFF {
 
 impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
     fn apply_ff(&mut self, ff: FFType) -> Result<(), FFError> {
-        // GAFF2 not yet supported — fail before doing any work.
-        if ff == FFType::Gaff2 {
-            return Err(FFError::Gaff2NotImplemented);
-        }
-
         // 1. Build a global -> local index map. For `System`/`Topology` this is the
         //    identity (0..n); for a bound selection it maps the sorted global indices.
         let global: Vec<usize> = self.iter_index().collect();
@@ -117,10 +108,7 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
         }
 
         // 4. Compute the types on the local subgraph.
-        let types = match ff {
-            FFType::Gaff => gaff::gaff_types(&z, &bonds)?,
-            FFType::Gaff2 => unreachable!("handled above"),
-        };
+        let types = gaff::gaff_types(&z, &bonds, ff)?;
 
         // 5. Write results back in local order.
         for (a, t) in self.iter_atoms_mut().zip(types) {

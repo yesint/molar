@@ -7,7 +7,7 @@
 //!
 //! molar convention: `gaff.rs` + a `gaff/` directory, never `mod.rs`.
 
-use crate::FFError;
+use crate::{FFError, FFType};
 
 mod aromatic;
 mod conjugation;
@@ -65,11 +65,15 @@ pub(crate) fn perceive(z: &[u8], bonds: &[LocalBond]) -> Perceived {
 /// This runs the full pipeline: perception (rings/aromaticity/EW) → per-atom property
 /// precompute → the rule-matching loop over the embedded DEF → the conjugation parity
 /// split.
-pub fn gaff_types(z: &[u8], bonds: &[LocalBond]) -> Result<Vec<String>, FFError> {
+pub fn gaff_types(z: &[u8], bonds: &[LocalBond], ff: FFType) -> Result<Vec<String>, FFError> {
+    let rules = match ff {
+        FFType::Gaff => tables::RULES,
+        FFType::Gaff2 => tables::RULES_GAFF2,
+    };
     let p = perceive(z, bonds);
     let pr = props::compute(z, &p.con, bonds, &p.arom.ewd);
     let ctx = matcher::Ctx::new(
-        z, &p.con, bonds, &pr, &p.rg, &p.arom.ar, &p.arom.nr, &p.arom.ewd,
+        z, &p.con, bonds, &pr, &p.rg, &p.arom.ar, &p.arom.nr, &p.arom.ewd, rules, ff,
     );
     let mut types = matcher::jat(&ctx)?;
     conjugation::adjust(&mut types, bonds);

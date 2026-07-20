@@ -16,6 +16,7 @@ use molar::prelude::*;
 use molar_ff::{ApplyFF, FFType};
 
 const REFS: &str = "tests/data/gaff_ref/references.json";
+const REFS_GAFF2: &str = "tests/data/gaff_ref/references_gaff2.json";
 const SDF_DIR: &str = "tests/data/gaff_ref/sdf";
 
 /// Per-atom accuracy required for the strict test.
@@ -59,7 +60,7 @@ fn load_refs(path: &str) -> RefFile {
     serde_json::from_str(&s).unwrap_or_else(|e| panic!("cannot parse {path}: {e}"))
 }
 
-fn run_parity(refs_path: &str, sdf_dir: &str) -> Stats {
+fn run_parity(refs_path: &str, sdf_dir: &str, ff: FFType) -> Stats {
     let refs = load_refs(refs_path);
     let mut st = Stats::default();
 
@@ -75,7 +76,7 @@ fn run_parity(refs_path: &str, sdf_dir: &str) -> Stats {
             }
         };
 
-        if sys.apply_ff(FFType::Gaff).is_err() {
+        if sys.apply_ff(ff).is_err() {
             st.apply_err += 1;
             continue;
         }
@@ -161,13 +162,13 @@ fn print_report(st: &Stats) {
 
 #[test]
 fn gaff_parity_report() {
-    let st = run_parity(REFS, SDF_DIR);
+    let st = run_parity(REFS, SDF_DIR, FFType::Gaff);
     print_report(&st);
 }
 
 #[test]
 fn gaff_parity_threshold() {
-    let st = run_parity(REFS, SDF_DIR);
+    let st = run_parity(REFS, SDF_DIR, FFType::Gaff);
     print_report(&st);
     let acc = st.matched as f64 / st.atoms.max(1) as f64;
     assert_eq!(st.load_err, 0, "{} molecules failed to load", st.load_err);
@@ -175,6 +176,27 @@ fn gaff_parity_threshold() {
     assert!(
         acc >= TARGET,
         "per-atom GAFF accuracy {:.2}% < target {:.2}%",
+        acc * 100.0,
+        TARGET * 100.0
+    );
+}
+
+#[test]
+fn gaff2_parity_report() {
+    let st = run_parity(REFS_GAFF2, SDF_DIR, FFType::Gaff2);
+    print_report(&st);
+}
+
+#[test]
+fn gaff2_parity_threshold() {
+    let st = run_parity(REFS_GAFF2, SDF_DIR, FFType::Gaff2);
+    print_report(&st);
+    let acc = st.matched as f64 / st.atoms.max(1) as f64;
+    assert_eq!(st.load_err, 0, "{} molecules failed to load", st.load_err);
+    assert_eq!(st.apply_err, 0, "{} molecules failed apply_ff", st.apply_err);
+    assert!(
+        acc >= TARGET,
+        "per-atom GAFF2 accuracy {:.2}% < target {:.2}%",
         acc * 100.0,
         TARGET * 100.0
     );
@@ -209,7 +231,7 @@ fn apply_ff_resolves_on_system_and_selection() {
 fn antechamber_suite_parity() {
     const SUITE_REFS: &str = "tests/data/gaff_ref/antechamber_suite/references.json";
     const SUITE_DIR: &str = "tests/data/gaff_ref/antechamber_suite";
-    let st = run_parity(SUITE_REFS, SUITE_DIR);
+    let st = run_parity(SUITE_REFS, SUITE_DIR, FFType::Gaff);
     print_report(&st);
     assert_eq!(st.load_err, 0, "a fixture failed to load");
     assert_eq!(st.apply_err, 0, "a fixture failed apply_ff");

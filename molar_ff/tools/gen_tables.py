@@ -13,6 +13,7 @@ equivalent to that behaviour.
 """
 
 DEF = "/home/semen/work/Projects/molar/molar_ff/src/gaff/ATOMTYPE_GFF.DEF"
+DEF2 = "/home/semen/work/Projects/molar/molar_ff/src/gaff/ATOMTYPE_GFF2.DEF"
 OUT = "/home/semen/work/Projects/molar/molar_ff/src/gaff/tables.rs"
 
 # Element symbols indexed by atomic number (index 0 unused). Kept identical to the
@@ -262,26 +263,28 @@ def emit_env(chains):
     return "&[" + ", ".join(cs) + "]"
 
 
-rows = []
-for line in open(DEF):
-    toks = line.split()
-    if not toks or toks[0] != "ATD":
-        continue
-    name = toks[1]
-    vals = []
-    for t in toks[2:]:
-        if t == "&":
-            break
-        vals.append(t)
-    while len(vals) < 7:
-        vals.append("*")
-    _f3, f4, f5, f6, f7, f8, f9 = vals[:7]
-    prop = emit_prop(parse_prop(f8))
-    env = emit_env(parse_cenv(f9))
-    rows.append(
-        f'    Rule {{ name: "{name}", z: {scal(f4)}, connum: {scal(f5)}, '
-        f'nh: {scal(f6)}, ew: {scal(f7)}, prop: {prop}, env: {env} }},'
-    )
+def gen_rows(def_path):
+    rows = []
+    for line in open(def_path):
+        toks = line.split()
+        if not toks or toks[0] != "ATD":
+            continue
+        name = toks[1]
+        vals = []
+        for t in toks[2:]:
+            if t == "&":
+                break
+            vals.append(t)
+        while len(vals) < 7:
+            vals.append("*")
+        _f3, f4, f5, f6, f7, f8, f9 = vals[:7]
+        prop = emit_prop(parse_prop(f8))
+        env = emit_env(parse_cenv(f9))
+        rows.append(
+            f'    Rule {{ name: "{name}", z: {scal(f4)}, connum: {scal(f5)}, '
+            f'nh: {scal(f6)}, ew: {scal(f7)}, prop: {prop}, env: {env} }},'
+        )
+    return rows
 
 SYMBOLS_RS = (
     '    "", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si",\n'
@@ -297,9 +300,9 @@ SYMBOLS_RS = (
 
 hdr = '''//! Compile-time GAFF atom-type tables.
 //!
-//! The rule set from `ATOMTYPE_GFF.DEF` is held directly as the `const` [`RULES`] array
-//! (first match wins, in file order) — no runtime string parsing. Every field is fully
-//! structured:
+//! The GAFF and GAFF2 rule sets (from `ATOMTYPE_GFF.DEF` / `ATOMTYPE_GFF2.DEF`) are held
+//! directly as the `const` [`RULES`] and [`RULES_GAFF2`] arrays (first match wins, in file
+//! order) — no runtime string parsing. Every field is fully structured:
 //!
 //! - the scalar fields ([`Rule::z`], [`Rule::connum`], [`Rule::nh`], [`Rule::ew`]) are
 //!   `Option<u8>` (`None` = unconstrained);
@@ -309,7 +312,7 @@ hdr = '''//! Compile-time GAFF atom-type tables.
 //!   neighbour chains, each a path of [`Bead`]s from the central atom outward (empty =
 //!   unconstrained).
 //!
-//! Regenerate with `tools/gen_tables.py` after editing `ATOMTYPE_GFF.DEF`.
+//! Regenerate with `tools/gen_tables.py` after editing either `ATOMTYPE_GFF*.DEF`.
 
 /// One GAFF atom-type rule. A `None` scalar or an empty `prop`/`env` imposes no
 /// constraint; a rule matches when every present field is satisfied.
@@ -417,14 +420,19 @@ const SYMBOLS: [&str; 119] = [
 pub fn element_symbol(z: u8) -> &'static str {
     SYMBOLS.get(z as usize).copied().unwrap_or("")
 }
-
-/// All GAFF atom-type rules, in definition order (first match wins).
-pub const RULES: &[Rule] = &[
 '''
 
+gaff_rows = gen_rows(DEF)
+gaff2_rows = gen_rows(DEF2)
 with open(OUT, "w") as f:
     f.write(hdr)
-    f.write("\n".join(rows))
+    f.write("\n/// All GAFF atom-type rules, in definition order (first match wins).\n")
+    f.write("pub const RULES: &[Rule] = &[\n")
+    f.write("\n".join(gaff_rows))
+    f.write("\n];\n\n")
+    f.write("/// All GAFF2 atom-type rules, in definition order (first match wins).\n")
+    f.write("pub const RULES_GAFF2: &[Rule] = &[\n")
+    f.write("\n".join(gaff2_rows))
     f.write("\n];\n")
 
-print(f"wrote {OUT}: {len(rows)} rules")
+print(f"wrote {OUT}: {len(gaff_rows)} gaff + {len(gaff2_rows)} gaff2 rules")
