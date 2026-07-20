@@ -2,6 +2,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
+use molar_ff::ApplyFF;
 use numpy::nalgebra::{Const, Dyn, VectorView};
 use numpy::{
     PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
@@ -287,6 +288,23 @@ impl PosMutProvider for TmpSelMut<'_> {
 impl BoxProvider for TmpSelMut<'_> {
     fn get_box(&self) -> Option<&PeriodicBox> {
         unsafe { (*self.st).pbox.as_ref() }
+    }
+}
+
+impl BondProvider for TmpSelMut<'_> {
+    fn num_bonds(&self) -> usize {
+        let bonds = unsafe { &(*self.top).bonds };
+        bonds.len()
+    }
+
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
+        let bonds = &(*self.top).bonds;
+        bonds.get_unchecked(i)
+    }
+
+    fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
+        let bonds = unsafe { &(*self.top).bonds };
+        bonds.iter()
     }
 }
 
@@ -682,6 +700,29 @@ impl SelPy {
     /// :param val: New B-factor value.
     pub fn set_same_bfactor(&self, val: Float) {
         AtomMutProvider::set_same_bfactor(self.r_top_mut(), val)
+    }
+
+    /// Assign force-field atom types to the selected atoms, writing each atom's
+    /// ``type_name``. The selection is treated as the molecule: only bonds whose both
+    /// endpoints are selected are used, so it should span complete molecule(s).
+    ///
+    /// :param ff: Force field, ``"gaff"`` (default) or ``"gaff2"``.
+    /// :raises ValueError: on an unknown force field, missing bond orders, or a selection
+    ///     that cuts across a molecule.
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sel = system("resname LIG")
+    ///    sel.apply_ff("gaff2")
+    #[pyo3(signature = (ff="gaff"))]
+    pub fn apply_ff(&self, ff: &str) -> PyResult<()> {
+        let fftype = parse_ff(ff)?;
+        let mut sel = TmpSelMut {
+            top: self.top_ptr_mut(),
+            st: self.st_ptr_mut(),
+            index: self.index(),
+        };
+        sel.apply_ff(fftype).map_err(to_py_value_err)
     }
 
     /// Selection time value (proxied to backing state).

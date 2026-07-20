@@ -20,6 +20,17 @@ pub(crate) fn to_py_runtime_err<E: std::fmt::Display>(e: E) -> pyo3::PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
 }
 
+/// Parse a force-field name (case-insensitive) into an [`molar_ff::FFType`].
+pub(crate) fn parse_ff(name: &str) -> PyResult<molar_ff::FFType> {
+    match name.to_ascii_lowercase().as_str() {
+        "gaff" => Ok(molar_ff::FFType::Gaff),
+        "gaff2" => Ok(molar_ff::FFType::Gaff2),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "unknown force field '{other}' (expected 'gaff' or 'gaff2')"
+        ))),
+    }
+}
+
 // Constructs PyArray backed by existing Pos data.
 pub(crate) unsafe fn map_pyarray_to_pos<'py>(
     st: &Bound<'py,StatePy>,

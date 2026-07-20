@@ -2,6 +2,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
+use molar_ff::ApplyFF;
 use numpy::nalgebra::{Const, VectorView};
 use numpy::{PyArray1, PyArrayLike1};
 use pyo3::exceptions::{PyIndexError, PyValueError};
@@ -356,6 +357,22 @@ impl SystemPy {
     /// Save topology and current state to file.
     fn save(&self, fname: &str) -> PyResult<()> {
         Ok(SaveTopologyState::save(self, fname).map_err(to_py_io_err)?)
+    }
+
+    /// Assign force-field atom types to all atoms, writing each atom's ``type_name``.
+    ///
+    /// :param ff: Force field, ``"gaff"`` (default) or ``"gaff2"``.
+    /// :raises ValueError: on an unknown force field or missing bond orders (the input
+    ///     must carry bond orders, e.g. from an SDF/mol2 file).
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sys = pymolar.System("ligand.sdf")
+    ///    sys.apply_ff("gaff")
+    #[pyo3(signature = (ff="gaff"))]
+    fn apply_ff(&self, ff: &str) -> PyResult<()> {
+        let fftype = parse_ff(ff)?;
+        self.r_top_mut().apply_ff(fftype).map_err(to_py_value_err)
     }
 
     /// Remove atoms selected by argument (``Sel``, query string, range, or indices).
