@@ -4,7 +4,8 @@ members = [
 "molar_gromacs",
 "molar_bin",
 "molar_python",
-"molar_membrane"
+"molar_membrane",
+"molar_ff"
 ]
 resolver = "2"
 

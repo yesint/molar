@@ -1,0 +1,5 @@
+CHARGE      0.00 ( 0 )
+Formula: H1 Cl1 
+ATOM      1  Cl1 MOL     1      -3.328   0.159  -0.419  0.000000        cl
+ATOM      2  H1  MOL     1      -3.407   1.285   0.173  0.000000        ha
+BOND    1    2    1    1     H1  Cl1

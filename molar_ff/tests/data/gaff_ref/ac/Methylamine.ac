@@ -1,0 +1,17 @@
+CHARGE      0.00 ( 0 )
+Formula: H6 C1 N1 
+ATOM      1  N1  MOL     1      -0.678  -0.665   0.116  0.000000        n4
+ATOM      2  C1  MOL     1      -1.959   0.026   0.027  0.000000        c3
+ATOM      3  H1  MOL     1      -2.759  -0.674   0.267  0.000000        hx
+ATOM      4  H2  MOL     1      -2.089   0.404  -0.988  0.000000        hx
+ATOM      5  H3  MOL     1      -1.966   0.855   0.735  0.000000        hx
+ATOM      6  H4  MOL     1       0.090  -0.003  -0.113  0.000000        hn
+ATOM      7  H5  MOL     1      -0.664  -1.458  -0.557  0.000000        hn
+ATOM      8  H6  MOL     1      -0.547  -1.028   1.082  0.000000        hn
+BOND    1    2    1    1     C1   N1
+BOND    2    3    2    1     H1   C1
+BOND    3    4    2    1     H2   C1
+BOND    4    5    2    1     H3   C1
+BOND    5    6    1    1     H4   N1
+BOND    6    7    1    1     H5   N1
+BOND    7    8    1    1     H6   N1

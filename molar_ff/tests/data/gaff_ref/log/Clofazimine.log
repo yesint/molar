@@ -1,0 +1,5 @@
+Info: The atom type is set to gaff; the options available to the -at flag are
+      gaff, gaff2, amber, bcc, abcg2, and sybyl.
+
+Warning: atom type of    C2 (cc) and    N2 (nc) may be wrong.
+

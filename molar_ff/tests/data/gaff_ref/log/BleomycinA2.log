@@ -1,0 +1,6 @@
+Info: The atom type is set to gaff; the options available to the -at flag are
+      gaff, gaff2, amber, bcc, abcg2, and sybyl.
+
+Info: Bond types are assigned for valence state (14384) with penalty (4).
+Warning: atom type of   N15 (nd) and   C36 (cc) may be wrong.
+

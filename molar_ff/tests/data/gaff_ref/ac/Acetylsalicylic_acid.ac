@@ -1,0 +1,44 @@
+CHARGE      0.00 ( 0 )
+Formula: H8 C9 O4 
+ATOM      1  C1  MOL     1      -0.116   0.604   0.376  0.000000        ca
+ATOM      2  C2  MOL     1      -0.806  -0.566   0.049  0.000000        ca
+ATOM      3  C3  MOL     1      -0.751   1.838   0.405  0.000000        ca
+ATOM      4  C4  MOL     1      -2.163  -0.466  -0.261  0.000000        ca
+ATOM      5  C5  MOL     1      -2.101   1.919   0.095  0.000000        ca
+ATOM      6  C6  MOL     1      -2.804   0.768  -0.238  0.000000        ca
+ATOM      7  C7  MOL     1      -0.137  -1.877   0.028  0.000000         c
+ATOM      8  C8  MOL     1       2.137   0.727  -0.281  0.000000         c
+ATOM      9  C9  MOL     1       3.583   0.610   0.202  0.000000        c3
+ATOM     10  O1  MOL     1       1.252   0.561   0.691  0.000000        os
+ATOM     11  O2  MOL     1       1.179  -1.864   0.341  0.000000        oh
+ATOM     12  O3  MOL     1      -0.723  -2.878  -0.249  0.000000         o
+ATOM     13  O4  MOL     1       1.831   0.937  -1.415  0.000000         o
+ATOM     14  H1  MOL     1      -0.197   2.728   0.664  0.000000        ha
+ATOM     15  H2  MOL     1      -2.740  -1.341  -0.522  0.000000        ha
+ATOM     16  H3  MOL     1      -2.604   2.874   0.113  0.000000        ha
+ATOM     17  H4  MOL     1      -3.854   0.832  -0.481  0.000000        ha
+ATOM     18  H5  MOL     1       3.801   1.406   0.914  0.000000        hc
+ATOM     19  H6  MOL     1       4.266   0.690  -0.643  0.000000        hc
+ATOM     20  H7  MOL     1       3.732  -0.354   0.690  0.000000        hc
+ATOM     21  H8  MOL     1       1.486  -0.996   0.565  0.000000        ho
+BOND    1    2    1    7     C2   C1
+BOND    2    3    1    8     C3   C1
+BOND    3    4    2    8     C4   C2
+BOND    4    5    3    7     C5   C3
+BOND    5    6    5    8     C6   C5
+BOND    6    6    4    7     C6   C4
+BOND    7    7    2    1     C7   C2
+BOND    8    9    8    1     C9   C8
+BOND    9   10    8    1     O1   C8
+BOND   10   10    1    1     O1   C1
+BOND   11   11    7    1     O2   C7
+BOND   12   12    7    2     O3   C7
+BOND   13   13    8    2     O4   C8
+BOND   14   14    3    1     H1   C3
+BOND   15   15    4    1     H2   C4
+BOND   16   16    5    1     H3   C5
+BOND   17   17    6    1     H4   C6
+BOND   18   18    9    1     H5   C9
+BOND   19   19    9    1     H6   C9
+BOND   20   20    9    1     H7   C9
+BOND   21   21   11    1     H8   O2

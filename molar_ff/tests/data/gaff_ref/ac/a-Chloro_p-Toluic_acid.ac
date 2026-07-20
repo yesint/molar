@@ -1,0 +1,38 @@
+CHARGE      0.00 ( 0 )
+Formula: H7 C8 O2 Cl1 
+ATOM      1  C1  MOL     1       1.487   2.477  -0.096  0.000000        c3
+ATOM      2  C2  MOL     1       0.719   1.183  -0.065  0.000000        ca
+ATOM      3  H1  MOL     1       2.471   2.335  -0.544  0.000000        h1
+ATOM      4  Cl1 MOL     1       1.714   3.096   1.562  0.000000        cl
+ATOM      5  H2  MOL     1       0.953   3.234  -0.672  0.000000        h1
+ATOM      6  C3  MOL     1      -0.670   1.183  -0.147  0.000000        ca
+ATOM      7  C4  MOL     1      -1.381  -0.009  -0.120  0.000000        ca
+ATOM      8  C5  MOL     1      -0.711  -1.225  -0.009  0.000000        ca
+ATOM      9  C6  MOL     1       0.679  -1.228   0.073  0.000000        ca
+ATOM     10  C7  MOL     1       1.386  -0.032   0.046  0.000000        ca
+ATOM     11  H3  MOL     1      -1.204   2.118  -0.233  0.000000        ha
+ATOM     12  H4  MOL     1      -2.459   0.030  -0.186  0.000000        ha
+ATOM     13  H5  MOL     1       1.227  -2.155   0.160  0.000000        ha
+ATOM     14  H6  MOL     1       2.464  -0.051   0.111  0.000000        ha
+ATOM     15  C8  MOL     1      -1.449  -2.495   0.021  0.000000         c
+ATOM     16  O1  MOL     1      -2.796  -2.401  -0.066  0.000000        oh
+ATOM     17  O2  MOL     1      -0.876  -3.538   0.115  0.000000         o
+ATOM     18  H7  MOL     1      -3.216  -3.250  -0.042  0.000000        ho
+BOND    1    2    1    1     C2   C1
+BOND    2    3    1    1     H1   C1
+BOND    3    4    1    1    Cl1   C1
+BOND    4    5    1    1     H2   C1
+BOND    5    6    2    7     C3   C2
+BOND    6    7    6    8     C4   C3
+BOND    7    8    7    7     C5   C4
+BOND    8    9    8    8     C6   C5
+BOND    9   10    9    7     C7   C6
+BOND   10   10    2    8     C7   C2
+BOND   11   11    6    1     H3   C3
+BOND   12   12    7    1     H4   C4
+BOND   13   13    9    1     H5   C6
+BOND   14   14   10    1     H6   C7
+BOND   15   15    8    1     C8   C5
+BOND   16   16   15    1     O1   C8
+BOND   17   17   15    2     O2   C8
+BOND   18   18   16    1     H7   O1

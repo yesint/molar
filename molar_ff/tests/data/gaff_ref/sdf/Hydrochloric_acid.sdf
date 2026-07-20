@@ -1,0 +1,18 @@
+Hydrochloric_acid
+     RDKit          3D
+
+  2  1  0  0  0  0  0  0  0  0999 V2000
+   -3.3280    0.1590   -0.4190 Cl  0  0  0  0  0  0  0  0  0  0  0  0
+   -3.4070    1.2850    0.1730 H   0  0  0  0  0  0  0  0  0  0  0  0
+  2  1  1  0
+M  END
+>  <pdb_atom_names>  (1) 
+CL1 H16
+
+>  <canonical_smiles>  (1) 
+Cl
+
+>  <formal_charge>  (1) 
+0
+
+$$$$

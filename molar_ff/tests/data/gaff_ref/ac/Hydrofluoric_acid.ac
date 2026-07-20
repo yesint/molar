@@ -1,0 +1,5 @@
+CHARGE      0.00 ( 0 )
+Formula: H1 F1 
+ATOM      1  F1  MOL     1       0.000   0.000   0.000  0.000000         f
+ATOM      2  H1  MOL     1       0.436  -0.148  -0.819  0.000000        ha
+BOND    1    2    1    1     H1   F1

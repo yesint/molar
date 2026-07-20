@@ -1,0 +1,247 @@
+{
+"source": "AmberClassic test/antechamber (regenerated: antechamber -at gaff)",
+"molecules": [
+{
+"name": "sustiva",
+"natom": 30,
+"atoms": [
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "c3"
+},
+{
+"el": "C",
+"gaff": "c1"
+},
+{
+"el": "C",
+"gaff": "c1"
+},
+{
+"el": "C",
+"gaff": "cx"
+},
+{
+"el": "H",
+"gaff": "hc"
+},
+{
+"el": "C",
+"gaff": "cx"
+},
+{
+"el": "H",
+"gaff": "hc"
+},
+{
+"el": "H",
+"gaff": "hc"
+},
+{
+"el": "C",
+"gaff": "cx"
+},
+{
+"el": "H",
+"gaff": "hc"
+},
+{
+"el": "H",
+"gaff": "hc"
+},
+{
+"el": "C",
+"gaff": "c3"
+},
+{
+"el": "F",
+"gaff": "f"
+},
+{
+"el": "F",
+"gaff": "f"
+},
+{
+"el": "F",
+"gaff": "f"
+},
+{
+"el": "O",
+"gaff": "os"
+},
+{
+"el": "C",
+"gaff": "c"
+},
+{
+"el": "O",
+"gaff": "o"
+},
+{
+"el": "N",
+"gaff": "n"
+},
+{
+"el": "H",
+"gaff": "hn"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "Cl",
+"gaff": "cl"
+}
+]
+},
+{
+"name": "tp",
+"natom": 13,
+"atoms": [
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "C",
+"gaff": "ca"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "S",
+"gaff": "sh"
+},
+{
+"el": "H",
+"gaff": "hs"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "H",
+"gaff": "ha"
+},
+{
+"el": "H",
+"gaff": "ha"
+}
+]
+},
+{
+"name": "fpph",
+"natom": 13,
+"atoms": [
+{
+"el": "C",
+"gaff": "c3"
+},
+{
+"el": "H",
+"gaff": "h1"
+},
+{
+"el": "H",
+"gaff": "h1"
+},
+{
+"el": "H",
+"gaff": "h1"
+},
+{
+"el": "O",
+"gaff": "os"
+},
+{
+"el": "O",
+"gaff": "o"
+},
+{
+"el": "O",
+"gaff": "o"
+},
+{
+"el": "O",
+"gaff": "o"
+},
+{
+"el": "O",
+"gaff": "o"
+},
+{
+"el": "O",
+"gaff": "os"
+},
+{
+"el": "O",
+"gaff": "o"
+},
+{
+"el": "P",
+"gaff": "p5"
+},
+{
+"el": "P",
+"gaff": "p5"
+}
+]
+}
+]
+}

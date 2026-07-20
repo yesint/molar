@@ -1,0 +1,30 @@
+CHARGE      0.00 ( 0 )
+Formula: C6 N1 O2 Cl5 
+ATOM      1  Cl1 MOL     1      -1.169   2.691  -0.225  0.000000        cl
+ATOM      2  Cl2 MOL     1      -1.169  -2.692   0.225  0.000000        cl
+ATOM      3  Cl3 MOL     1       2.040  -2.752   0.183  0.000000        cl
+ATOM      4  Cl4 MOL     1       2.040   2.753  -0.183  0.000000        cl
+ATOM      5  Cl5 MOL     1       3.643   0.000   0.001  0.000000        cl
+ATOM      6  O1  MOL     1      -2.929   0.452   0.993  0.000000         o
+ATOM      7  O2  MOL     1      -2.929  -0.453  -0.993  0.000000         o
+ATOM      8  N1  MOL     1      -2.381   0.000   0.000  0.000000        no
+ATOM      9  C1  MOL     1      -0.911   0.000   0.000  0.000000        ca
+ATOM     10  C2  MOL     1      -0.231   1.213  -0.089  0.000000        ca
+ATOM     11  C3  MOL     1      -0.231  -1.213   0.089  0.000000        ca
+ATOM     12  C4  MOL     1       1.174  -1.220   0.083  0.000000        ca
+ATOM     13  C5  MOL     1       1.174   1.220  -0.083  0.000000        ca
+ATOM     14  C6  MOL     1       1.878   0.000   0.000  0.000000        ca
+BOND    1    8    7    9     N1   O2
+BOND    2    8    6    9     N1   O1
+BOND    3    9    8    1     C1   N1
+BOND    4   10    9    7     C2   C1
+BOND    5   10    1    1     C2  Cl1
+BOND    6   11    9    8     C3   C1
+BOND    7   11    2    1     C3  Cl2
+BOND    8   12   11    7     C4   C3
+BOND    9   12    3    1     C4  Cl3
+BOND   10   13   10    8     C5   C2
+BOND   11   13    4    1     C5  Cl4
+BOND   12   14   13    7     C6   C5
+BOND   13   14   12    8     C6   C4
+BOND   14   14    5    1     C6  Cl5
