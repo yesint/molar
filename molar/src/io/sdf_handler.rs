@@ -246,11 +246,30 @@ impl FileFormatHandler for SdfFileHandler {
             bonds.push(Bond::with_order(a1 as usize - 1, a2 as usize - 1, order));
         }
 
-        // Skip the rest of the record: properties (`M  …`, `M  END`) and any data
-        // fields, stopping after the `$$$$` separator (SDF) or at EOF (.mol).
+        // Consume the rest of the record: parse `M  CHG` formal-charge properties, skip
+        // everything else, stopping after the `$$$$` separator (SDF) or at EOF (.mol).
+        // `M  CHG  n  a1 c1  a2 c2 …` lists `n` (1-based atom, charge) pairs; when present
+        // it supersedes the deprecated atom-block charge column (which we ignore).
         while let Some(l) = next_line(buf)? {
-            if l.trim_end() == "$$$$" {
+            let line = l.trim_end();
+            if line == "$$$$" {
                 break;
+            }
+            if let Some(rest) = line.strip_prefix("M  CHG") {
+                let mut it = rest.split_whitespace();
+                let count = it.next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                for _ in 0..count {
+                    match (
+                        it.next().and_then(|s| s.parse::<usize>().ok()),
+                        it.next().and_then(|s| s.parse::<i32>().ok()),
+                    ) {
+                        (Some(idx), Some(chg)) if (1..=atoms.len()).contains(&idx) => {
+                            // Molfiles carry only an integer formal charge; store it in `charge`.
+                            atoms[idx - 1].charge = chg as Float;
+                        }
+                        _ => break,
+                    }
+                }
             }
         }
 
@@ -319,6 +338,26 @@ impl FileFormatHandler for SdfFileHandler {
             };
             // 1-based atom indices.
             writeln!(w, "{:>3}{:>3}{:>3}  0  0  0  0", b.i1 + 1, b.i2 + 1, ty)?;
+        }
+
+        // `M  CHG` properties for atoms carrying a formal charge (8 pairs per line). Molfiles
+        // store only integer charges, so emit only (near-)integer nonzero `charge` values;
+        // fractional partial charges (which the format can't represent) are not written.
+        let charged: Vec<(usize, i32)> = data
+            .iter_atoms_dyn()
+            .enumerate()
+            .filter_map(|(i, a)| {
+                let c = a.get_charge();
+                let r = c.round();
+                (r as i32 != 0 && (c - r).abs() < 1e-4).then_some((i + 1, r as i32))
+            })
+            .collect();
+        for chunk in charged.chunks(8) {
+            write!(w, "M  CHG{:>3}", chunk.len())?;
+            for &(idx, chg) in chunk {
+                write!(w, "{idx:>4}{chg:>4}")?;
+            }
+            writeln!(w)?;
         }
 
         writeln!(w, "M  END")?;
@@ -417,6 +456,52 @@ $$$$
         assert_eq!(top2.bonds[1].order, BondOrder::Single);
         assert_eq!(top2.atoms[1].atomic_number, 8); // O survived
         assert!((st2.coords[1].x - 0.123).abs() < 1e-3, "C–O distance preserved");
+    }
+
+    /// `M  CHG` formal charges are parsed onto the right atoms and survive a write/read round-trip.
+    #[test]
+    fn parses_and_writes_formal_charges() {
+        // Acetate-like: C(0), O(1), O(2, charge -1), plus a cation marker on atom 0 would be odd;
+        // use a nitro-ish stub: N(0) charge +1, O(1) charge -1, O(2), C(3).
+        const CHG: &str = "\
+chg
+  test
+
+  4  3  0  0  0  0  0  0  0  0999 V2000
+    0.0000    0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0
+    1.2000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.2000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+    0.0000    1.5000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  2  0  0  0  0
+  1  3  1  0  0  0  0
+  1  4  1  0  0  0  0
+M  CHG  2   1   1   3  -1
+M  END
+$$$$
+";
+        let mut h = SdfFileHandler::from_source(DynSource(Box::new(Cursor::new(
+            CHG.as_bytes().to_vec(),
+        ))))
+        .unwrap();
+        let (top, _) = h.read().unwrap();
+        assert_eq!(top.atoms[0].charge, 1.0, "N+ from M CHG");
+        assert_eq!(top.atoms[1].charge, 0.0, "double-bonded O neutral");
+        assert_eq!(top.atoms[2].charge, -1.0, "O- from M CHG");
+        assert_eq!(top.atoms[3].charge, 0.0);
+
+        // Round-trip: write and re-read; charges preserved.
+        let st = State { coords: vec![Pos::default(); 4], ..Default::default() };
+        let sys = System::new(top, st).unwrap();
+        let path = std::env::temp_dir().join("molar_sdf_chg_roundtrip.sdf");
+        {
+            let mut wh = SdfFileHandler::create(&path).unwrap();
+            wh.write(&sys).unwrap();
+        }
+        let mut rh = SdfFileHandler::open(&path).unwrap();
+        let (top2, _) = rh.read().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(top2.atoms[0].charge, 1.0);
+        assert_eq!(top2.atoms[2].charge, -1.0);
     }
 
     #[test]

@@ -208,6 +208,14 @@ fn bond_valence(order: BondOrder, z: u8, ring_size: usize) -> f32 {
 // Graph + SSSR
 // ---------------------------------------------------------------------------
 
+/// Non-mutating **SSSR** ring perception: the smallest set of smallest rings, each as its
+/// atom indices in cycle order. Unlike [`perceive`] this does not touch the topology (no
+/// Kekulé destruction), so callers that need the original bond orders — e.g. force-field
+/// featurization — can get the ring set without side effects.
+pub fn sssr_rings(n: usize, bonds: &[Bond]) -> Vec<Vec<usize>> {
+    sssr(n, bonds).into_iter().map(|r| r.atoms).collect()
+}
+
 /// One ring: its atom indices (cycle order) and the bond indices forming it.
 struct RingData {
     atoms: Vec<usize>,

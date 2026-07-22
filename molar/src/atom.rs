@@ -77,7 +77,8 @@ pub struct Atom {
     pub atomic_number: u8,
     /// Mass in atomic units
     pub mass: Float,
-    /// Charge in electroc charges.
+    /// Charge in electroc charges. For inputs that carry only an integer formal charge
+    /// (e.g. an SDF `M  CHG` record), that formal charge is stored here.
     pub charge: Float,
     /// Name of the atom type.
     pub type_name: AtomStr,
