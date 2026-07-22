@@ -399,4 +399,35 @@ mod tests {
         // Python espaloma reference to float precision (residual is f32 rounding, ~2e-4).
         assert!(rmse < 5e-4, "espaloma charge RMSE {rmse} regressed");
     }
+
+    /// The public `ApplyCharges` API writes predicted charges into `atom.charge`, matching the
+    /// reference and summing to ~0 over the molecule.
+    #[test]
+    fn apply_charges_public_api() {
+        use crate::{ApplyCharges, ChargeModel};
+        use molar::prelude::*;
+        #[derive(serde::Deserialize)]
+        struct RefFile {
+            molecules: Vec<RefMol>,
+        }
+        #[derive(serde::Deserialize)]
+        struct RefMol {
+            name: String,
+            charges: Vec<f32>,
+        }
+        let txt = std::fs::read_to_string("tests/data/gaff_ref/references_espaloma.json").unwrap();
+        let refs: RefFile = serde_json::from_str(&txt).unwrap();
+        let mol = &refs.molecules[0];
+        let mut sys =
+            System::from_file(format!("tests/data/gaff_ref/sdf/{}.sdf", mol.name)).unwrap();
+
+        sys.apply_charges(ChargeModel::Espaloma).unwrap();
+
+        let got: Vec<f32> = sys.iter_atoms().map(|a| a.charge as f32).collect();
+        let maxd = got.iter().zip(&mol.charges).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let sum: f32 = got.iter().sum();
+        println!("apply_charges({}): max|Δ|={maxd:.2e}  Σq={sum:.2e}", mol.name);
+        assert!(maxd < 1e-3, "apply_charges disagrees with reference: {maxd}");
+        assert!(sum.abs() < 1e-3, "charges should sum to ~0: {sum}");
+    }
 }
