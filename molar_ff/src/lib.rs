@@ -28,6 +28,9 @@ use molar::prelude::*;
 
 mod gaff;
 
+#[cfg(feature = "espaloma")]
+pub mod charge;
+
 /// The force field whose atom types should be assigned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FFType {
