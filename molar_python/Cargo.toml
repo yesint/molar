@@ -24,7 +24,7 @@ crate-type = ["cdylib", "rlib"]
 pyo3 = {version = "0.27", features =["extension-module"] }
 pyo3-log = "0.13"
 molar = {version = "1.3.3", path = "../molar"}
-molar_ff = {version = "1.5.0", path = "../molar_ff"}
+molar_ff = {version = "1.5.0", path = "../molar_ff", features = ["espaloma"]}
 #molar_membrane = {version = "0.10.0", path = "../molar_membrane"}
 numpy = {version = "0.27", features = ["nalgebra"]}
 env_logger = "0.11"

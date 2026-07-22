@@ -31,6 +31,16 @@ pub(crate) fn parse_ff(name: &str) -> PyResult<molar_ff::FFType> {
     }
 }
 
+/// Parse a charge-model name (case-insensitive) into a [`molar_ff::ChargeModel`].
+pub(crate) fn parse_charge_model(name: &str) -> PyResult<molar_ff::ChargeModel> {
+    match name.to_ascii_lowercase().as_str() {
+        "espaloma" => Ok(molar_ff::ChargeModel::Espaloma),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "unknown charge model '{other}' (expected 'espaloma')"
+        ))),
+    }
+}
+
 // Constructs PyArray backed by existing Pos data.
 pub(crate) unsafe fn map_pyarray_to_pos<'py>(
     st: &Bound<'py,StatePy>,

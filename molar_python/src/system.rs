@@ -2,7 +2,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
-use molar_ff::ApplyFF;
+use molar_ff::{ApplyCharges, ApplyFF};
 use numpy::nalgebra::{Const, VectorView};
 use numpy::{PyArray1, PyArrayLike1};
 use pyo3::exceptions::{PyIndexError, PyValueError};
@@ -373,6 +373,27 @@ impl SystemPy {
     fn apply_ff(&self, ff: &str) -> PyResult<()> {
         let fftype = parse_ff(ff)?;
         self.r_top_mut().apply_ff(fftype).map_err(to_py_value_err)
+    }
+
+    /// Predict partial charges for all atoms, writing each atom's ``charge``.
+    ///
+    /// The whole system is treated as the molecule and charges are equilibrated to sum to
+    /// zero over it. Any integer formal charge already on ``charge`` (e.g. read from an SDF
+    /// ``M  CHG`` record) is used as input and then overwritten with the predicted charge.
+    ///
+    /// :param model: Charge model, ``"espaloma"`` (default).
+    /// :raises ValueError: on an unknown model, missing bond orders (the input must carry
+    ///     explicit single/double/triple bonds, e.g. from an SDF/mol2 file), or an
+    ///     unsupported element.
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sys = pymolar.System("ligand.sdf")
+    ///    sys.apply_charges("espaloma")
+    #[pyo3(signature = (model="espaloma"))]
+    fn apply_charges(&self, model: &str) -> PyResult<()> {
+        let model = parse_charge_model(model)?;
+        self.r_top_mut().apply_charges(model).map_err(to_py_value_err)
     }
 
     /// Remove atoms selected by argument (``Sel``, query string, range, or indices).

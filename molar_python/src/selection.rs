@@ -2,7 +2,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
-use molar_ff::ApplyFF;
+use molar_ff::{ApplyCharges, ApplyFF};
 use numpy::nalgebra::{Const, Dyn, VectorView};
 use numpy::{
     PyArray1, PyArrayLike1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray,
@@ -723,6 +723,31 @@ impl SelPy {
             index: self.index(),
         };
         sel.apply_ff(fftype).map_err(to_py_value_err)
+    }
+
+    /// Predict partial charges for the selected atoms, writing each atom's ``charge``. The
+    /// selection is treated as the molecule (only bonds whose both endpoints are selected are
+    /// used, so it should span complete molecule(s)) and charges are equilibrated to sum to
+    /// zero over it. Any integer formal charge already on ``charge`` is used as input and then
+    /// overwritten with the predicted charge.
+    ///
+    /// :param model: Charge model, ``"espaloma"`` (default).
+    /// :raises ValueError: on an unknown model, missing bond orders, an unsupported element,
+    ///     or a selection that cuts across a molecule.
+    ///
+    /// .. code-block:: python
+    ///
+    ///    sel = system("resname LIG")
+    ///    sel.apply_charges("espaloma")
+    #[pyo3(signature = (model="espaloma"))]
+    pub fn apply_charges(&self, model: &str) -> PyResult<()> {
+        let model = parse_charge_model(model)?;
+        let mut sel = TmpSelMut {
+            top: self.top_ptr_mut(),
+            st: self.st_ptr_mut(),
+            index: self.index(),
+        };
+        sel.apply_charges(model).map_err(to_py_value_err)
     }
 
     /// Selection time value (proxied to backing state).
