@@ -45,7 +45,7 @@ web-time = "1"
 # rayon is likewise native-only: wasm32 has no threads without SharedArrayBuffer,
 # so molar runs single-threaded there via the `src/par.rs` serial shim.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-molar_gromacs = { path = "../molar_gromacs", version = "1.0.0" }
+molar_gromacs = { path = "../molar_gromacs", version = "2.0.0" }
 rayon.workspace = true
 
 [dev-dependencies]

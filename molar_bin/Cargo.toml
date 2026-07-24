@@ -1,6 +1,6 @@
 [package]
 name = "molar_bin"
-version = "1.5.0"
+version = "2.0.0"
 edition.workspace = true
 authors.workspace = true
 
@@ -14,7 +14,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-molar = {version = "1.3.3", path = "../molar"}
+molar = {version = "2.0.0", path = "../molar"}
 clap = {version = "4.5", features=["derive"]}
 env_logger = "0.11"
 log.workspace = true

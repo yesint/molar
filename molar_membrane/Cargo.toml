@@ -1,6 +1,6 @@
 [package]
 name = "molar_membrane"
-version = "1.5.0"
+version = "2.0.0"
 edition.workspace = true
 authors.workspace = true
 
@@ -14,7 +14,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-molar = {version = "1.3.3", path = "../molar"}
+molar = {version = "2.0.0", path = "../molar"}
 anyhow.workspace = true
 clap.workspace = true
 triomphe.workspace = true
