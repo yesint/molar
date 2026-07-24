@@ -567,12 +567,16 @@ fn main() -> Result<()> {
 	    // Position of the M dummy particle in TIP4
 	    let m_pos = o_pos + v*0.01546;
         // Dummy atom M
-        let m_at = Atom::from(mol.first_atom())
+        // Atoms are stored column-wise, so `first_atom()` gives an `AtomRef`
+        // proxy. `Atom::from(&proxy)` materializes an owned atom row.
+        let m_at = Atom::from(&mol.first_atom())
             .with_name("M");
 
         // Add new converted water molecule
+        // `append_atoms` consumes owned atom rows, so the proxies
+        // yielded by `iter_atoms()` are converted on the fly.
         let added = out.append_atoms(
-            mol.iter_atoms().chain(std::iter::once(&m_at)),
+            mol.iter_atoms().map(|a| Atom::from(&a)).chain(std::iter::once(m_at)),
             mol.iter_pos().chain(std::iter::once(&m_pos)),
         )?;
 
@@ -622,14 +626,14 @@ fn main() -> Result<()> {
     // Parallel iteration over atoms  
     // Count ALA residues in parallel
     let ala_count = sel.par_iter_atoms()
-        .filter(|atom| atom.resname == "ALA")
+        .filter(|atom| atom.get_resname() == "ALA")
         .count();
     println!("CA in ALA: {}", ala_count);
 
     // Parallel iteration over particles
     // Combine atom name and position information in parallel
     let particle_data: Vec<String> = sel.par_iter_particle()
-        .map(|p| format!("{}-{}", p.atom.name, p.pos.x))
+        .map(|p| format!("{}-{}", p.atom.get_name(), p.pos.x))
         .collect();
     println!("Collected {} particles", particle_data.len());
 
@@ -667,11 +671,11 @@ fn main() -> Result<()> {
 
     // Make a parallel split: distinct selection for each POPG lipid.
     let par = sys.split_par(|p| {
-        if p.atom.resname == "POPG" {
+        if p.atom.get_resname() == "POPG" {
             // Whenever distinct result is returned form this closure
             // new selection is created, so each distinct POPG residue
             // becomes a separate selection.
-            Some(p.atom.resindex)
+            Some(p.atom.get_resindex())
         } else {
             // All other atoms are ignored
             None

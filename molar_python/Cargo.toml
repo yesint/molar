@@ -19,6 +19,9 @@ name = "molar_python"
 # `rlib` in addition to `cdylib` so other Rust crates (e.g. the molar_vis native
 # Python module) can depend on pymolar's pyclasses and reuse its module registration.
 crate-type = ["cdylib", "rlib"]
+# Doc comments here are Python-facing reStructuredText (Sphinx), not Rust:
+# indented RST blocks would be picked up as Rust doctests and fail to compile.
+doctest = false
 
 [dependencies]
 pyo3 = {version = "0.27", features =["extension-module"] }

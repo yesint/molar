@@ -11,6 +11,8 @@ documentation = "https://docs.rs/molar_ff"
 readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
+# The GAFF parity corpus (597 molecules, ~9 MB) is a development fixture only.
+exclude = ["tests/data/gaff_ref"]
 
 [dependencies]
 molar = { version = "1.3.3", path = "../molar" }
