@@ -150,9 +150,45 @@ mod tests {
         })?;
 
         // Bind split to a system
-        sys.iter_par_split_mut(&par) 
+        sys.iter_par_split_mut(&par)
             // Run unwrap on each selection in parallel
-            .try_for_each(|mut sel| sel.unwrap_simple())?; 
+            .try_for_each(|mut sel| sel.unwrap_simple())?;
+        Ok(())
+    }
+
+    /// Mutate an *atom* column (not just positions) in parallel over disjoint index sets and
+    /// verify the writes land correctly — exercises `AtomRefMut` core-column setters across
+    /// threads (the `SelParMut` → `iter_atoms_mut` path under SoA storage).
+    #[test]
+    fn par_atom_column_write() -> anyhow::Result<()> {
+        // In-memory system: 20 residues × 5 atoms.
+        let mut top = Topology::default();
+        for res in 0..20i32 {
+            for _ in 0..5 {
+                top.atoms
+                    .push_row(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
+            }
+        }
+        top.assign_resindex();
+        let n = top.atoms.len();
+        let mut sys = System::new(top, State::new_fake(n))?;
+
+        // One parallel selection per residue (disjoint index sets).
+        let par = sys.split_par(|p| Some(p.atom.get_resindex()))?;
+
+        // In parallel, set each atom's bfactor to its resid.
+        sys.iter_par_split_mut(&par).try_for_each(|mut sel| {
+            for mut a in sel.iter_atoms_mut() {
+                let r = a.get_resid() as Float;
+                a.set_bfactor(r);
+            }
+            Ok::<_, SelectionError>(())
+        })?;
+
+        // Every atom's bfactor must now equal its resid.
+        for a in sys.iter_atoms() {
+            assert_eq!(a.get_bfactor(), a.get_resid() as Float);
+        }
         Ok(())
     }
 }
