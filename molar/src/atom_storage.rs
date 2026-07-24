@@ -192,9 +192,13 @@ impl AtomStorage {
         debug_assert!(self.invariant_holds());
     }
 
-    /// A read-only proxy for atom `i`. Caller must ensure `i < len()`.
+    /// A read-only proxy for atom `i`.
+    ///
+    /// # Safety
+    /// `i` must be `< len()`: the returned proxy indexes the columns unchecked, so *using* it
+    /// with an out-of-bounds `i` is undefined behavior.
     #[inline]
-    pub fn get_unchecked(&self, i: usize) -> AtomRef<'_> {
+    pub unsafe fn get_unchecked(&self, i: usize) -> AtomRef<'_> {
         AtomRef { st: self, idx: i }
     }
 
@@ -204,9 +208,12 @@ impl AtomStorage {
         (i < self.len()).then_some(AtomRef { st: self, idx: i })
     }
 
-    /// A mutable proxy for atom `i`. Caller must ensure `i < len()`.
+    /// A mutable proxy for atom `i`.
+    ///
+    /// # Safety
+    /// `i` must be `< len()` (see [`get_unchecked`](Self::get_unchecked)).
     #[inline]
-    pub fn get_mut_unchecked(&mut self, i: usize) -> AtomRefMut<'_> {
+    pub unsafe fn get_mut_unchecked(&mut self, i: usize) -> AtomRefMut<'_> {
         AtomRefMut {
             st: self as *mut AtomStorage,
             idx: i,
@@ -214,14 +221,25 @@ impl AtomStorage {
         }
     }
 
-    /// Reconstruct an owned [`Atom`] from row `i`.
+    /// A mutable proxy for atom `i`, or `None` if out of bounds.
+    #[inline]
+    pub fn get_mut(&mut self, i: usize) -> Option<AtomRefMut<'_>> {
+        if i < self.len() {
+            Some(unsafe { self.get_mut_unchecked(i) })
+        } else {
+            None
+        }
+    }
+
+    /// Reconstruct an owned [`Atom`] from row `i`. Panics if `i` is out of bounds.
     pub fn to_atom(&self, i: usize) -> Atom {
-        Atom::from(&self.get_unchecked(i))
+        Atom::from(&self.get(i).expect("atom index out of bounds"))
     }
 
     /// Iterate read-only proxies over all atoms.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = AtomRef<'_>> {
-        (0..self.len()).map(move |i| self.get_unchecked(i))
+        // SAFETY: `i` ranges over `0..len()`.
+        (0..self.len()).map(move |i| unsafe { self.get_unchecked(i) })
     }
 
     // --- optional-column materializers (no-op if already present) ---
@@ -323,11 +341,6 @@ impl<'a> AtomRef<'a> {
     #[inline]
     pub(crate) fn storage(&self) -> &'a AtomStorage {
         self.st
-    }
-    /// The atom's index within [`storage`](Self::storage).
-    #[inline]
-    pub(crate) fn index(&self) -> usize {
-        self.idx
     }
 }
 
@@ -598,9 +611,9 @@ mod tests {
         s.push_row(&atom("CA", 1).with_mass(12.0).with_chain('A'));
         s.push_row(&atom("CB", 2).with_mass(14.0));
         assert_eq!(s.len(), 2);
-        assert_eq!(s.get_unchecked(0).get_name(), "CA");
-        assert_eq!(s.get_unchecked(0).get_mass(), 12.0);
-        assert_eq!(s.get_unchecked(0).get_chain(), 'A');
+        assert_eq!(s.get(0).unwrap().get_name(), "CA");
+        assert_eq!(s.get(0).unwrap().get_mass(), 12.0);
+        assert_eq!(s.get(0).unwrap().get_chain(), 'A');
         assert_eq!(s.get(1).unwrap().get_resid(), 2);
         assert!(s.get(2).is_none());
     }
@@ -611,7 +624,7 @@ mod tests {
         s.push_row(&atom("C", 1));
         s.push_row(&atom("N", 1));
         // No atom carried a type id → column absent → getter is None.
-        assert_eq!(s.get_unchecked(0).get_type_id(), None);
+        assert_eq!(s.get(0).unwrap().get_type_id(), None);
         assert!(s.type_id.is_none());
     }
 
@@ -622,9 +635,9 @@ mod tests {
         s.push_row(&atom("N", 1).with_type_id(7)); // triggers materialization
         s.push_row(&atom("O", 1)); // pushed after column exists → default
         // Column now present and full-length; row 0 backfilled to default 0.
-        assert_eq!(s.get_unchecked(0).get_type_id(), Some(0));
-        assert_eq!(s.get_unchecked(1).get_type_id(), Some(7));
-        assert_eq!(s.get_unchecked(2).get_type_id(), Some(0));
+        assert_eq!(s.get(0).unwrap().get_type_id(), Some(0));
+        assert_eq!(s.get(1).unwrap().get_type_id(), Some(7));
+        assert_eq!(s.get(2).unwrap().get_type_id(), Some(0));
         assert_eq!(s.type_id.as_ref().unwrap().len(), 3);
     }
 
@@ -634,17 +647,17 @@ mod tests {
         s.push_row(&atom("C", 1));
         s.push_row(&atom("N", 2));
         {
-            let mut m = s.get_mut_unchecked(1);
+            let mut m = s.get_mut(1).unwrap();
             m.set_mass(14.5);
             m.set_type_name("n3"); // materializes type_name
             m.set_in_ring(true); // materializes flags via get_flags/set_flags default
         }
-        assert_eq!(s.get_unchecked(1).get_mass(), 14.5);
-        assert_eq!(s.get_unchecked(1).get_type_name(), Some("n3"));
-        assert!(s.get_unchecked(1).is_in_ring());
+        assert_eq!(s.get(1).unwrap().get_mass(), 14.5);
+        assert_eq!(s.get(1).unwrap().get_type_name(), Some("n3"));
+        assert!(s.get(1).unwrap().is_in_ring());
         // Backfilled sibling: column present, default values.
-        assert_eq!(s.get_unchecked(0).get_type_name(), Some(""));
-        assert!(!s.get_unchecked(0).is_in_ring());
+        assert_eq!(s.get(0).unwrap().get_type_name(), Some(""));
+        assert!(!s.get(0).unwrap().is_in_ring());
     }
 
     #[test]
@@ -655,9 +668,9 @@ mod tests {
         }
         s.retain_by_index(&[1, 3]); // remove atoms 1 and 3
         assert_eq!(s.len(), 3);
-        let ids: Vec<u32> = (0..3).map(|i| s.get_unchecked(i).get_type_id().unwrap()).collect();
+        let ids: Vec<u32> = (0..3).map(|i| s.get(i).unwrap().get_type_id().unwrap()).collect();
         assert_eq!(ids, vec![10, 12, 14]);
-        let resids: Vec<isize> = (0..3).map(|i| s.get_unchecked(i).get_resid()).collect();
+        let resids: Vec<isize> = (0..3).map(|i| s.get(i).unwrap().get_resid()).collect();
         assert_eq!(resids, vec![0, 2, 4]);
     }
 

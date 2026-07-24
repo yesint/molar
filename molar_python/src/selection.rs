@@ -238,7 +238,7 @@ impl IndexSliceProvider for TmpSel<'_> {
 
 impl AtomProvider for TmpSel<'_> {
     fn atom_storage(&self) -> &AtomStorage {
-        unsafe { &(*self.top).atoms }
+        &self.top.atoms
     }
 }
 

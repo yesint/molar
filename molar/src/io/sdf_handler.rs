@@ -401,7 +401,7 @@ $$$$
         assert_eq!(st.coords.len(), 6);
         assert_eq!(top.bonds.len(), 5);
         // First two atoms are carbons; coordinates converted Å → nm.
-        assert_eq!(top.atoms.get_unchecked(0).get_atomic_number(), 6);
+        assert_eq!(top.atoms.get(0).unwrap().get_atomic_number(), 6);
         assert!((st.coords[1].x - 0.133).abs() < 1e-5, "C–C along x ≈ 0.133 nm");
         // The C=C bond carries a double order; the C–H bonds are single.
         assert_eq!(top.bonds[0], Bond::with_order(0, 1, BondOrder::Double));
@@ -450,7 +450,7 @@ $$$$
         assert_eq!(top2.bonds.len(), 3);
         assert_eq!(top2.bonds[0].order, BondOrder::Double);
         assert_eq!(top2.bonds[1].order, BondOrder::Single);
-        assert_eq!(top2.atoms.get_unchecked(1).get_atomic_number(), 8); // O survived
+        assert_eq!(top2.atoms.get(1).unwrap().get_atomic_number(), 8); // O survived
         assert!((st2.coords[1].x - 0.123).abs() < 1e-3, "C–O distance preserved");
     }
 
@@ -480,12 +480,12 @@ $$$$
         ))))
         .unwrap();
         let (top, _) = h.read().unwrap();
-        assert_eq!(top.atoms.get_unchecked(0).get_formal_charge(), Some(1), "N+ from M CHG");
+        assert_eq!(top.atoms.get(0).unwrap().get_formal_charge(), Some(1), "N+ from M CHG");
         // Once any atom carries a formal charge the (full-length) column exists, so
         // un-charged atoms read back the backfilled default 0 rather than None.
-        assert_eq!(top.atoms.get_unchecked(1).get_formal_charge(), Some(0), "neutral O");
-        assert_eq!(top.atoms.get_unchecked(2).get_formal_charge(), Some(-1), "O- from M CHG");
-        assert_eq!(top.atoms.get_unchecked(3).get_formal_charge(), Some(0));
+        assert_eq!(top.atoms.get(1).unwrap().get_formal_charge(), Some(0), "neutral O");
+        assert_eq!(top.atoms.get(2).unwrap().get_formal_charge(), Some(-1), "O- from M CHG");
+        assert_eq!(top.atoms.get(3).unwrap().get_formal_charge(), Some(0));
 
         // Round-trip: write and re-read; formal charges preserved.
         let st = State { coords: vec![Pos::default(); 4], ..Default::default() };
@@ -498,8 +498,8 @@ $$$$
         let mut rh = SdfFileHandler::open(&path).unwrap();
         let (top2, _) = rh.read().unwrap();
         let _ = std::fs::remove_file(&path);
-        assert_eq!(top2.atoms.get_unchecked(0).get_formal_charge(), Some(1));
-        assert_eq!(top2.atoms.get_unchecked(2).get_formal_charge(), Some(-1));
+        assert_eq!(top2.atoms.get(0).unwrap().get_formal_charge(), Some(1));
+        assert_eq!(top2.atoms.get(2).unwrap().get_formal_charge(), Some(-1));
     }
 
     #[test]

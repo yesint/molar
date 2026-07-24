@@ -3,7 +3,7 @@ use super::topology_state::TopologyPy;
 use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
 use crate::{atom::AtomPy, topology_state::StatePy};
-use molar::{Atom, AtomLike, AtomLikeMut, AtomMutProvider, State, Topology};
+use molar::{Atom, AtomLike, AtomLikeMut, State, Topology};
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;

@@ -190,7 +190,8 @@ pub trait AtomProvider: LenProvider + IndexProvider {
 
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
         let st = self.atom_storage();
-        self.iter_index().map(move |i| st.get_unchecked(i))
+        // SAFETY: indices from `iter_index()` are in-bounds for the storage.
+        self.iter_index().map(move |i| unsafe { st.get_unchecked(i) })
     }
 
     fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = AtomRef<'_>>
@@ -200,7 +201,8 @@ pub trait AtomProvider: LenProvider + IndexProvider {
         // `&AtomStorage` is `Sync` (columns are `Vec` of `Copy` scalars), so no pointer
         // laundering is needed on the immutable path.
         let st = self.atom_storage();
-        self.par_iter_index().map(move |i| st.get_unchecked(i))
+        // SAFETY: indices from `par_iter_index()` are in-bounds for the storage.
+        self.par_iter_index().map(move |i| unsafe { st.get_unchecked(i) })
     }
 
     fn iter_masses(&self) -> impl Iterator<Item = Float> {

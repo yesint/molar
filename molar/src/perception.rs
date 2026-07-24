@@ -86,7 +86,7 @@ pub fn perceive(top: &mut Topology) -> Perception {
     // aromatic flag on their atoms and `Aromatic` on their bonds.
     for r in &rings {
         for &a in &r.atoms {
-            top.atoms.get_mut_unchecked(a).set_in_ring(true);
+            top.atoms.get_mut(a).unwrap().set_in_ring(true);
         }
     }
     for (r, &is_arom) in rings.iter().zip(&aromatic) {
@@ -95,7 +95,7 @@ pub fn perceive(top: &mut Topology) -> Perception {
                 top.bonds[bi].order = BondOrder::Aromatic;
             }
             for &a in &r.atoms {
-                top.atoms.get_mut_unchecked(a).set_aromatic(true);
+                top.atoms.get_mut(a).unwrap().set_aromatic(true);
             }
         }
     }
@@ -575,7 +575,7 @@ mod tests {
     fn ammonium_charge_adjusts_valence() {
         // CH3–NH3⁺: a C–N single bond, N carries +1; H are implicit.
         let mut t = topo(&[6, 7], &[(0, 1, S)]);
-        t.atoms.get_mut_unchecked(1).set_formal_charge(1);
+        t.atoms.get_mut(1).unwrap().set_formal_charge(1);
         let p = perceive(&mut t);
         assert_eq!(p.total_charge(), 1.0);
         let h = implicit_hydrogens(&t);
@@ -587,7 +587,7 @@ mod tests {
     fn carboxylate_oxygen_minus() {
         // A lone O⁻ with one single bond → valence 1 → 0 implicit H.
         let mut t = topo(&[8, 6], &[(0, 1, S)]);
-        t.atoms.get_mut_unchecked(0).set_formal_charge(-1);
+        t.atoms.get_mut(0).unwrap().set_formal_charge(-1);
         let _ = perceive(&mut t);
         assert_eq!(implicit_hydrogens(&t)[0], 0);
     }
@@ -608,7 +608,7 @@ mod tests {
     fn perceive_preserves_type_id() {
         let mut t = benzene();
         for i in 0..t.atoms.len() {
-            t.atoms.get_mut_unchecked(i).set_type_id(42); // a "real" force-field type id
+            t.atoms.get_mut(i).unwrap().set_type_id(42); // a "real" force-field type id
         }
         perceive(&mut t);
         for a in t.atoms.iter() {

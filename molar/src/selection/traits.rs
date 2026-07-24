@@ -140,7 +140,7 @@ impl<T: PosProvider + AtomProvider + IndexProvider> ParticleIterProvider for T {
         let st = self.atom_storage();
         self.iter_index().map(move |i| Particle {
             id: i,
-            atom: st.get_unchecked(i),
+            atom: unsafe { st.get_unchecked(i) },
             pos: unsafe { &*cp.add(i) },
         })
     }
@@ -152,7 +152,7 @@ impl<T: PosProvider + AtomProvider + IndexProvider + IndexParProvider> ParticleP
         let st = self.atom_storage(); // `&AtomStorage` is Sync
         self.par_iter_index().map(move |i| Particle {
             id: i,
-            atom: st.get_unchecked(i),
+            atom: unsafe { st.get_unchecked(i) },
             pos: unsafe { &*(cp as *const Pos).add(i) },
         })
     }

@@ -207,7 +207,8 @@ impl AtomView {
                 self.index
             )));
         }
-        Ok(atoms.get_mut_unchecked(self.index))
+        // SAFETY: bounds checked just above.
+        Ok(unsafe { atoms.get_mut_unchecked(self.index) })
     }
 }
 
