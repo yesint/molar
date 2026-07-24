@@ -147,7 +147,7 @@ impl Membrane {
                     let id = lipids.len();
                     // Save mapping to real resindexes in order to be able to add lipids
                     // to groups by resindex
-                    resindex_to_id.insert(sys.bind(&lip).first_atom().resindex, id);
+                    resindex_to_id.insert(sys.bind(&lip).first_atom().get_resindex(), id);
 
                     lipids.push(LipidMolecule {
                         sel: lip,
@@ -1048,7 +1048,7 @@ mod tests {
             } else if lip.head_marker.z < z0 - 1.0 {
                 lower.push(lip.id);
             }
-            if (&lip.sel >> &src).first_atom().resname == "POGL" {
+            if (&lip.sel >> &src).first_atom().get_resname() == "POGL" {
                 println!("{}", lip.head_marker);
             }
         }

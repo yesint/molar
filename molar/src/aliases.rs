@@ -31,13 +31,13 @@ pub type Force = nalgebra::Vector3<Float>;
 pub trait IndexIterator: ExactSizeIterator<Item = usize> {}
 impl<T> IndexIterator for T where T: ExactSizeIterator<Item = usize> {}
 
-/// Convenience alias for iterator over atoms
-pub trait AtomIterator<'a>: ExactSizeIterator<Item = &'a Atom> {}
-impl<'a, T> AtomIterator<'a> for T where T: ExactSizeIterator<Item = &'a Atom> {}
+/// Convenience alias for iterator over atoms (yields the read-only column proxy)
+pub trait AtomIterator<'a>: ExactSizeIterator<Item = AtomRef<'a>> {}
+impl<'a, T> AtomIterator<'a> for T where T: ExactSizeIterator<Item = AtomRef<'a>> {}
 
-/// Convenience alias for mutable iterator over atoms
-pub trait AtomMutIterator<'a>: ExactSizeIterator<Item = &'a mut Atom> {}
-impl<'a, T> AtomMutIterator<'a> for T where T: ExactSizeIterator<Item = &'a mut Atom> {}
+/// Convenience alias for mutable iterator over atoms (yields the mutable column proxy)
+pub trait AtomMutIterator<'a>: ExactSizeIterator<Item = AtomRefMut<'a>> {}
+impl<'a, T> AtomMutIterator<'a> for T where T: ExactSizeIterator<Item = AtomRefMut<'a>> {}
 
 /// Convenience alias for iterator over positions
 pub trait PosIterator<'a>: ExactSizeIterator<Item = &'a Pos> {}

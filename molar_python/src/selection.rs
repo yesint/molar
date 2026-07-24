@@ -117,8 +117,8 @@ impl IndexProvider for SelPy {
 }
 
 impl AtomProvider for SelPy {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.r_top().atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        &self.r_top().atoms
     }
 }
 
@@ -170,7 +170,7 @@ impl TimeProvider for SelPy {
 }
 
 impl SaveTopology for SelPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
@@ -237,8 +237,8 @@ impl IndexSliceProvider for TmpSel<'_> {
 }
 
 impl AtomProvider for TmpSel<'_> {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.top.atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        unsafe { &(*self.top).atoms }
     }
 }
 
@@ -262,14 +262,14 @@ impl IndexSliceProvider for TmpSelMut<'_> {
 }
 
 impl AtomProvider for TmpSelMut<'_> {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        (*self.top).atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        unsafe { &(*self.top).atoms }
     }
 }
 
 impl AtomMutProvider for TmpSelMut<'_> {
-    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        (*self.top).atoms.as_mut_ptr()
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        unsafe { &mut (*self.top).atoms }
     }
 }
 
@@ -1158,7 +1158,7 @@ impl SelPy {
     ///    chains = sel.split_chain()    # list of Sel, one per chain
     fn split_chain(&self) -> Vec<SelPy> {
         Python::attach(|py| {
-            self.split(|p| Some(p.atom.chain))
+            self.split(|p| Some(p.atom.get_chain()))
                 .map(|s| SelPy {
                     top: UnsafeCell::new(self.py_top().clone_ref(py)),
                     st: UnsafeCell::new(self.py_st().clone_ref(py)),

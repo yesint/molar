@@ -40,12 +40,16 @@ impl<T: SystemProvider + IndexProvider> PosProvider for T {
 impl<T: SystemMutProvider + IndexProvider> PosMutProvider for T {}
 
 impl<T: SystemProvider + IndexProvider> AtomProvider for T {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        unsafe { (*self.get_system_ptr()).top.atoms.as_ptr() }
+    fn atom_storage(&self) -> &AtomStorage {
+        unsafe { &(*self.get_system_ptr()).top.atoms }
     }
 }
 
-impl<T: SystemMutProvider + IndexProvider> AtomMutProvider for T {}
+impl<T: SystemMutProvider + IndexProvider> AtomMutProvider for T {
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        unsafe { &mut (*self.get_system_mut()).top.atoms }
+    }
+}
 
 impl<T: SystemProvider + IndexProvider> BoxProvider for T {
     fn get_box(&self) -> Option<&PeriodicBox> {
@@ -133,42 +137,36 @@ impl<T: SystemProvider + IndexProvider> MolProvider for T {
 impl<T: PosProvider + AtomProvider + IndexProvider> ParticleIterProvider for T {
     fn iter_particle(&self) -> impl Iterator<Item = Particle<'_>> {
         let cp = unsafe { self.coords_ptr() };
-        let ap = unsafe { self.atoms_ptr() };
-        unsafe {
-            self.iter_index().map(move |i| Particle {
-                id: i,
-                atom: &*ap.add(i),
-                pos: &*cp.add(i),
-            })
-        }
+        let st = self.atom_storage();
+        self.iter_index().map(move |i| Particle {
+            id: i,
+            atom: st.get_unchecked(i),
+            pos: unsafe { &*cp.add(i) },
+        })
     }
 }
 
 impl<T: PosProvider + AtomProvider + IndexProvider + IndexParProvider> ParticleParIterProvider for T {
     fn par_iter_particle(&self) -> impl IndexedParallelIterator<Item = Particle<'_>> {
         let cp = unsafe { self.coords_ptr() } as usize;
-        let ap = unsafe { self.atoms_ptr() } as usize;
-        unsafe {
-            self.par_iter_index().map(move |i| Particle {
-                id: i,
-                atom: &*(ap as *const Atom).add(i),
-                pos: &*(cp as *const Pos).add(i),
-            })
-        }
+        let st = self.atom_storage(); // `&AtomStorage` is Sync
+        self.par_iter_index().map(move |i| Particle {
+            id: i,
+            atom: st.get_unchecked(i),
+            pos: unsafe { &*(cp as *const Pos).add(i) },
+        })
     }
 }
 
 impl<T: PosMutProvider + AtomMutProvider + IndexProvider> ParticleIterMutProvider for T {
     fn iter_particle_mut(&mut self) -> impl Iterator<Item = ParticleMut<'_>> {
         let cp = unsafe { self.coords_ptr_mut() };
-        let ap = unsafe { self.atoms_ptr_mut() };
-        unsafe {
-            self.iter_index().map(move |i| ParticleMut {
-                id: i,
-                atom: &mut *ap.add(i),
-                pos: &mut *cp.add(i),
-            })
-        }
+        let st = self.atom_storage_mut() as *mut AtomStorage;
+        self.iter_index().map(move |i| ParticleMut {
+            id: i,
+            atom: unsafe { AtomRefMut::from_raw(st, i) },
+            pos: unsafe { &mut *cp.add(i) },
+        })
     }
 }
 
@@ -299,23 +297,22 @@ pub trait Analysis: PosProvider + AtomProvider + IndexProvider + Sized {
     }
 
     fn split_resindex(&self) -> impl Iterator<Item = Sel> {
-        self.split(|p| Some(p.atom.resindex))
+        self.split(|p| Some(p.atom.get_resindex()))
     }
 
     /// Creates an "expanded" selection that includes all atoms with the same attributes.
-    fn whole_attr<T>(&self, attr_fn: fn(&Atom) -> &T) -> Sel
+    fn whole_attr<T>(&self, attr_fn: fn(AtomRef) -> T) -> Sel
     where
         T: Eq + std::hash::Hash + Copy,
     {
         let mut properties = std::collections::HashSet::<T>::new();
         for at in self.iter_atoms() {
-            properties.insert(*attr_fn(at));
+            properties.insert(attr_fn(at));
         }
 
         let mut ind = vec![];
         for (i, at) in self.iter_atoms().enumerate() {
-            let cur_prop = attr_fn(at);
-            if properties.contains(cur_prop) {
+            if properties.contains(&attr_fn(at)) {
                 ind.push(i);
             }
         }
@@ -325,12 +322,12 @@ pub trait Analysis: PosProvider + AtomProvider + IndexProvider + Sized {
 
     /// Selects whole residues present in the current selection (in terms of resindex)
     fn whole_residues(&self) -> Sel {
-        self.whole_attr(|at| &at.resindex)
+        self.whole_attr(|at| at.get_resindex())
     }
 
     /// Selects whole chains present in the current selection
     fn whole_chains(&self) -> Sel {
-        self.whole_attr(|at| &at.chain)
+        self.whole_attr(|at| at.get_chain())
     }
 }
 

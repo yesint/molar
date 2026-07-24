@@ -88,7 +88,7 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
             global.iter().enumerate().map(|(l, &g)| (g, l)).collect();
 
         // 2. Local atoms (atomic numbers) in local (== ascending-global) order.
-        let z: Vec<u8> = self.iter_atoms().map(|a| a.atomic_number).collect();
+        let z: Vec<u8> = self.iter_atoms().map(|a| a.get_atomic_number()).collect();
 
         // 3. Local bonds: keep only bonds whose both endpoints are in scope, remapped
         //    to local indices; error on unknown orders and boundary-crossing bonds.
@@ -114,7 +114,7 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
         let types = gaff::gaff_types(&z, &bonds, ff)?;
 
         // 5. Write results back in local order.
-        for (a, t) in self.iter_atoms_mut().zip(types) {
+        for (mut a, t) in self.iter_atoms_mut().zip(types) {
             a.set_type_name(&t);
         }
         Ok(())
@@ -245,7 +245,7 @@ impl<T: AtomMutProvider + BondProvider> ApplyCharges for T {
         // 4. Predict, then write the partial charges back in local order.
         let q = charge::espaloma_charges(&z, &fc, &bonds)
             .map_err(|e| ChargeError::Inference(e.to_string()))?;
-        for (a, c) in self.iter_atoms_mut().zip(q) {
+        for (mut a, c) in self.iter_atoms_mut().zip(q) {
             a.set_charge(c as Float);
         }
         Ok(())

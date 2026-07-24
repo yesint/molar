@@ -283,7 +283,7 @@ impl<S> EvalContext<'_,S>
 where
     S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
-    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, &Atom)> {
+    fn iter_ind_atom(&self) -> impl Iterator<Item = (usize, AtomRef<'_>)> {
         self.iter_index().zip(self.iter_atoms())
     }
 }
@@ -322,8 +322,8 @@ impl<S> AtomProvider for EvalContext<'_,S>
 where
     S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.sys.atoms_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        self.sys.atom_storage()
     }
 }
 
@@ -437,7 +437,7 @@ impl LogicalNode {
     fn map_same_attr<T,S>(
         data: &EvalContext<'_,S>,
         inner: &[usize],
-        prop_fn: fn(&Atom) -> &T,
+        prop_fn: fn(AtomRef) -> T,
     ) -> Vec<usize>
     where
         T: Eq + std::hash::Hash + Copy,
@@ -447,15 +447,14 @@ impl LogicalNode {
         let mut properties = HashSet::<T>::new();
         let sub = data.with_custom_subset(inner);
         for at in sub.iter_atoms() {
-            properties.insert(*prop_fn(at));
+            properties.insert(prop_fn(at));
         }
 
         let mut res = vec![];
         // Now loop over *global* subset and add all atoms with the same property
         let sub = data.with_global_subset();
         for (i, at) in sub.iter_ind_atom() {
-            let cur_prop = prop_fn(at);
-            if properties.contains(cur_prop) {
+            if properties.contains(&prop_fn(at)) {
                 res.push(i);
             }
         }
@@ -575,8 +574,8 @@ impl Evaluate for LogicalNode {
                 let inner_res = node.apply(data)?;
                 let res = match attr {
                     // Here we use the global subset!
-                    SameAttr::Residue => Self::map_same_attr(data, &inner_res, |at| &at.resindex),
-                    SameAttr::Chain => Self::map_same_attr(data, &inner_res, |at| &at.chain),
+                    SameAttr::Residue => Self::map_same_attr(data, &inner_res, |at| at.get_resindex()),
+                    SameAttr::Chain => Self::map_same_attr(data, &inner_res, |at| at.get_chain()),
                 };
                 
                 if node.is_state_dependent() {
@@ -677,8 +676,8 @@ impl Evaluate for LogicalNode {
 }
 
 impl ChemicalNode {
-    fn is_protein(atom: &Atom) -> bool {
-        match atom.resname.as_str() {
+    fn is_protein(atom: AtomRef) -> bool {
+        match atom.get_resname() {
             "GLY" | "ALA" | "VAL" | "PHE" | "PRO" | "MET" | "ILE" | "LEU" | "ASP" | "GLU"
             | "LYS" | "ARG" | "SER" | "THR" | "TYR" | "HIS" | "CYS" | "ASN" | "GLN" | "TRP"
             | "HSE" | "HSD" | "HSP" | "CYX" => true,
@@ -686,33 +685,33 @@ impl ChemicalNode {
         }
     }
 
-    fn is_backbone(atom: &Atom) -> bool {
+    fn is_backbone(atom: AtomRef) -> bool {
         if !Self::is_protein(atom) {
             return false;
         }
-        match atom.name.as_str() {
+        match atom.get_name() {
             "C" | "N" | "O" | "CA" => true,
             _ => false,
         }
     }
 
-    fn is_sidechain(atom: &Atom) -> bool {
+    fn is_sidechain(atom: AtomRef) -> bool {
         if !Self::is_protein(atom) {
             return false;
         }
         !Self::is_backbone(atom)
     }
 
-    fn is_water(atom: &Atom) -> bool {
-        match atom.resname.as_str() {
+    fn is_water(atom: AtomRef) -> bool {
+        match atom.get_resname() {
             "SOL" | "HOH" | "TIP3" | "TIP4" | "TIP5" | "OPC" => true,
             _ => false,
         }
     }
 
-    fn is_hydrogen(atom: &Atom) -> bool {
+    fn is_hydrogen(atom: AtomRef) -> bool {
         // Find first letter in file name
-        if let Some(c) = atom.name.chars().find(char::is_ascii_alphabetic) {
+        if let Some(c) = atom.get_name().chars().find(|c| c.is_ascii_alphabetic()) {
             c == 'H'
         } else {
             false
@@ -720,8 +719,8 @@ impl ChemicalNode {
     }
 
     /// An electronegative atom (N, O, F, S) — a hydrogen bonded to one is polar.
-    fn is_polar_heavy(atom: &Atom) -> bool {
-        matches!(atom.atomic_number, 7 | 8 | 9 | 16)
+    fn is_polar_heavy(atom: AtomRef) -> bool {
+        matches!(atom.get_atomic_number(), 7 | 8 | 9 | 16)
     }
 
     /// Hydrogens bonded to a heavy atom, split by whether that heavy atom is polar
@@ -849,24 +848,25 @@ impl KeywordNode {
         &self,
         data: &EvalContext<'_,S>,
         args: &[StrKeywordArg],
-        f: fn(&Atom) -> &str,
-    ) -> Vec<usize> 
+        f: fn(AtomRef) -> &str,
+    ) -> Vec<usize>
     where
         S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
-        
+
         for (ind, a) in data.iter_ind_atom() {
+            let val = f(a);
             for arg in args {
                 match arg {
                     StrKeywordArg::Str(s) => {
-                        if s == f(a) {
+                        if s == val {
                             res.push(ind);
                             break;
                         }
                     }
                     StrKeywordArg::Regex(r) => {
-                        if r.is_match(f(a).as_bytes()) {
+                        if r.is_match(val.as_bytes()) {
                             res.push(ind);
                             break;
                         }
@@ -881,24 +881,24 @@ impl KeywordNode {
         &self,
         data: &EvalContext<'_,S>,
         args: &Vec<IntKeywordArg>,
-        f: fn(&Atom, usize) -> isize,
-    ) -> Vec<usize> 
+        f: fn(&AtomRef, usize) -> isize,
+    ) -> Vec<usize>
     where
         S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let mut res = vec![];
-        
+
         for (ind, a) in data.iter_ind_atom() {
+            let val = f(&a, ind);
             for arg in args {
                 match *arg {
                     IntKeywordArg::Int(v) => {
-                        if v == f(a, ind) {
+                        if v == val {
                             res.push(ind);
                             break;
                         }
                     }
                     IntKeywordArg::IntRange(b, e) => {
-                        let val = f(a, ind);
                         if b <= val && val <= e {
                             res.push(ind);
                             break;
@@ -922,17 +922,17 @@ impl Evaluate for KeywordNode {
         S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let res = match &*self {
-            Self::Name(args) => self.map_str_args(data, args, |a| &a.name),
-            Self::Resname(args) => self.map_str_args(data, args, |a| &a.resname),
-            Self::Resid(args) => self.map_int_args(data, args, |a, _i| a.resid as isize),
-            Self::Resindex(args) => self.map_int_args(data, args, |a, _i| a.resindex as isize),
+            Self::Name(args) => self.map_str_args(data, args, |a| a.name()),
+            Self::Resname(args) => self.map_str_args(data, args, |a| a.resname()),
+            Self::Resid(args) => self.map_int_args(data, args, |a, _i| a.get_resid()),
+            Self::Resindex(args) => self.map_int_args(data, args, |a, _i| a.get_resindex() as isize),
             Self::Index(args) => self.map_int_args(data, args, |_a, i| i as isize),
             Self::Chain(args) => {
                 let mut res = vec![];
-                
+
                 for (i, a) in data.iter_ind_atom() {
                     for c in args {
-                        if *c == a.chain {
+                        if *c == a.get_chain() {
                             res.push(i);
                         }
                     }
@@ -999,11 +999,11 @@ impl MathNode {
                 if data.force_ptr.is_null() { return Err(SelectionParserError::NoForces); }
                 Ok(unsafe { data.force_ptr.add(p.id).read().z })
             }
-            Self::Bfactor => Ok(p.atom.bfactor),
-            Self::Occupancy => Ok(p.atom.occupancy),
+            Self::Bfactor => Ok(p.atom.get_bfactor()),
+            Self::Occupancy => Ok(p.atom.get_occupancy()),
             Self::Vdw => Ok(p.atom.vdw()),
-            Self::Mass => Ok(p.atom.mass),
-            Self::Charge => Ok(p.atom.charge),
+            Self::Mass => Ok(p.atom.get_mass()),
+            Self::Charge => Ok(p.atom.get_charge()),
             Self::BinaryOp(a, op, b) => {
                 let ret = match op {
                     BinaryOperator::Add => a.eval(p, data)? + b.eval(p, data)?,

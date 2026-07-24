@@ -87,6 +87,11 @@ pub trait AtomLike {
     fn is_aromatic(&self) -> bool {
         self.get_flags().map_or(false, |f| f.is_aromatic())
     }
+
+    /// Van der Waals radius (nm) from the atomic number; 0.15 nm for unknown (Z=0).
+    fn vdw(&self) -> Float {
+        ELEMENT_VDW[self.get_atomic_number() as usize] as Float * 0.1
+    }
 }
 
 /// Mutable access to atom properties. Setters for the optional (force-field / chemistry)
@@ -285,7 +290,7 @@ impl Atom {
         self.mass = ELEMENT_MASS[self.atomic_number as usize] as Float;
     }
 
-    /// Naive guessing of the mass and element from the atom name.
+    // Naive guessing of the mass and element from the atom name.
     // pub fn guess_element_and_mass_from_name(&mut self) {
     //     (self.atomic_number, self.mass) = match self
     //         .name
@@ -307,11 +312,6 @@ impl Atom {
     //     }
     // }
 
-    /// Returns atom's Van der Waals radius based on its atomic number.
-    /// If the element is not recognized returns a default value of 0.15 nm (atomnum '0').
-    pub fn vdw(&self) -> Float {
-        ELEMENT_VDW[self.atomic_number as usize] as Float * 0.1
-    }
 }
 
 /// Returns the uppercase element symbol for the given atomic number (e.g. `"FE"`, `"C"`, `"HE"`).

@@ -1,6 +1,5 @@
 use crate::par::*;
 
-use crate::atom::{ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT};
 use crate::prelude::*;
 
 //--------------------------------------------------------------
@@ -183,38 +182,39 @@ pub trait PosMutProvider: PosProvider {
 
 /// Element trait providing immutable access to atoms via index.
 ///
-/// Implementors must supply a raw pointer to the contiguous atoms array.
-/// All other methods are provided as defaults.
+/// Implementors supply a reference to the column [`AtomStorage`]; all other methods are
+/// provided as defaults returning the read-only proxy [`AtomRef`].
 pub trait AtomProvider: LenProvider + IndexProvider {
-    /// Raw pointer to the beginning of the atoms array.
-    ///
-    /// # Safety
-    /// Pointer must remain valid as long as `self` is alive.
-    unsafe fn atoms_ptr(&self) -> *const Atom;
+    /// The backing column storage.
+    fn atom_storage(&self) -> &AtomStorage;
 
     fn iter_atoms(&self) -> impl AtomIterator<'_> {
-        let ap = unsafe { self.atoms_ptr() };
-        unsafe { self.iter_index().map(move |i| &*ap.add(i)) }
+        let st = self.atom_storage();
+        self.iter_index().map(move |i| st.get_unchecked(i))
     }
 
-    fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = &Atom>
+    fn par_iter_atoms(&self) -> impl IndexedParallelIterator<Item = AtomRef<'_>>
     where
         Self: IndexParProvider,
     {
-        let p = unsafe { self.atoms_ptr() } as usize; // trick to make pointer Sync
-        unsafe { self.par_iter_index().map(move |i| &*(p as *const Atom).add(i)) }
+        // `&AtomStorage` is `Sync` (columns are `Vec` of `Copy` scalars), so no pointer
+        // laundering is needed on the immutable path.
+        let st = self.atom_storage();
+        self.par_iter_index().map(move |i| st.get_unchecked(i))
     }
 
     fn iter_masses(&self) -> impl Iterator<Item = Float> {
-        self.iter_atoms().map(|at| at.mass)
+        self.iter_atoms().map(|at| at.get_mass())
     }
 
-    unsafe fn get_atom_unchecked(&self, i: usize) -> &Atom {
+    /// # Safety
+    /// `i` must be a valid local index (`i < len()`).
+    unsafe fn get_atom_unchecked(&self, i: usize) -> AtomRef<'_> {
         let ind = self.get_index_unchecked(i);
-        &*self.atoms_ptr().add(ind)
+        self.atom_storage().get_unchecked(ind)
     }
 
-    fn get_atom(&self, i: usize) -> Option<&Atom> {
+    fn get_atom(&self, i: usize) -> Option<AtomRef<'_>> {
         if i < self.len() {
             Some(unsafe { self.get_atom_unchecked(i) })
         } else {
@@ -222,11 +222,11 @@ pub trait AtomProvider: LenProvider + IndexProvider {
         }
     }
 
-    fn first_atom(&self) -> &Atom {
+    fn first_atom(&self) -> AtomRef<'_> {
         unsafe { self.get_atom_unchecked(0) }
     }
 
-    fn last_atom(&self) -> &Atom {
+    fn last_atom(&self) -> AtomRef<'_> {
         unsafe { self.get_atom_unchecked(self.len() - 1) }
     }
 }
@@ -236,31 +236,36 @@ pub trait AtomProvider: LenProvider + IndexProvider {
 /// Extends `AtomProvider` with mutable iteration and random access,
 /// plus convenience setters.
 pub trait AtomMutProvider: AtomProvider {
-    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        self.atoms_ptr() as *mut Atom
-    }
+    /// The backing column storage (mutable).
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage;
 
     fn iter_atoms_mut(&mut self) -> impl AtomMutIterator<'_> {
         (0..self.len()).map(|i| {
             let ind = unsafe { self.get_index_unchecked(i) };
-            unsafe { &mut *self.atoms_ptr_mut().add(ind) }
+            let st = self.atom_storage_mut() as *mut AtomStorage;
+            unsafe { AtomRefMut::from_raw(st, ind) }
         })
     }
 
-    fn par_iter_atoms_mut(&mut self) -> impl IndexedParallelIterator<Item = &mut Atom>
+    fn par_iter_atoms_mut(&mut self) -> impl IndexedParallelIterator<Item = AtomRefMut<'_>>
     where
         Self: IndexParProvider,
     {
-        let p = unsafe { self.atoms_ptr_mut() } as usize; // trick to make pointer Sync
-        unsafe { self.par_iter_index().map(move |i| &mut *(p as *mut Atom).add(i)) }
+        // Launder the storage base through `usize` so the raw pointer crosses the rayon
+        // closure boundary; disjoint global indices keep the per-element writes non-aliasing.
+        let st = self.atom_storage_mut() as *mut AtomStorage as usize;
+        self.par_iter_index()
+            .map(move |i| unsafe { AtomRefMut::from_raw(st as *mut AtomStorage, i) })
     }
 
-    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> &mut Atom {
+    /// # Safety
+    /// `i` must be a valid local index (`i < len()`).
+    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> AtomRefMut<'_> {
         let ind = self.get_index_unchecked(i);
-        &mut *self.atoms_ptr_mut().add(ind)
+        self.atom_storage_mut().get_mut_unchecked(ind)
     }
 
-    fn get_atom_mut(&mut self, i: usize) -> Option<&mut Atom> {
+    fn get_atom_mut(&mut self, i: usize) -> Option<AtomRefMut<'_>> {
         if i < self.len() {
             Some(unsafe { self.get_atom_mut_unchecked(i) })
         } else {
@@ -268,11 +273,11 @@ pub trait AtomMutProvider: AtomProvider {
         }
     }
 
-    fn first_atom_mut(&mut self) -> &mut Atom {
+    fn first_atom_mut(&mut self) -> AtomRefMut<'_> {
         unsafe { self.get_atom_mut_unchecked(0) }
     }
 
-    fn last_atom_mut(&mut self) -> &mut Atom {
+    fn last_atom_mut(&mut self) -> AtomRefMut<'_> {
         unsafe { self.get_atom_mut_unchecked(self.len() - 1) }
     }
 
@@ -281,9 +286,8 @@ pub trait AtomMutProvider: AtomProvider {
     where
         Self: Sized,
     {
-        let s = AtomStr::try_from_str(val).expect(ATOM_NAME_EXPECT);
-        for a in self.iter_atoms_mut() {
-            a.name = s;
+        for mut a in self.iter_atoms_mut() {
+            a.set_name(val);
         }
     }
 
@@ -292,9 +296,8 @@ pub trait AtomMutProvider: AtomProvider {
     where
         Self: Sized,
     {
-        let s = AtomStr::try_from_str(val).expect(ATOM_RESNAME_EXPECT);
-        for a in self.iter_atoms_mut() {
-            a.resname = s;
+        for mut a in self.iter_atoms_mut() {
+            a.set_resname(val);
         }
     }
 
@@ -303,8 +306,8 @@ pub trait AtomMutProvider: AtomProvider {
     where
         Self: Sized,
     {
-        for a in self.iter_atoms_mut() {
-            a.resid = val;
+        for mut a in self.iter_atoms_mut() {
+            a.set_resid(val as isize);
         }
     }
 
@@ -313,8 +316,8 @@ pub trait AtomMutProvider: AtomProvider {
     where
         Self: Sized,
     {
-        for a in self.iter_atoms_mut() {
-            a.chain = val;
+        for mut a in self.iter_atoms_mut() {
+            a.set_chain(val);
         }
     }
 
@@ -323,8 +326,8 @@ pub trait AtomMutProvider: AtomProvider {
     where
         Self: Sized,
     {
-        for a in self.iter_atoms_mut() {
-            a.mass = val;
+        for mut a in self.iter_atoms_mut() {
+            a.set_mass(val);
         }
     }
 
@@ -333,8 +336,8 @@ pub trait AtomMutProvider: AtomProvider {
     where
         Self: Sized,
     {
-        for a in self.iter_atoms_mut() {
-            a.bfactor = val;
+        for mut a in self.iter_atoms_mut() {
+            a.set_bfactor(val);
         }
     }
 }

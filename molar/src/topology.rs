@@ -63,7 +63,7 @@ pub trait TopLike: Default + BondProvider + MolProvider + SaveTopology {
 
 #[derive(Debug, Default, Clone)]
 pub struct Topology {
-    pub atoms: Vec<Atom>,
+    pub atoms: AtomStorage,
     pub bonds: Vec<Bond>,
     pub molecules: Vec<[usize; 2]>,
 }
@@ -98,18 +98,7 @@ impl Topology {
             ));
         }
 
-        let mut it = ind.iter().cloned();
-        let mut to_remove = it.next().unwrap_or(usize::MAX);
-        let mut i = 0;
-        self.atoms.retain(|_| {
-            let ok = i != to_remove;
-            i += 1;
-            if !ok {
-                to_remove = it.next().unwrap_or(usize::MAX);
-            }
-            ok
-        });
-
+        self.atoms.retain_by_index(&ind);
         Ok(())
     }
 }
@@ -117,13 +106,13 @@ impl Topology {
 impl Topology {
     pub fn assign_resindex(&mut self) {
         let mut resindex = 0usize;
-        let mut cur_resid = unsafe { self.get_atom_unchecked(0) }.resid;
-        for at in self.iter_atoms_mut() {
-            if at.resid != cur_resid {
-                cur_resid = at.resid;
+        let mut cur_resid = unsafe { self.get_atom_unchecked(0) }.get_resid();
+        for mut at in self.iter_atoms_mut() {
+            if at.get_resid() != cur_resid {
+                cur_resid = at.get_resid();
                 resindex += 1;
             }
-            at.resindex = resindex;
+            at.set_resindex(resindex);
         }
     }
 
@@ -136,7 +125,7 @@ impl Topology {
 
 //---------------------------
 impl SaveTopology for Topology {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = AtomRef<'_>> + '_> {
         Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
@@ -165,14 +154,14 @@ impl IndexProvider for Topology {
 }
 
 impl AtomProvider for Topology {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        &self.atoms
     }
 }
 
 impl AtomMutProvider for Topology {
-    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        self.atoms.as_mut_ptr()
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        &mut self.atoms
     }
 }
 

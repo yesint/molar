@@ -91,12 +91,16 @@ impl IndexProvider for SystemPy {
 }
 
 impl AtomProvider for SystemPy {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.r_top().atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        &self.r_top().atoms
     }
 }
 
-impl AtomMutProvider for SystemPy {}
+impl AtomMutProvider for SystemPy {
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        &mut self.r_top_mut().atoms
+    }
+}
 
 impl PosProvider for SystemPy {
     unsafe fn coords_ptr(&self) -> *const Pos {
@@ -147,7 +151,7 @@ impl TimeProvider for SystemPy {
 }
 
 impl SaveTopology for SystemPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
@@ -457,7 +461,7 @@ impl SystemPy {
 
             slf_b
                 .r_top_mut()
-                .add_atoms(sel.borrow().iter_atoms().cloned());
+                .add_atoms(sel.borrow().iter_atoms().map(|a| Atom::from(&a)));
             slf_b
                 .r_st_mut()
                 .add_coords(sel.borrow().iter_pos().cloned());
@@ -469,7 +473,7 @@ impl SystemPy {
             let ab = if let Ok(ab) = arg1.cast::<crate::atom::AtomPy>() {
                 ab.borrow().0.clone()
             } else {
-                arg1.cast::<crate::atom::AtomView>()?.borrow().atom()?.clone()
+                Atom::from(&arg1.cast::<crate::atom::AtomView>()?.borrow().atom()?)
             };
             
             let pos = args.get_item(1)?.extract::<PyArrayLike1<Float>>()?;

@@ -1,5 +1,5 @@
 use crate::topology_state::TopologyPy;
-use molar::prelude::{Atom, AtomLike, AtomLikeMut};
+use molar::prelude::{Atom, AtomLike, AtomLikeMut, AtomRef, AtomRefMut};
 use molar::Float;
 use pyo3::{exceptions::PyIndexError, prelude::*};
 /// Mutable atom container.
@@ -190,7 +190,7 @@ pub(crate) struct AtomView {
 }
 
 impl AtomView {
-    pub(crate) fn atom(&self) -> PyResult<&Atom> {
+    pub(crate) fn atom(&self) -> PyResult<AtomRef<'_>> {
         self.top
             .get()
             .inner()
@@ -199,13 +199,15 @@ impl AtomView {
             .ok_or_else(|| PyIndexError::new_err(format!("atom index {} out of range", self.index)))
     }
 
-    fn atom_mut(&self) -> PyResult<&mut Atom> {
-        self.top
-            .get()
-            .inner_mut()
-            .atoms
-            .get_mut(self.index)
-            .ok_or_else(|| PyIndexError::new_err(format!("atom index {} out of range", self.index)))
+    fn atom_mut(&self) -> PyResult<AtomRefMut<'_>> {
+        let atoms = &mut self.top.get().inner_mut().atoms;
+        if self.index >= atoms.len() {
+            return Err(PyIndexError::new_err(format!(
+                "atom index {} out of range",
+                self.index
+            )));
+        }
+        Ok(atoms.get_mut_unchecked(self.index))
     }
 }
 
@@ -217,7 +219,7 @@ impl AtomView {
     /// :rtype: str
     #[getter(name)]
     fn get_name(&self) -> PyResult<&str> {
-        Ok(self.atom()?.name.as_str())
+        Ok(self.atom()?.name())
     }
 
     /// Set atom name.
@@ -235,7 +237,7 @@ impl AtomView {
     /// :rtype: str
     #[getter(resname)]
     fn get_resname(&self) -> PyResult<&str> {
-        Ok(self.atom()?.resname.as_str())
+        Ok(self.atom()?.resname())
     }
 
     /// Set residue name.
@@ -253,7 +255,7 @@ impl AtomView {
     /// :rtype: int
     #[getter(resid)]
     fn get_resid(&self) -> PyResult<i32> {
-        Ok(self.atom()?.resid)
+        Ok(self.atom()?.get_resid() as i32)
     }
 
     /// Set residue sequence number.
@@ -261,7 +263,7 @@ impl AtomView {
     /// :param value: New residue ID.
     #[setter(resid)]
     fn set_resid(&self, value: i32) -> PyResult<()> {
-        self.atom_mut()?.resid = value;
+        self.atom_mut()?.set_resid(value as isize);
         Ok(())
     }
 
@@ -271,7 +273,7 @@ impl AtomView {
     /// :rtype: int
     #[getter(atomic_number)]
     fn get_atomic_number(&self) -> PyResult<u8> {
-        Ok(self.atom()?.atomic_number)
+        Ok(self.atom()?.get_atomic_number())
     }
 
     /// Set atomic number.
@@ -279,7 +281,7 @@ impl AtomView {
     /// :param value: New atomic number.
     #[setter(atomic_number)]
     fn set_atomic_number(&self, value: u8) -> PyResult<()> {
-        self.atom_mut()?.atomic_number = value;
+        self.atom_mut()?.set_atomic_number(value);
         Ok(())
     }
 
@@ -289,7 +291,7 @@ impl AtomView {
     /// :rtype: float
     #[getter(mass)]
     fn get_mass(&self) -> PyResult<Float> {
-        Ok(self.atom()?.mass)
+        Ok(self.atom()?.get_mass())
     }
 
     /// Set atomic mass in Da.
@@ -297,7 +299,7 @@ impl AtomView {
     /// :param value: New atomic mass.
     #[setter(mass)]
     fn set_mass(&self, value: Float) -> PyResult<()> {
-        self.atom_mut()?.mass = value;
+        self.atom_mut()?.set_mass(value);
         Ok(())
     }
 
@@ -307,7 +309,7 @@ impl AtomView {
     /// :rtype: float
     #[getter(charge)]
     fn get_charge(&self) -> PyResult<Float> {
-        Ok(self.atom()?.charge)
+        Ok(self.atom()?.get_charge())
     }
 
     /// Set partial charge in elementary charge units.
@@ -315,7 +317,7 @@ impl AtomView {
     /// :param value: New partial charge.
     #[setter(charge)]
     fn set_charge(&self, value: Float) -> PyResult<()> {
-        self.atom_mut()?.charge = value;
+        self.atom_mut()?.set_charge(value);
         Ok(())
     }
 
@@ -324,8 +326,8 @@ impl AtomView {
     /// :returns: Type name.
     /// :rtype: str
     #[getter(type_name)]
-    fn get_type_name(&self) -> PyResult<Option<&str>> {
-        Ok(self.atom()?.get_type_name())
+    fn get_type_name(&self) -> PyResult<Option<String>> {
+        Ok(self.atom()?.get_type_name().map(|s| s.to_owned()))
     }
 
     /// Set force-field atom type name.
@@ -343,7 +345,7 @@ impl AtomView {
     /// :rtype: int
     #[getter(type_id)]
     fn get_type_id(&self) -> PyResult<Option<u32>> {
-        Ok(self.atom()?.type_id)
+        Ok(self.atom()?.get_type_id())
     }
 
     /// Set force-field atom type integer ID.
@@ -361,7 +363,7 @@ impl AtomView {
     /// :rtype: str
     #[getter(chain)]
     fn get_chain(&self) -> PyResult<char> {
-        Ok(self.atom()?.chain)
+        Ok(self.atom()?.get_chain())
     }
 
     /// Set chain identifier.
@@ -369,7 +371,7 @@ impl AtomView {
     /// :param value: New chain character.
     #[setter(chain)]
     fn set_chain(&self, value: char) -> PyResult<()> {
-        self.atom_mut()?.chain = value;
+        self.atom_mut()?.set_chain(value);
         Ok(())
     }
 
@@ -379,7 +381,7 @@ impl AtomView {
     /// :rtype: float
     #[getter(bfactor)]
     fn get_bfactor(&self) -> PyResult<Float> {
-        Ok(self.atom()?.bfactor)
+        Ok(self.atom()?.get_bfactor())
     }
 
     /// Set B-factor (temperature factor).
@@ -387,7 +389,7 @@ impl AtomView {
     /// :param value: New B-factor.
     #[setter(bfactor)]
     fn set_bfactor(&self, value: Float) -> PyResult<()> {
-        self.atom_mut()?.bfactor = value;
+        self.atom_mut()?.set_bfactor(value);
         Ok(())
     }
 
@@ -397,7 +399,7 @@ impl AtomView {
     /// :rtype: float
     #[getter(occupancy)]
     fn get_occupancy(&self) -> PyResult<Float> {
-        Ok(self.atom()?.occupancy)
+        Ok(self.atom()?.get_occupancy())
     }
 
     /// Set crystallographic occupancy [0, 1].
@@ -405,7 +407,7 @@ impl AtomView {
     /// :param value: New occupancy.
     #[setter(occupancy)]
     fn set_occupancy(&self, value: Float) -> PyResult<()> {
-        self.atom_mut()?.occupancy = value;
+        self.atom_mut()?.set_occupancy(value);
         Ok(())
     }
 
@@ -413,7 +415,7 @@ impl AtomView {
         match self.atom() {
             Ok(a) => format!(
                 "AtomView(name='{}', resname='{}', resid={}, chain='{}', index={})",
-                a.name, a.resname, a.resid, a.chain, self.index
+                a.name(), a.resname(), a.get_resid(), a.get_chain(), self.index
             ),
             Err(_) => format!("AtomView(<index {} out of range>)", self.index),
         }

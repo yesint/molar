@@ -105,7 +105,7 @@ pub(crate) fn command_solvate(
     let mut resind_to_remove = HashSet::new();
     for i in local_overlap_ind {
         unsafe {
-            resind_to_remove.insert(inside_sel.get_atom_unchecked(i).resindex);
+            resind_to_remove.insert(inside_sel.get_atom_unchecked(i).get_resindex());
         }
     }
 
@@ -116,7 +116,7 @@ pub(crate) fn command_solvate(
 
     let mut good_ind = vec![];
     for res in inside_sel.split_resindex_bound() {
-        if !resind_to_remove.contains(&res.first_atom().resindex) {
+        if !resind_to_remove.contains(&res.first_atom().get_resindex()) {
             good_ind.extend(res.iter_index());
         }
     }

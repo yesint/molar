@@ -74,8 +74,8 @@ impl PosMutProvider for SelParMut<'_> {
     }
 }
 impl AtomMutProvider for SelParMut<'_> {
-    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        (*self.sys).top.atoms.as_mut_ptr()
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        unsafe { &mut (*self.sys).top.atoms }
     }
 }
 // VelMutProvider and ForceMutProvider are implemented directly (same reason as above).
@@ -138,11 +138,11 @@ mod tests {
 
         // Make a parallel split for each POPG lipid molecule
         let par = sys.split_par(|p| {
-            if p.atom.resname == "POPG" {
+            if p.atom.get_resname() == "POPG" {
                 // Whenever new distinct result is returned form this closure
                 // new selection is created, so each distinct POPG residue
                 // becomes a separate selection.
-                Some(p.atom.resindex)
+                Some(p.atom.get_resindex())
             } else {
                 // All other atoms are ignored
                 None

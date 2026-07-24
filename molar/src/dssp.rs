@@ -115,10 +115,10 @@ impl Dssp {
         let mut by_res: BTreeMap<usize, ResEntry> = BTreeMap::new();
 
         for (local_idx, p) in sel.iter_particle().enumerate() {
-            let entry = by_res.entry(p.atom.resindex).or_insert(ResEntry {
+            let entry = by_res.entry(p.atom.get_resindex()).or_insert(ResEntry {
                 n: None, ca: None, c: None, o: None, h: None,
             });
-            match p.atom.name.as_str() {
+            match p.atom.name() {
                 "N"  => entry.n  = Some(local_idx),  // LOCAL — correct for get_pos_unchecked
                 "CA" => entry.ca = Some(local_idx),
                 "C"  => entry.c  = Some(local_idx),

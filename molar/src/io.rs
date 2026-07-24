@@ -81,7 +81,7 @@ pub use tpr_handler::TprHandlerError;
 
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: LenProvider {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a>;
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a>;
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a>;
     fn num_bonds(&self) -> usize;
 }
@@ -1080,7 +1080,7 @@ mod tests {
     fn xyz_test() -> anyhow::Result<()> {
         let sys = System::from_file("tests/test.xyz")?;
         for atom in sys.iter_atoms() {
-            println!("mass = {}", atom.mass);
+            println!("mass = {}", atom.get_mass());
         }
         Ok(())
     }

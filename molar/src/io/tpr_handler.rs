@@ -114,7 +114,7 @@ impl FileFormatHandler for TprFileHandler {
 
         for a in &atoms_buf {
             let chain = if a.chain == 0 || a.chain == b'\0' { ' ' } else { a.chain as char };
-            top.atoms.push(Atom {
+            top.atoms.push_row(&Atom {
                 name:          atom_str_from_buf(&a.name,      ATOM_NAME_EXPECT),
                 resname:       atom_str_from_buf(&a.resname,   ATOM_RESNAME_EXPECT),
                 type_name:     Some(atom_str_from_buf(&a.type_name, ATOM_TYPE_NAME_EXPECT)),

@@ -367,8 +367,8 @@ mod tests {
                     continue;
                 }
             };
-            let z: Vec<u8> = sys.iter_atoms().map(|a| a.atomic_number).collect();
-            let fc: Vec<i32> = sys.iter_atoms().map(|a| a.charge.round() as i32).collect();
+            let z: Vec<u8> = sys.iter_atoms().map(|a| a.get_atomic_number()).collect();
+            let fc: Vec<i32> = sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
             let mut bonds = Vec::new();
             for b in sys.iter_bonds() {
                 let order = match b.order {
@@ -423,7 +423,7 @@ mod tests {
 
         sys.apply_charges(ChargeModel::Espaloma).unwrap();
 
-        let got: Vec<f32> = sys.iter_atoms().map(|a| a.charge as f32).collect();
+        let got: Vec<f32> = sys.iter_atoms().map(|a| a.get_charge() as f32).collect();
         let maxd = got.iter().zip(&mol.charges).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
         let sum: f32 = got.iter().sum();
         println!("apply_charges({}): max|Δ|={maxd:.2e}  Σq={sum:.2e}", mol.name);

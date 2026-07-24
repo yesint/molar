@@ -315,7 +315,7 @@ mod tests {
         let st = TOPST.1.clone();
         let mut sys = System::new(top, st)?;
 
-        let parts = sys.split_par(|p| Some(p.atom.resindex))?;
+        let parts = sys.split_par(|p| Some(p.atom.get_resindex()))?;
         let coms = sys
             .iter_par_split_mut(&parts)
             .map(|sel| sel.center_of_mass())

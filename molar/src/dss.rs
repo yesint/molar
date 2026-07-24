@@ -149,14 +149,14 @@ fn assign(sel: &impl ParticleIterProvider) -> Vec<SS> {
     }
     let mut by_res: BTreeMap<usize, Bb> = BTreeMap::new();
     for p in sel.iter_particle() {
-        let e = by_res.entry(p.atom.resindex).or_insert(Bb {
+        let e = by_res.entry(p.atom.get_resindex()).or_insert(Bb {
             n: None,
             ca: None,
             c: None,
             o: None,
-            chain: p.atom.chain,
+            chain: p.atom.get_chain(),
         });
-        match p.atom.name.as_str() {
+        match p.atom.name() {
             "N" => e.n = Some(*p.pos),
             "CA" => e.ca = Some(*p.pos),
             "C" => e.c = Some(*p.pos),

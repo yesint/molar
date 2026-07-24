@@ -118,7 +118,7 @@ impl GroFileHandler {
                 let resid = line.get(0..5).ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?.trim().parse::<i32>().map_err(GroHandlerError::ParseInt)?;
                 let resname = line.get(5..10).ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?.trim();
                 let name = line.get(10..15).ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?.trim();
-                top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+                top.atoms.push_row(&Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
                 state.coords.push(Pos::new(
                     line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
@@ -141,7 +141,7 @@ impl GroFileHandler {
                 let resid = line.get(0..5).ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?.trim().parse::<i32>().map_err(GroHandlerError::ParseInt)?;
                 let resname = line.get(5..10).ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?.trim();
                 let name = line.get(10..15).ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?.trim();
-                top.atoms.push(Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+                top.atoms.push_row(&Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
                 state.coords.push(Pos::new(
                     line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
@@ -233,17 +233,17 @@ impl FileFormatHandler for GroFileHandler {
         if vel_it.len() > 0 {
             for (i, ((at, pos), v)) in at_it.zip(pos_it).zip(vel_it).enumerate() {
                 let ind = (i % 99999) + 1;
-                let resid = at.resid % 99999;
+                let resid = at.get_resid() % 99999;
                 write!(buf, "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}{:>8.4}{:>8.4}{:>8.4}",
-                    resid, at.resname, at.name, ind, pos.x, pos.y, pos.z, v.x, v.y, v.z)?;
+                    resid, at.resname(), at.name(), ind, pos.x, pos.y, pos.z, v.x, v.y, v.z)?;
                 writeln!(buf)?;
             }
         } else {
             for (i, (at, pos)) in at_it.zip(pos_it).enumerate() {
                 let ind = (i % 99999) + 1;
-                let resid = at.resid % 99999;
+                let resid = at.get_resid() % 99999;
                 write!(buf, "{:>5.5}{:<5.5}{:>5.5}{:>5.5}{:>8.3}{:>8.3}{:>8.3}",
-                    resid, at.resname, at.name, ind, pos.x, pos.y, pos.z)?;
+                    resid, at.resname(), at.name(), ind, pos.x, pos.y, pos.z)?;
                 writeln!(buf)?;
             }
         }

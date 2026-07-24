@@ -219,6 +219,11 @@ impl AtomStorage {
         Atom::from(&self.get_unchecked(i))
     }
 
+    /// Iterate read-only proxies over all atoms.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = AtomRef<'_>> {
+        (0..self.len()).map(move |i| self.get_unchecked(i))
+    }
+
     // --- optional-column materializers (no-op if already present) ---
     fn ensure_type_name(&mut self) -> &mut Vec<AtomStr> {
         let n = self.name.len();
@@ -262,6 +267,32 @@ fn set_opt<T: Copy>(col: &mut Option<Vec<T>>, i: usize, val: Option<T>, n: usize
     }
 }
 
+impl Extend<Atom> for AtomStorage {
+    fn extend<I: IntoIterator<Item = Atom>>(&mut self, iter: I) {
+        let it = iter.into_iter();
+        self.reserve(it.size_hint().0);
+        for a in it {
+            self.push_row(&a);
+        }
+    }
+}
+
+impl<'a> Extend<&'a Atom> for AtomStorage {
+    fn extend<I: IntoIterator<Item = &'a Atom>>(&mut self, iter: I) {
+        for a in iter {
+            self.push_row(a);
+        }
+    }
+}
+
+impl FromIterator<Atom> for AtomStorage {
+    fn from_iter<I: IntoIterator<Item = Atom>>(iter: I) -> Self {
+        let mut s = AtomStorage::default();
+        s.extend(iter);
+        s
+    }
+}
+
 //============================================================================
 // Proxies
 //============================================================================
@@ -272,6 +303,32 @@ fn set_opt<T: Copy>(col: &mut Option<Vec<T>>, i: usize, val: Option<T>, n: usize
 pub struct AtomRef<'a> {
     st: &'a AtomStorage,
     idx: usize,
+}
+
+impl<'a> AtomRef<'a> {
+    /// Atom name, borrowed from the backing storage (lifetime `'a`, not `&self`).
+    #[inline]
+    pub fn name(&self) -> &'a str {
+        let st: &'a AtomStorage = self.st;
+        unsafe { st.name.get_unchecked(self.idx).as_str() }
+    }
+    /// Residue name, borrowed from the backing storage (lifetime `'a`).
+    #[inline]
+    pub fn resname(&self) -> &'a str {
+        let st: &'a AtomStorage = self.st;
+        unsafe { st.resname.get_unchecked(self.idx).as_str() }
+    }
+
+    /// The backing storage (used by length-1 providers such as `Particle`).
+    #[inline]
+    pub(crate) fn storage(&self) -> &'a AtomStorage {
+        self.st
+    }
+    /// The atom's index within [`storage`](Self::storage).
+    #[inline]
+    pub(crate) fn index(&self) -> usize {
+        self.idx
+    }
 }
 
 impl AtomLike for AtomRef<'_> {
@@ -334,18 +391,43 @@ impl AtomLike for AtomRef<'_> {
 /// *optional* columns may materialize the column (allocate + backfill) and therefore take
 /// `&mut AtomStorage`; they must only be used **serially** — materialize optional columns before
 /// entering any parallel region (see the SoA migration plan, Stage 4).
+#[derive(Debug)]
 pub struct AtomRefMut<'a> {
     st: *mut AtomStorage,
     idx: usize,
     _pd: PhantomData<&'a mut AtomStorage>,
 }
 
-impl AtomRefMut<'_> {
+impl<'a> From<AtomRefMut<'a>> for AtomRef<'a> {
+    fn from(m: AtomRefMut<'a>) -> Self {
+        AtomRef { st: unsafe { &*m.st }, idx: m.idx }
+    }
+}
+
+impl<'a> AtomRefMut<'a> {
+    /// Construct a mutable proxy from a raw storage pointer and global index.
+    ///
+    /// # Safety
+    /// `st` must be valid for `'a`, `idx` must be in bounds, and no other live proxy or
+    /// reference may alias the same element mutably (disjoint indices across a parallel
+    /// split satisfy this).
+    #[inline]
+    pub(crate) unsafe fn from_raw(st: *mut AtomStorage, idx: usize) -> Self {
+        AtomRefMut { st, idx, _pd: PhantomData }
+    }
+
     #[inline]
     fn st(&self) -> &AtomStorage {
         unsafe { &*self.st }
     }
 }
+
+// SAFETY: the raw storage pointer is only dereferenced for element `idx`. Distinct proxies
+// over disjoint indices (as produced by a parallel split) never form overlapping references,
+// matching the existing `SelParMut` discipline. Optional-column setters that materialize a
+// column take `&mut AtomStorage` and must only be used serially (see SoA plan Stage 4).
+unsafe impl Send for AtomRefMut<'_> {}
+unsafe impl Sync for AtomRefMut<'_> {}
 
 impl AtomLike for AtomRefMut<'_> {
     fn get_name(&self) -> &str {
