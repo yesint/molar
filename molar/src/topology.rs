@@ -46,14 +46,6 @@ impl Bond {
     }
 }
 
-pub trait TopLike: Default + BondProvider + MolProvider + SaveTopology {
-    // Construction methods (to use with format readers)
-    fn add_atom_dyn(&mut self, atom: &dyn AtomLike);
-    fn add_bond(&mut self, bond: Bond);
-    fn add_molecule(&mut self, bond: &[usize;2]);
-    // Retrieval methods (to use with format writers) are provided by base traits
-}
-
 /// Topology of the molecular system: atoms, bonds, molecules, etc.
 ///
 /// [Topology] is typically read from structure of trajectory file and is not intended
