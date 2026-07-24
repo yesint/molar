@@ -191,4 +191,47 @@ mod tests {
         }
         Ok(())
     }
+
+    /// Same disjoint-index atom-column mutation as [`par_atom_column_write`], but driven with
+    /// `std::thread::scope` instead of rayon. This exercises the `SelParMut` → `iter_atoms_mut`
+    /// → `AtomRefMut` unsafe *without* pulling in rayon/crossbeam, so it runs cleanly under
+    /// Miri (`cargo +nightly miri test par_atom_column_write_scoped`, Tree Borrows) — proving
+    /// the laundered `*mut System` + per-column element writes are free of aliasing UB.
+    #[test]
+    fn par_atom_column_write_scoped() -> anyhow::Result<()> {
+        let mut top = Topology::default();
+        for res in 0..8i32 {
+            for _ in 0..4 {
+                top.atoms
+                    .push_row(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
+            }
+        }
+        top.assign_resindex();
+        let n = top.atoms.len();
+        let mut sys = System::new(top, State::new_fake(n))?;
+
+        let par = sys.split_par(|p| Some(p.atom.get_resindex()))?;
+        par.check_bounds(&sys);
+
+        // Launder the system pointer across scoped threads; disjoint index sets per selection
+        // guarantee the per-element `&mut` writes never overlap.
+        let sys_addr = &mut sys as *mut System as usize;
+        std::thread::scope(|scope| {
+            for sel in &par.selections {
+                let idx = sel.0.as_slice();
+                scope.spawn(move || {
+                    let mut sp = SelParMut::new(sys_addr as *mut System, idx);
+                    for mut a in sp.iter_atoms_mut() {
+                        let r = a.get_resid() as Float;
+                        a.set_bfactor(r);
+                    }
+                });
+            }
+        });
+
+        for a in sys.iter_atoms() {
+            assert_eq!(a.get_bfactor(), a.get_resid() as Float);
+        }
+        Ok(())
+    }
 }

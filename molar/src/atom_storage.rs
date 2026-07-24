@@ -399,11 +399,14 @@ impl AtomLike for AtomRef<'_> {
 /// handle; implements [`AtomLike`] + [`AtomLikeMut`].
 ///
 /// # Safety / parallel use
-/// Setters for the *core* columns write through a single-column place projection, so distinct
-/// proxies over **disjoint** indices never form overlapping mutable references. Setters for the
-/// *optional* columns may materialize the column (allocate + backfill) and therefore take
-/// `&mut AtomStorage`; they must only be used **serially** — materialize optional columns before
-/// entering any parallel region (see the SoA migration plan, Stage 4).
+/// Setters for the *core* columns read the column's `Vec` header through a **shared** borrow
+/// (`&AtomStorage`) to obtain the heap-buffer base pointer, then write a single element through
+/// a raw pointer — they never form a `&mut [T]`/`&mut Vec` over the whole column. So across a
+/// parallel split the `AtomStorage` struct/headers are only ever *read* while disjoint heap
+/// elements are written, which is race-free (verified with `cargo miri` under Tree Borrows —
+/// see `par_atom_column_write_scoped`). Setters for the *optional* columns may materialize the
+/// column (allocate + backfill) and therefore take `&mut AtomStorage`; they must only be used
+/// **serially** — materialize optional columns before entering any parallel region.
 #[derive(Debug)]
 pub struct AtomRefMut<'a> {
     st: *mut AtomStorage,
@@ -432,6 +435,19 @@ impl<'a> AtomRefMut<'a> {
     #[inline]
     fn st(&self) -> &AtomStorage {
         unsafe { &*self.st }
+    }
+
+    /// Raw mutable pointer to the start of a *core* column's heap buffer, obtained by reading
+    /// the `Vec` header through a **shared** borrow (never a `&mut [T]`/`&mut Vec` over the
+    /// whole column). Writing a disjoint element through the returned pointer is race-free
+    /// across threads: the parallel region only writes heap buffers, never the `AtomStorage`
+    /// struct/headers (which are only read). See the type-level docs.
+    ///
+    /// # Safety
+    /// `self.idx` must be `< len()`; the caller must not let two proxies write the same element.
+    #[inline]
+    unsafe fn core_col_mut<T>(&self, proj: impl Fn(&AtomStorage) -> &Vec<T>) -> *mut T {
+        proj(self.st()).as_ptr() as *mut T
     }
 }
 
@@ -496,75 +512,35 @@ impl AtomLike for AtomRefMut<'_> {
 impl AtomLikeMut for AtomRefMut<'_> {
     fn set_name(&mut self, name: &str) {
         let s = AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT);
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).name;
-            *col.get_unchecked_mut(idx) = s;
-        }
+        unsafe { *self.core_col_mut(|st| &st.name).add(self.idx) = s }
     }
     fn set_resname(&mut self, resname: &str) {
         let s = AtomStr::try_from_str(resname).expect(ATOM_RESNAME_EXPECT);
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).resname;
-            *col.get_unchecked_mut(idx) = s;
-        }
+        unsafe { *self.core_col_mut(|st| &st.resname).add(self.idx) = s }
     }
     fn set_resid(&mut self, resid: isize) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).resid;
-            *col.get_unchecked_mut(idx) = resid as i32;
-        }
+        unsafe { *self.core_col_mut(|st| &st.resid).add(self.idx) = resid as i32 }
     }
     fn set_resindex(&mut self, resindex: usize) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).resindex;
-            *col.get_unchecked_mut(idx) = resindex;
-        }
+        unsafe { *self.core_col_mut(|st| &st.resindex).add(self.idx) = resindex }
     }
     fn set_atomic_number(&mut self, atomic_number: u8) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).atomic_number;
-            *col.get_unchecked_mut(idx) = atomic_number;
-        }
+        unsafe { *self.core_col_mut(|st| &st.atomic_number).add(self.idx) = atomic_number }
     }
     fn set_mass(&mut self, mass: Float) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).mass;
-            *col.get_unchecked_mut(idx) = mass;
-        }
+        unsafe { *self.core_col_mut(|st| &st.mass).add(self.idx) = mass }
     }
     fn set_charge(&mut self, charge: Float) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).charge;
-            *col.get_unchecked_mut(idx) = charge;
-        }
+        unsafe { *self.core_col_mut(|st| &st.charge).add(self.idx) = charge }
     }
     fn set_chain(&mut self, chain: char) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).chain;
-            *col.get_unchecked_mut(idx) = chain;
-        }
+        unsafe { *self.core_col_mut(|st| &st.chain).add(self.idx) = chain }
     }
     fn set_bfactor(&mut self, bfactor: Float) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).bfactor;
-            *col.get_unchecked_mut(idx) = bfactor;
-        }
+        unsafe { *self.core_col_mut(|st| &st.bfactor).add(self.idx) = bfactor }
     }
     fn set_occupancy(&mut self, occupancy: Float) {
-        let idx = self.idx;
-        unsafe {
-            let col = &mut (*self.st).occupancy;
-            *col.get_unchecked_mut(idx) = occupancy;
-        }
+        unsafe { *self.core_col_mut(|st| &st.occupancy).add(self.idx) = occupancy }
     }
     fn set_type_name(&mut self, type_name: &str) {
         let s = AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT);
