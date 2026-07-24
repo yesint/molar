@@ -53,22 +53,37 @@ cd molar_python && maturin build -r && python -m pip install .
 
 ## Architecture
 
-MolAR is a Cargo workspace with these crates:
+MolAR is a Cargo workspace (**Rust edition 2024**, MSRV 1.85) with these crates:
 
 | Crate | Purpose |
 |---|---|
-| `molar` | Core library: selections, IO, topology, analysis tasks |
-| `molar_molfile` | VMD molfile plugin bindings (PDB, DCD, XYZ) |
-| `molar_gromacs` | Gromacs bindings for TPR reading (optional, requires Gromacs source) |
-| `molar_powersasa` | SASA computation via PowerSASA algorithm |
+| `molar` | Core library: SoA atom storage, selections, IO, topology, analysis tasks |
+| `molar_gromacs` | Gromacs TPR support via a runtime-`dlopen`ed plugin (built only when Gromacs env vars are set; no compile-time dependency on Gromacs) |
+| `molar_ff` | Force-field atom typing (GAFF/GAFF2) and partial charges (espaloma) |
 | `molar_membrane` | Lipid membrane analysis (lipid order, curvature, etc.) |
 | `molar_bin` | CLI utility (`last`, `rearrange`, `solvate`, `tip3to4` commands) |
-| `molar_python` | Python bindings via PyO3/maturin |
+| `molar_python` | Python bindings via PyO3/maturin (wheel: `pymolar`) |
+
+All file formats are **pure Rust** (the former `molar_molfile` VMD-plugin crate has been removed).
+PowerSASA is an external git dependency, not a workspace crate.
 
 ### Core data model (`molar/src/`)
 
-- **`Topology`** (`topology.rs`) — atoms, bonds, molecules; usually read once from file
-- **`State`** (`state.rs`) — coordinates (`Vec<Pos>`), timestamp, optional `PeriodicBox`
+- **`Topology`** (`topology.rs`) — bonds, molecules, and `atoms: AtomStorage`; usually read once from file
+- **`AtomStorage`** (`atom_storage.rs`) — **Struct-of-Arrays** atom storage: one column per property.
+  Ten always-present *core* columns (`name`, `resname`, `resid`, `resindex`, `atomic_number`, `mass`,
+  `charge`, `chain`, `bfactor`, `occupancy`) plus four *optional* force-field/chemistry columns
+  (`type_name`, `type_id`, `formal_charge`, `flags`) stored as `Option<Vec<T>>` — a `None` column costs
+  nothing; when present it is full-length. Atoms are accessed through the borrowed **proxies**
+  `AtomRef` / `AtomRefMut` (a two-word `{storage, index}` handle) — there is **no `&Atom`** to borrow.
+- **`Atom`** (`atom.rs`) — the owned, densely-packed atom *row*, retained as the detached
+  construction/interchange type (builders, IO readers, `From<&AtomLike>`); `AtomStorage::push_row`
+  scatters it into the columns. `AtomFlags` holds the ring/aromatic bits (no longer packed into `type_id`).
+- **`AtomLike`** (read getters) / **`AtomLikeMut`** (setters) — the atom interface, implemented by
+  `Atom`, `AtomRef`, and `AtomRefMut`. Getters for the four *optional* properties return `Option`
+  (e.g. `get_type_name() -> Option<&str>`); `charge` is the partial/working charge, `formal_charge`
+  is the integer formal charge (kept separate).
+- **`State`** (`state.rs`) — coordinates (`Vec<Pos>`), optional velocities/forces, timestamp, optional `PeriodicBox`
 - **`System`** (`selection/system.rs`) — owns `Topology + State`; the primary user-facing container
 
 ### Selection system (`molar/src/selection/`)
@@ -84,19 +99,25 @@ Borrow checking is enforced at compile time — you cannot hold a mutable and im
 
 **Empty selections are forbidden** — selection methods return `Err` instead of an empty selection.
 
-Traits that provide behavior live in `selection/traits.rs`:
-- `AtomPosAnalysis` — read-only iteration, `split`, `split_par`, particle access
-- `Selectable` / `SelectableBound` — creating sub-selections
-- Various `*Provider` traits for typed access
+Traits that provide behavior live in `selection/traits.rs` and `providers.rs`:
+- `AtomProvider` / `AtomMutProvider` (`providers.rs`) — the atom-access layer. The single required
+  method is `atom_storage()` / `atom_storage_mut()`; the defaults (`iter_atoms`, `get_atom`,
+  `iter_particle`, `par_iter_atoms`, …) hand out `AtomRef` / `AtomRefMut` proxies rather than `&Atom`.
+  `PosProvider`/`VelProvider`/… mirror this for coordinates/velocities/forces.
+- `Selectable` / `SelectableBound` — creating sub-selections; `split` / `split_par` (blanket-impl
+  methods) and `iter_particle*` for particle access.
+- Selection keyword evaluation (`ast.rs`) scans **one projected column** at a time (via
+  `AtomStorage::names()`/`resids()`/… slice accessors) rather than materializing a proxy per atom.
 
 ### IO (`molar/src/io/`)
 
-`FileHandler` dispatches by file extension to format-specific handlers:
-- `.pdb`, `.dcd`, `.xyz` → VMD molfile plugin (C FFI via `molar_molfile`)
-- `.xtc` → custom XTC handler (random access supported)
-- `.gro` → GRO handler (single frame and multi-frame trajectory)
-- `.itp` → ITP handler (topology only)
-- `.tpr` → TPR handler (requires Gromacs; optional)
+`FileHandler` dispatches by file extension to format-specific handlers — all **pure Rust**, no
+external plugin:
+- `.pdb`/`.ent`, `.xyz`, `.gro` → streaming structure/trajectory handlers
+- `.dcd`, `.xtc` → binary trajectories (random access / seek supported)
+- `.itp` → topology only; `.sdf`/`.mol` → MDL molfile (bonds with order, formal charge)
+- `.nc`/`.ncdf` → AMBER NetCDF (optional `netcdf` feature)
+- `.tpr` → TPR handler, which `dlopen`s the Gromacs plugin at runtime (see Optional Gromacs linking)
 
 `FileHandler` implements `IntoIterator` yielding `State` for trajectory iteration. IO runs in a background thread with a channel buffer of 10 frames.
 
@@ -114,6 +135,16 @@ Standard CLI args (`-f files -b begin -e end --log --skip`) are handled automati
 Two parallel patterns:
 1. **`par_iter_pos()` / `par_iter_atoms()`** — rayon parallel iteration within a single selection
 2. **`split_par(closure)`** — produces non-overlapping `ParSplit`; iterate with `sys.iter_par_split_mut(&par)` for parallel processing of distinct fragments (e.g., per-molecule unwrapping)
+
+The mutable parallel path hands out `AtomRefMut` proxies over **disjoint** atom indices. Core-column
+setters read the column `Vec` header via a *shared* borrow and write the heap buffer through a raw
+element pointer (never forming `&mut [T]`), which is race-free across threads — verified with Miri
+under Tree Borrows (`par_atom_column_write_scoped`). **Optional-column setters materialize the column
+and are serial-only**: materialize optional columns before entering a parallel region. When adding
+`unsafe` to the atom layer, run:
+```sh
+MIRIFLAGS="-Zmiri-tree-borrows" cargo +nightly miri test -p molar --lib par_atom_column_write_scoped
+```
 
 ### Optional Gromacs linking
 
