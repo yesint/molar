@@ -242,6 +242,41 @@ impl AtomStorage {
         (0..self.len()).map(move |i| unsafe { self.get_unchecked(i) })
     }
 
+    // --- bulk column slices (read-only) ---
+    // Direct access to a whole always-present column. Used by the selection hot path to scan
+    // one contiguous column instead of materializing a proxy per atom (a cache-locality win),
+    // and generally useful for vectorized read access.
+    pub fn names(&self) -> &[AtomStr] {
+        &self.name
+    }
+    pub fn resnames(&self) -> &[AtomStr] {
+        &self.resname
+    }
+    pub fn resids(&self) -> &[i32] {
+        &self.resid
+    }
+    pub fn resindices(&self) -> &[usize] {
+        &self.resindex
+    }
+    pub fn atomic_numbers(&self) -> &[u8] {
+        &self.atomic_number
+    }
+    pub fn masses(&self) -> &[Float] {
+        &self.mass
+    }
+    pub fn charges(&self) -> &[Float] {
+        &self.charge
+    }
+    pub fn chains(&self) -> &[char] {
+        &self.chain
+    }
+    pub fn bfactors(&self) -> &[Float] {
+        &self.bfactor
+    }
+    pub fn occupancies(&self) -> &[Float] {
+        &self.occupancy
+    }
+
     // --- optional-column materializers (no-op if already present) ---
     fn ensure_type_name(&mut self) -> &mut Vec<AtomStr> {
         let n = self.name.len();

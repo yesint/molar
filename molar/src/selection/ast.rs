@@ -848,15 +848,18 @@ impl KeywordNode {
         &self,
         data: &EvalContext<'_,S>,
         args: &[StrKeywordArg],
-        f: fn(AtomRef) -> &str,
+        col: fn(&AtomStorage) -> &[AtomStr],
     ) -> Vec<usize>
     where
         S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
+        // Project the single relevant column once and scan it directly — the SoA cache win:
+        // one contiguous ~8 B/elem column instead of materializing a proxy per atom.
+        let column = col(data.atom_storage());
         let mut res = vec![];
-
-        for (ind, a) in data.iter_ind_atom() {
-            let val = f(a);
+        for ind in data.iter_index() {
+            // SAFETY: indices from `iter_index()` are in-bounds for the column.
+            let val = unsafe { column.get_unchecked(ind) }.as_str();
             for arg in args {
                 match arg {
                     StrKeywordArg::Str(s) => {
@@ -881,15 +884,15 @@ impl KeywordNode {
         &self,
         data: &EvalContext<'_,S>,
         args: &Vec<IntKeywordArg>,
-        f: fn(&AtomRef, usize) -> isize,
+        f: fn(&AtomStorage, usize) -> isize,
     ) -> Vec<usize>
     where
         S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
+        let st = data.atom_storage();
         let mut res = vec![];
-
-        for (ind, a) in data.iter_ind_atom() {
-            let val = f(&a, ind);
+        for ind in data.iter_index() {
+            let val = f(st, ind);
             for arg in args {
                 match *arg {
                     IntKeywordArg::Int(v) => {
@@ -922,19 +925,29 @@ impl Evaluate for KeywordNode {
         S: PosProvider + AtomProvider + BoxProvider + BondProvider
     {
         let res = match &*self {
-            Self::Name(args) => self.map_str_args(data, args, |a| a.name()),
-            Self::Resname(args) => self.map_str_args(data, args, |a| a.resname()),
-            Self::Resid(args) => self.map_int_args(data, args, |a, _i| a.get_resid()),
-            Self::Resindex(args) => self.map_int_args(data, args, |a, _i| a.get_resindex() as isize),
-            Self::Index(args) => self.map_int_args(data, args, |_a, i| i as isize),
+            Self::Name(args) => self.map_str_args(data, args, |st| st.names()),
+            Self::Resname(args) => self.map_str_args(data, args, |st| st.resnames()),
+            // SAFETY (resid/resindex): `i` from `iter_index()` is in-bounds for the column.
+            Self::Resid(args) => {
+                self.map_int_args(data, args, |st, i| unsafe {
+                    *st.resids().get_unchecked(i) as isize
+                })
+            }
+            Self::Resindex(args) => {
+                self.map_int_args(data, args, |st, i| unsafe {
+                    *st.resindices().get_unchecked(i) as isize
+                })
+            }
+            Self::Index(args) => self.map_int_args(data, args, |_st, i| i as isize),
             Self::Chain(args) => {
+                // Project the chain column and scan it directly.
+                let chains = data.atom_storage().chains();
                 let mut res = vec![];
-
-                for (i, a) in data.iter_ind_atom() {
-                    for c in args {
-                        if *c == a.get_chain() {
-                            res.push(i);
-                        }
+                for i in data.iter_index() {
+                    // SAFETY: `i` from `iter_index()` is in-bounds.
+                    let c = unsafe { *chains.get_unchecked(i) };
+                    if args.contains(&c) {
+                        res.push(i);
                     }
                 }
                 res
