@@ -3,8 +3,8 @@
 //!
 //! Results live in the **canonical per-element storage**, not parallel arrays:
 //! - bond aromaticity → `bond.order == BondOrder::Aromatic` (perception writes it);
-//! - per-atom *in-ring* / *aromatic* → flag bits packed into `Atom.type_id`
-//!   ([`Atom::is_in_ring`] / [`Atom::is_aromatic`]).
+//! - per-atom *in-ring* / *aromatic* → the optional `AtomFlags` column
+//!   ([`AtomLike::is_in_ring`] / [`AtomLike::is_aromatic`]).
 //!
 //! The only things with nowhere canonical to live — the ring list and the net charge
 //! — are returned in a small [`Perception`] result. Implicit-hydrogen counts are a
@@ -15,8 +15,8 @@ use std::collections::VecDeque;
 use crate::prelude::*;
 
 /// Outcome of [`perceive`]: the SSSR ring list and the net molecular charge. (Bond
-/// aromaticity is recorded in `bond.order`; per-atom flags in `Atom.type_id` — see the
-/// module docs.)
+/// aromaticity is recorded in `bond.order`; per-atom flags in the `AtomFlags` column —
+/// see the module docs.)
 pub struct Perception {
     rings: Vec<Vec<usize>>,
     /// Parallel to `rings`: whether each ring was perceived aromatic.
@@ -46,14 +46,18 @@ impl Perception {
 
 /// Perceive rings + aromaticity for a topology, annotating it **in place**: sets
 /// `BondOrder::Aromatic` on the bonds of every aromatic ring, and the in-ring /
-/// aromatic flag bits on the atoms. Sums the partial charges up front. Returns the
+/// aromatic flags on the atoms. Sums the formal charges up front. Returns the
 /// [`Perception`] (rings + net charge).
 ///
 /// Destructive of Kekulé structure (an aromatic ring's bonds all become `Aromatic`);
 /// idempotent. See also [`System::perceive`](crate::System::perceive).
 pub fn perceive(top: &mut Topology) -> Perception {
     let n = top.atoms.len();
-    let total_charge: Float = top.atoms.iter().map(|a| a.charge).sum();
+    let total_charge: Float = top
+        .atoms
+        .iter()
+        .map(|a| a.formal_charge.unwrap_or(0) as Float)
+        .sum();
 
     let rings = sssr(n, &top.bonds);
     let adj = adjacency(n, &top.bonds);
@@ -105,7 +109,7 @@ pub fn perceive(top: &mut Topology) -> Perception {
 
 /// Implicit hydrogens per atom: `round(target_valence − Σ incident bond orders)`,
 /// clamped to ≥ 0. `target_valence` is the element's neutral valence adjusted by the
-/// atom's formal charge (`round(Atom.charge)`) — so a protonated amine N⁺ targets 4.
+/// atom's formal charge (`Atom.formal_charge`) — so a protonated amine N⁺ targets 4.
 ///
 /// **Exact on a Kekulé structure** (Single/Double/Triple bonds). For `Aromatic`-typed
 /// bonds (an order-4 SDF, or a structure already run through [`perceive`]) it uses a
@@ -116,7 +120,8 @@ pub fn implicit_hydrogens(sel: &(impl AtomProvider + BondProvider + LenProvider)
     let n = sel.len();
     let bonds: Vec<Bond> = sel.iter_bonds().copied().collect();
     let z: Vec<u8> = sel.iter_atoms().map(|a| a.atomic_number).collect();
-    let charge: Vec<Float> = sel.iter_atoms().map(|a| a.charge).collect();
+    let formal_charge: Vec<i32> =
+        sel.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
 
     // Ring size per atom is only needed to weight aromatic bonds; skip the SSSR work
     // entirely for a plain Kekulé molecule.
@@ -147,7 +152,7 @@ pub fn implicit_hydrogens(sel: &(impl AtomProvider + BondProvider + LenProvider)
 
     (0..n)
         .map(|i| {
-            let target = target_valence(z[i], charge[i].round() as i32);
+            let target = target_valence(z[i], formal_charge[i]);
             let h = (target as f32 - explicit[i]).round();
             h.max(0.0) as u8
         })
@@ -570,7 +575,7 @@ mod tests {
     fn ammonium_charge_adjusts_valence() {
         // CH3–NH3⁺: a C–N single bond, N carries +1; H are implicit.
         let mut t = topo(&[6, 7], &[(0, 1, S)]);
-        t.atoms[1] = t.atoms[1].clone().with_charge(1.0);
+        t.atoms[1] = t.atoms[1].clone().with_formal_charge(1);
         let p = perceive(&mut t);
         assert_eq!(p.total_charge(), 1.0);
         let h = implicit_hydrogens(&t);
@@ -582,7 +587,7 @@ mod tests {
     fn carboxylate_oxygen_minus() {
         // A lone O⁻ with one single bond → valence 1 → 0 implicit H.
         let mut t = topo(&[8, 6], &[(0, 1, S)]);
-        t.atoms[0] = t.atoms[0].clone().with_charge(-1.0);
+        t.atoms[0] = t.atoms[0].clone().with_formal_charge(-1);
         let _ = perceive(&mut t);
         assert_eq!(implicit_hydrogens(&t)[0], 0);
     }
@@ -600,15 +605,15 @@ mod tests {
     }
 
     #[test]
-    fn flag_packing_preserves_type_id() {
+    fn perceive_preserves_type_id() {
         let mut t = benzene();
         for a in &mut t.atoms {
-            a.type_id = 42; // a "real" force-field type id
+            a.type_id = Some(42); // a "real" force-field type id
         }
         perceive(&mut t);
         for a in &t.atoms {
             assert!(a.is_aromatic() && a.is_in_ring());
-            assert_eq!(a.type_id_value(), 42, "real type id survives the flag bits");
+            assert_eq!(a.get_type_id(), Some(42), "perceive leaves type_id untouched");
         }
     }
 

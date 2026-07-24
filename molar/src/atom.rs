@@ -9,58 +9,122 @@ pub(crate) const ATOM_NAME_EXPECT:      &str = "atom name fits in 8 bytes";
 pub(crate) const ATOM_RESNAME_EXPECT:   &str = "residue name fits in 8 bytes";
 pub(crate) const ATOM_TYPE_NAME_EXPECT: &str = "atom type name fits in 8 bytes";
 
+/// Per-atom perceived-chemistry flags (ring membership, aromaticity, …).
+///
+/// Stored in an optional column (see the SoA `AtomStorage`); this newtype replaces the
+/// former bit-packing of ring/aromatic flags into the top two bits of `type_id`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AtomFlags(u8);
+
+impl AtomFlags {
+    const IN_RING: u8 = 1 << 0;
+    const AROMATIC: u8 = 1 << 1;
+
+    pub fn is_in_ring(&self) -> bool {
+        self.0 & Self::IN_RING != 0
+    }
+    pub fn set_in_ring(&mut self, v: bool) {
+        if v {
+            self.0 |= Self::IN_RING;
+        } else {
+            self.0 &= !Self::IN_RING;
+        }
+    }
+    pub fn is_aromatic(&self) -> bool {
+        self.0 & Self::AROMATIC != 0
+    }
+    pub fn set_aromatic(&mut self, v: bool) {
+        if v {
+            self.0 |= Self::AROMATIC;
+        } else {
+            self.0 &= !Self::AROMATIC;
+        }
+    }
+}
+
+/// Read-only access to atom properties.
+///
+/// Implemented by the owned [`Atom`] and by the borrowed column proxies
+/// [`AtomRef`](crate::AtomRef) / [`AtomRefMut`](crate::AtomRefMut). Optional (force-field /
+/// chemistry) getters return `None` when the property was never assigned.
 pub trait AtomLike {
     /// Atom name.
     fn get_name(&self) -> &str;
-    fn set_name(&mut self, name: &str);
-
     /// Residue name.
     fn get_resname(&self) -> &str;
-    fn set_resname(&mut self, resname: &str);
-
     /// Residue id (aka residue number). This could be negative!
     fn get_resid(&self) -> isize;
-    fn set_resid(&mut self, resid: isize);
-
-    /// Residue index. Assigned when reading the topology.
-    /// Unique for each contiguous span of resid. Starts from zero.
+    /// Residue index. Unique for each contiguous span of resid. Starts from zero.
     fn get_resindex(&self) -> usize;
-    fn set_resindex(&mut self, resindex: usize);
-
     /// Atomic number in the periodic table.
     fn get_atomic_number(&self) -> u8;
-    fn set_atomic_number(&mut self, atomic_number: u8);
-
-    /// Mass in atomic units
+    /// Mass in atomic units.
     fn get_mass(&self) -> Float;
-    fn set_mass(&mut self, mass: Float);
-
-    /// Charge in electric charges.
+    /// Partial (working) charge in electron charges.
     fn get_charge(&self) -> Float;
-    fn set_charge(&mut self, charge: Float);
-
-    /// Name of the atom type.
-    fn get_type_name(&self) -> &str;
-    fn set_type_name(&mut self, type_name: &str);
-
-    /// Unique id of the atom type.
-    fn get_type_id(&self) -> u32;
-    fn set_type_id(&mut self, type_id: u32);
-
     /// PDB chain identifier.
     fn get_chain(&self) -> char;
-    fn set_chain(&mut self, chain: char);
-
     /// PDB B-factor.
     fn get_bfactor(&self) -> Float;
-    fn set_bfactor(&mut self, bfactor: Float);
-
     /// PDB occupancy.
     fn get_occupancy(&self) -> Float;
+
+    // --- Optional (force-field / chemistry) properties: `None` if never assigned ---
+    /// Name of the atom type (force field).
+    fn get_type_name(&self) -> Option<&str>;
+    /// Unique id of the atom type.
+    fn get_type_id(&self) -> Option<u32>;
+    /// Integer formal charge (e.g. from an SDF `M  CHG` record).
+    fn get_formal_charge(&self) -> Option<i32>;
+    /// Perceived-chemistry flags.
+    fn get_flags(&self) -> Option<AtomFlags>;
+
+    /// Whether the atom is a member of some ring (false when flags are unset).
+    fn is_in_ring(&self) -> bool {
+        self.get_flags().map_or(false, |f| f.is_in_ring())
+    }
+    /// Whether the atom belongs to an aromatic ring (false when flags are unset).
+    fn is_aromatic(&self) -> bool {
+        self.get_flags().map_or(false, |f| f.is_aromatic())
+    }
+}
+
+/// Mutable access to atom properties. Setters for the optional (force-field / chemistry)
+/// properties assign `Some(..)`.
+pub trait AtomLikeMut: AtomLike {
+    fn set_name(&mut self, name: &str);
+    fn set_resname(&mut self, resname: &str);
+    fn set_resid(&mut self, resid: isize);
+    fn set_resindex(&mut self, resindex: usize);
+    fn set_atomic_number(&mut self, atomic_number: u8);
+    fn set_mass(&mut self, mass: Float);
+    fn set_charge(&mut self, charge: Float);
+    fn set_chain(&mut self, chain: char);
+    fn set_bfactor(&mut self, bfactor: Float);
     fn set_occupancy(&mut self, occupancy: Float);
+
+    fn set_type_name(&mut self, type_name: &str);
+    fn set_type_id(&mut self, type_id: u32);
+    fn set_formal_charge(&mut self, formal_charge: i32);
+    fn set_flags(&mut self, flags: AtomFlags);
+
+    fn set_in_ring(&mut self, v: bool) {
+        let mut f = self.get_flags().unwrap_or_default();
+        f.set_in_ring(v);
+        self.set_flags(f);
+    }
+    fn set_aromatic(&mut self, v: bool) {
+        let mut f = self.get_flags().unwrap_or_default();
+        f.set_aromatic(v);
+        self.set_flags(f);
+    }
 }
 
 /// Information about the atom except its coordinates.
+///
+/// Retained as the detached, densely-packed construction/interchange row even though
+/// [`Topology`](crate::Topology) stores atoms column-wise (Struct-of-Arrays). The four
+/// optional force-field/chemistry fields are `Option` — `None` means "never assigned".
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Atom {
@@ -77,19 +141,24 @@ pub struct Atom {
     pub atomic_number: u8,
     /// Mass in atomic units
     pub mass: Float,
-    /// Charge in electroc charges. For inputs that carry only an integer formal charge
-    /// (e.g. an SDF `M  CHG` record), that formal charge is stored here.
+    /// Partial (working) charge in electron charges. The integer formal charge is stored
+    /// separately in [`formal_charge`](Self::formal_charge).
     pub charge: Float,
-    /// Name of the atom type.
-    pub type_name: AtomStr,
-    /// Unique id of the atom type.
-    pub type_id: u32,
     // PDB chain identifier.
     pub chain: char,
     // PDB B-factor.
     pub bfactor: Float,
     /// PDB occupancy.
     pub occupancy: Float,
+    // --- optional force-field / chemistry properties ---
+    /// Name of the atom type (force field).
+    pub type_name: Option<AtomStr>,
+    /// Unique id of the atom type.
+    pub type_id: Option<u32>,
+    /// Integer formal charge (e.g. from an SDF `M  CHG` record).
+    pub formal_charge: Option<i32>,
+    /// Perceived-chemistry flags (ring membership, aromaticity, …).
+    pub flags: Option<AtomFlags>,
 }
 
 impl Default for Atom {
@@ -98,16 +167,18 @@ impl Default for Atom {
         Atom {
             name: empty,
             resname: empty,
-            type_name: empty,
             resid: 0,
             resindex: 0,
             atomic_number: 0,
             mass: 0.0,
             charge: 0.0,
-            type_id: 0,
             chain: ' ',
             bfactor: 0.0,
             occupancy: 1.0,
+            type_name: None,
+            type_id: None,
+            formal_charge: None,
+            flags: None,
         }
     }
 }
@@ -131,53 +202,19 @@ impl Atom {
     pub fn with_atomic_number(mut self, n: u8) -> Self { self.atomic_number = n; self }
     pub fn with_mass(mut self, mass: Float) -> Self { self.mass = mass; self }
     pub fn with_charge(mut self, charge: Float) -> Self { self.charge = charge; self }
-    pub fn with_type_name(mut self, type_name: &str) -> Self {
-        self.type_name = AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT);
-        self
-    }
-    pub fn with_type_id(mut self, type_id: u32) -> Self { self.type_id = type_id; self }
     pub fn with_chain(mut self, chain: char) -> Self { self.chain = chain; self }
     pub fn with_bfactor(mut self, bfactor: Float) -> Self { self.bfactor = bfactor; self }
     pub fn with_occupancy(mut self, occupancy: Float) -> Self { self.occupancy = occupancy; self }
-
-    // --- Perception flags packed into the top two bits of `type_id` ---------
-    // Molecular perception ([`crate::perception`]) records per-atom "is in a ring"
-    // and "is aromatic" here rather than in a parallel array. The flags occupy the
-    // two highest bits of `type_id`; every real force-field type id (< 2^30) lives
-    // in the low 30 bits and is preserved. The bits are only ever set by an explicit
-    // `perceive` call, so a plain-loaded atom keeps `type_id` exactly as read.
-
-    /// Bit 31 of `type_id`: this atom is a member of some ring.
-    pub const IN_RING_FLAG: u32 = 1 << 31;
-    /// Bit 30 of `type_id`: this atom belongs to an aromatic ring.
-    pub const AROMATIC_FLAG: u32 = 1 << 30;
-
-    /// The real force-field type id, with the perception flag bits masked off.
-    pub fn type_id_value(&self) -> u32 {
-        self.type_id & !(Self::IN_RING_FLAG | Self::AROMATIC_FLAG)
+    pub fn with_type_name(mut self, type_name: &str) -> Self {
+        self.type_name = Some(AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT));
+        self
     }
-
-    pub fn is_in_ring(&self) -> bool {
-        self.type_id & Self::IN_RING_FLAG != 0
+    pub fn with_type_id(mut self, type_id: u32) -> Self { self.type_id = Some(type_id); self }
+    pub fn with_formal_charge(mut self, formal_charge: i32) -> Self {
+        self.formal_charge = Some(formal_charge);
+        self
     }
-    pub fn set_in_ring(&mut self, v: bool) {
-        if v {
-            self.type_id |= Self::IN_RING_FLAG;
-        } else {
-            self.type_id &= !Self::IN_RING_FLAG;
-        }
-    }
-
-    pub fn is_aromatic(&self) -> bool {
-        self.type_id & Self::AROMATIC_FLAG != 0
-    }
-    pub fn set_aromatic(&mut self, v: bool) {
-        if v {
-            self.type_id |= Self::AROMATIC_FLAG;
-        } else {
-            self.type_id &= !Self::AROMATIC_FLAG;
-        }
-    }
+    pub fn with_flags(mut self, flags: AtomFlags) -> Self { self.flags = Some(flags); self }
 
     /// Chainable version of `guess_element_and_mass_from_name()`.
     pub fn guess(mut self) -> Self {
@@ -288,7 +325,7 @@ pub(crate) fn element_symbol(atomic_number: u8) -> &'static str {
 
 impl<T: AtomLike> From<&T> for Atom {
     fn from(a: &T) -> Self {
-        Atom::new()
+        let mut at = Atom::new()
             .with_name(a.get_name())
             .with_resname(a.get_resname())
             .with_resid(a.get_resid() as i32)
@@ -296,108 +333,111 @@ impl<T: AtomLike> From<&T> for Atom {
             .with_atomic_number(a.get_atomic_number())
             .with_mass(a.get_mass())
             .with_charge(a.get_charge())
-            .with_type_name(a.get_type_name())
-            .with_type_id(a.get_type_id())
             .with_chain(a.get_chain())
             .with_bfactor(a.get_bfactor())
-            .with_occupancy(a.get_occupancy())
+            .with_occupancy(a.get_occupancy());
+        if let Some(t) = a.get_type_name() {
+            at = at.with_type_name(t);
+        }
+        if let Some(id) = a.get_type_id() {
+            at = at.with_type_id(id);
+        }
+        if let Some(fc) = a.get_formal_charge() {
+            at = at.with_formal_charge(fc);
+        }
+        if let Some(f) = a.get_flags() {
+            at = at.with_flags(f);
+        }
+        at
     }
 }
 
 impl AtomLike for Atom {
-    // Atom name
     fn get_name(&self) -> &str {
         self.name.as_str()
     }
-    fn set_name(&mut self, name: &str) {
-        self.name = AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT);
-    }
-
-    // Residue name
     fn get_resname(&self) -> &str {
         self.resname.as_str()
+    }
+    fn get_resid(&self) -> isize {
+        self.resid as isize
+    }
+    fn get_resindex(&self) -> usize {
+        self.resindex
+    }
+    fn get_atomic_number(&self) -> u8 {
+        self.atomic_number
+    }
+    fn get_mass(&self) -> Float {
+        self.mass
+    }
+    fn get_charge(&self) -> Float {
+        self.charge
+    }
+    fn get_chain(&self) -> char {
+        self.chain
+    }
+    fn get_bfactor(&self) -> Float {
+        self.bfactor
+    }
+    fn get_occupancy(&self) -> Float {
+        self.occupancy
+    }
+    fn get_type_name(&self) -> Option<&str> {
+        self.type_name.as_ref().map(|s| s.as_str())
+    }
+    fn get_type_id(&self) -> Option<u32> {
+        self.type_id
+    }
+    fn get_formal_charge(&self) -> Option<i32> {
+        self.formal_charge
+    }
+    fn get_flags(&self) -> Option<AtomFlags> {
+        self.flags
+    }
+}
+
+impl AtomLikeMut for Atom {
+    fn set_name(&mut self, name: &str) {
+        self.name = AtomStr::try_from_str(name).expect(ATOM_NAME_EXPECT);
     }
     fn set_resname(&mut self, resname: &str) {
         self.resname = AtomStr::try_from_str(resname).expect(ATOM_RESNAME_EXPECT);
     }
-
-    // Residue id
-    fn get_resid(&self) -> isize {
-        self.resid as isize
-    }
     fn set_resid(&mut self, resid: isize) {
         self.resid = resid as i32
-    }
-
-    // Residue index
-    fn get_resindex(&self) -> usize {
-        self.resindex
     }
     fn set_resindex(&mut self, resindex: usize) {
         self.resindex = resindex;
     }
-
-    // Atomic number
-    fn get_atomic_number(&self) -> u8 {
-        self.atomic_number
-    }
     fn set_atomic_number(&mut self, atomic_number: u8) {
         self.atomic_number = atomic_number;
-    }
-
-    // Mass
-    fn get_mass(&self) -> Float {
-        self.mass
     }
     fn set_mass(&mut self, mass: Float) {
         self.mass = mass;
     }
-
-    // Charge
-    fn get_charge(&self) -> Float {
-        self.charge
-    }
     fn set_charge(&mut self, charge: Float) {
         self.charge = charge;
-    }
-
-    // Type name
-    fn get_type_name(&self) -> &str {
-        self.type_name.as_str()
-    }
-    fn set_type_name(&mut self, type_name: &str) {
-        self.type_name = AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT);
-    }
-
-    // Type id
-    fn get_type_id(&self) -> u32 {
-        self.type_id
-    }
-    fn set_type_id(&mut self, type_id: u32) {
-        self.type_id = type_id;
-    }
-
-    // Chain
-    fn get_chain(&self) -> char {
-        self.chain
     }
     fn set_chain(&mut self, chain: char) {
         self.chain = chain;
     }
-
-    // B-factor
-    fn get_bfactor(&self) -> Float {
-        self.bfactor
-    }
     fn set_bfactor(&mut self, bfactor: Float) {
         self.bfactor = bfactor;
-    }
-    // Occupancy
-    fn get_occupancy(&self) -> Float {
-        self.occupancy
     }
     fn set_occupancy(&mut self, occupancy: Float) {
         self.occupancy = occupancy;
     }
-}  
-
+    fn set_type_name(&mut self, type_name: &str) {
+        self.type_name = Some(AtomStr::try_from_str(type_name).expect(ATOM_TYPE_NAME_EXPECT));
+    }
+    fn set_type_id(&mut self, type_id: u32) {
+        self.type_id = Some(type_id);
+    }
+    fn set_formal_charge(&mut self, formal_charge: i32) {
+        self.formal_charge = Some(formal_charge);
+    }
+    fn set_flags(&mut self, flags: AtomFlags) {
+        self.flags = Some(flags);
+    }
+}

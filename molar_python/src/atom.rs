@@ -1,5 +1,5 @@
 use crate::topology_state::TopologyPy;
-use molar::prelude::{Atom, AtomLike};
+use molar::prelude::{Atom, AtomLike, AtomLikeMut};
 use molar::Float;
 use pyo3::{exceptions::PyIndexError, prelude::*};
 /// Mutable atom container.
@@ -103,8 +103,8 @@ impl AtomPy {
     // type_name
     /// Force-field atom type name.
     #[getter(type_name)]
-    fn get_type_name(&self) -> &str {
-        self.0.type_name.as_str()
+    fn get_type_name(&self) -> Option<&str> {
+        self.0.get_type_name()
     }
 
     #[setter(type_name)]
@@ -115,13 +115,13 @@ impl AtomPy {
     // type_id
     /// Force-field atom type identifier.
     #[getter(type_id)]
-    fn get_type_id(&self) -> u32 {
+    fn get_type_id(&self) -> Option<u32> {
         self.0.type_id
     }
 
     #[setter(type_id)]
     fn set_type_id(&mut self, value: u32) {
-        self.0.type_id = value;
+        self.0.type_id = Some(value);
     }
 
     // chain
@@ -324,8 +324,8 @@ impl AtomView {
     /// :returns: Type name.
     /// :rtype: str
     #[getter(type_name)]
-    fn get_type_name(&self) -> PyResult<&str> {
-        Ok(self.atom()?.type_name.as_str())
+    fn get_type_name(&self) -> PyResult<Option<&str>> {
+        Ok(self.atom()?.get_type_name())
     }
 
     /// Set force-field atom type name.
@@ -342,7 +342,7 @@ impl AtomView {
     /// :returns: Type ID.
     /// :rtype: int
     #[getter(type_id)]
-    fn get_type_id(&self) -> PyResult<u32> {
+    fn get_type_id(&self) -> PyResult<Option<u32>> {
         Ok(self.atom()?.type_id)
     }
 
@@ -351,7 +351,7 @@ impl AtomView {
     /// :param value: New type ID.
     #[setter(type_id)]
     fn set_type_id(&self, value: u32) -> PyResult<()> {
-        self.atom_mut()?.type_id = value;
+        self.atom_mut()?.set_type_id(value);
         Ok(())
     }
 

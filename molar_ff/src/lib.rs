@@ -210,14 +210,14 @@ impl<T: AtomMutProvider + BondProvider> ApplyCharges for T {
         let g2l: HashMap<usize, usize> =
             global.iter().enumerate().map(|(l, &g)| (g, l)).collect();
 
-        // 2. Atomic numbers + integer formal charges (stored in `charge`) in local order.
-        let z: Vec<u8> = self.iter_atoms().map(|a| a.atomic_number).collect();
+        // 2. Atomic numbers + integer formal charges in local order.
+        let z: Vec<u8> = self.iter_atoms().map(|a| a.get_atomic_number()).collect();
         if let Some(&bad) = z.iter().find(|&&zi| {
             !matches!(zi, 1 | 6 | 7 | 8 | 9 | 15 | 16 | 17 | 35 | 53)
         }) {
             return Err(ChargeError::UnsupportedElement(bad, model));
         }
-        let fc: Vec<i32> = self.iter_atoms().map(|a| a.charge.round() as i32).collect();
+        let fc: Vec<i32> = self.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
 
         // 3. Local Kekulé bonds; error on boundary-crossing or non-Kekulé bonds.
         let mut bonds: Vec<gaff::LocalBond> = Vec::new();

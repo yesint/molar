@@ -3,7 +3,7 @@ use super::topology_state::TopologyPy;
 use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
 use crate::{atom::AtomPy, topology_state::StatePy};
-use molar::{AtomLike, AtomMutProvider, State, Topology};
+use molar::{AtomLike, AtomLikeMut, AtomMutProvider, State, Topology};
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -359,14 +359,13 @@ impl ParticlePy {
     /// :returns: Force-field type name.
     /// :rtype: str
     #[getter(type_name)]
-    fn get_type_name(&self) -> String {
+    fn get_type_name(&self) -> Option<String> {
         unsafe {
             self.top()
                 .atoms
                 .get_unchecked(self.id)
-                .type_name
-                .as_str()
-                .to_owned()
+                .get_type_name()
+                .map(|s| s.to_owned())
         }
     }
 
@@ -391,7 +390,7 @@ impl ParticlePy {
     /// :returns: Force-field type id.
     /// :rtype: int
     #[getter(type_id)]
-    fn get_type_id(&self) -> u32 {
+    fn get_type_id(&self) -> Option<u32> {
         unsafe { self.top().atoms.get_unchecked(self.id).type_id }
     }
 
@@ -402,7 +401,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(type_id)]
     fn set_type_id(&self, value: u32) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).type_id = value }
+        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).set_type_id(value) }
     }
 
     // chain
