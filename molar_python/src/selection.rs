@@ -107,9 +107,9 @@ impl LenProvider for SelPy {
 }
 
 impl IndexProvider for SelPy {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize { unsafe {
         self.index.get_index_unchecked(i)
-    }
+    }}
 
     fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.index.iter_index()
@@ -117,8 +117,8 @@ impl IndexProvider for SelPy {
 }
 
 impl AtomProvider for SelPy {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.r_top().atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        &self.r_top().atoms
     }
 }
 
@@ -170,7 +170,7 @@ impl TimeProvider for SelPy {
 }
 
 impl SaveTopology for SelPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
@@ -190,9 +190,9 @@ impl SaveState for SelPy {
 impl SaveTopologyState for SelPy {}
 
 impl MolProvider for SelPy {
-    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] { unsafe {
         self.r_top().get_molecule_unchecked(i)
-    }
+    }}
 
     fn num_molecules(&self) -> usize {
         self.r_top().num_molecules()
@@ -237,8 +237,8 @@ impl IndexSliceProvider for TmpSel<'_> {
 }
 
 impl AtomProvider for TmpSel<'_> {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.top.atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        &self.top.atoms
     }
 }
 
@@ -262,27 +262,27 @@ impl IndexSliceProvider for TmpSelMut<'_> {
 }
 
 impl AtomProvider for TmpSelMut<'_> {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        (*self.top).atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        unsafe { &(*self.top).atoms }
     }
 }
 
 impl AtomMutProvider for TmpSelMut<'_> {
-    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        (*self.top).atoms.as_mut_ptr()
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        unsafe { &mut (*self.top).atoms }
     }
 }
 
 impl PosProvider for TmpSelMut<'_> {
-    unsafe fn coords_ptr(&self) -> *const Pos {
+    unsafe fn coords_ptr(&self) -> *const Pos { unsafe {
         (*self.st).coords.as_ptr()
-    }
+    }}
 }
 
 impl PosMutProvider for TmpSelMut<'_> {
-    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos { unsafe {
         (*self.st).coords.as_mut_ptr()
-    }
+    }}
 }
 
 impl BoxProvider for TmpSelMut<'_> {
@@ -297,10 +297,10 @@ impl BondProvider for TmpSelMut<'_> {
         bonds.len()
     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond { unsafe {
         let bonds = &(*self.top).bonds;
         bonds.get_unchecked(i)
-    }
+    }}
 
     fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         let bonds = unsafe { &(*self.top).bonds };
@@ -394,22 +394,22 @@ impl SelPy {
             self.py_top().clone_ref(arg.py()),
             self.py_st().clone_ref(arg.py()),
         );
-        let v = if let Ok(val) = arg.extract::<String>() {
+        let v = match arg.extract::<String>() { Ok(val) => {
             val.into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
-        } else if let Ok(val) = arg.extract::<(usize, usize)>() {
+        } _ => { match arg.extract::<(usize, usize)>() { Ok(val) => {
             (val.0..=val.1)
                 .into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
-        } else if let Ok(val) = arg.extract::<Vec<usize>>() {
+        } _ => { match arg.extract::<Vec<usize>>() { Ok(val) => {
             val.into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} when creating selection",
                 arg.get_type()
             )));
-        };
+        }}}}}};
         Ok(self.from_svec(v))
     }
 
@@ -1158,7 +1158,7 @@ impl SelPy {
     ///    chains = sel.split_chain()    # list of Sel, one per chain
     fn split_chain(&self) -> Vec<SelPy> {
         Python::attach(|py| {
-            self.split(|p| Some(p.atom.chain))
+            self.split(|p| Some(p.atom.get_chain()))
                 .map(|s| SelPy {
                     top: UnsafeCell::new(self.py_top().clone_ref(py)),
                     st: UnsafeCell::new(self.py_st().clone_ref(py)),

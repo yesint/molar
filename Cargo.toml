@@ -11,8 +11,8 @@ resolver = "2"
 
 [workspace.package]
 version = "1.5.0"
-rust-version = "1.83"
-edition = "2021"
+rust-version = "1.85"
+edition = "2024"
 authors = ["Semen Yesylevskyy <yesint4@yahoo.com>"]
 license = "Artistic-2.0"
 homepage = "https://github.com/yesint/molar"

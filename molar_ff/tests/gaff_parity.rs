@@ -82,7 +82,7 @@ fn run_parity(refs_path: &str, sdf_dir: &str, ff: FFType) -> Stats {
         }
 
         let got: Vec<String> =
-            sys.iter_atoms().map(|a| a.get_type_name().to_string()).collect();
+            sys.iter_atoms().map(|a| a.get_type_name().unwrap_or("").to_string()).collect();
 
         if got.len() != mol.atoms.len() {
             // atom-count mismatch between reader and reference: count all as wrong
@@ -212,13 +212,13 @@ fn apply_ff_resolves_on_system_and_selection() {
 
     let mut a = System::from_file(&path).expect("load");
     a.apply_ff(FFType::Gaff).expect("apply on System");
-    let types_sys: Vec<String> = a.iter_atoms().map(|x| x.get_type_name().to_string()).collect();
+    let types_sys: Vec<String> = a.iter_atoms().map(|x| x.get_type_name().unwrap_or("").to_string()).collect();
 
     let mut b = System::from_file(&path).expect("load");
     b.select_all_bound_mut()
         .apply_ff(FFType::Gaff)
         .expect("apply on selection");
-    let types_sel: Vec<String> = b.iter_atoms().map(|x| x.get_type_name().to_string()).collect();
+    let types_sel: Vec<String> = b.iter_atoms().map(|x| x.get_type_name().unwrap_or("").to_string()).collect();
 
     assert_eq!(types_sys, types_sel, "System and whole-selection typing must agree");
 }

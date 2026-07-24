@@ -146,7 +146,7 @@ impl FileFormatHandler for XyzFileHandler {
         }
 
         let mut top = Topology::default();
-        top.atoms = atoms;
+        top.atoms = atoms.into_iter().collect();
         top.assign_resindex();
 
         self.at_least_one_state_read = true;
@@ -180,8 +180,8 @@ impl FileFormatHandler for XyzFileHandler {
         writeln!(w, "{n}")?;
         writeln!(w)?; // blank comment line
         for (at, pos) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()) {
-            let elem = element_symbol(at.atomic_number);
-            let sym = if elem.is_empty() { at.name.as_str() } else { elem };
+            let elem = element_symbol(at.get_atomic_number());
+            let sym = if elem.is_empty() { at.name() } else { elem };
             writeln!(
                 w,
                 "{} {:>12.6} {:>12.6} {:>12.6}",

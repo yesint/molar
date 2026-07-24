@@ -3,7 +3,7 @@ use super::topology_state::TopologyPy;
 use crate::atom::AtomView;
 use crate::utils::map_pyarray_to_pos;
 use crate::{atom::AtomPy, topology_state::StatePy};
-use molar::{AtomLike, AtomMutProvider, State, Topology};
+use molar::{Atom, AtomLike, AtomLikeMut, State, Topology};
 use numpy::{PyArray1, PyArrayLike1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -156,7 +156,7 @@ impl ParticlePy {
         let a = unsafe { self.top().atoms.get_unchecked(self.id) };
         format!(
             "Particle(id={}, name='{}', resname='{}', resid={}, pos=[{:.3}, {:.3}, {:.3}])",
-            self.id, a.name, a.resname, a.resid, pos.x, pos.y, pos.z
+            self.id, a.name(), a.resname(), a.get_resid(), pos.x, pos.y, pos.z
         )
     }
 
@@ -178,17 +178,17 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(atom)]
     fn set_atom(&self, arg: &Bound<'_, PyAny>) -> PyResult<()> {
-        let at = if let Ok(at) = arg.cast::<AtomPy>() {
+        let at = match arg.cast::<AtomPy>() { Ok(at) => {
             at.borrow().0.clone()
-        } else if let Ok(v) = arg.cast::<AtomView>() {
-            v.borrow().atom()?.clone()
-        } else {
+        } _ => { match arg.cast::<AtomView>() { Ok(v) => {
+            Atom::from(&v.borrow().atom()?)
+        } _ => {
             let ty_name = arg.get_type().name()?.to_string();
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {ty_name} in set_atom()"
             )));
-        };
-        unsafe { *self.top_mut().get_atom_mut_unchecked(self.id) = at };
+        }}}};
+        self.top_mut().atoms.set_row(self.id, &at);
         Ok(())
     }
 
@@ -202,8 +202,7 @@ impl ParticlePy {
             self.top()
                 .atoms
                 .get_unchecked(self.id)
-                .name
-                .as_str()
+                .name()
                 .to_owned()
         }
     }
@@ -216,7 +215,7 @@ impl ParticlePy {
     #[setter(name)]
     fn set_name(&self, value: &str) {
         unsafe {
-            self.top_mut().atoms.get_unchecked_mut(self.id).set_name(value)
+            self.top_mut().atoms.get_mut_unchecked(self.id).set_name(value)
         }
     }
     // resname
@@ -230,8 +229,7 @@ impl ParticlePy {
             self.top()
                 .atoms
                 .get_unchecked(self.id)
-                .resname
-                .as_str()
+                .resname()
                 .to_owned()
         }
     }
@@ -244,7 +242,7 @@ impl ParticlePy {
     #[setter(resname)]
     fn set_resname(&self, value: &str) {
         unsafe {
-            self.top_mut().atoms.get_unchecked_mut(self.id).set_resname(value)
+            self.top_mut().atoms.get_mut_unchecked(self.id).set_resname(value)
         }
     }
 
@@ -255,7 +253,7 @@ impl ParticlePy {
     /// :rtype: int
     #[getter(resid)]
     fn get_resid(&self) -> i32 {
-        unsafe { self.top().atoms.get_unchecked(self.id).resid }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_resid() as i32 }
     }
 
     /// Set residue identifier.
@@ -265,7 +263,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(resid)]
     fn set_resid(&self, value: i32) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).resid = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_resid(value as isize) }
     }
 
     // resindex
@@ -275,7 +273,7 @@ impl ParticlePy {
     /// :rtype: int
     #[getter(resindex)]
     fn get_resindex(&self) -> usize {
-        unsafe { self.top().atoms.get_unchecked(self.id).resindex }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_resindex() }
     }
 
     /// Set residue index.
@@ -285,7 +283,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(resindex)]
     fn set_resindex(&self, value: usize) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).resindex = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_resindex(value) }
     }
 
     // atomic_number
@@ -295,7 +293,7 @@ impl ParticlePy {
     /// :rtype: int
     #[getter(atomic_number)]
     fn get_atomic_number(&self) -> u8 {
-        unsafe { self.top().atoms.get_unchecked(self.id).atomic_number }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_atomic_number() }
     }
 
     /// Set atomic number.
@@ -308,8 +306,8 @@ impl ParticlePy {
         unsafe {
             self.top_mut()
                 .atoms
-                .get_unchecked_mut(self.id)
-                .atomic_number = value
+                .get_mut_unchecked(self.id)
+                .set_atomic_number(value)
         }
     }
 
@@ -320,7 +318,7 @@ impl ParticlePy {
     /// :rtype: float
     #[getter(mass)]
     fn get_mass(&self) -> Float {
-        unsafe { self.top().atoms.get_unchecked(self.id).mass }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_mass() }
     }
 
     /// Set atomic mass.
@@ -330,7 +328,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(mass)]
     fn set_mass(&self, value: Float) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).mass = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_mass(value) }
     }
 
     // charge
@@ -340,7 +338,7 @@ impl ParticlePy {
     /// :rtype: float
     #[getter(charge)]
     fn get_charge(&self) -> Float {
-        unsafe { self.top().atoms.get_unchecked(self.id).charge }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_charge() }
     }
 
     /// Set atom charge.
@@ -350,7 +348,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(charge)]
     fn set_charge(&self, value: Float) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).charge = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_charge(value) }
     }
 
     // type_name
@@ -359,14 +357,13 @@ impl ParticlePy {
     /// :returns: Force-field type name.
     /// :rtype: str
     #[getter(type_name)]
-    fn get_type_name(&self) -> String {
+    fn get_type_name(&self) -> Option<String> {
         unsafe {
             self.top()
                 .atoms
                 .get_unchecked(self.id)
-                .type_name
-                .as_str()
-                .to_owned()
+                .get_type_name()
+                .map(|s| s.to_owned())
         }
     }
 
@@ -380,7 +377,7 @@ impl ParticlePy {
         unsafe {
             self.top_mut()
                 .atoms
-                .get_unchecked_mut(self.id)
+                .get_mut_unchecked(self.id)
                 .set_type_name(value)
         }
     }
@@ -391,8 +388,8 @@ impl ParticlePy {
     /// :returns: Force-field type id.
     /// :rtype: int
     #[getter(type_id)]
-    fn get_type_id(&self) -> u32 {
-        unsafe { self.top().atoms.get_unchecked(self.id).type_id }
+    fn get_type_id(&self) -> Option<u32> {
+        unsafe { self.top().atoms.get_unchecked(self.id).get_type_id() }
     }
 
     /// Set force-field atom type identifier.
@@ -402,7 +399,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(type_id)]
     fn set_type_id(&self, value: u32) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).type_id = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_type_id(value) }
     }
 
     // chain
@@ -412,7 +409,7 @@ impl ParticlePy {
     /// :rtype: str
     #[getter(chain)]
     fn get_chain(&self) -> char {
-        unsafe { self.top().atoms.get_unchecked(self.id).chain }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_chain() }
     }
 
     /// Set chain identifier.
@@ -422,7 +419,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(chain)]
     fn set_chain(&self, value: char) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).chain = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_chain(value) }
     }
 
     // bfactor
@@ -432,7 +429,7 @@ impl ParticlePy {
     /// :rtype: float
     #[getter(bfactor)]
     fn get_bfactor(&self) -> Float {
-        unsafe { self.top().atoms.get_unchecked(self.id).bfactor }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_bfactor() }
     }
 
     /// Set temperature factor (B-factor).
@@ -442,7 +439,7 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(bfactor)]
     fn set_bfactor(&self, value: Float) {
-        unsafe { self.top_mut().atoms.get_unchecked_mut(self.id).bfactor = value }
+        unsafe { self.top_mut().atoms.get_mut_unchecked(self.id).set_bfactor(value) }
     }
 
     // occupancy
@@ -452,7 +449,7 @@ impl ParticlePy {
     /// :rtype: float
     #[getter(occupancy)]
     fn get_occupancy(&self) -> Float {
-        unsafe { self.top().atoms.get_unchecked(self.id).occupancy }
+        unsafe { self.top().atoms.get_unchecked(self.id).get_occupancy() }
     }
 
     /// Set occupancy value.
@@ -465,8 +462,8 @@ impl ParticlePy {
         unsafe {
             self.top_mut()
                 .atoms
-                .get_unchecked_mut(self.id)
-                .occupancy = value
+                .get_mut_unchecked(self.id)
+                .set_occupancy(value)
         }
     }
 }

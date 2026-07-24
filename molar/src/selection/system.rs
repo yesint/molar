@@ -212,7 +212,7 @@ impl System {
     }
 
     pub fn split_resindex_bound(&self) -> impl Iterator<Item = SelOwnBound<'_>> {
-        self.split_bound(|p| Some(p.atom.resindex))
+        self.split_bound(|p| Some(p.atom.get_resindex()))
     }
 
     pub fn set_state(&mut self, st: State) -> Result<State, SelectionError> {
@@ -251,7 +251,7 @@ impl System {
             ))?;
         }
         let pos: Vec<_> = sel.0.iter().map(|i| &self.st.coords[*i]).cloned().collect();
-        let atoms: Vec<_> = sel.0.iter().map(|i| &self.top.atoms[*i]).cloned().collect();
+        let atoms: Vec<_> = sel.0.iter().map(|i| self.top.atoms.to_atom(*i)).collect();
         self.st.add_coords(pos.into_iter());
         self.top.add_atoms(atoms.into_iter());
         Ok(Sel::from_iter(old_last + 1..self.len())?)
@@ -259,18 +259,18 @@ impl System {
 
     pub fn append_atoms<'a>(
         &mut self,
-        atoms: impl Iterator<Item = &'a Atom>,
+        atoms: impl Iterator<Item = Atom>,
         coords: impl Iterator<Item = &'a Pos>,
     ) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         self.st.add_coords(coords.cloned());
-        self.top.add_atoms(atoms.cloned());
+        self.top.add_atoms(atoms);
         check_topology_state_sizes(&self.top, &self.st)?;
         Ok(Sel::from_iter(old_last + 1..self.len())?)
     }
 
     pub fn append_atom(&mut self, atom: &Atom, pos: &Pos) -> Result<Sel, SelectionError> {
-        self.append_atoms(std::iter::once(atom), std::iter::once(pos))
+        self.append_atoms(std::iter::once(atom.clone()), std::iter::once(pos))
     }
 
     pub fn append(
@@ -279,7 +279,7 @@ impl System {
     ) -> Result<Sel, SelectionError> {
         let old_last = self.len() - 1;
         self.st.add_coords(data.iter_pos().cloned());
-        self.top.add_atoms(data.iter_atoms().cloned());
+        self.top.add_atoms(data.iter_atoms().map(|a| Atom::from(&a)));
         check_topology_state_sizes(&self.top, &self.st)?;
         Ok(Sel::from_iter(old_last + 1..self.len())?)
     }
@@ -349,7 +349,7 @@ impl SelectableBound for System {
 }
 
 impl SaveTopology for System {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = AtomRef<'_>> + '_> {
         Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {

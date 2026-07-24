@@ -209,7 +209,7 @@ mod tests {
         };
         // O–H1, O–H2 are polar; C–HC is a nonpolar C–H.
         let top = Topology {
-            atoms: vec![atom("O", 8), atom("H1", 1), atom("H2", 1), atom("C", 6), atom("HC", 1)],
+            atoms: [atom("O", 8), atom("H1", 1), atom("H2", 1), atom("C", 6), atom("HC", 1)].into_iter().collect(),
             bonds: vec![Bond::new(0, 1), Bond::new(0, 2), Bond::new(3, 4)],
             ..Default::default()
         };
@@ -223,7 +223,7 @@ mod tests {
 
         // No bonds → nothing is polar/apolar → an empty selection (an error via `select`).
         let bare = Topology {
-            atoms: vec![atom("O", 8), atom("H1", 1)],
+            atoms: [atom("O", 8), atom("H1", 1)].into_iter().collect(),
             ..Default::default()
         };
         let sys2 = System::new(bare, State::new_fake(2)).unwrap();

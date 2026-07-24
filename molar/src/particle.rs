@@ -1,18 +1,18 @@
 use crate::prelude::*;
 
-/// Holds immutable reference to [Atom] and [Pos] and particle id.
+/// Holds a read-only column proxy for an atom together with its position and particle id.
 #[derive(Debug)]
 pub struct Particle<'a> {
     pub id: usize,
-    pub atom: &'a Atom,
+    pub atom: AtomRef<'a>,
     pub pos: &'a Pos,
 }
 
-/// Holds mutable reference to [Atom] and [Pos] and particle id.
+/// Holds a mutable column proxy for an atom together with its position and particle id.
 #[derive(Debug)]
 pub struct ParticleMut<'a> {
     pub id: usize,
-    pub atom: &'a mut Atom,
+    pub atom: AtomRefMut<'a>,
     pub pos: &'a mut Pos,
 }
 
@@ -20,7 +20,7 @@ impl<'a> From<ParticleMut<'a>> for Particle<'a> {
     fn from(p: ParticleMut<'a>) -> Self {
         Particle {
             id: p.id,
-            atom: p.atom,
+            atom: p.atom.into(),
             pos: p.pos,
         }
     }
@@ -64,8 +64,8 @@ impl PosProvider for Particle<'_> {
 }
 
 impl AtomProvider for Particle<'_> {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.atom as *const Atom
+    fn atom_storage(&self) -> &AtomStorage {
+        self.atom.storage()
     }
 
     // Override iter_atoms to avoid index indirection
@@ -73,7 +73,7 @@ impl AtomProvider for Particle<'_> {
         std::iter::once(self.atom)
     }
 
-    unsafe fn get_atom_unchecked(&self, _i: usize) -> &Atom {
+    unsafe fn get_atom_unchecked(&self, _i: usize) -> AtomRef<'_> {
         self.atom
     }
 }

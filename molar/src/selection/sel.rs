@@ -149,7 +149,7 @@ impl SystemProvider for SelOwnBound<'_> {
 }
 
 impl SaveTopology for SelOwnBound<'_> {
-    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = &Atom> + '_> {
+    fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = AtomRef<'_>> + '_> {
         Box::new(AtomProvider::iter_atoms(self))
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
@@ -297,7 +297,7 @@ impl SystemProvider for SelBound<'_> {
 }
 
 impl SaveTopology for SelBound<'_> {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         Box::new(AtomProvider::iter_atoms(self))
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
@@ -368,8 +368,8 @@ impl PosProvider for SelBoundParts<'_> {
 }
 
 impl AtomProvider for SelBoundParts<'_> {
-    unsafe fn atoms_ptr(&self) -> *const Atom {
-        self.top.atoms.as_ptr()
+    fn atom_storage(&self) -> &AtomStorage {
+        &self.top.atoms
     }
 }
 
@@ -454,7 +454,7 @@ impl SelectionLogic for SelBoundMut<'_> {
 /// Convenience macro for binding several selections ar once
 #[macro_export]
 macro_rules! bind {
-    ($sys:expr, $($sel:ident),+ , $body:block) => {{
+    ($sys:expr_2021, $($sel:ident),+ , $body:block) => {{
         $(let $sel = $sys.bind(&$sel);)+
         $body
     }}
@@ -463,7 +463,7 @@ macro_rules! bind {
 /// Convenience macro for binding several selections ar once mutably
 #[macro_export]
 macro_rules! bind_mut {
-    ($sys:expr, $($sel:ident),+ , $body:block) => {{
+    ($sys:expr_2021, $($sel:ident),+ , $body:block) => {{
         $(let $sel = $sys.bind_mut(&$sel);)+
         $body
     }}
@@ -514,12 +514,13 @@ mod tests {
         let sel1 = sys.select_bound(vec![1, 2, 6, 7])?;
 
         for at in sel1.iter_atoms() {
-            println!("{} {}", at.name, at.resname);
+            println!("{} {}", at.name(), at.resname());
         }
 
         let ind = sel1.into_unbound();
-        for at in sys.try_bind_mut(&ind)?.iter_atoms_mut() {
-            at.bfactor += 1.0;
+        for mut at in sys.try_bind_mut(&ind)?.iter_atoms_mut() {
+            let b = at.get_bfactor();
+            at.set_bfactor(b + 1.0);
         }
 
         // let lock2 = sel1.bind(&sys);
@@ -537,8 +538,8 @@ mod tests {
         let mut sys = System::from_file("tests/albumin.pdb")?;
 
         let par = sys.split_par(|p| {
-            if p.atom.resname != "SOL" {
-                Some(p.atom.resindex)
+            if p.atom.get_resname() != "SOL" {
+                Some(p.atom.get_resindex())
             } else {
                 None
             }
@@ -546,7 +547,7 @@ mod tests {
 
         sys.iter_par_split_mut(&par).try_for_each(|mut sel| {
             //println!("{} {}", sel.len(), sel.first_atom().resname);
-            if sel.first_atom().resname == "ALA" {
+            if sel.first_atom().get_resname() == "ALA" {
                 sel.first_pos_mut().coords[1] = 555.5;
                 println!("{}", sel.first_pos());
             } else {
@@ -561,7 +562,7 @@ mod tests {
         println!("#ca: {} {}", ca.len(), cb.center_of_mass()?);
 
         for a in cb.iter_atoms().take(10) {
-            println!("{}", a.name);
+            println!("{}", a.name());
         }
 
         Ok(())
@@ -606,10 +607,10 @@ mod tests {
         let sel = sys.select_bound(vec![0, 1, 2, 3, 4])?;
 
         // Collect names from sequential iterator
-        let seq_names: Vec<String> = sel.iter_atoms().map(|a| a.name.to_string()).collect();
+        let seq_names: Vec<String> = sel.iter_atoms().map(|a| a.name().to_string()).collect();
 
         // Collect names from parallel iterator
-        let par_names: Vec<String> = sel.par_iter_atoms().map(|a| a.name.to_string()).collect();
+        let par_names: Vec<String> = sel.par_iter_atoms().map(|a| a.name().to_string()).collect();
 
         // Verify they contain the same elements
         assert_eq!(seq_names.len(), par_names.len());
@@ -634,13 +635,13 @@ mod tests {
         // Collect from sequential iterator
         let seq_names: Vec<(usize, String)> = sel
             .iter_particle()
-            .map(|p| (p.id, p.atom.name.to_string()))
+            .map(|p| (p.id, p.atom.name().to_string()))
             .collect();
 
         // Collect from parallel iterator
         let par_names: Vec<(usize, String)> = sel
             .par_iter_particle()
-            .map(|p| (p.id, p.atom.name.to_string()))
+            .map(|p| (p.id, p.atom.name().to_string()))
             .collect();
 
         // Verify they contain the same elements
@@ -663,8 +664,8 @@ mod tests {
         let sys = System::from_file("tests/albumin.pdb")?;
         let sel = sys.select_bound("resid 1:10")?;
         let subsel = sel.select_bound("name CA")?;
-        let a1 = &sel.get_atom(0).unwrap().name;
-        let a2 = &subsel.get_atom(0).unwrap().name;
+        let a1 = sel.get_atom(0).unwrap().name();
+        let a2 = subsel.get_atom(0).unwrap().name();
         assert_eq!(a1,"N");
         assert_eq!(a2,"CA");
         Ok(())

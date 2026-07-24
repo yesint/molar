@@ -140,15 +140,15 @@ pub trait Modify: PosMutProvider {
         let mut resindex = 0usize;
         let mut at_iter = self.iter_atoms_mut();
         if n > 1 {
-            let at0 = at_iter.next().unwrap();
-            let mut cur_resid = at0.resid;
-            at0.resindex = resindex;
-            for at in at_iter {
-                if at.resid != cur_resid {
-                    cur_resid = at.resid;
+            let mut at0 = at_iter.next().unwrap();
+            let mut cur_resid = at0.get_resid();
+            at0.set_resindex(resindex);
+            for mut at in at_iter {
+                if at.get_resid() != cur_resid {
+                    cur_resid = at.get_resid();
                     resindex += 1;
                 }
-                at.resindex = resindex;
+                at.set_resindex(resindex);
             }
         }
     }

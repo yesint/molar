@@ -230,7 +230,7 @@ impl FileFormatHandler for PdbFileHandler {
         self.bonds.dedup();
 
         let mut top = Topology::default();
-        top.atoms = atoms;
+        top.atoms = atoms.into_iter().collect();
         // CONECT records carry no bond order → Unspecified.
         top.bonds = self.bonds.iter().map(|&[a, b]| Bond::new(a, b)).collect();
         top.assign_resindex();
@@ -296,24 +296,24 @@ fn write_cryst1(
 fn write_atom_record(
     w: &mut BufWriter<File>,
     serial: usize,
-    at: &Atom,
+    at: AtomRef,
     pos: &Pos,
 ) -> Result<(), FileFormatError> {
-    let name = format_atom_name(at.name.as_str());
-    let elem = element_symbol(at.atomic_number);
+    let name = format_atom_name(at.name());
+    let elem = element_symbol(at.get_atomic_number());
     writeln!(
         w,
         "ATOM  {:>5} {:<4} {:<4.4}{:1}{:>4}    {:>8.3}{:>8.3}{:>8.3}{:>6.2}{:>6.2}          {:>2}",
         serial,
         name,
-        at.resname,
-        at.chain,
-        at.resid % 9999,
+        at.resname(),
+        at.get_chain(),
+        at.get_resid() % 9999,
         pos.x * 10.0,
         pos.y * 10.0,
         pos.z * 10.0,
-        at.occupancy,
-        at.bfactor,
+        at.get_occupancy(),
+        at.get_bfactor(),
         elem
     )?;
     Ok(())

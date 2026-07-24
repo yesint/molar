@@ -5,6 +5,7 @@
 mod aliases;
 mod analysis_task;
 mod atom;
+mod atom_storage;
 mod connectivity;
 mod distance_search;
 mod dss;
@@ -31,9 +32,10 @@ pub mod voronoi_cell;
 /// Most useful public imports exposed to the users
 pub mod prelude {
     pub use crate::{
-        aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dssp::*,
-        io::*, measure::*, modify::*, ndx_file::*, particle::*, perception::*, periodic_box::*,
-        providers::*, dss::*, sasa::*, secondary_structure::*, selection::*, state::*, topology::*,
+        aliases::*, analysis_task::*, atom::*, atom_storage::*, connectivity::*,
+        distance_search::*, dssp::*, io::*, measure::*, modify::*, ndx_file::*, particle::*,
+        perception::*, periodic_box::*, providers::*, dss::*, sasa::*, secondary_structure::*,
+        selection::*, state::*, topology::*,
     };
     // Parallel-iterator traits via the `par` shim: rayon on native, serial
     // std-iterator fallbacks on wasm32 (which has no threads). See `crate::par`.

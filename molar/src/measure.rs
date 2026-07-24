@@ -655,8 +655,8 @@ where
 {
     use crate::seq_align::*;
 
-    let x: Vec<&str> = seq1.iter_atoms().map(|a| a.name.as_str()).collect();
-    let y: Vec<&str> = seq2.iter_atoms().map(|a| a.name.as_str()).collect();
+    let x: Vec<&str> = seq1.iter_atoms().map(|a| a.name()).collect();
+    let y: Vec<&str> = seq2.iter_atoms().map(|a| a.name()).collect();
 
     let score = |a: &&str, b: &&str| if a == b { 1 } else { -1 };
     let aln = global_align_affine(&x, &y, -10, -1, score);
@@ -774,8 +774,8 @@ mod tests {
         let sel2 = sys.select_bound("resindex 1:5 and not ((resindex 1 2 and name CA) or (resindex 3 and name N))")?;
         let (ind1, ind2) = get_matching_atoms_by_name(&sel1, &sel2);
 
-        let names1: Vec<_> = ind1.iter().map(|i| sel1.get_atom(*i).unwrap().name.clone()).collect();
-        let names2: Vec<_> = ind2.iter().map(|i| sel2.get_atom(*i).unwrap().name.clone()).collect();
+        let names1: Vec<_> = ind1.iter().map(|i| sel1.get_atom(*i).unwrap().name().to_string()).collect();
+        let names2: Vec<_> = ind2.iter().map(|i| sel2.get_atom(*i).unwrap().name().to_string()).collect();
         println!("{names1:?}");
         println!("{names2:?}");
         assert_eq!(names1,names2);

@@ -57,7 +57,7 @@ impl State {
         }
 
         macro_rules! retain_not_in {
-            ($vec:expr) => {
+            ($vec:expr_2021) => {
                 if !$vec.is_empty() {
                     let mut it = ind.iter().cloned();
                     let mut to_remove = it.next().unwrap_or(usize::MAX);

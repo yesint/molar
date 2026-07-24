@@ -69,28 +69,28 @@ impl SystemProvider for SelParMut<'_> {
 // PosMutProvider and AtomMutProvider are implemented directly (not via SysMutProvider)
 // so that shared fields (box, bonds, molecules) cannot be mutated during parallel use.
 impl PosMutProvider for SelParMut<'_> {
-    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos { unsafe {
         (*self.sys).st.coords.as_mut_ptr()
-    }
+    }}
 }
 impl AtomMutProvider for SelParMut<'_> {
-    unsafe fn atoms_ptr_mut(&mut self) -> *mut Atom {
-        (*self.sys).top.atoms.as_mut_ptr()
+    fn atom_storage_mut(&mut self) -> &mut AtomStorage {
+        unsafe { &mut (*self.sys).top.atoms }
     }
 }
 // VelMutProvider and ForceMutProvider are implemented directly (same reason as above).
 // VelProvider and ForceProvider are covered by blanket impls via SystemProvider.
 impl VelMutProvider for SelParMut<'_> {
-    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel { unsafe {
         let v = &mut (*self.sys).st.velocities;
         if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
-    }
+    }}
 }
 impl ForceMutProvider for SelParMut<'_> {
-    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force { unsafe {
         let v = &mut (*self.sys).st.forces;
         if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
-    }
+    }}
 }
 
 //============================================================================
@@ -138,11 +138,11 @@ mod tests {
 
         // Make a parallel split for each POPG lipid molecule
         let par = sys.split_par(|p| {
-            if p.atom.resname == "POPG" {
+            if p.atom.get_resname() == "POPG" {
                 // Whenever new distinct result is returned form this closure
                 // new selection is created, so each distinct POPG residue
                 // becomes a separate selection.
-                Some(p.atom.resindex)
+                Some(p.atom.get_resindex())
             } else {
                 // All other atoms are ignored
                 None
@@ -150,9 +150,88 @@ mod tests {
         })?;
 
         // Bind split to a system
-        sys.iter_par_split_mut(&par) 
+        sys.iter_par_split_mut(&par)
             // Run unwrap on each selection in parallel
-            .try_for_each(|mut sel| sel.unwrap_simple())?; 
+            .try_for_each(|mut sel| sel.unwrap_simple())?;
+        Ok(())
+    }
+
+    /// Mutate an *atom* column (not just positions) in parallel over disjoint index sets and
+    /// verify the writes land correctly — exercises `AtomRefMut` core-column setters across
+    /// threads (the `SelParMut` → `iter_atoms_mut` path under SoA storage).
+    #[test]
+    fn par_atom_column_write() -> anyhow::Result<()> {
+        // In-memory system: 20 residues × 5 atoms.
+        let mut top = Topology::default();
+        for res in 0..20i32 {
+            for _ in 0..5 {
+                top.atoms
+                    .push_row(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
+            }
+        }
+        top.assign_resindex();
+        let n = top.atoms.len();
+        let mut sys = System::new(top, State::new_fake(n))?;
+
+        // One parallel selection per residue (disjoint index sets).
+        let par = sys.split_par(|p| Some(p.atom.get_resindex()))?;
+
+        // In parallel, set each atom's bfactor to its resid.
+        sys.iter_par_split_mut(&par).try_for_each(|mut sel| {
+            for mut a in sel.iter_atoms_mut() {
+                let r = a.get_resid() as Float;
+                a.set_bfactor(r);
+            }
+            Ok::<_, SelectionError>(())
+        })?;
+
+        // Every atom's bfactor must now equal its resid.
+        for a in sys.iter_atoms() {
+            assert_eq!(a.get_bfactor(), a.get_resid() as Float);
+        }
+        Ok(())
+    }
+
+    /// Same disjoint-index atom-column mutation as [`par_atom_column_write`], but driven with
+    /// `std::thread::scope` instead of rayon. This exercises the `SelParMut` → `iter_atoms_mut`
+    /// → `AtomRefMut` unsafe *without* pulling in rayon/crossbeam, so it runs cleanly under
+    /// Miri (`cargo +nightly miri test par_atom_column_write_scoped`, Tree Borrows) — proving
+    /// the laundered `*mut System` + per-column element writes are free of aliasing UB.
+    #[test]
+    fn par_atom_column_write_scoped() -> anyhow::Result<()> {
+        let mut top = Topology::default();
+        for res in 0..8i32 {
+            for _ in 0..4 {
+                top.atoms
+                    .push_row(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
+            }
+        }
+        top.assign_resindex();
+        let n = top.atoms.len();
+        let mut sys = System::new(top, State::new_fake(n))?;
+
+        let par = sys.split_par(|p| Some(p.atom.get_resindex()))?;
+        par.check_bounds(&sys);
+
+        // Launder the system pointer across scoped threads; disjoint index sets per selection
+        // guarantee the per-element `&mut` writes never overlap.
+        let sys_addr = &mut sys as *mut System as usize;
+        std::thread::scope(|scope| {
+            for sel in &par.selections {
+                let idx = sel.0.as_slice();
+                scope.spawn(move || {
+                    let mut sp = SelParMut::new(sys_addr as *mut System, idx);
+                    for mut a in sp.iter_atoms_mut() {
+                        let r = a.get_resid() as Float;
+                        a.set_bfactor(r);
+                    }
+                });
+            }
+        });
+
+        for a in sys.iter_atoms() {
+            assert_eq!(a.get_bfactor(), a.get_resid() as Float);
+        }
         Ok(())
     }
 }

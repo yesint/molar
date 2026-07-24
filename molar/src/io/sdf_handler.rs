@@ -264,8 +264,8 @@ impl FileFormatHandler for SdfFileHandler {
                         it.next().and_then(|s| s.parse::<i32>().ok()),
                     ) {
                         (Some(idx), Some(chg)) if (1..=atoms.len()).contains(&idx) => {
-                            // Molfiles carry only an integer formal charge; store it in `charge`.
-                            atoms[idx - 1].charge = chg as Float;
+                            // Molfiles carry only an integer formal charge.
+                            atoms[idx - 1].formal_charge = Some(chg);
                         }
                         _ => break,
                     }
@@ -274,7 +274,7 @@ impl FileFormatHandler for SdfFileHandler {
         }
 
         let mut top = Topology::default();
-        top.atoms = atoms;
+        top.atoms = atoms.into_iter().collect();
         top.bonds = bonds;
         top.assign_resindex();
         self.at_least_one_state_read = true;
@@ -317,8 +317,8 @@ impl FileFormatHandler for SdfFileHandler {
         )?;
 
         for (at, pos) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()) {
-            let elem = element_symbol(at.atomic_number);
-            let sym = if elem.is_empty() { at.name.as_str() } else { elem };
+            let elem = element_symbol(at.get_atomic_number());
+            let sym = if elem.is_empty() { at.name() } else { elem };
             writeln!(
                 w,
                 "{:>10.4}{:>10.4}{:>10.4} {:<3} 0  0  0  0  0  0  0  0  0  0  0  0",
@@ -340,17 +340,13 @@ impl FileFormatHandler for SdfFileHandler {
             writeln!(w, "{:>3}{:>3}{:>3}  0  0  0  0", b.i1 + 1, b.i2 + 1, ty)?;
         }
 
-        // `M  CHG` properties for atoms carrying a formal charge (8 pairs per line). Molfiles
-        // store only integer charges, so emit only (near-)integer nonzero `charge` values;
-        // fractional partial charges (which the format can't represent) are not written.
+        // `M  CHG` properties for atoms carrying a nonzero integer formal charge (8 pairs per
+        // line). Only the dedicated formal-charge field is written; the fractional partial
+        // `charge` (which the format can't represent) is not.
         let charged: Vec<(usize, i32)> = data
             .iter_atoms_dyn()
             .enumerate()
-            .filter_map(|(i, a)| {
-                let c = a.get_charge();
-                let r = c.round();
-                (r as i32 != 0 && (c - r).abs() < 1e-4).then_some((i + 1, r as i32))
-            })
+            .filter_map(|(i, a)| a.get_formal_charge().filter(|&c| c != 0).map(|c| (i + 1, c)))
             .collect();
         for chunk in charged.chunks(8) {
             write!(w, "M  CHG{:>3}", chunk.len())?;
@@ -405,7 +401,7 @@ $$$$
         assert_eq!(st.coords.len(), 6);
         assert_eq!(top.bonds.len(), 5);
         // First two atoms are carbons; coordinates converted Å → nm.
-        assert_eq!(top.atoms[0].atomic_number, 6);
+        assert_eq!(top.atoms.get(0).unwrap().get_atomic_number(), 6);
         assert!((st.coords[1].x - 0.133).abs() < 1e-5, "C–C along x ≈ 0.133 nm");
         // The C=C bond carries a double order; the C–H bonds are single.
         assert_eq!(top.bonds[0], Bond::with_order(0, 1, BondOrder::Double));
@@ -419,7 +415,7 @@ $$$$
         // Build a tiny molecule: C=O with two single C–H, then write + re-read.
         let mut top = Topology::default();
         for sym in ["C", "O", "H", "H"] {
-            top.atoms.push(Atom::new().with_name(sym).with_resname("MOL").with_resid(1).guess());
+            top.atoms.push_row(&Atom::new().with_name(sym).with_resname("MOL").with_resid(1).guess());
         }
         top.bonds = vec![
             Bond::with_order(0, 1, BondOrder::Double),
@@ -454,7 +450,7 @@ $$$$
         assert_eq!(top2.bonds.len(), 3);
         assert_eq!(top2.bonds[0].order, BondOrder::Double);
         assert_eq!(top2.bonds[1].order, BondOrder::Single);
-        assert_eq!(top2.atoms[1].atomic_number, 8); // O survived
+        assert_eq!(top2.atoms.get(1).unwrap().get_atomic_number(), 8); // O survived
         assert!((st2.coords[1].x - 0.123).abs() < 1e-3, "C–O distance preserved");
     }
 
@@ -484,12 +480,14 @@ $$$$
         ))))
         .unwrap();
         let (top, _) = h.read().unwrap();
-        assert_eq!(top.atoms[0].charge, 1.0, "N+ from M CHG");
-        assert_eq!(top.atoms[1].charge, 0.0, "double-bonded O neutral");
-        assert_eq!(top.atoms[2].charge, -1.0, "O- from M CHG");
-        assert_eq!(top.atoms[3].charge, 0.0);
+        assert_eq!(top.atoms.get(0).unwrap().get_formal_charge(), Some(1), "N+ from M CHG");
+        // Once any atom carries a formal charge the (full-length) column exists, so
+        // un-charged atoms read back the backfilled default 0 rather than None.
+        assert_eq!(top.atoms.get(1).unwrap().get_formal_charge(), Some(0), "neutral O");
+        assert_eq!(top.atoms.get(2).unwrap().get_formal_charge(), Some(-1), "O- from M CHG");
+        assert_eq!(top.atoms.get(3).unwrap().get_formal_charge(), Some(0));
 
-        // Round-trip: write and re-read; charges preserved.
+        // Round-trip: write and re-read; formal charges preserved.
         let st = State { coords: vec![Pos::default(); 4], ..Default::default() };
         let sys = System::new(top, st).unwrap();
         let path = std::env::temp_dir().join("molar_sdf_chg_roundtrip.sdf");
@@ -500,8 +498,8 @@ $$$$
         let mut rh = SdfFileHandler::open(&path).unwrap();
         let (top2, _) = rh.read().unwrap();
         let _ = std::fs::remove_file(&path);
-        assert_eq!(top2.atoms[0].charge, 1.0);
-        assert_eq!(top2.atoms[2].charge, -1.0);
+        assert_eq!(top2.atoms.get(0).unwrap().get_formal_charge(), Some(1));
+        assert_eq!(top2.atoms.get(2).unwrap().get_formal_charge(), Some(-1));
     }
 
     #[test]

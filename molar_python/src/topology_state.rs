@@ -144,16 +144,16 @@ impl StatePy {
     /// :returns: ``None``.
     /// :rtype: None
     fn set_box_from(&self, arg: Bound<'_, PyAny>) -> PyResult<()> {
-        let st_ref = if let Ok(sys) = arg.cast::<SystemPy>() {
+        let st_ref = match arg.cast::<SystemPy>() { Ok(sys) => {
             sys.get().r_st()
-        } else if let Ok(sel) = arg.cast::<SelPy>() {
+        } _ => { match arg.cast::<SelPy>() { Ok(sel) => {
             sel.get().r_st()
-        } else {
+        } _ => {
             let ty_name = arg.get_type().name()?.to_string();
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {ty_name} in set_box_from()"
             )));
-        };
+        }}}};
         self.inner_mut().pbox = st_ref.pbox.clone();
         Ok(())
     }
@@ -255,9 +255,9 @@ impl BondProvider for TopologyPy {
         BondProvider::num_bonds(self.inner())
     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond { unsafe {
         self.inner().get_bond_unchecked(i)
-    }
+    }}
 
     fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         self.inner().iter_bonds()
@@ -265,7 +265,7 @@ impl BondProvider for TopologyPy {
 }
 
 impl SaveTopology for TopologyPy {
-    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Atom> + 'a> {
+    fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         self.inner().iter_atoms_dyn()
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {

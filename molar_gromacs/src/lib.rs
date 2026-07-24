@@ -115,7 +115,7 @@ impl TprPlugin {
         unsafe { libloading::Library::new(name) }
     }
 
-    unsafe fn resolve(lib: &libloading::Library) -> Result<TprPluginFns, libloading::Error> {
+    unsafe fn resolve(lib: &libloading::Library) -> Result<TprPluginFns, libloading::Error> { unsafe {
         macro_rules! sym {
             ($name:literal, $ty:ty) => {
                 *lib.get::<$ty>($name)?
@@ -134,9 +134,9 @@ impl TprPlugin {
             tpr_fill_coords:    sym!(b"tpr_fill_coords\0",    unsafe extern "C" fn(*mut TprHandle, *mut f32)),
             tpr_fill_box:       sym!(b"tpr_fill_box\0",       unsafe extern "C" fn(*mut TprHandle, *mut f32)),
         })
-    }
+    }}
 
-    unsafe fn resolve_cpt(lib: &libloading::Library) -> Result<CptPluginFns, libloading::Error> {
+    unsafe fn resolve_cpt(lib: &libloading::Library) -> Result<CptPluginFns, libloading::Error> { unsafe {
         macro_rules! sym {
             ($name:literal, $ty:ty) => {
                 *lib.get::<$ty>($name)?
@@ -155,7 +155,7 @@ impl TprPlugin {
             cpt_fill_velocities: sym!(b"cpt_fill_velocities\0", unsafe extern "C" fn(*mut CptHandle, *mut f32)),
             cpt_fill_forces:     sym!(b"cpt_fill_forces\0",     unsafe extern "C" fn(*mut CptHandle, *mut f32)),
         })
-    }
+    }}
 
     /// Return a cached `Arc<TprPlugin>`, loading the shared library at most once.
     ///
