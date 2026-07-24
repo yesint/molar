@@ -69,9 +69,9 @@ impl SystemProvider for SelParMut<'_> {
 // PosMutProvider and AtomMutProvider are implemented directly (not via SysMutProvider)
 // so that shared fields (box, bonds, molecules) cannot be mutated during parallel use.
 impl PosMutProvider for SelParMut<'_> {
-    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos { unsafe {
         (*self.sys).st.coords.as_mut_ptr()
-    }
+    }}
 }
 impl AtomMutProvider for SelParMut<'_> {
     fn atom_storage_mut(&mut self) -> &mut AtomStorage {
@@ -81,16 +81,16 @@ impl AtomMutProvider for SelParMut<'_> {
 // VelMutProvider and ForceMutProvider are implemented directly (same reason as above).
 // VelProvider and ForceProvider are covered by blanket impls via SystemProvider.
 impl VelMutProvider for SelParMut<'_> {
-    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel { unsafe {
         let v = &mut (*self.sys).st.velocities;
         if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
-    }
+    }}
 }
 impl ForceMutProvider for SelParMut<'_> {
-    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force { unsafe {
         let v = &mut (*self.sys).st.forces;
         if v.is_empty() { std::ptr::null_mut() } else { v.as_mut_ptr() }
-    }
+    }}
 }
 
 //============================================================================

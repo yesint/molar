@@ -117,11 +117,11 @@ impl FileHandlerPy {
             .as_mut()
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
 
-        if let Ok(s) = data.extract::<PyRef<'_, SystemPy>>() {
+        match data.extract::<PyRef<'_, SystemPy>>() { Ok(s) => {
             h.write(&*s).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.extract::<PyRef<'_, SelPy>>() {
+        } _ => { match data.extract::<PyRef<'_, SelPy>>() { Ok(s) => {
             h.write(&*s).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<PyTuple>() {
+        } _ => { match data.cast::<PyTuple>() { Ok(s) => {
             if s.len() != 2 {
                 return Err(PyValueError::new_err(format!(
                     "tuple must have two elements, not {}",
@@ -133,12 +133,12 @@ impl FileHandlerPy {
             let st = s.get_item(1)?.cast::<StatePy>()?.as_ptr() as *const StatePy;
             h.write_topology(unsafe { &*top }).map_err(to_py_io_err)?;
             h.write_state(unsafe { &*st }).map_err(to_py_io_err)?;
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
                 data.get_type().name()?.to_string()
             )));
-        }
+        }}}}}}
         Ok(())
     }
 
@@ -152,19 +152,19 @@ impl FileHandlerPy {
             .0
             .as_mut()
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.cast::<SystemPy>() {
+        match data.cast::<SystemPy>() { Ok(s) => {
             h.write_topology(s.get().r_top()).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<SelPy>() {
+        } _ => { match data.cast::<SelPy>() { Ok(s) => {
             h.write_topology(s.get().r_top())
                 .map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<TopologyPy>() {
+        } _ => { match data.cast::<TopologyPy>() { Ok(s) => {
             h.write_topology(&*s.borrow()).map_err(to_py_io_err)?;
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
                 data.get_type().name()?.to_string()
             )));
-        }
+        }}}}}}
         Ok(())
     }
 
@@ -178,18 +178,18 @@ impl FileHandlerPy {
             .0
             .as_mut()
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.cast::<SystemPy>() {
+        match data.cast::<SystemPy>() { Ok(s) => {
             h.write_state(s.get().r_st()).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<SelPy>() {
+        } _ => { match data.cast::<SelPy>() { Ok(s) => {
             h.write_state(s.get().r_st()).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<StatePy>() {
+        } _ => { match data.cast::<StatePy>() { Ok(s) => {
             h.write_state(&*s.borrow()).map_err(to_py_io_err)?;
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
                 data.get_type().name()?.to_string()
             )));
-        }
+        }}}}}}
         Ok(())
     }
 
@@ -207,18 +207,18 @@ impl FileHandlerPy {
             .0
             .as_mut()
             .ok_or_else(|| PyTypeError::new_err(ALREADY_TRANDFORMED))?;
-        if let Ok(s) = data.cast::<SystemPy>() {
+        match data.cast::<SystemPy>() { Ok(s) => {
             h.write_state_pick(s.get().r_st(), coords, velocities, forces).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<SelPy>() {
+        } _ => { match data.cast::<SelPy>() { Ok(s) => {
             h.write_state_pick(s.get().r_st(), coords, velocities, forces).map_err(to_py_io_err)?;
-        } else if let Ok(s) = data.cast::<StatePy>() {
+        } _ => { match data.cast::<StatePy>() { Ok(s) => {
             h.write_state_pick(&*s.borrow(), coords, velocities, forces).map_err(to_py_io_err)?;
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",
                 data.get_type().name()?.to_string()
             )));
-        }
+        }}}}}}
         Ok(())
     }
 

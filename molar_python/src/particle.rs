@@ -178,16 +178,16 @@ impl ParticlePy {
     /// :rtype: None
     #[setter(atom)]
     fn set_atom(&self, arg: &Bound<'_, PyAny>) -> PyResult<()> {
-        let at = if let Ok(at) = arg.cast::<AtomPy>() {
+        let at = match arg.cast::<AtomPy>() { Ok(at) => {
             at.borrow().0.clone()
-        } else if let Ok(v) = arg.cast::<AtomView>() {
+        } _ => { match arg.cast::<AtomView>() { Ok(v) => {
             Atom::from(&v.borrow().atom()?)
-        } else {
+        } _ => {
             let ty_name = arg.get_type().name()?.to_string();
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {ty_name} in set_atom()"
             )));
-        };
+        }}}};
         self.top_mut().atoms.set_row(self.id, &at);
         Ok(())
     }

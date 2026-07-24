@@ -454,7 +454,7 @@ impl SelectionLogic for SelBoundMut<'_> {
 /// Convenience macro for binding several selections ar once
 #[macro_export]
 macro_rules! bind {
-    ($sys:expr, $($sel:ident),+ , $body:block) => {{
+    ($sys:expr_2021, $($sel:ident),+ , $body:block) => {{
         $(let $sel = $sys.bind(&$sel);)+
         $body
     }}
@@ -463,7 +463,7 @@ macro_rules! bind {
 /// Convenience macro for binding several selections ar once mutably
 #[macro_export]
 macro_rules! bind_mut {
-    ($sys:expr, $($sel:ident),+ , $body:block) => {{
+    ($sys:expr_2021, $($sel:ident),+ , $body:block) => {{
         $(let $sel = $sys.bind_mut(&$sel);)+
         $body
     }}

@@ -54,9 +54,9 @@ impl<T: IndexSliceProvider> LenProvider for T {
 }
 
 impl<T: IndexSliceProvider> IndexProvider for T {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize { unsafe {
         *self.get_index_slice().get_unchecked(i)
-    }
+    }}
 
     fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.get_index_slice().iter().cloned()
@@ -113,10 +113,10 @@ pub trait PosProvider: LenProvider + IndexProvider {
         unsafe { self.par_iter_index().map(move |i| &*(p as *const Pos).add(i)) }
     }
 
-    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos {
+    unsafe fn get_pos_unchecked(&self, i: usize) -> &Pos { unsafe {
         let ind = self.get_index_unchecked(i);
         &*self.coords_ptr().add(ind)
-    }
+    }}
 
     fn get_pos(&self, i: usize) -> Option<&Pos> {
         if i < self.len() {
@@ -139,9 +139,9 @@ pub trait PosProvider: LenProvider + IndexProvider {
 ///
 /// Extends `PosProvider` with mutable iteration and random access.
 pub trait PosMutProvider: PosProvider {
-    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos { unsafe {
         self.coords_ptr() as *mut Pos
-    }
+    }}
 
     fn iter_pos_mut(&mut self) -> impl PosMutIterator<'_> {
         (0..self.len()).map(|i| {
@@ -158,10 +158,10 @@ pub trait PosMutProvider: PosProvider {
         unsafe { self.par_iter_index().map(move |i| &mut *(p as *mut Pos).add(i)) }
     }
 
-    unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos {
+    unsafe fn get_pos_mut_unchecked(&mut self, i: usize) -> &mut Pos { unsafe {
         let ind = self.get_index_unchecked(i);
         &mut *self.coords_ptr_mut().add(ind)
-    }
+    }}
 
     fn get_pos_mut(&mut self, i: usize) -> Option<&mut Pos> {
         if i < self.len() {
@@ -209,10 +209,10 @@ pub trait AtomProvider: LenProvider + IndexProvider {
 
     /// # Safety
     /// `i` must be a valid local index (`i < len()`).
-    unsafe fn get_atom_unchecked(&self, i: usize) -> AtomRef<'_> {
+    unsafe fn get_atom_unchecked(&self, i: usize) -> AtomRef<'_> { unsafe {
         let ind = self.get_index_unchecked(i);
         self.atom_storage().get_unchecked(ind)
-    }
+    }}
 
     fn get_atom(&self, i: usize) -> Option<AtomRef<'_>> {
         if i < self.len() {
@@ -260,10 +260,10 @@ pub trait AtomMutProvider: AtomProvider {
 
     /// # Safety
     /// `i` must be a valid local index (`i < len()`).
-    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> AtomRefMut<'_> {
+    unsafe fn get_atom_mut_unchecked(&mut self, i: usize) -> AtomRefMut<'_> { unsafe {
         let ind = self.get_index_unchecked(i);
         self.atom_storage_mut().get_mut_unchecked(ind)
-    }
+    }}
 
     fn get_atom_mut(&mut self, i: usize) -> Option<AtomRefMut<'_>> {
         if i < self.len() {
@@ -509,9 +509,9 @@ pub trait VelMutProvider: VelProvider {
     ///
     /// # Safety
     /// Same contract as [`VelProvider::vel_ptr`].
-    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel {
+    unsafe fn vel_ptr_mut(&mut self) -> *mut Vel { unsafe {
         self.vel_ptr() as *mut Vel
-    }
+    }}
 
     /// Mutable iterator over velocities of selected atoms.
     fn iter_vel_mut(&mut self) -> Result<impl VelMutIterator<'_>, StateError> {
@@ -593,9 +593,9 @@ pub trait ForceMutProvider: ForceProvider {
     ///
     /// # Safety
     /// Same contract as [`ForceProvider::force_ptr`].
-    unsafe fn force_ptr_mut(&mut self) -> *mut Force {
+    unsafe fn force_ptr_mut(&mut self) -> *mut Force { unsafe {
         self.force_ptr() as *mut Force
-    }
+    }}
 
     /// Mutable iterator over forces of selected atoms.
     fn iter_force_mut(&mut self) -> Result<impl ForceMutIterator<'_>, StateError> {

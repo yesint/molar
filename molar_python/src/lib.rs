@@ -268,7 +268,7 @@ fn distance_search<'py>(
     let pbc_dims = PbcDims::new(dims[0], dims[1], dims[2]);
     let sel1 = data1.borrow();
 
-    if let Ok(d) = cutoff.extract::<Float>() {
+    match cutoff.extract::<Float>() { Ok(d) => {
         // Distance cutoff
         if let Some(d2) = data2 {
             let sel2 = d2.borrow();
@@ -304,7 +304,7 @@ fn distance_search<'py>(
                 res = distance_search_single(d, &sel1 as &SelPy, sel1.iter_index());
             }
         }
-    } else if let Ok(s) = cutoff.extract::<String>() {
+    } _ => { match cutoff.extract::<String>() { Ok(s) => {
         if s != "vdw" {
             return Err(PyTypeError::new_err(format!("Unknown cutoff type {s}")));
         }
@@ -357,9 +357,9 @@ fn distance_search<'py>(
                 "VdW distance search is not yet supported for single selection",
             ));
         }
-    } else {
+    } _ => {
         return Err(PyTypeError::new_err("cutoff must be a float or 'vdw'"));
-    };
+    }}}};
 
     // Subdivide the result into two arrays
     let n = res.len();

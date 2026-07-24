@@ -96,9 +96,9 @@ impl<'a> Grid<'a> {
         self.cells[i].push(data);
     }
 
-    unsafe fn push_ptr(&mut self, ind: usize, data: (usize, *const Pos)) {
+    unsafe fn push_ptr(&mut self, ind: usize, data: (usize, *const Pos)) { unsafe {
         self.cells[ind].push((data.0, &*data.1));
-    }
+    }}
 
     fn from_cutoff_and_extents(cutoff: Float, extents: &Vector3f) -> Self {
         let mut sz = [0, 0, 0];

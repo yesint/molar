@@ -204,12 +204,12 @@ impl LenProvider for EvalSubset<'_> {
 }
 
 impl IndexProvider for EvalSubset<'_> {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize { unsafe {
         match self {
             EvalSubset::Whole(_) => i,
             EvalSubset::Part(ind) => *ind.get_unchecked(i),
         }
-    }
+    }}
 }
 
 //-----------------------------------------------------------
@@ -292,12 +292,12 @@ impl<S> IndexProvider for EvalContext<'_,S>
 where
     S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize { unsafe {
         // This matches cur_subset for each i, so the performance is
         // not optimal here. But since match always returns the same
         // variant branch predictor should optimize it out
         self.cur_subset.get_index_unchecked(i)
-    }
+    }}
 }
 
 impl<S> LenProvider for EvalContext<'_,S> 
@@ -313,9 +313,9 @@ impl<S> PosProvider for EvalContext<'_,S>
 where
     S: PosProvider + AtomProvider + BoxProvider + BondProvider
 {
-    unsafe fn coords_ptr(&self) -> *const Pos {
+    unsafe fn coords_ptr(&self) -> *const Pos { unsafe {
         self.sys.coords_ptr()
-    }
+    }}
 }
 
 impl<S> AtomProvider for EvalContext<'_,S>

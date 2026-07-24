@@ -387,7 +387,7 @@ impl FileFormatHandler for DcdFileHandler {
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
-        let DcdFileHandler::Reader(ref mut r) = self else {
+        let DcdFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotStateReadFormat);
         };
 
@@ -465,7 +465,7 @@ impl FileFormatHandler for DcdFileHandler {
     }
 
     fn write_state(&mut self, data: &dyn SaveState) -> Result<(), FileFormatError> {
-        let DcdFileHandler::Writer(ref mut w) = self else {
+        let DcdFileHandler::Writer(w) = self else {
             return Err(FileFormatError::NotStateWriteFormat);
         };
 
@@ -507,7 +507,7 @@ impl FileFormatHandler for DcdFileHandler {
     }
 
     fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
-        let DcdFileHandler::Reader(ref mut r) = self else {
+        let DcdFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotRandomAccessFormat);
         };
         if r.frame_size == 0 {
@@ -527,7 +527,7 @@ impl FileFormatHandler for DcdFileHandler {
 
     fn seek_last(&mut self) -> Result<(), FileFormatError> {
         let n_frames = match self {
-            DcdFileHandler::Reader(ref r) => r.n_frames,
+            &mut DcdFileHandler::Reader(ref r) => r.n_frames,
             _ => return Err(FileFormatError::NotRandomAccessFormat),
         };
         if n_frames == 0 {

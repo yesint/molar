@@ -388,7 +388,7 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn read_state(&mut self) -> Result<State, FileFormatError> {
-        let TrrFileHandler::Reader(ref mut r) = self else {
+        let TrrFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotStateReadFormat);
         };
 
@@ -402,7 +402,7 @@ impl FileFormatHandler for TrrFileHandler {
         if !coords {
             return Err(FileFormatError::NoCoords);
         }
-        let TrrFileHandler::Reader(ref mut r) = self else {
+        let TrrFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotStateReadFormat);
         };
 
@@ -417,7 +417,7 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn write_state_pick(&mut self, data: &dyn SaveState, coords: bool, velocities: bool, forces: bool) -> Result<(), FileFormatError> {
-        let TrrFileHandler::Writer(ref mut w) = self else {
+        let TrrFileHandler::Writer(w) = self else {
             return Err(FileFormatError::NotStateWriteFormat);
         };
 
@@ -486,7 +486,7 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn seek_frame(&mut self, fr: usize) -> Result<(), FileFormatError> {
-        let TrrFileHandler::Reader(ref mut r) = self else {
+        let TrrFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotRandomAccessFormat);
         };
 
@@ -519,7 +519,7 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn seek_last(&mut self) -> Result<(), FileFormatError> {
-        let TrrFileHandler::Reader(ref mut r) = self else {
+        let TrrFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotRandomAccessFormat);
         };
 
@@ -563,7 +563,7 @@ impl FileFormatHandler for TrrFileHandler {
     }
 
     fn seek_time(&mut self, t: Float) -> Result<(), FileFormatError> {
-        let TrrFileHandler::Reader(ref mut r) = self else {
+        let TrrFileHandler::Reader(r) = self else {
             return Err(FileFormatError::NotRandomAccessFormat);
         };
 

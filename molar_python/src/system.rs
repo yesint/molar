@@ -238,7 +238,7 @@ impl SystemPy {
 
         let index = if let Some(arg) = arg {
             // Argument present
-            if let Ok(val) = arg.extract::<String>() {
+            match arg.extract::<String>() { Ok(val) => {
                 if val.is_empty() {
                     // Select all on empty string
                     (0..sys.len()).into_sel_index(&*sys, None)
@@ -246,18 +246,18 @@ impl SystemPy {
                     // Otherwise do normal textual selection
                     val.into_sel_index(&*sys, None)
                 }
-            } else if let Ok(val) = arg.extract::<(usize, usize)>() {
+            } _ => { match arg.extract::<(usize, usize)>() { Ok(val) => {
                 // Range selection
                 (val.0..val.1).into_sel_index(&*sys, None)
-            } else if let Ok(val) = arg.extract::<Vec<usize>>() {
+            } _ => { match arg.extract::<Vec<usize>>() { Ok(val) => {
                 // Vector of indices
                 val.into_sel_index(&*sys, None)
-            } else {
+            } _ => {
                 let ty_name = arg.get_type().name()?.to_string();
                 return Err(PyTypeError::new_err(format!(
                     "Invalid argument type {ty_name} when creating selection"
                 )));
-            }
+            }}}}}}
         } else {
             // No argument, select all
             (0..sys.len()).into_sel_index(&*sys, None)
@@ -412,7 +412,7 @@ impl SystemPy {
     ///
     ///    sys.remove("resname HOH")
     fn remove<'py>(slf: &Bound<'py, Self>, arg: &Bound<'py, PyAny>) -> PyResult<()> {
-        if let Ok(sel) = arg.cast::<SelPy>() {
+        match arg.cast::<SelPy>() { Ok(sel) => {
             // Selection provided
             let sb = sel.get();
             sb.r_top_mut()
@@ -422,7 +422,7 @@ impl SystemPy {
                 .remove_coords(sb.iter_index())
                 .map_err(to_py_runtime_err)?;
             Ok(())
-        } else {
+        } _ => {
             let sel = Self::__call__(slf, Some(arg))?;
             sel.r_top_mut()
                 .remove_atoms(sel.iter_index())
@@ -431,7 +431,7 @@ impl SystemPy {
                 .remove_coords(sel.iter_index())
                 .map_err(to_py_runtime_err)?;
             Ok(())
-        }
+        }}
     }
 
     /// Append atoms from a ``Sel``, selection expression, or ``(Atom, position)`` pair.
@@ -453,11 +453,11 @@ impl SystemPy {
 
         if args.len() == 1 {
             let arg = args.get_item(0)?;
-            let sel = if let Ok(sel) = arg.cast::<SelPy>() {
+            let sel = match arg.cast::<SelPy>() { Ok(sel) => {
                 sel
-            } else {
+            } _ => {
                 &Bound::new(slf.py(), Self::__call__(slf, Some(&arg))?)?
-            };
+            }};
 
             slf_b
                 .r_top_mut()
@@ -470,11 +470,11 @@ impl SystemPy {
         } else if args.len() == 2 {
             // This can be Atom or AtomView
             let arg1 = args.get_item(0)?;
-            let ab = if let Ok(ab) = arg1.cast::<crate::atom::AtomPy>() {
+            let ab = match arg1.cast::<crate::atom::AtomPy>() { Ok(ab) => {
                 ab.borrow().0.clone()
-            } else {
+            } _ => {
                 Atom::from(&arg1.cast::<crate::atom::AtomView>()?.borrow().atom()?)
-            };
+            }};
             
             let pos = args.get_item(1)?.extract::<PyArrayLike1<Float>>()?;
             let v: VectorView<Float, Const<3>> = pos.try_as_matrix().unwrap();
@@ -529,16 +529,16 @@ impl SystemPy {
 
     /// Copy periodic box from another `System` or `Sel`.
     fn set_box_from(&self, src: Bound<'_, PyAny>) -> PyResult<()> {
-        let st_ref = if let Ok(sys) = src.cast::<SystemPy>() {
+        let st_ref = match src.cast::<SystemPy>() { Ok(sys) => {
             sys.get().r_st()
-        } else if let Ok(sel) = src.cast::<SelPy>() {
+        } _ => { match src.cast::<SelPy>() { Ok(sel) => {
             sel.get().r_st()
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} in set_box_from()",
                 src.get_type().name()?.to_string()
             )));
-        };
+        }}}};
         self.r_st_mut().pbox = st_ref.pbox.clone();
         Ok(())
     }

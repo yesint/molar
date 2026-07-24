@@ -107,9 +107,9 @@ impl LenProvider for SelPy {
 }
 
 impl IndexProvider for SelPy {
-    unsafe fn get_index_unchecked(&self, i: usize) -> usize {
+    unsafe fn get_index_unchecked(&self, i: usize) -> usize { unsafe {
         self.index.get_index_unchecked(i)
-    }
+    }}
 
     fn iter_index(&self) -> impl ExactSizeIterator<Item = usize> {
         self.index.iter_index()
@@ -190,9 +190,9 @@ impl SaveState for SelPy {
 impl SaveTopologyState for SelPy {}
 
 impl MolProvider for SelPy {
-    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] { unsafe {
         self.r_top().get_molecule_unchecked(i)
-    }
+    }}
 
     fn num_molecules(&self) -> usize {
         self.r_top().num_molecules()
@@ -274,15 +274,15 @@ impl AtomMutProvider for TmpSelMut<'_> {
 }
 
 impl PosProvider for TmpSelMut<'_> {
-    unsafe fn coords_ptr(&self) -> *const Pos {
+    unsafe fn coords_ptr(&self) -> *const Pos { unsafe {
         (*self.st).coords.as_ptr()
-    }
+    }}
 }
 
 impl PosMutProvider for TmpSelMut<'_> {
-    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos {
+    unsafe fn coords_ptr_mut(&mut self) -> *mut Pos { unsafe {
         (*self.st).coords.as_mut_ptr()
-    }
+    }}
 }
 
 impl BoxProvider for TmpSelMut<'_> {
@@ -297,10 +297,10 @@ impl BondProvider for TmpSelMut<'_> {
         bonds.len()
     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond { unsafe {
         let bonds = &(*self.top).bonds;
         bonds.get_unchecked(i)
-    }
+    }}
 
     fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         let bonds = unsafe { &(*self.top).bonds };
@@ -394,22 +394,22 @@ impl SelPy {
             self.py_top().clone_ref(arg.py()),
             self.py_st().clone_ref(arg.py()),
         );
-        let v = if let Ok(val) = arg.extract::<String>() {
+        let v = match arg.extract::<String>() { Ok(val) => {
             val.into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
-        } else if let Ok(val) = arg.extract::<(usize, usize)>() {
+        } _ => { match arg.extract::<(usize, usize)>() { Ok(val) => {
             (val.0..=val.1)
                 .into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
-        } else if let Ok(val) = arg.extract::<Vec<usize>>() {
+        } _ => { match arg.extract::<Vec<usize>>() { Ok(val) => {
             val.into_sel_index(&sys, Some(self.index.as_slice()))
                 .map_err(to_py_runtime_err)?
-        } else {
+        } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid argument type {} when creating selection",
                 arg.get_type()
             )));
-        };
+        }}}}}};
         Ok(self.from_svec(v))
     }
 

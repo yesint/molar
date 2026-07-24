@@ -170,9 +170,9 @@ impl BondProvider for Topology {
         self.bonds.len()
     }
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond {
+    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond { unsafe {
         self.bonds.get_unchecked(i)
-    }
+    }}
 
     fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
         self.bonds.iter()
@@ -184,9 +184,9 @@ impl MolProvider for Topology {
         self.molecules.len()
     }
 
-    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] {
+    unsafe fn get_molecule_unchecked(&self, i: usize) -> &[usize; 2] { unsafe {
         self.molecules.get_unchecked(i)
-    }
+    }}
 
     fn iter_molecules(&self) -> impl Iterator<Item = &[usize; 2]> {
         self.molecules.iter()
