@@ -75,27 +75,7 @@ pub fn perceive(top: &mut Topology) -> Perception {
     // `aromatic` are owned, so scoping the read here ends the borrow before that.
     let (rings, aromatic) = {
         let adj = top.bonds.get_adjacency().unwrap();
-        let rings = sssr(adj);
-
-        // Global ring membership (any SSSR ring) — lets the aromaticity test tell a π double
-        // bond shared with a *fused* ring (both atoms in rings) from a genuinely exocyclic one
-        // (e.g. a carbonyl O outside any ring).
-        let mut in_ring = vec![false; n];
-        for r in &rings {
-            for &a in &r.atoms {
-                in_ring[a] = true;
-            }
-        }
-
-        // Decide aromaticity for every ring against the *original* (Kekulé) bond orders
-        // first, so the result doesn't depend on the order rings are processed in (a shared
-        // bond of a fused system would otherwise be aromatized before its second ring is
-        // tested).
-        let aromatic: Vec<bool> = rings
-            .iter()
-            .map(|r| ring_is_aromatic(r, &top.bonds, adj, &z, &in_ring))
-            .collect();
-        (rings, aromatic)
+        rings_with_aromaticity(&*top, adj, &z)
     };
 
     // Now annotate. Every ring atom is in a ring; aromatic rings additionally set the
@@ -122,6 +102,57 @@ pub fn perceive(top: &mut Topology) -> Perception {
         aromatic,
         total_charge,
     }
+}
+
+/// Non-mutating **aromatic**-ring perception: of the SSSR rings, the ones perceived
+/// aromatic, each as its atom indices in cycle order.
+///
+/// The read-only counterpart of [`perceive`], in the same sense [`sssr_rings`] is: it does
+/// not aromatize bond orders, so the input's Kekulé structure survives. That matters for
+/// callers that need the rings *and* the original orders — force-field typing, charge
+/// assignment (espaloma rejects `Aromatic` bonds outright), or a viewer that draws ring
+/// circles without editing the molecule it is drawing.
+///
+/// Takes a prebuilt [`BondAdjacency`] like every other graph routine here.
+pub fn aromatic_rings(
+    mol: &(impl AtomProvider + BondProvider),
+    adj: &BondAdjacency,
+) -> Vec<Vec<usize>> {
+    let z: Vec<u8> = mol.iter_atoms().map(|a| a.get_atomic_number()).collect();
+    let (rings, aromatic) = rings_with_aromaticity(mol, adj, &z);
+    rings
+        .into_iter()
+        .zip(aromatic)
+        .filter_map(|(r, is_arom)| is_arom.then_some(r.atoms))
+        .collect()
+}
+
+/// The SSSR rings plus, parallel to them, whether each is aromatic. Shared by [`perceive`]
+/// (which then annotates) and [`aromatic_rings`] (which just filters).
+///
+/// Aromaticity is decided for **every** ring against the *original* (Kekulé) bond orders
+/// before anything is written, so the result never depends on the order rings are processed
+/// in — a bond shared by a fused system would otherwise be aromatized before its second
+/// ring is tested.
+fn rings_with_aromaticity(
+    mol: &impl BondProvider,
+    adj: &BondAdjacency,
+    z: &[u8],
+) -> (Vec<RingData>, Vec<bool>) {
+    let rings = sssr(adj);
+
+    // Global ring membership (any SSSR ring) — lets the aromaticity test tell a π double
+    // bond shared with a *fused* ring (both atoms in rings) from a genuinely exocyclic one
+    // (e.g. a carbonyl O outside any ring).
+    let mut in_ring = vec![false; adj.n_atoms()];
+    for r in &rings {
+        for &a in &r.atoms {
+            in_ring[a] = true;
+        }
+    }
+
+    let aromatic = rings.iter().map(|r| ring_is_aromatic(r, mol, adj, z, &in_ring)).collect();
+    (rings, aromatic)
 }
 
 /// Implicit hydrogens per atom: `round(target_valence − Σ incident bond orders)`,
@@ -397,12 +428,12 @@ fn lowest_set_bit(v: &[u64]) -> Option<usize> {
 /// exocyclic double bond (e.g. carbonyl) or an sp3 ring atom breaks aromaticity.
 fn ring_is_aromatic(
     ring: &RingData,
-    bonds: &BondStorage,
+    bonds: &impl BondProvider,
     adj: &BondAdjacency,
     z: &[u8],
     in_ring: &[bool],
 ) -> bool {
-    let order = |bi: usize| bonds.get(bi).expect("ring bond index out of range").order();
+    let order = |bi: usize| bonds.get_bond(bi).expect("ring bond index out of range").order();
 
     let sz = ring.atoms.len();
     if !(5..=6).contains(&sz) {
@@ -626,6 +657,38 @@ mod tests {
         let p = perceive(&mut t);
         assert_eq!(p.aromatic_rings().count(), 1);
         assert!(orders(&t).iter().all(|&o| o == BondOrder::Aromatic));
+    }
+
+    /// `aromatic_rings` finds what `perceive` would, without touching the molecule —
+    /// the Kekulé orders and the atom flags must all survive.
+    #[test]
+    fn aromatic_rings_is_non_mutating() {
+        let mut t = benzene();
+        let before = orders(&t);
+        t.bonds.ensure_adjacency(t.atoms.len());
+        let adj = t.bonds.get_adjacency().unwrap();
+        let rings = aromatic_rings(&t, adj);
+
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].len(), 6);
+        assert_eq!(orders(&t), before, "Kekulé orders must survive");
+        assert!(t.atoms.iter().all(|a| !a.is_aromatic() && !a.is_in_ring()));
+
+        // ...and it agrees with the mutating pass.
+        let perceived: Vec<Vec<usize>> = perceive(&mut t).aromatic_rings().cloned().collect();
+        assert_eq!(rings, perceived);
+    }
+
+    /// Only aromatic rings come back — an sp3 ring is a ring but not aromatic.
+    #[test]
+    fn aromatic_rings_skips_aliphatic_rings() {
+        let mut t = topo(
+            &[6, 6, 6, 6, 6, 6],
+            &[(0, 1, S), (1, 2, S), (2, 3, S), (3, 4, S), (4, 5, S), (5, 0, S)],
+        );
+        t.bonds.ensure_adjacency(t.atoms.len());
+        let adj = t.bonds.get_adjacency().unwrap();
+        assert!(aromatic_rings(&t, adj).is_empty(), "cyclohexane is not aromatic");
     }
 
     // -----------------------------------------------------------------------
