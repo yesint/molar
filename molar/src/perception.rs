@@ -124,12 +124,117 @@ pub fn perceive(top: &mut Topology) -> Perception {
     }
 }
 
-// NOTE: `implicit_hydrogens` and its `base_valence`/`target_valence`/`bond_valence` helpers
-// lived here until the columnar-bond migration. They had no caller anywhere in the workspace
-// (only their own unit tests) since they landed in commit 11a1dfe, and `molar_ff` deliberately
-// sidesteps them — see the comment in `molar_ff::charge::featurize`. Recover them from that
-// commit when an `add_hydrogens` / protonation step exists to consume them, and design the
-// signature against that real caller.
+/// Implicit hydrogens per atom: `round(target_valence − Σ incident bond orders)`,
+/// clamped to ≥ 0. `target_valence` is the element's neutral valence adjusted by the
+/// atom's formal charge — so a protonated amine N⁺ targets 4.
+///
+/// **Exact on a Kekulé structure** (Single/Double/Triple bonds). For `Aromatic`-typed
+/// bonds (an order-4 SDF, or a structure already run through [`perceive`]) it uses a
+/// ring-size heuristic for the aromatic valence (correct for benzene / pyridine /
+/// pyrrole / furan / thiophene; approximate for poly-heteroatom azoles like imidazole,
+/// where the per-N π role isn't recoverable without the Kekulé form).
+///
+/// Takes a prebuilt [`BondAdjacency`] like every other graph routine here — it supplies
+/// both the atom count and the incident-bond walk, so no throwaway index is built. `mol`
+/// must be indexed consistently with it: for a whole [`Topology`], call
+/// [`BondStorage::ensure_adjacency`] and pass the topology; for a remapped local subgraph,
+/// a [`BondAdjacency::build`] over the local pairs.
+///
+/// Unspecified-order bonds count as single, so a distance-guessed connectivity table
+/// yields the valence-completion counts a sketching/protonation step wants.
+pub fn implicit_hydrogens(
+    mol: &(impl AtomProvider + BondProvider),
+    adj: &BondAdjacency,
+) -> Vec<u8> {
+    let n = adj.n_atoms();
+    let z: Vec<u8> = mol.iter_atoms().map(|a| a.get_atomic_number()).collect();
+    let formal_charge: Vec<i32> =
+        mol.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
+    let order = |bi: usize| mol.get_bond(bi).map(|b| b.order()).unwrap_or_default();
+
+    // Ring size per atom is only needed to weight aromatic bonds; skip the SSSR work
+    // entirely for a plain Kekulé molecule.
+    let has_aromatic = mol.iter_bonds().any(|b| b.order() == BondOrder::Aromatic);
+    let ring_size = if has_aromatic {
+        let mut rs = vec![0usize; n];
+        for r in sssr(adj) {
+            let sz = r.atoms.len();
+            for a in r.atoms {
+                if rs[a] == 0 || sz < rs[a] {
+                    rs[a] = sz;
+                }
+            }
+        }
+        rs
+    } else {
+        vec![0; n]
+    };
+
+    (0..n)
+        .map(|i| {
+            // Σ over this atom's incident bonds. The valence a bond contributes depends on
+            // *this* atom's element/ring (an aromatic pyrrole-N counts 1, a ring carbon 1.5),
+            // which is why it's summed per atom rather than once per bond.
+            let explicit: f32 = adj
+                .neighbors(i)
+                .iter()
+                .map(|nb| bond_valence(order(nb.bond()), z[i], ring_size[i]))
+                .sum();
+            let target = target_valence(z[i], formal_charge[i]);
+            (target as f32 - explicit).round().max(0.0) as u8
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Valence
+// ---------------------------------------------------------------------------
+
+/// Neutral valence of the common (organic) elements; 0 = unhandled (→ no implicit H).
+fn base_valence(z: u8) -> i32 {
+    match z {
+        1 => 1,                // H
+        5 => 3,                // B
+        6 => 4,                // C
+        7 => 3,                // N
+        8 => 2,                // O
+        9 | 17 | 35 | 53 => 1, // F, Cl, Br, I
+        15 => 3,               // P
+        16 => 2,               // S
+        _ => 0,
+    }
+}
+
+/// Target valence adjusted for the atom's formal charge `fc`.
+fn target_valence(z: u8, fc: i32) -> i32 {
+    let base = base_valence(z);
+    if base == 0 {
+        return 0;
+    }
+    match z {
+        6 => (base - fc.abs()).max(0), // carbocation/carbanion both → 3
+        7 | 15 | 8 | 16 => base + fc,  // N⁺→4, O⁺→3, O⁻→1, …
+        _ => (base + fc).max(0),
+    }
+}
+
+/// Valence contributed by one incident bond, given the bonded atom's element + the size
+/// of the smallest ring it sits in (used only for `Aromatic` bonds).
+fn bond_valence(order: BondOrder, z: u8, ring_size: usize) -> f32 {
+    match order {
+        BondOrder::Single | BondOrder::Unspecified => 1.0,
+        BondOrder::Double => 2.0,
+        BondOrder::Triple => 3.0,
+        // pyrrole-N / furan-O / thiophene-S are σ-bonded lone-pair donors (the aromatic
+        // bond is really order 1 for valence); everything else (C, pyridine-type N in a
+        // 6-ring) averages to 1.5.
+        BondOrder::Aromatic => match z {
+            7 if ring_size == 5 => 1.0,
+            8 | 16 => 1.0,
+            _ => 1.5,
+        },
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Graph + SSSR
@@ -521,5 +626,102 @@ mod tests {
         let p = perceive(&mut t);
         assert_eq!(p.aromatic_rings().count(), 1);
         assert!(orders(&t).iter().all(|&o| o == BondOrder::Aromatic));
+    }
+
+    // -----------------------------------------------------------------------
+    // Implicit hydrogens
+    // -----------------------------------------------------------------------
+
+    /// `implicit_hydrogens` over a whole topology, building the adjacency it needs.
+    fn imp_h(t: &mut Topology) -> Vec<u8> {
+        let n = t.atoms.len();
+        t.bonds.ensure_adjacency(n);
+        let adj = t.bonds.get_adjacency().unwrap();
+        implicit_hydrogens(t, adj)
+    }
+
+    #[test]
+    fn acyclic_implicit_h() {
+        // Ethene C=C → 2 H each.
+        let mut t = topo(&[6, 6], &[(0, 1, D)]);
+        assert_eq!(imp_h(&mut t), vec![2, 2]);
+        // Methane (lone C) → 4 H.
+        let mut t = topo(&[6], &[]);
+        assert_eq!(imp_h(&mut t)[0], 4);
+        // Acetylene C#C → 1 H each.
+        let mut t = topo(&[6, 6], &[(0, 1, BondOrder::Triple)]);
+        assert_eq!(imp_h(&mut t), vec![1, 1]);
+    }
+
+    #[test]
+    fn unspecified_order_counts_as_single() {
+        // A distance-guessed table (PDB/GRO) carries no orders: methyl-ish C with one
+        // neighbour still completes to 3 H, which is what a sketching tool wants.
+        let mut t = topo(&[6, 6], &[(0, 1, BondOrder::Unspecified)]);
+        assert_eq!(imp_h(&mut t), vec![3, 3]);
+    }
+
+    #[test]
+    fn benzene_aromatic_one_h_each() {
+        let mut t = benzene();
+        perceive(&mut t);
+        for h in imp_h(&mut t) {
+            assert_eq!(h, 1, "aromatic ring CH");
+        }
+    }
+
+    #[test]
+    fn pyridine_n_no_h() {
+        let mut t = topo(
+            &[7, 6, 6, 6, 6, 6],
+            &[(0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S)],
+        );
+        perceive(&mut t);
+        let h = imp_h(&mut t);
+        assert_eq!(h[0], 0, "pyridine N has no H");
+        assert_eq!(h[1], 1, "ring C has 1 H");
+    }
+
+    #[test]
+    fn pyrrole_n_one_h() {
+        let mut t = topo(&[7, 6, 6, 6, 6], &[(0, 1, S), (1, 2, D), (2, 3, S), (3, 4, D), (4, 0, S)]);
+        perceive(&mut t);
+        let h = imp_h(&mut t);
+        assert_eq!(h[0], 1, "pyrrole N-H");
+        assert_eq!(h[1], 1, "ring C-H");
+    }
+
+    #[test]
+    fn furan_o_no_h() {
+        let mut t = topo(&[8, 6, 6, 6, 6], &[(0, 1, S), (1, 2, D), (2, 3, S), (3, 4, D), (4, 0, S)]);
+        perceive(&mut t);
+        assert_eq!(imp_h(&mut t)[0], 0, "furan O has no H");
+    }
+
+    #[test]
+    fn cyclohexane_two_h_each() {
+        let mut t = topo(
+            &[6, 6, 6, 6, 6, 6],
+            &[(0, 1, S), (1, 2, S), (2, 3, S), (3, 4, S), (4, 5, S), (5, 0, S)],
+        );
+        perceive(&mut t);
+        for h in imp_h(&mut t) {
+            assert_eq!(h, 2, "sp3 ring CH2");
+        }
+    }
+
+    #[test]
+    fn formal_charge_adjusts_valence() {
+        // CH3–NH3⁺: a C–N single bond, N carries +1; H are implicit.
+        let mut t = topo(&[6, 7], &[(0, 1, S)]);
+        t.atoms.get_mut(1).unwrap().set_formal_charge(1);
+        let h = imp_h(&mut t);
+        assert_eq!(h[0], 3, "methyl C → 3 H");
+        assert_eq!(h[1], 3, "ammonium N⁺ (valence 4) → 3 H");
+
+        // A carboxylate-style O⁻ with one single bond → valence 1 → no implicit H.
+        let mut t = topo(&[8, 6], &[(0, 1, S)]);
+        t.atoms.get_mut(0).unwrap().set_formal_charge(-1);
+        assert_eq!(imp_h(&mut t)[0], 0);
     }
 }

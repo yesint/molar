@@ -98,8 +98,8 @@ PowerSASA is an external git dependency, not a workspace crate.
   Also usable standalone via `BondAdjacency::build(n, pairs)`, which is how `molar_ff` indexes a
   remapped local subgraph. **Neighbor order within an atom's run is a guaranteed invariant**
   (ascending bond index) — the GAFF port indexes neighbors positionally and truncates to the first
-  4 or 6. Graph routines (`sssr_rings`, `perception::perceive`, all of `gaff`) take a prebuilt
-  adjacency; none builds a throwaway one.
+  4 or 6. Graph routines (`sssr_rings`, `implicit_hydrogens`, `perception::perceive`, all of `gaff`)
+  take a prebuilt adjacency; none builds a throwaway one.
 - **`State`** (`state.rs`) — coordinates (`Vec<Pos>`), optional velocities/forces, timestamp, optional `PeriodicBox`
 - **`System`** (`selection/system.rs`) — owns `Topology + State`; the primary user-facing container
 
