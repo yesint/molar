@@ -82,7 +82,7 @@ pub use tpr_handler::TprHandlerError;
 /// Trait for saving [Topology] to file
 pub trait SaveTopology: LenProvider {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a>;
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a>;
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a>;
     fn num_bonds(&self) -> usize;
 }
 
@@ -944,6 +944,18 @@ mod tests {
             w.write_state(&fr)?;
         }
 
+        Ok(())
+    }
+
+    /// The payoff of splitting the pair and order columns: a connectivity-only source (PDB
+    /// CONECT, and likewise GRO/TPR) allocates no order column at all, so MD systems pay
+    /// nothing for a field only chemoinformatics input fills in.
+    #[test]
+    fn connectivity_only_source_allocates_no_order_column() -> Result<()> {
+        let (top, _) = FileHandler::open("tests/2lao.pdb")?.read()?;
+        assert!(top.bonds.len() > 0, "2lao.pdb carries CONECT records");
+        assert!(!top.bonds.has_orders(), "CONECT records no order → column stays absent");
+        assert_eq!(top.bonds.get(0).unwrap().order(), BondOrder::Unspecified);
         Ok(())
     }
 

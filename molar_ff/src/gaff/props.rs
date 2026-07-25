@@ -5,6 +5,7 @@
 //! `AB` and `DL` are always 0 and are not stored.
 
 use super::LocalBond;
+use molar::prelude::BondAdjacency;
 
 /// Neighbour traversal is capped at six atoms: several per-atom counting loops only ever
 /// look at the first six neighbours. This constant is that cap.
@@ -29,30 +30,30 @@ pub(crate) struct Props {
 /// Compute [`Props`] from atomic numbers, neighbour lists, bond list and the EW flags.
 pub(crate) fn compute(
     z: &[u8],
-    con: &[Vec<usize>],
+    adj: &BondAdjacency,
     bonds: &[LocalBond],
     ewd: &[i8],
 ) -> Props {
     let n = z.len();
 
-    let connum: Vec<usize> = con.iter().map(|c| c.len()).collect();
+    let connum: Vec<usize> = (0..n).map(|i| adj.neighbors(i).len()).collect();
 
     let nh: Vec<usize> = (0..n)
         .map(|i| {
-            con[i]
+            adj.neighbors(i)
                 .iter()
                 .take(MAX_CON)
-                .filter(|&&j| z[j] == 1)
+                .filter(|nb| z[nb.atom()] == 1)
                 .count()
         })
         .collect();
 
     let ewd_neigh: Vec<usize> = (0..n)
         .map(|i| {
-            con[i]
+            adj.neighbors(i)
                 .iter()
                 .take(MAX_CON)
-                .filter(|&&j| ewd[j] == 1)
+                .filter(|nb| ewd[nb.atom()] == 1)
                 .count()
         })
         .collect();

@@ -6,6 +6,8 @@ mod aliases;
 mod analysis_task;
 mod atom;
 mod atom_storage;
+mod bond;
+mod bond_storage;
 mod connectivity;
 mod distance_search;
 mod dss;
@@ -32,7 +34,8 @@ pub mod voronoi_cell;
 /// Most useful public imports exposed to the users
 pub mod prelude {
     pub use crate::{
-        aliases::*, analysis_task::*, atom::*, atom_storage::*, connectivity::*,
+        aliases::*, analysis_task::*, atom::*, atom_storage::*, bond::*, bond_storage::*,
+        connectivity::*,
         distance_search::*, dssp::*, io::*, measure::*, modify::*, ndx_file::*, particle::*,
         perception::*, periodic_box::*, providers::*, dss::*, sasa::*, secondary_structure::*,
         selection::*, state::*, topology::*,
@@ -43,7 +46,7 @@ pub mod prelude {
 }
 
 pub use crate::{
-    aliases::*, analysis_task::*, atom::*, connectivity::*, distance_search::*, dss::*, dssp::*, io::*,
+    aliases::*, analysis_task::*, atom::*, bond::*, connectivity::*, distance_search::*, dss::*, dssp::*, io::*,
     measure::*, modify::*, ndx_file::*, particle::*, perception::*, periodic_box::*, providers::*, sasa::*,
     secondary_structure::*, selection::*, state::*, topology::*,
 };

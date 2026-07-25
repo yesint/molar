@@ -9,6 +9,7 @@
 //! so a required-order test of ±1 ⇔ order 1, ±2 ⇔ order 2, ±3 ⇔ order 3; codes 4/9
 //! (aromatic / delocalised) never match. `AB`/`DL` counts are always 0.
 
+use molar::prelude::BondAdjacency;
 use std::collections::HashMap;
 
 use crate::{FFError, FFType};
@@ -27,7 +28,7 @@ struct Schain {
 /// Everything the matcher needs about the molecule, in the local index space.
 pub(crate) struct Ctx<'a> {
     z: &'a [u8],
-    con: &'a [Vec<usize>],
+    adj: &'a BondAdjacency,
     props: &'a Props,
     rg: &'a [[u16; 11]],
     ar: &'a [[u16; 6]],
@@ -44,7 +45,7 @@ pub(crate) struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     pub(crate) fn new(
         z: &'a [u8],
-        con: &'a [Vec<usize>],
+        adj: &'a BondAdjacency,
         bonds: &'a [LocalBond],
         props: &'a Props,
         rg: &'a [[u16; 11]],
@@ -58,7 +59,7 @@ impl<'a> Ctx<'a> {
         for b in bonds {
             bond_order.insert((b.i.min(b.j), b.i.max(b.j)), b.order);
         }
-        Ctx { z, con, props, rg, ar, nr, ewd, rules, ff, bond_order }
+        Ctx { z, adj, props, rg, ar, nr, ewd, rules, ff, bond_order }
     }
 
     /// True iff atoms `a` and `b` are joined by a bond of the given order.
@@ -141,9 +142,10 @@ impl<'a> Ctx<'a> {
             }
         }
         if selectnum <= maxchain {
-            let deg = self.con[startnum].len().min(6);
+            let nbrs = self.adj.neighbors(startnum);
+            let deg = nbrs.len().min(6);
             for idx in 0..deg {
-                let nb = self.con[startnum][idx];
+                let nb = nbrs[idx].atom();
                 if path.contains(&nb) {
                     continue;
                 }
@@ -311,7 +313,7 @@ impl<'a> Ctx<'a> {
         }
         if let Some(v) = rule.ew {
             // Electron-withdrawing neighbours of the first-bonded atom (H typing).
-            let first = *self.con[i].first().unwrap_or(&i);
+            let first = self.adj.neighbors(i).first().map_or(i, |nb| nb.atom());
             if v as usize != self.props.ewd_neigh[first] {
                 return None;
             }

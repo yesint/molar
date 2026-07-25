@@ -350,9 +350,11 @@ pub trait AtomMutProvider: AtomProvider {
 pub trait BondProvider {
     fn num_bonds(&self) -> usize;
 
-    unsafe fn get_bond_unchecked(&self, i: usize) -> &Bond;
+    /// # Safety
+    /// `i` must be `< num_bonds()`.
+    unsafe fn get_bond_unchecked(&self, i: usize) -> BondRef<'_>;
 
-    fn get_bond(&self, i: usize) -> Option<&Bond> {
+    fn get_bond(&self, i: usize) -> Option<BondRef<'_>> {
         if i < self.num_bonds() {
             Some(unsafe { self.get_bond_unchecked(i) })
         } else {
@@ -360,7 +362,7 @@ pub trait BondProvider {
         }
     }
 
-    fn iter_bonds(&self) -> impl Iterator<Item = &Bond>;
+    fn iter_bonds(&self) -> impl Iterator<Item = BondRef<'_>>;
 }
 
 /// Element trait providing immutable access to molecules.

@@ -152,7 +152,7 @@ impl SaveTopology for SelOwnBound<'_> {
     fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = AtomRef<'_>> + '_> {
         Box::new(AtomProvider::iter_atoms(self))
     }
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {
@@ -300,7 +300,7 @@ impl SaveTopology for SelBound<'_> {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         Box::new(AtomProvider::iter_atoms(self))
     }
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {

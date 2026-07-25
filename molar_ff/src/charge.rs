@@ -212,15 +212,14 @@ fn aromatic_atoms(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond], rings:
 /// adjacency (`[n,n]`) that the espaloma GNN consumes.
 pub(crate) fn featurize(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) -> (Vec<f32>, Vec<f32>) {
     let n = z.len();
-    let con = crate::gaff::build_con(n, bonds);
+    // One bonded-adjacency index over the local subgraph, shared by the ring search and the
+    // neighbour walks below. Replaces a `build_con` call plus a full `Vec<Bond>` copy that
+    // existed only to reach `sssr_rings`.
+    let bond_adj = molar::prelude::BondAdjacency::build(n, bonds.iter().map(|b| [b.i, b.j]));
     // Rings from molar core SSSR (matches RDKit ring semantics and is H-independent, so aromatic
     // CH carbons written without explicit hydrogens are not lost the way gaff's antechamber-style
-    // detection loses them). Bond order is irrelevant to ring finding, so pass connectivity only.
-    let mbonds: Vec<molar::prelude::Bond> = bonds
-        .iter()
-        .map(|b| molar::prelude::Bond::with_order(b.i, b.j, molar::prelude::BondOrder::Single))
-        .collect();
-    let rings = molar::prelude::sssr_rings(n, &mbonds);
+    // detection loses them). Bond order is irrelevant to ring finding, so connectivity suffices.
+    let rings = molar::prelude::sssr_rings(&bond_adj);
     let mut rg = vec![[false; 11]; n]; // per-atom ring-size membership, sizes 3..=10
     for r in &rings {
         let sz = r.len().min(10);
@@ -246,9 +245,10 @@ pub(crate) fn featurize(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) 
     let aromatic = aromatic_atoms(z, fc, bonds, &rings);
     let neighbor_conj: Vec<bool> = (0..n)
         .map(|i| {
-            con[i]
-                .iter()
-                .any(|&j| aromatic[j] || ((nd[j] > 0 || nt[j] > 0) && matches!(z[j], 6 | 7)))
+            bond_adj.neighbors(i).iter().any(|nb| {
+                let j = nb.atom();
+                aromatic[j] || ((nd[j] > 0 || nt[j] > 0) && matches!(z[j], 6 | 7))
+            })
         })
         .collect();
     let mut feat = vec![0f32; n * 116];
@@ -257,7 +257,7 @@ pub(crate) fn featurize(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) 
         if (z[i] as usize) < 100 {
             feat[o + z[i] as usize] = 1.0; // element one-hot by atomic number
         }
-        let degree = con[i].len();
+        let degree = bond_adj.neighbors(i).len();
         feat[o + 100] = degree as f32; // TotalDegree (explicit; molar carries no implicit H)
         feat[o + 101] = val[i] as f32; // TotalValence (explicit)
         feat[o + 102] = val[i] as f32; // ExplicitValence
@@ -371,12 +371,12 @@ mod tests {
             let fc: Vec<i32> = sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
             let mut bonds = Vec::new();
             for b in sys.iter_bonds() {
-                let order = match b.order {
+                let order = match b.order() {
                     BondOrder::Double => 2,
                     BondOrder::Triple => 3,
                     _ => 1,
                 };
-                bonds.push(crate::gaff::LocalBond { i: b.i1, j: b.i2, order });
+                bonds.push(crate::gaff::LocalBond { i: b.i1(), j: b.i2(), order });
             }
             let q = espaloma_charges(&z, &fc, &bonds).unwrap();
             if q.len() != mol.charges.len() {

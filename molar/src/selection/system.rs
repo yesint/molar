@@ -352,7 +352,7 @@ impl SaveTopology for System {
     fn iter_atoms_dyn(&self) -> Box<dyn Iterator<Item = AtomRef<'_>> + '_> {
         Box::new(self.iter_atoms())
     }
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {

@@ -275,7 +275,7 @@ impl FileFormatHandler for SdfFileHandler {
 
         let mut top = Topology::default();
         top.atoms = atoms.into_iter().collect();
-        top.bonds = bonds;
+        top.bonds = bonds.into_iter().collect();
         top.assign_resindex();
         self.at_least_one_state_read = true;
         Ok((top, State { coords, time: 0.0, pbox: None, ..Default::default() }))
@@ -330,14 +330,14 @@ impl FileFormatHandler for SdfFileHandler {
         }
 
         for b in data.iter_bonds_dyn() {
-            let ty = match b.order {
+            let ty = match b.order() {
                 BondOrder::Double => 2,
                 BondOrder::Triple => 3,
                 BondOrder::Aromatic => 4,
                 BondOrder::Single | BondOrder::Unspecified => 1,
             };
             // 1-based atom indices.
-            writeln!(w, "{:>3}{:>3}{:>3}  0  0  0  0", b.i1 + 1, b.i2 + 1, ty)?;
+            writeln!(w, "{:>3}{:>3}{:>3}  0  0  0  0", b.i1() + 1, b.i2() + 1, ty)?;
         }
 
         // `M  CHG` properties for atoms carrying a nonzero integer formal charge (8 pairs per
@@ -404,8 +404,11 @@ $$$$
         assert_eq!(top.atoms.get(0).unwrap().get_atomic_number(), 6);
         assert!((st.coords[1].x - 0.133).abs() < 1e-5, "C–C along x ≈ 0.133 nm");
         // The C=C bond carries a double order; the C–H bonds are single.
-        assert_eq!(top.bonds[0], Bond::with_order(0, 1, BondOrder::Double));
-        assert_eq!(top.bonds[1].order, BondOrder::Single);
+        assert_eq!(
+            Bond::from(&top.bonds.get(0).unwrap()),
+            Bond::with_order(0, 1, BondOrder::Double)
+        );
+        assert_eq!(top.bonds.get(1).unwrap().order(), BondOrder::Single);
         // A second read hits EOF (single record).
         assert!(matches!(h.read(), Err(FileFormatError::Eof)));
     }
@@ -417,11 +420,13 @@ $$$$
         for sym in ["C", "O", "H", "H"] {
             top.atoms.push_row(&Atom::new().with_name(sym).with_resname("MOL").with_resid(1).guess());
         }
-        top.bonds = vec![
+        top.bonds = [
             Bond::with_order(0, 1, BondOrder::Double),
             Bond::with_order(0, 2, BondOrder::Single),
             Bond::with_order(0, 3, BondOrder::Single),
-        ];
+        ]
+        .into_iter()
+        .collect();
         top.assign_resindex();
         let st = State {
             coords: vec![
@@ -448,8 +453,8 @@ $$$$
 
         assert_eq!(top2.atoms.len(), 4);
         assert_eq!(top2.bonds.len(), 3);
-        assert_eq!(top2.bonds[0].order, BondOrder::Double);
-        assert_eq!(top2.bonds[1].order, BondOrder::Single);
+        assert_eq!(top2.bonds.get(0).unwrap().order(), BondOrder::Double);
+        assert_eq!(top2.bonds.get(1).unwrap().order(), BondOrder::Single);
         assert_eq!(top2.atoms.get(1).unwrap().get_atomic_number(), 8); // O survived
         assert!((st2.coords[1].x - 0.123).abs() < 1e-3, "C–O distance preserved");
     }

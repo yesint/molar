@@ -94,17 +94,18 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
         //    to local indices; error on unknown orders and boundary-crossing bonds.
         let mut bonds: Vec<gaff::LocalBond> = Vec::new();
         for b in self.iter_bonds() {
-            match (g2l.get(&b.i1).copied(), g2l.get(&b.i2).copied()) {
+            let ([g1, g2], b_order) = (b.pair(), b.order());
+            match (g2l.get(&g1).copied(), g2l.get(&g2).copied()) {
                 (Some(i), Some(j)) => {
-                    let order = bond_order_code(b.order)
-                        .ok_or(FFError::MissingBondOrders(b.i1, b.i2))?;
+                    let order =
+                        bond_order_code(b_order).ok_or(FFError::MissingBondOrders(g1, g2))?;
                     bonds.push(gaff::LocalBond { i, j, order });
                 }
                 (Some(_), None) => {
-                    return Err(FFError::OpenSelection { global: b.i1, neighbor: b.i2 })
+                    return Err(FFError::OpenSelection { global: g1, neighbor: g2 })
                 }
                 (None, Some(_)) => {
-                    return Err(FFError::OpenSelection { global: b.i2, neighbor: b.i1 })
+                    return Err(FFError::OpenSelection { global: g2, neighbor: g1 })
                 }
                 (None, None) => {} // bond belongs to another molecule; ignore
             }
@@ -222,21 +223,22 @@ impl<T: AtomMutProvider + BondProvider> ApplyCharges for T {
         // 3. Local Kekulé bonds; error on boundary-crossing or non-Kekulé bonds.
         let mut bonds: Vec<gaff::LocalBond> = Vec::new();
         for b in self.iter_bonds() {
-            match (g2l.get(&b.i1).copied(), g2l.get(&b.i2).copied()) {
+            let ([g1, g2], b_order) = (b.pair(), b.order());
+            match (g2l.get(&g1).copied(), g2l.get(&g2).copied()) {
                 (Some(i), Some(j)) => {
-                    let order = match b.order {
+                    let order = match b_order {
                         BondOrder::Single => 1,
                         BondOrder::Double => 2,
                         BondOrder::Triple => 3,
-                        _ => return Err(ChargeError::MissingBondOrders(b.i1, b.i2)),
+                        _ => return Err(ChargeError::MissingBondOrders(g1, g2)),
                     };
                     bonds.push(gaff::LocalBond { i, j, order });
                 }
                 (Some(_), None) => {
-                    return Err(ChargeError::OpenSelection { global: b.i1, neighbor: b.i2 })
+                    return Err(ChargeError::OpenSelection { global: g1, neighbor: g2 })
                 }
                 (None, Some(_)) => {
-                    return Err(ChargeError::OpenSelection { global: b.i2, neighbor: b.i1 })
+                    return Err(ChargeError::OpenSelection { global: g2, neighbor: g1 })
                 }
                 (None, None) => {}
             }
