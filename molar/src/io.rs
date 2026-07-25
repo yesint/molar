@@ -959,6 +959,31 @@ mod tests {
         Ok(())
     }
 
+    /// The PDB element column (77-78) wins over name guessing, which is ambiguous for
+    /// ordinary protein atom names: a cysteine's `SG` is gamma **sulfur**, but read as a
+    /// two-letter symbol it comes out as seaborgium (Z=106).
+    #[test]
+    fn pdb_element_column_beats_name_guessing() -> Result<()> {
+        let (top, _) = FileHandler::open("tests/2lao.pdb")?.read()?;
+        let sg: Vec<u8> = top
+            .atoms
+            .iter()
+            .filter(|a| a.get_name() == "SG")
+            .map(|a| a.get_atomic_number())
+            .collect();
+        assert_eq!(sg.len(), 2, "2lao has two cysteines");
+        assert!(sg.iter().all(|&z| z == 16), "Cys SG is sulfur, not seaborgium: {sg:?}");
+        // Nothing in a protein should come out as a superheavy element.
+        assert!(
+            top.atoms.iter().all(|a| a.get_atomic_number() <= 92),
+            "a protein has no transactinides"
+        );
+        // The ordinary cases are unaffected.
+        let ca = top.atoms.iter().find(|a| a.get_name() == "CA").unwrap();
+        assert_eq!(ca.get_atomic_number(), 6, "alpha carbon");
+        Ok(())
+    }
+
     #[test]
     fn test_seek_frame() -> Result<()> {
         let mut r = FileHandler::open("tests/protein.xtc")?;

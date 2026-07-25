@@ -314,6 +314,24 @@ impl Atom {
 
 }
 
+/// Resolve an **explicit** element symbol (e.g. `Cl`, `C`, `SE`) to its atomic number,
+/// case-insensitively; 0 if unrecognised. The inverse of [`element_symbol`].
+///
+/// Prefer this over [`Atom::guess_element_from_name`] whenever the source states the
+/// element outright — an SDF atom block, a PDB record's element column. Guessing from an
+/// atom *name* is inherently ambiguous (`SG` is a cysteine's gamma sulfur, not seaborgium;
+/// `CA` an alpha carbon, not calcium), so an explicit symbol always wins.
+/// A blank field means "not stated" and yields 0. That has to be rejected up front:
+/// [`element_symbol`] returns `""` for atomic numbers past the end of the table, so an
+/// empty needle would otherwise match one of those and produce an out-of-range Z.
+pub(crate) fn atomic_number_from_symbol(sym: &str) -> u8 {
+    let up = sym.trim().to_ascii_uppercase();
+    if up.is_empty() {
+        return 0;
+    }
+    (1u8..=118).find(|&z| element_symbol(z) == up).unwrap_or(0)
+}
+
 /// Returns the uppercase element symbol for the given atomic number (e.g. `"FE"`, `"C"`, `"HE"`).
 /// Returns `""` for atomic number 0 (unknown).
 pub(crate) fn element_symbol(atomic_number: u8) -> &'static str {
@@ -439,5 +457,36 @@ impl AtomLikeMut for Atom {
     }
     fn set_flags(&mut self, flags: AtomFlags) {
         self.flags = Some(flags);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symbol_lookup_round_trips_and_rejects_blanks() {
+        assert_eq!(atomic_number_from_symbol("C"), 6);
+        assert_eq!(atomic_number_from_symbol("S"), 16);
+        assert_eq!(atomic_number_from_symbol(" Cl "), 17); // trimmed, case-insensitive
+        assert_eq!(atomic_number_from_symbol("fe"), 26);
+        // A blank or unrecognised field is "not stated" — never an element, and in
+        // particular never an atomic number past the end of the table.
+        for blank in ["", " ", "  ", "\t"] {
+            assert_eq!(atomic_number_from_symbol(blank), 0, "{blank:?} is not an element");
+        }
+        assert_eq!(atomic_number_from_symbol("Xx"), 0);
+    }
+
+    /// The ambiguity that motivates preferring an explicit symbol: read as a two-letter
+    /// symbol, common protein atom *names* resolve to the wrong element.
+    #[test]
+    fn protein_atom_names_are_ambiguous_as_symbols() {
+        assert_eq!(atomic_number_from_symbol("SG"), 106, "as a symbol, SG is seaborgium");
+        let mut a = Atom::new().with_name("SG").with_resname("CYS");
+        a.guess_element_and_mass_from_name();
+        assert_eq!(a.atomic_number, 106, "name guessing shares that ambiguity");
+        // ...which is exactly why the PDB reader uses columns 77-78 when present; see
+        // `io::tests::pdb_element_column_beats_name_guessing`.
     }
 }

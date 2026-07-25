@@ -16,7 +16,7 @@
 //!   Exposing them is future work and will get its own *non-trait* accessor rather
 //!   than being forced through the generic `read` interface.
 
-use crate::atom::element_symbol;
+use crate::atom::{atomic_number_from_symbol, element_symbol};
 use crate::periodic_table::ELEMENT_MASS;
 use crate::prelude::*;
 use std::{
@@ -86,13 +86,6 @@ fn next_line(buf: &mut impl BufRead) -> std::io::Result<Option<String>> {
     } else {
         Ok(Some(s))
     }
-}
-
-/// Resolve an SDF element symbol (e.g. `Cl`, `C`) to its atomic number by reverse
-/// lookup against the periodic table, case-insensitively. Returns 0 if unrecognised.
-fn symbol_to_atomic_number(sym: &str) -> u8 {
-    let up = sym.trim().to_ascii_uppercase();
-    (1u8..=118).find(|&z| element_symbol(z) == up).unwrap_or(0)
 }
 
 /// Parse a fixed-width integer field `[start, start+len)` of a molfile line
@@ -218,7 +211,7 @@ impl FileFormatHandler for SdfFileHandler {
                 .with_resname("MOL")
                 .with_resid(1)
                 .with_chain('A');
-            let z = symbol_to_atomic_number(elem);
+            let z = atomic_number_from_symbol(elem);
             atoms.push(if z != 0 {
                 atom.with_atomic_number(z)
                     .with_mass(ELEMENT_MASS[z as usize] as Float)
