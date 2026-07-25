@@ -138,7 +138,7 @@ impl BondStorage {
     /// Drop every bond with a removed or out-of-range endpoint and renumber the survivors into
     /// the post-removal atom index space. `removed_atoms` and `n_atoms` are the *pre-removal*
     /// atom indices to drop and the pre-removal atom count — i.e. exactly the inputs
-    /// `AtomStorage::retain_by_index` is given.
+    /// `AtomStorage::remove_by_index` is given.
     pub fn remove_by_index(&mut self, removed_atoms: &[usize], n_atoms: usize) {
         let mut keep = vec![true; n_atoms];
         for &i in removed_atoms {

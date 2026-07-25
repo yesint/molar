@@ -159,7 +159,11 @@ impl AtomStorage {
     }
 
     /// Remove the atoms at the given (sorted, unique) global indices from every column.
-    pub fn retain_by_index(&mut self, removed: &[usize]) {
+    ///
+    /// Named for what it does: `removed` lists the atoms to **drop**, not to keep. (It was
+    /// `retain_by_index` until 2.1.0, which read as the opposite of its behaviour.) Mirrors
+    /// `BondStorage::remove_by_index`.
+    pub fn remove_by_index(&mut self, removed: &[usize]) {
         let n = self.len();
         let mut keep = vec![true; n];
         for &i in removed {
@@ -672,12 +676,12 @@ mod tests {
     }
 
     #[test]
-    fn retain_by_index_keeps_columns_in_sync() {
+    fn remove_by_index_keeps_columns_in_sync() {
         let mut s = AtomStorage::default();
         for i in 0..5 {
             s.push_row(&atom("C", i).with_type_id(i as u32 + 10));
         }
-        s.retain_by_index(&[1, 3]); // remove atoms 1 and 3
+        s.remove_by_index(&[1, 3]); // remove atoms 1 and 3
         assert_eq!(s.len(), 3);
         let ids: Vec<u32> = (0..3).map(|i| s.get(i).unwrap().get_type_id().unwrap()).collect();
         assert_eq!(ids, vec![10, 12, 14]);

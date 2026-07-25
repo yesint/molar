@@ -118,7 +118,7 @@ Reuse the existing generic helpers; do not hand-roll the materialization logic.
 1. `atom.rs` — add `pub foo: Option<T>` to the owned `Atom` row, plus a `with_foo()` builder.
 2. `atom_storage.rs` — add the `foo: Option<Vec<T>>` field, then wire it into **every** place the
    other optional columns appear: `push_row` (via `push_opt`), `set_row` (via `set_opt`),
-   `retain_by_index` (via `retain_mask`), `reserve`, an `ensure_foo()` materializer, and the
+   `remove_by_index` (via `retain_mask`), `reserve`, an `ensure_foo()` materializer, and the
    `invariant_holds()` length check. Missing one of these is how columns silently desynchronize —
    `invariant_holds()` is `debug_assert`ed after every mutation and will catch it in tests.
 3. `AtomLike` — `get_foo() -> Option<T>` (optional getters return `Option`); `AtomLikeMut` —

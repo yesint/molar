@@ -51,7 +51,7 @@ impl Topology {
         // Drop bonds incident on a removed atom and renumber the survivors *before* the atom
         // columns shrink, since both take pre-removal indices.
         self.bonds.remove_by_index(&ind, self.atoms.len());
-        self.atoms.retain_by_index(&ind);
+        self.atoms.remove_by_index(&ind);
         Ok(())
     }
 }
