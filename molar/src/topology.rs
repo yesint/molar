@@ -20,9 +20,30 @@ pub struct Topology {
 pub enum BuilderError {
     #[error("indexes to remove {0}:{1} are out of allowed range 0:{2}")]
     RemoveIndexes(usize, usize, usize),
+
+    #[error("bond {0}-{1} references an atom outside the allowed range 0:{2}")]
+    BondIndex(usize, usize, usize),
 }
 
 impl Topology {
+    /// Replace the whole bond table, checking that every pair indexes an existing atom.
+    ///
+    /// For callers whose connectivity does not come from the structure file: distance-based
+    /// bond perception, an interactive editor, a topology read separately from the
+    /// coordinates. Assigning the public [`Topology::bonds`] field does the same thing
+    /// without the bounds check; prefer this. Self-bonds are rejected as well — they would
+    /// corrupt the [`BondAdjacency`] neighbor walk.
+    pub fn set_bonds(&mut self, bonds: BondStorage) -> Result<(), BuilderError> {
+        let n = self.atoms.len();
+        for [i, j] in bonds.iter_pairs() {
+            if i >= n || j >= n || i == j {
+                return Err(BuilderError::BondIndex(i, j, n));
+            }
+        }
+        self.bonds = bonds;
+        Ok(())
+    }
+
     pub fn add_atoms<'a>(&'a mut self, atoms: impl Iterator<Item = Atom>) {
         self.atoms.extend(atoms);
         // The bonded adjacency is sized by the atom count, so a longer atom array leaves a

@@ -98,6 +98,18 @@ impl System {
         &self.top
     }
 
+    /// Replace the topology's bond table (see [`Topology::set_bonds`]).
+    ///
+    /// Bonds are the one part of a topology that can be swapped on a live system: they take
+    /// no part in the topology/state size invariant, so no existing selection is
+    /// invalidated. This is how connectivity that did **not** come from the structure file —
+    /// distance-based perception, an interactive editor, a separately read topology — reaches
+    /// everything that reads bonds: the `polh` / `apolh` selection keywords,
+    /// [`perceive`](Self::perceive), and `molar_ff`'s force-field typing / charge assignment.
+    pub fn set_bonds(&mut self, bonds: BondStorage) -> Result<(), SelectionError> {
+        Ok(self.top.set_bonds(bonds)?)
+    }
+
     /// Perceive rings + aromaticity, annotating this system's topology in place: sets
     /// `BondOrder::Aromatic` on aromatic-ring bonds and the in-ring/aromatic flag bits on
     /// the atoms (see [`crate::perception`]). Returns the [`Perception`] (SSSR rings + net
@@ -455,6 +467,62 @@ mod tests {
         // The system's own state is untouched.
         let after: Vec<Pos> = sys.bind(&sel).iter_pos().cloned().collect();
         assert_eq!(base, after);
+        Ok(())
+    }
+
+    /// Water (O-H, O-H) then methane-ish (C-H), as a bond-less system: the atoms are there
+    /// but nothing says what is attached to what.
+    fn unbonded_h_system() -> System {
+        let mut top = Topology::default();
+        for name in ["O", "H1", "H2", "C", "H3"] {
+            top.atoms.push(&Atom::new().with_name(name).with_resname("MOL").with_resid(1).guess());
+        }
+        top.assign_resindex();
+        let st = State {
+            coords: (0..5).map(|i| Pos::new(i as Float * 0.1, 0.0, 0.0)).collect(),
+            ..Default::default()
+        };
+        System::new(top, st).unwrap()
+    }
+
+    /// Connectivity from outside the structure file reaches the bond-reading machinery:
+    /// `polh` / `apolh` classify hydrogens by what they are bonded to, so they match
+    /// nothing until the bonds are installed.
+    #[test]
+    fn set_bonds_feeds_the_bond_graph() -> anyhow::Result<()> {
+        let mut sys = unbonded_h_system();
+        assert!(sys.select("polh").is_err(), "no bonds -> no polar hydrogens");
+        assert!(sys.select("apolh").is_err(), "no bonds -> no apolar hydrogens");
+
+        let mut bonds = BondStorage::default();
+        for pair in [[0, 1], [0, 2], [3, 4]] {
+            bonds.push(&Bond::new(pair[0], pair[1]));
+        }
+        sys.set_bonds(bonds)?;
+
+        // H1/H2 hang off the O; H3 off the C.
+        assert_eq!(sys.select("polh")?.iter_index().collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(sys.select("apolh")?.iter_index().collect::<Vec<_>>(), vec![4]);
+        Ok(())
+    }
+
+    /// An out-of-range or self-referencing pair is rejected, leaving the old table in place.
+    #[test]
+    fn set_bonds_validates_indices() -> anyhow::Result<()> {
+        let mut sys = unbonded_h_system();
+        let mut good = BondStorage::default();
+        good.push(&Bond::new(0, 1));
+        sys.set_bonds(good)?;
+
+        let mut bad = BondStorage::default();
+        bad.push(&Bond::new(0, 999_999));
+        assert!(sys.set_bonds(bad).is_err(), "out-of-range endpoint must be rejected");
+
+        let mut selfy = BondStorage::default();
+        selfy.push(&Bond::new(3, 3));
+        assert!(sys.set_bonds(selfy).is_err(), "self-bond must be rejected");
+
+        assert_eq!(sys.topology().bonds.len(), 1, "a rejected table changes nothing");
         Ok(())
     }
 }
