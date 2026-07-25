@@ -352,7 +352,7 @@ mod tests {
     fn topo(z: &[u8], bonds: &[(usize, usize, BondOrder)]) -> Topology {
         let mut t = Topology::default();
         for &n in z {
-            t.atoms.push_row(&Atom::new().with_atomic_number(n));
+            t.atoms.push(&Atom::new().with_atomic_number(n));
         }
         for &(i, j, o) in bonds {
             t.bonds.push(&Bond::with_order(i, j, o));

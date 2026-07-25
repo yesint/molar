@@ -153,7 +153,7 @@ mod tests {
     fn chain(n: usize) -> Topology {
         let mut t = Topology::default();
         for i in 0..n {
-            t.atoms.push_row(&Atom::new().with_name("C").with_resid(i as i32));
+            t.atoms.push(&Atom::new().with_name("C").with_resid(i as i32));
         }
         for i in 0..n - 1 {
             t.bonds.push(&Bond::new(i, i + 1));

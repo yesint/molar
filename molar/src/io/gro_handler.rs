@@ -118,7 +118,7 @@ impl GroFileHandler {
                 let resid = line.get(0..5).ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?.trim().parse::<i32>().map_err(GroHandlerError::ParseInt)?;
                 let resname = line.get(5..10).ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?.trim();
                 let name = line.get(10..15).ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?.trim();
-                top.atoms.push_row(&Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+                top.atoms.push(&Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
                 state.coords.push(Pos::new(
                     line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,
@@ -141,7 +141,7 @@ impl GroFileHandler {
                 let resid = line.get(0..5).ok_or_else(|| GroHandlerError::AtomEntry(i, "resid".into()))?.trim().parse::<i32>().map_err(GroHandlerError::ParseInt)?;
                 let resname = line.get(5..10).ok_or_else(|| GroHandlerError::AtomEntry(i, "resname".into()))?.trim();
                 let name = line.get(10..15).ok_or_else(|| GroHandlerError::AtomEntry(i, "name".into()))?.trim();
-                top.atoms.push_row(&Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
+                top.atoms.push(&Atom::new().with_name(name).with_resname(resname).with_resid(resid).guess());
 
                 state.coords.push(Pos::new(
                     line.get(20..28).ok_or_else(|| GroHandlerError::AtomEntry(i, "x".into()))?.trim().parse::<Float>().map_err(GroHandlerError::ParseFloat)?,

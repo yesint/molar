@@ -166,7 +166,7 @@ mod tests {
         for res in 0..20i32 {
             for _ in 0..5 {
                 top.atoms
-                    .push_row(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
+                    .push(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
             }
         }
         top.assign_resindex();
@@ -203,7 +203,7 @@ mod tests {
         for res in 0..8i32 {
             for _ in 0..4 {
                 top.atoms
-                    .push_row(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
+                    .push(&Atom::new().with_name("C").with_resname("RES").with_resid(res));
             }
         }
         top.assign_resindex();

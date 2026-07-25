@@ -89,7 +89,7 @@ impl FileFormatHandler for ItpFileHandler {
                 .with_mass(fields[7].parse().map_err(ItpHandlerError::ParseFloat)?);
             // We don't have element number, guess it
             at.guess_element_from_name();
-            top.atoms.push_row(&at);
+            top.atoms.push(&at);
         }
 
         Ok(top.into())

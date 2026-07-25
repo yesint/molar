@@ -418,7 +418,7 @@ $$$$
         // Build a tiny molecule: C=O with two single C–H, then write + re-read.
         let mut top = Topology::default();
         for sym in ["C", "O", "H", "H"] {
-            top.atoms.push_row(&Atom::new().with_name(sym).with_resname("MOL").with_resid(1).guess());
+            top.atoms.push(&Atom::new().with_name(sym).with_resname("MOL").with_resid(1).guess());
         }
         top.bonds = [
             Bond::with_order(0, 1, BondOrder::Double),

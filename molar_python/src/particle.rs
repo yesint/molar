@@ -188,7 +188,7 @@ impl ParticlePy {
                 "Invalid argument type {ty_name} in set_atom()"
             )));
         }}}};
-        self.top_mut().atoms.set_row(self.id, &at);
+        self.top_mut().atoms.set(self.id, &at);
         Ok(())
     }
 

@@ -8,12 +8,12 @@
 //!
 //! Atoms are read/written through the borrowed proxies [`AtomRef`] / [`AtomRefMut`], which
 //! implement [`AtomLike`] / [`AtomLikeMut`] respectively. The owned [`Atom`] row is retained
-//! as the detached construction/interchange type; [`AtomStorage::push_row`] scatters it into
+//! as the detached construction/interchange type; [`AtomStorage::push`] scatters it into
 //! the columns.
 //!
 //! ## Optional-column semantics
 //! Presence is tracked **per column**, not per atom. Materializing a column (first `Some`
-//! write, or [`AtomStorage::push_row`] of an atom whose optional field is `Some`) backfills
+//! write, or [`AtomStorage::push`] of an atom whose optional field is `Some`) backfills
 //! the other rows with the property's default. Consequently an optional getter returns
 //! `None` iff the whole column is absent; once any atom carries the property, un-set atoms
 //! read `Some(default)`. For every optional property the default equals its "unset" meaning
@@ -117,7 +117,9 @@ impl AtomStorage {
 
     /// Append an atom, scattering its fields into the columns. Optional columns materialize
     /// on the first atom that carries the corresponding property (see [module docs](self)).
-    pub fn push_row(&mut self, a: &Atom) {
+    ///
+    /// (Was `push_row` before 2.2.0; renamed to match `BondStorage::push`.)
+    pub fn push(&mut self, a: &Atom) {
         self.name.push(a.name);
         self.resname.push(a.resname);
         self.resid.push(a.resid);
@@ -139,7 +141,9 @@ impl AtomStorage {
     /// Overwrite the atom at `i` from an owned [`Atom`]. Optional columns materialize if the
     /// incoming atom carries a property the column doesn't yet hold; an incoming `None` on a
     /// present column writes the property's default.
-    pub fn set_row(&mut self, i: usize, a: &Atom) {
+    ///
+    /// (Was `set_row` before 2.2.0, renamed alongside [`push`](Self::push).)
+    pub fn set(&mut self, i: usize, a: &Atom) {
         let n = self.len();
         self.name[i] = a.name;
         self.resname[i] = a.resname;
@@ -160,8 +164,8 @@ impl AtomStorage {
 
     /// Remove the atoms at the given (sorted, unique) global indices from every column.
     ///
-    /// Named for what it does: `removed` lists the atoms to **drop**, not to keep. (It was
-    /// `retain_by_index` until 2.1.0, which read as the opposite of its behaviour.) Mirrors
+    /// Named for what it does: `removed` lists the atoms to **drop**, not to keep. (Was
+    /// `retain_by_index` before 2.1.0, which read as the opposite of its behaviour.) Mirrors
     /// `BondStorage::remove_by_index`.
     pub fn remove_by_index(&mut self, removed: &[usize]) {
         let n = self.len();
@@ -329,7 +333,7 @@ impl Extend<Atom> for AtomStorage {
         let it = iter.into_iter();
         self.reserve(it.size_hint().0);
         for a in it {
-            self.push_row(&a);
+            self.push(&a);
         }
     }
 }
@@ -337,7 +341,7 @@ impl Extend<Atom> for AtomStorage {
 impl<'a> Extend<&'a Atom> for AtomStorage {
     fn extend<I: IntoIterator<Item = &'a Atom>>(&mut self, iter: I) {
         for a in iter {
-            self.push_row(a);
+            self.push(a);
         }
     }
 }
@@ -623,8 +627,8 @@ mod tests {
     #[test]
     fn push_and_read_core() {
         let mut s = AtomStorage::default();
-        s.push_row(&atom("CA", 1).with_mass(12.0).with_chain('A'));
-        s.push_row(&atom("CB", 2).with_mass(14.0));
+        s.push(&atom("CA", 1).with_mass(12.0).with_chain('A'));
+        s.push(&atom("CB", 2).with_mass(14.0));
         assert_eq!(s.len(), 2);
         assert_eq!(s.get(0).unwrap().get_name(), "CA");
         assert_eq!(s.get(0).unwrap().get_mass(), 12.0);
@@ -636,8 +640,8 @@ mod tests {
     #[test]
     fn optional_column_absent_until_set() {
         let mut s = AtomStorage::default();
-        s.push_row(&atom("C", 1));
-        s.push_row(&atom("N", 1));
+        s.push(&atom("C", 1));
+        s.push(&atom("N", 1));
         // No atom carried a type id → column absent → getter is None.
         assert_eq!(s.get(0).unwrap().get_type_id(), None);
         assert!(s.type_id.is_none());
@@ -646,9 +650,9 @@ mod tests {
     #[test]
     fn optional_materializes_on_first_some_and_backfills() {
         let mut s = AtomStorage::default();
-        s.push_row(&atom("C", 1)); // no type id
-        s.push_row(&atom("N", 1).with_type_id(7)); // triggers materialization
-        s.push_row(&atom("O", 1)); // pushed after column exists → default
+        s.push(&atom("C", 1)); // no type id
+        s.push(&atom("N", 1).with_type_id(7)); // triggers materialization
+        s.push(&atom("O", 1)); // pushed after column exists → default
         // Column now present and full-length; row 0 backfilled to default 0.
         assert_eq!(s.get(0).unwrap().get_type_id(), Some(0));
         assert_eq!(s.get(1).unwrap().get_type_id(), Some(7));
@@ -659,8 +663,8 @@ mod tests {
     #[test]
     fn mut_proxy_sets_core_and_optional() {
         let mut s = AtomStorage::default();
-        s.push_row(&atom("C", 1));
-        s.push_row(&atom("N", 2));
+        s.push(&atom("C", 1));
+        s.push(&atom("N", 2));
         {
             let mut m = s.get_mut(1).unwrap();
             m.set_mass(14.5);
@@ -679,7 +683,7 @@ mod tests {
     fn remove_by_index_keeps_columns_in_sync() {
         let mut s = AtomStorage::default();
         for i in 0..5 {
-            s.push_row(&atom("C", i).with_type_id(i as u32 + 10));
+            s.push(&atom("C", i).with_type_id(i as u32 + 10));
         }
         s.remove_by_index(&[1, 3]); // remove atoms 1 and 3
         assert_eq!(s.len(), 3);
@@ -692,7 +696,7 @@ mod tests {
     #[test]
     fn roundtrip_to_atom() {
         let mut s = AtomStorage::default();
-        s.push_row(&atom("CA", 7).with_type_name("ca").with_formal_charge(-1));
+        s.push(&atom("CA", 7).with_type_name("ca").with_formal_charge(-1));
         let a = s.to_atom(0);
         assert_eq!(a.get_name(), "CA");
         assert_eq!(a.get_resid(), 7);

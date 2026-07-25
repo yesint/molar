@@ -77,7 +77,7 @@ PowerSASA is an external git dependency, not a workspace crate.
   nothing; when present it is full-length. Atoms are accessed through the borrowed **proxies**
   `AtomRef` / `AtomRefMut` (a two-word `{storage, index}` handle) — there is **no `&Atom`** to borrow.
 - **`Atom`** (`atom.rs`) — the owned, densely-packed atom *row*, retained as the detached
-  construction/interchange type (builders, IO readers, `From<&AtomLike>`); `AtomStorage::push_row`
+  construction/interchange type (builders, IO readers, `From<&AtomLike>`); `AtomStorage::push`
   scatters it into the columns. `AtomFlags` holds the ring/aromatic bits (no longer packed into `type_id`).
 - **`AtomLike`** (read getters) / **`AtomLikeMut`** (setters) — the atom interface, implemented by
   `Atom`, `AtomRef`, and `AtomRefMut`. Getters for the four *optional* properties return `Option`
@@ -117,7 +117,7 @@ Reuse the existing generic helpers; do not hand-roll the materialization logic.
 
 1. `atom.rs` — add `pub foo: Option<T>` to the owned `Atom` row, plus a `with_foo()` builder.
 2. `atom_storage.rs` — add the `foo: Option<Vec<T>>` field, then wire it into **every** place the
-   other optional columns appear: `push_row` (via `push_opt`), `set_row` (via `set_opt`),
+   other optional columns appear: `push` (via `push_opt`), `set` (via `set_opt`),
    `remove_by_index` (via `retain_mask`), `reserve`, an `ensure_foo()` materializer, and the
    `invariant_holds()` length check. Missing one of these is how columns silently desynchronize —
    `invariant_holds()` is `debug_assert`ed after every mutation and will catch it in tests.
