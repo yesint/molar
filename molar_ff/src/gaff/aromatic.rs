@@ -6,6 +6,7 @@
 //! — it is an element+connectivity heuristic.
 
 use super::LocalBond;
+use molar::prelude::BondAdjacency;
 
 /// Result of aromaticity perception. Indexed by atom.
 pub struct Arom {
@@ -67,13 +68,14 @@ fn ewd_flag(z: u8) -> i8 {
 
 pub fn aromatic(
     z: &[u8],
-    con: &[Vec<usize>],
+    adj: &BondAdjacency,
     bonds: &[LocalBond],
     rings: &[Vec<usize>],
     rg: &[[u16; 11]],
 ) -> Arom {
     let n = z.len();
-    let initarom: Vec<i32> = (0..n).map(|i| init_arom(z[i], con[i].len())).collect();
+    let initarom: Vec<i32> =
+        (0..n).map(|i| init_arom(z[i], adj.neighbors(i).len())).collect();
     let ewd: Vec<i8> = (0..n).map(|i| ewd_flag(z[i])).collect();
     let mut ar = vec![[0u16; 6]; n];
     let mut nr = vec![true; n];

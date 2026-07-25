@@ -135,11 +135,11 @@ impl BondProvider for SystemPy {
         0
     }
 
-    unsafe fn get_bond_unchecked(&self, _i: usize) -> &Bond {
+    unsafe fn get_bond_unchecked(&self, _i: usize) -> BondRef<'_> {
         unreachable!()
     }
 
-    fn iter_bonds(&self) -> impl Iterator<Item = &Bond> {
+    fn iter_bonds(&self) -> impl Iterator<Item = BondRef<'_>> {
         std::iter::empty()
     }
 }
@@ -154,7 +154,7 @@ impl SaveTopology for SystemPy {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a> {
         Box::new(self.iter_atoms())
     }
-    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Bond> + 'a> {
+    fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a> {
         Box::new(BondProvider::iter_bonds(self))
     }
     fn num_bonds(&self) -> usize {

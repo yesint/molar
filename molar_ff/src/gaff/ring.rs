@@ -5,6 +5,8 @@
 //! minimum-cycle SSSR on fused/bridged systems), and records per-atom ring-size counts
 //! `rg[k]`.
 
+use molar::prelude::BondAdjacency;
+
 /// An atom is ring-eligible (same test used both for ring start atoms and for atoms
 /// traversed during cycle detection): C with >2 neighbours, N, P, O/S with !=1
 /// neighbour. Everything else is skipped.
@@ -19,44 +21,53 @@ fn eligible(z: u8, connum: usize) -> bool {
     }
 }
 
-/// Detect all chordless simple rings (size 3..=10). `con[a]` lists the neighbours of
+/// Detect all chordless simple rings (size 3..=10). `adj.neighbors(a)` lists the neighbours of
 /// atom `a` in input-bond order. Returns each ring as a sorted list of member atoms.
-pub fn detect_rings(z: &[u8], con: &[Vec<usize>]) -> Vec<Vec<usize>> {
+pub fn detect_rings(z: &[u8], adj: &BondAdjacency) -> Vec<Vec<usize>> {
     let n = z.len();
     let mut raw: Vec<Vec<usize>> = Vec::new();
     for i in 0..n {
-        if !eligible(z[i], con[i].len()) {
+        if !eligible(z[i], adj.neighbors(i).len()) {
             continue;
         }
         let mut path: Vec<usize> = Vec::new();
-        walk(i, con, z, &mut path, &mut raw);
+        walk(i, adj, z, &mut path, &mut raw);
     }
-    purify(con, raw)
+    purify(adj, raw)
 }
 
-/// Recursive path-DFS for cycle detection: traverses at most the first 4 neighbours
-/// (`con[0..3]`), records a ring when the current path (length 2..=9) can be closed back
-/// to its origin through one of the origin's first 4 neighbours.
-fn walk(cur: usize, con: &[Vec<usize>], z: &[u8], path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+/// Recursive path-DFS for cycle detection: traverses at most the first 4 neighbours,
+/// records a ring when the current path (length 2..=9) can be closed back to its origin
+/// through one of the origin's first 4 neighbours.
+fn walk(
+    cur: usize,
+    adj: &BondAdjacency,
+    z: &[u8],
+    path: &mut Vec<usize>,
+    out: &mut Vec<Vec<usize>>,
+) {
     path.push(cur);
     let sn = path.len();
     if sn <= 10 {
         let a0 = path[0];
-        for i in 0..con[cur].len().min(4) {
-            let start = con[cur][i];
-            if !eligible(z[start], con[start].len()) {
+        let nbrs = adj.neighbors(cur);
+        for i in 0..nbrs.len().min(4) {
+            let start = nbrs[i].atom();
+            if !eligible(z[start], adj.neighbors(start).len()) {
                 continue;
             }
             if path.contains(&start) {
                 continue;
             }
             // ring closure: path has 2..=9 atoms and `start` neighbours the origin
-            if (2..=9).contains(&sn) && con[a0].iter().take(4).any(|&x| x == start) {
+            if (2..=9).contains(&sn)
+                && adj.neighbors(a0).iter().take(4).any(|nb| nb.atom() == start)
+            {
                 let mut r = path.clone();
                 r.push(start);
                 out.push(r);
             }
-            walk(start, con, z, path, out);
+            walk(start, adj, z, path, out);
         }
     }
     path.pop();
@@ -64,7 +75,7 @@ fn walk(cur: usize, con: &[Vec<usize>], z: &[u8], path: &mut Vec<usize>, out: &m
 
 /// Dedup identical rings, then drop any ring containing a chord (a member with exactly
 /// 3 of its neighbours inside the ring — e.g. a fused-ring envelope).
-fn purify(con: &[Vec<usize>], raw: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
+fn purify(adj: &BondAdjacency, raw: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
     let mut unique: Vec<Vec<usize>> = Vec::new();
     for mut r in raw {
         r.sort_unstable();
@@ -76,7 +87,7 @@ fn purify(con: &[Vec<usize>], raw: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
         .into_iter()
         .filter(|r| {
             for &m in r {
-                let cnt = con[m].iter().filter(|&&nb| r.contains(&nb)).count();
+                let cnt = adj.neighbors(m).iter().filter(|nb| r.contains(&nb.atom())).count();
                 if cnt == 3 {
                     return false;
                 }

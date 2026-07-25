@@ -8,6 +8,7 @@
 //! molar convention: `gaff.rs` + a `gaff/` directory, never `mod.rs`.
 
 use crate::{FFError, FFType};
+use molar::prelude::BondAdjacency;
 
 mod aromatic;
 mod conjugation;
@@ -27,8 +28,10 @@ pub struct LocalBond {
 
 /// Per-atom perceived context (rings, ring-size counts, aromaticity, EW flag).
 pub(crate) struct Perceived {
-    /// Neighbour lists in input-bond order.
-    pub con: Vec<Vec<usize>>,
+    /// Bonded adjacency over the local index space. `neighbors(a)` is in input-bond order,
+    /// which this port depends on — several loops index neighbours positionally and truncate
+    /// to the first four or six.
+    pub adj: BondAdjacency,
     /// The perceived ring set (each ring = sorted member atoms).
     #[allow(dead_code)]
     pub rings: Vec<Vec<usize>>,
@@ -38,25 +41,18 @@ pub(crate) struct Perceived {
     pub arom: aromatic::Arom,
 }
 
-/// Build neighbour lists (`con`) from the local bond list, in bond order.
-pub(crate) fn build_con(n: usize, bonds: &[LocalBond]) -> Vec<Vec<usize>> {
-    let mut con = vec![Vec::new(); n];
-    for b in bonds {
-        con[b.i].push(b.j);
-        con[b.j].push(b.i);
-    }
-    con
-}
-
 /// Run the coordinate-free perception pipeline: ring detection → ring properties →
 /// aromaticity/EW classification.
 pub(crate) fn perceive(z: &[u8], bonds: &[LocalBond]) -> Perceived {
     let n = z.len();
-    let con = build_con(n, bonds);
-    let rings = ring::detect_rings(z, &con);
+    // Index the local bond list with molar core's `BondAdjacency` — the same type that backs
+    // `sssr_rings` and `perception::perceive`, which is why this port no longer keeps its own
+    // `Vec<Vec<usize>>` neighbour lists.
+    let adj = BondAdjacency::build(n, bonds.iter().map(|b| [b.i, b.j]));
+    let rings = ring::detect_rings(z, &adj);
     let rg = ring::ring_property(n, &rings);
-    let arom = aromatic::aromatic(z, &con, bonds, &rings, &rg);
-    Perceived { con, rings, rg, arom }
+    let arom = aromatic::aromatic(z, &adj, bonds, &rings, &rg);
+    Perceived { adj, rings, rg, arom }
 }
 
 /// Assign a GAFF atom type to every atom, given atomic numbers `z` and the local bond
@@ -71,9 +67,9 @@ pub fn gaff_types(z: &[u8], bonds: &[LocalBond], ff: FFType) -> Result<Vec<Strin
         FFType::Gaff2 => tables::RULES_GAFF2,
     };
     let p = perceive(z, bonds);
-    let pr = props::compute(z, &p.con, bonds, &p.arom.ewd);
+    let pr = props::compute(z, &p.adj, bonds, &p.arom.ewd);
     let ctx = matcher::Ctx::new(
-        z, &p.con, bonds, &pr, &p.rg, &p.arom.ar, &p.arom.nr, &p.arom.ewd, rules, ff,
+        z, &p.adj, bonds, &pr, &p.rg, &p.arom.ar, &p.arom.nr, &p.arom.ewd, rules, ff,
     );
     let mut types = matcher::jat(&ctx)?;
     conjugation::adjust(&mut types, bonds);

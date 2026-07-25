@@ -7,8 +7,13 @@
 //!   ([`AtomLike::is_in_ring`] / [`AtomLike::is_aromatic`]).
 //!
 //! The only things with nowhere canonical to live — the ring list and the net charge
-//! — are returned in a small [`Perception`] result. Implicit-hydrogen counts are a
-//! pure function ([`implicit_hydrogens`]), not stored.
+//! — are returned in a small [`Perception`] result.
+//!
+//! Every graph routine here takes a prebuilt [`BondAdjacency`]; none of them builds a
+//! throwaway index. For a [`Topology`] that means calling
+//! [`BondStorage::ensure_adjacency`] first (the cache then survives the order writes
+//! [`perceive`] makes); for a remapped local subgraph — `molar_ff`'s case — it means
+//! [`BondAdjacency::build`] over the local pairs.
 
 use std::collections::VecDeque;
 
@@ -59,31 +64,43 @@ pub fn perceive(top: &mut Topology) -> Perception {
         .map(|a| a.get_formal_charge().unwrap_or(0) as Float)
         .sum();
 
-    let rings = sssr(n, &top.bonds);
-    let adj = adjacency(n, &top.bonds);
     let z: Vec<u8> = top.atoms.iter().map(|a| a.get_atomic_number()).collect();
 
-    // Global ring membership (any SSSR ring) — lets the aromaticity test tell a π double
-    // bond shared with a *fused* ring (both atoms in rings) from a genuinely exocyclic one
-    // (e.g. a carbonyl O outside any ring).
-    let mut in_ring = vec![false; n];
-    for r in &rings {
-        for &a in &r.atoms {
-            in_ring[a] = true;
-        }
-    }
+    // Build the adjacency into the storage. Discarding the returned reference and re-borrowing
+    // below is deliberate: it releases the `&mut` so `ring_is_aromatic` can also read the
+    // order column.
+    top.bonds.ensure_adjacency(n);
 
-    // Decide aromaticity for every ring against the *original* (Kekulé) bond orders
-    // first, so the result doesn't depend on the order rings are processed in (a shared
-    // bond of a fused system would otherwise be aromatized before its second ring is
-    // tested).
-    let aromatic: Vec<bool> = rings
-        .iter()
-        .map(|r| ring_is_aromatic(r, &top.bonds, &adj, &z, &in_ring))
-        .collect();
+    // The adjacency lives *inside* `top.bonds`, which the annotation pass mutates. `rings` and
+    // `aromatic` are owned, so scoping the read here ends the borrow before that.
+    let (rings, aromatic) = {
+        let adj = top.bonds.get_adjacency().unwrap();
+        let rings = sssr(adj);
+
+        // Global ring membership (any SSSR ring) — lets the aromaticity test tell a π double
+        // bond shared with a *fused* ring (both atoms in rings) from a genuinely exocyclic one
+        // (e.g. a carbonyl O outside any ring).
+        let mut in_ring = vec![false; n];
+        for r in &rings {
+            for &a in &r.atoms {
+                in_ring[a] = true;
+            }
+        }
+
+        // Decide aromaticity for every ring against the *original* (Kekulé) bond orders
+        // first, so the result doesn't depend on the order rings are processed in (a shared
+        // bond of a fused system would otherwise be aromatized before its second ring is
+        // tested).
+        let aromatic: Vec<bool> = rings
+            .iter()
+            .map(|r| ring_is_aromatic(r, &top.bonds, adj, &z, &in_ring))
+            .collect();
+        (rings, aromatic)
+    };
 
     // Now annotate. Every ring atom is in a ring; aromatic rings additionally set the
-    // aromatic flag on their atoms and `Aromatic` on their bonds.
+    // aromatic flag on their atoms and `Aromatic` on their bonds. Writing orders does not
+    // invalidate the adjacency, so the cache built above survives this.
     for r in &rings {
         for &a in &r.atoms {
             top.atoms.get_mut(a).unwrap().set_in_ring(true);
@@ -92,7 +109,7 @@ pub fn perceive(top: &mut Topology) -> Perception {
     for (r, &is_arom) in rings.iter().zip(&aromatic) {
         if is_arom {
             for &bi in &r.bonds {
-                top.bonds[bi].order = BondOrder::Aromatic;
+                top.bonds.set_order(bi, BondOrder::Aromatic);
             }
             for &a in &r.atoms {
                 top.atoms.get_mut(a).unwrap().set_aromatic(true);
@@ -107,107 +124,12 @@ pub fn perceive(top: &mut Topology) -> Perception {
     }
 }
 
-/// Implicit hydrogens per atom: `round(target_valence − Σ incident bond orders)`,
-/// clamped to ≥ 0. `target_valence` is the element's neutral valence adjusted by the
-/// atom's formal charge (`Atom.formal_charge`) — so a protonated amine N⁺ targets 4.
-///
-/// **Exact on a Kekulé structure** (Single/Double/Triple bonds). For `Aromatic`-typed
-/// bonds (an order-4 SDF, or a structure already run through [`perceive`]) it uses a
-/// ring-size heuristic for the aromatic valence (correct for benzene / pyridine /
-/// pyrrole / furan / thiophene; approximate for poly-heteroatom azoles like imidazole,
-/// where the per-N π role isn't recoverable without the Kekulé form).
-pub fn implicit_hydrogens(sel: &(impl AtomProvider + BondProvider + LenProvider)) -> Vec<u8> {
-    let n = sel.len();
-    let bonds: Vec<Bond> = sel.iter_bonds().copied().collect();
-    let z: Vec<u8> = sel.iter_atoms().map(|a| a.get_atomic_number()).collect();
-    let formal_charge: Vec<i32> =
-        sel.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
-
-    // Ring size per atom is only needed to weight aromatic bonds; skip the SSSR work
-    // entirely for a plain Kekulé molecule.
-    let has_aromatic = bonds.iter().any(|b| b.order == BondOrder::Aromatic);
-    let ring_size = if has_aromatic {
-        let mut rs = vec![0usize; n];
-        for r in sssr(n, &bonds) {
-            let sz = r.atoms.len();
-            for a in r.atoms {
-                if rs[a] == 0 || sz < rs[a] {
-                    rs[a] = sz;
-                }
-            }
-        }
-        rs
-    } else {
-        vec![0; n]
-    };
-
-    let mut explicit = vec![0.0f32; n];
-    for b in &bonds {
-        if b.i1 >= n || b.i2 >= n {
-            continue;
-        }
-        explicit[b.i1] += bond_valence(b.order, z[b.i1], ring_size[b.i1]);
-        explicit[b.i2] += bond_valence(b.order, z[b.i2], ring_size[b.i2]);
-    }
-
-    (0..n)
-        .map(|i| {
-            let target = target_valence(z[i], formal_charge[i]);
-            let h = (target as f32 - explicit[i]).round();
-            h.max(0.0) as u8
-        })
-        .collect()
-}
-
-// ---------------------------------------------------------------------------
-// Valence
-// ---------------------------------------------------------------------------
-
-/// Neutral valence of the common (organic) elements; 0 = unhandled (→ no implicit H).
-fn base_valence(z: u8) -> i32 {
-    match z {
-        1 => 1,                       // H
-        5 => 3,                       // B
-        6 => 4,                       // C
-        7 => 3,                       // N
-        8 => 2,                       // O
-        9 | 17 | 35 | 53 => 1,        // F, Cl, Br, I
-        15 => 3,                      // P
-        16 => 2,                      // S
-        _ => 0,
-    }
-}
-
-/// Target valence adjusted for the atom's formal charge `fc`.
-fn target_valence(z: u8, fc: i32) -> i32 {
-    let base = base_valence(z);
-    if base == 0 {
-        return 0;
-    }
-    match z {
-        6 => (base - fc.abs()).max(0),      // carbocation/carbanion both → 3
-        7 | 15 | 8 | 16 => base + fc,       // N⁺→4, O⁺→3, O⁻→1, …
-        _ => (base + fc).max(0),
-    }
-}
-
-/// Valence contributed by one incident bond, given the bonded atom's element + the size
-/// of the smallest ring it sits in (used only for `Aromatic` bonds).
-fn bond_valence(order: BondOrder, z: u8, ring_size: usize) -> f32 {
-    match order {
-        BondOrder::Single | BondOrder::Unspecified => 1.0,
-        BondOrder::Double => 2.0,
-        BondOrder::Triple => 3.0,
-        // pyrrole-N / furan-O / thiophene-S are σ-bonded lone-pair donors (the aromatic
-        // bond is really order 1 for valence); everything else (C, pyridine-type N in a
-        // 6-ring) averages to 1.5.
-        BondOrder::Aromatic => match z {
-            7 if ring_size == 5 => 1.0,
-            8 | 16 => 1.0,
-            _ => 1.5,
-        },
-    }
-}
+// NOTE: `implicit_hydrogens` and its `base_valence`/`target_valence`/`bond_valence` helpers
+// lived here until the columnar-bond migration. They had no caller anywhere in the workspace
+// (only their own unit tests) since they landed in commit 11a1dfe, and `molar_ff` deliberately
+// sidesteps them — see the comment in `molar_ff::charge::featurize`. Recover them from that
+// commit when an `add_hydrogens` / protonation step exists to consume them, and design the
+// signature against that real caller.
 
 // ---------------------------------------------------------------------------
 // Graph + SSSR
@@ -217,8 +139,11 @@ fn bond_valence(order: BondOrder, z: u8, ring_size: usize) -> f32 {
 /// atom indices in cycle order. Unlike [`perceive`] this does not touch the topology (no
 /// Kekulé destruction), so callers that need the original bond orders — e.g. force-field
 /// featurization — can get the ring set without side effects.
-pub fn sssr_rings(n: usize, bonds: &[Bond]) -> Vec<Vec<usize>> {
-    sssr(n, bonds).into_iter().map(|r| r.atoms).collect()
+///
+/// Takes a prebuilt [`BondAdjacency`], which carries its own atom and bond counts; bond order
+/// is irrelevant to ring finding, so connectivity is all this needs.
+pub fn sssr_rings(adj: &BondAdjacency) -> Vec<Vec<usize>> {
+    sssr(adj).into_iter().map(|r| r.atoms).collect()
 }
 
 /// One ring: its atom indices (cycle order) and the bond indices forming it.
@@ -227,19 +152,8 @@ struct RingData {
     bonds: Vec<usize>,
 }
 
-/// Per-atom neighbour list of `(neighbor_atom, bond_index)`, skipping self/out-of-range bonds.
-fn adjacency(n: usize, bonds: &[Bond]) -> Vec<Vec<(usize, usize)>> {
-    let mut adj = vec![Vec::new(); n];
-    for (bi, b) in bonds.iter().enumerate() {
-        if b.i1 < n && b.i2 < n && b.i1 != b.i2 {
-            adj[b.i1].push((b.i2, bi));
-            adj[b.i2].push((b.i1, bi));
-        }
-    }
-    adj
-}
-
-fn connected_components(n: usize, adj: &[Vec<(usize, usize)>]) -> usize {
+fn connected_components(adj: &BondAdjacency) -> usize {
+    let n = adj.n_atoms();
     let mut seen = vec![false; n];
     let mut count = 0;
     for s in 0..n {
@@ -250,7 +164,8 @@ fn connected_components(n: usize, adj: &[Vec<(usize, usize)>]) -> usize {
         let mut q = VecDeque::from([s]);
         seen[s] = true;
         while let Some(x) = q.pop_front() {
-            for &(y, _) in &adj[x] {
+            for nb in adj.neighbors(x) {
+                let y = nb.atom();
                 if !seen[y] {
                     seen[y] = true;
                     q.push_back(y);
@@ -263,13 +178,8 @@ fn connected_components(n: usize, adj: &[Vec<(usize, usize)>]) -> usize {
 
 /// Smallest ring through bond `(u,v)` (the bond `excl` is the closing edge): BFS the
 /// shortest `u→v` path that doesn't use `excl`.
-fn shortest_cycle(
-    adj: &[Vec<(usize, usize)>],
-    n: usize,
-    u: usize,
-    v: usize,
-    excl: usize,
-) -> Option<RingData> {
+fn shortest_cycle(adj: &BondAdjacency, u: usize, v: usize, excl: usize) -> Option<RingData> {
+    let n = adj.n_atoms();
     let mut prev = vec![usize::MAX; n];
     let mut prev_bond = vec![usize::MAX; n];
     let mut visited = vec![false; n];
@@ -279,7 +189,8 @@ fn shortest_cycle(
         if x == v {
             break;
         }
-        for &(y, bi) in &adj[x] {
+        for nb in adj.neighbors(x) {
+            let (y, bi) = (nb.atom(), nb.bond());
             if bi == excl || visited[y] {
                 continue;
             }
@@ -309,24 +220,27 @@ fn shortest_cycle(
 }
 
 /// Smallest set of smallest rings, via "smallest ring per bond" + GF(2) independence.
-fn sssr(n: usize, bonds: &[Bond]) -> Vec<RingData> {
-    if n == 0 || bonds.is_empty() {
+fn sssr(adj: &BondAdjacency) -> Vec<RingData> {
+    let n = adj.n_atoms();
+    let e = adj.n_bonds();
+    if n == 0 || e == 0 {
         return Vec::new();
     }
-    let adj = adjacency(n, bonds);
-    let e = bonds.len();
-    let comps = connected_components(n, &adj);
+    let comps = connected_components(adj);
     let mu = (e as isize - n as isize + comps as isize).max(0) as usize; // cyclomatic number
     if mu == 0 {
         return Vec::new();
     }
 
+    // Candidates are generated in ascending bond index — the same order the old bond-slice
+    // loop used — because `sort_by_key` below is stable and ties among equal-size rings would
+    // otherwise resolve differently, yielding a different (still valid) SSSR set.
     let mut cands: Vec<RingData> = Vec::new();
-    for (bi, b) in bonds.iter().enumerate() {
-        if b.i1 >= n || b.i2 >= n || b.i1 == b.i2 {
-            continue;
+    for (bi, &[u, v]) in adj.bond_endpoints().iter().enumerate() {
+        if u == usize::MAX || v == usize::MAX {
+            continue; // self-bond or out-of-range: absent from the adjacency
         }
-        if let Some(r) = shortest_cycle(&adj, n, b.i1, b.i2, bi) {
+        if let Some(r) = shortest_cycle(adj, u, v, bi) {
             cands.push(r);
         }
     }
@@ -378,20 +292,18 @@ fn lowest_set_bit(v: &[u64]) -> Option<usize> {
 /// exocyclic double bond (e.g. carbonyl) or an sp3 ring atom breaks aromaticity.
 fn ring_is_aromatic(
     ring: &RingData,
-    bonds: &[Bond],
-    adj: &[Vec<(usize, usize)>],
+    bonds: &BondStorage,
+    adj: &BondAdjacency,
     z: &[u8],
     in_ring: &[bool],
 ) -> bool {
+    let order = |bi: usize| bonds.get(bi).expect("ring bond index out of range").order();
+
     let sz = ring.atoms.len();
     if !(5..=6).contains(&sz) {
         return false;
     }
-    if ring
-        .bonds
-        .iter()
-        .all(|&bi| bonds[bi].order == BondOrder::Aromatic)
-    {
+    if ring.bonds.iter().all(|&bi| order(bi) == BondOrder::Aromatic) {
         return true; // already aromatized / SDF order-4
     }
 
@@ -401,9 +313,9 @@ fn ring_is_aromatic(
         // on `a`; a double bond to a non-ring atom (carbonyl, imine to a substituent) is
         // exocyclic and breaks aromaticity.
         let mut ring_double = false;
-        for &(nb, bi) in &adj[a] {
-            if bonds[bi].order == BondOrder::Double {
-                if in_ring[nb] {
+        for n in adj.neighbors(a) {
+            if order(n.bond()) == BondOrder::Double {
+                if in_ring[n.atom()] {
                     ring_double = true;
                 } else {
                     return false;
@@ -443,9 +355,14 @@ mod tests {
             t.atoms.push_row(&Atom::new().with_atomic_number(n));
         }
         for &(i, j, o) in bonds {
-            t.bonds.push(Bond::with_order(i, j, o));
+            t.bonds.push(&Bond::with_order(i, j, o));
         }
         t
+    }
+
+    /// Every bond order, for asserting what `perceive` wrote into the column.
+    fn orders(t: &Topology) -> Vec<BondOrder> {
+        t.bonds.iter().map(|b| b.order()).collect()
     }
 
     use BondOrder::{Double as D, Single as S};
@@ -458,58 +375,49 @@ mod tests {
     }
 
     #[test]
-    fn benzene_aromatic_one_h_each() {
+    fn benzene_aromatic() {
         let mut t = benzene();
         let p = perceive(&mut t);
         assert_eq!(p.rings().len(), 1);
         assert_eq!(p.aromatic_rings().count(), 1);
-        assert!(t.bonds.iter().all(|b| b.order == BondOrder::Aromatic));
+        assert!(orders(&t).iter().all(|&o| o == BondOrder::Aromatic));
         assert!(t.atoms.iter().all(|a| a.is_aromatic() && a.is_in_ring()));
-        for h in implicit_hydrogens(&t) {
-            assert_eq!(h, 1);
-        }
     }
 
     #[test]
-    fn pyridine_n_no_h() {
+    fn pyridine_aromatic() {
         // atom 0 = N, ring otherwise carbons; Kekulé alternating.
         let mut t = topo(
             &[7, 6, 6, 6, 6, 6],
             &[(0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S)],
         );
-        perceive(&mut t);
-        let h = implicit_hydrogens(&t);
-        assert_eq!(h[0], 0, "pyridine N has no H");
-        assert_eq!(h[1], 1, "ring C has 1 H");
+        let p = perceive(&mut t);
+        assert_eq!(p.aromatic_rings().count(), 1, "pyridine-type N contributes one π electron");
     }
 
     #[test]
-    fn pyrrole_n_one_h() {
+    fn pyrrole_aromatic() {
         // 5-ring: N(0)-C(1)=C(2)-C(3)=C(4)-N; N single-bonded both sides.
         let mut t = topo(
             &[7, 6, 6, 6, 6],
             &[(0, 1, S), (1, 2, D), (2, 3, S), (3, 4, D), (4, 0, S)],
         );
         let p = perceive(&mut t);
-        assert_eq!(p.aromatic_rings().count(), 1);
-        let h = implicit_hydrogens(&t);
-        assert_eq!(h[0], 1, "pyrrole N-H");
-        assert_eq!(h[1], 1, "ring C-H");
+        assert_eq!(p.aromatic_rings().count(), 1, "pyrrole N donates its lone pair");
     }
 
     #[test]
-    fn furan_o_no_h() {
+    fn furan_aromatic() {
         let mut t = topo(
             &[8, 6, 6, 6, 6],
             &[(0, 1, S), (1, 2, D), (2, 3, S), (3, 4, D), (4, 0, S)],
         );
         let p = perceive(&mut t);
-        assert_eq!(p.aromatic_rings().count(), 1);
-        assert_eq!(implicit_hydrogens(&t)[0], 0, "furan O has no H");
+        assert_eq!(p.aromatic_rings().count(), 1, "furan O donates its lone pair");
     }
 
     #[test]
-    fn cyclohexane_not_aromatic_two_h() {
+    fn cyclohexane_not_aromatic() {
         let mut t = topo(
             &[6, 6, 6, 6, 6, 6],
             &[(0, 1, S), (1, 2, S), (2, 3, S), (3, 4, S), (4, 5, S), (5, 0, S)],
@@ -517,11 +425,8 @@ mod tests {
         let p = perceive(&mut t);
         assert_eq!(p.rings().len(), 1);
         assert_eq!(p.aromatic_rings().count(), 0);
-        assert!(t.bonds.iter().all(|b| b.order == BondOrder::Single));
+        assert!(orders(&t).iter().all(|&o| o == BondOrder::Single));
         assert!(t.atoms.iter().all(|a| a.is_in_ring() && !a.is_aromatic()));
-        for h in implicit_hydrogens(&t) {
-            assert_eq!(h, 2);
-        }
     }
 
     #[test]
@@ -552,13 +457,13 @@ mod tests {
         let p = perceive(&mut t);
         assert_eq!(p.rings().len(), 2);
         assert_eq!(p.aromatic_rings().count(), 2);
-        assert!(t.bonds.iter().all(|b| b.order == BondOrder::Aromatic));
+        assert!(orders(&t).iter().all(|&o| o == BondOrder::Aromatic));
     }
 
     #[test]
     fn biphenyl_link_bond_not_aromatic() {
         // Two benzene rings joined by a single bond (atom 0 – atom 6).
-        let mut bonds = vec![
+        let bonds = vec![
             (0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S),
             (6, 7, D), (7, 8, S), (8, 9, D), (9, 10, S), (10, 11, D), (11, 6, S),
             (0, 6, S), // inter-ring link
@@ -567,41 +472,26 @@ mod tests {
         let mut t = topo(&[6; 12], &bonds);
         let p = perceive(&mut t);
         assert_eq!(p.aromatic_rings().count(), 2);
-        assert_eq!(t.bonds[link].order, BondOrder::Single, "link bond stays single");
-        let _ = &mut bonds;
+        assert_eq!(orders(&t)[link], BondOrder::Single, "link bond stays single");
     }
 
     #[test]
-    fn ammonium_charge_adjusts_valence() {
-        // CH3–NH3⁺: a C–N single bond, N carries +1; H are implicit.
+    fn formal_charges_sum_into_perception() {
+        // CH3–NH3⁺ carries net +1; flipping the N to −1 gives net −1.
         let mut t = topo(&[6, 7], &[(0, 1, S)]);
         t.atoms.get_mut(1).unwrap().set_formal_charge(1);
-        let p = perceive(&mut t);
-        assert_eq!(p.total_charge(), 1.0);
-        let h = implicit_hydrogens(&t);
-        assert_eq!(h[0], 3, "methyl C → 3 H");
-        assert_eq!(h[1], 3, "ammonium N⁺ (valence 4) → 3 H");
+        assert_eq!(perceive(&mut t).total_charge(), 1.0);
+        t.atoms.get_mut(1).unwrap().set_formal_charge(-1);
+        assert_eq!(perceive(&mut t).total_charge(), -1.0);
     }
 
+    /// `perceive` writes only into the order column, so the adjacency it built survives — the
+    /// whole reason the pair and order columns are stored separately.
     #[test]
-    fn carboxylate_oxygen_minus() {
-        // A lone O⁻ with one single bond → valence 1 → 0 implicit H.
-        let mut t = topo(&[8, 6], &[(0, 1, S)]);
-        t.atoms.get_mut(0).unwrap().set_formal_charge(-1);
-        let _ = perceive(&mut t);
-        assert_eq!(implicit_hydrogens(&t)[0], 0);
-    }
-
-    #[test]
-    fn acyclic_implicit_h() {
-        // Ethene C=C → 2 H each.
-        let t = topo(&[6, 6], &[(0, 1, D)]);
-        for h in implicit_hydrogens(&t) {
-            assert_eq!(h, 2);
-        }
-        // Methane (lone C) → 4 H.
-        let t = topo(&[6], &[]);
-        assert_eq!(implicit_hydrogens(&t)[0], 4);
+    fn perceive_keeps_its_adjacency() {
+        let mut t = benzene();
+        perceive(&mut t);
+        assert!(t.bonds.get_adjacency().is_some());
     }
 
     #[test]
@@ -630,8 +520,6 @@ mod tests {
         );
         let p = perceive(&mut t);
         assert_eq!(p.aromatic_rings().count(), 1);
-        for h in implicit_hydrogens(&t) {
-            assert_eq!(h, 1);
-        }
+        assert!(orders(&t).iter().all(|&o| o == BondOrder::Aromatic));
     }
 }

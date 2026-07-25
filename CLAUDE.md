@@ -69,7 +69,7 @@ PowerSASA is an external git dependency, not a workspace crate.
 
 ### Core data model (`molar/src/`)
 
-- **`Topology`** (`topology.rs`) — bonds, molecules, and `atoms: AtomStorage`; usually read once from file
+- **`Topology`** (`topology.rs`) — molecules, `atoms: AtomStorage`, and `bonds: BondStorage`; usually read once from file
 - **`AtomStorage`** (`atom_storage.rs`) — **Struct-of-Arrays** atom storage: one column per property.
   Ten always-present *core* columns (`name`, `resname`, `resid`, `resindex`, `atomic_number`, `mass`,
   `charge`, `chain`, `bfactor`, `occupancy`) plus four *optional* force-field/chemistry columns
@@ -83,8 +83,72 @@ PowerSASA is an external git dependency, not a workspace crate.
   `Atom`, `AtomRef`, and `AtomRefMut`. Getters for the four *optional* properties return `Option`
   (e.g. `get_type_name() -> Option<&str>`); `charge` is the partial/working charge, `formal_charge`
   is the integer formal charge (kept separate).
+- **`BondStorage`** (`bond_storage.rs`) — **Struct-of-Arrays** bond storage, same discipline as
+  `AtomStorage`: an always-present pair column (`u32` internally, `usize` at every API boundary —
+  caps a system at 4·10⁹ atoms) plus an *optional* `Option<Vec<BondOrder>>` order column, absent for
+  connectivity-only sources (PDB CONECT / GRO / TPR) so MD systems allocate nothing for it. Bonds are
+  read through the borrowed **`BondRef`** proxy — there is **no `&Bond`** to borrow. The owned
+  `Bond` row (`bond.rs`) is the detached construction type; `BondStorage::push` scatters it.
+- **`BondAdjacency`** (`bond_storage.rs`) — the per-atom bonded-neighbor index (compressed rows),
+  cached inside `BondStorage`. `get_adjacency()` is cheap and parallel-safe; `ensure_adjacency(n_atoms)`
+  builds it (a plain `&mut` field, **not** a `OnceCell` — interior mutability would cost `Topology` its
+  `Sync`-through-`&` sharing across rayon). Structural change invalidates it, but **`set_order` does
+  not** — that asymmetry is the point of splitting the columns. Anything changing the *atom count*
+  must call `invalidate_adjacency()`, since `offsets` is sized `n_atoms + 1`.
+  Also usable standalone via `BondAdjacency::build(n, pairs)`, which is how `molar_ff` indexes a
+  remapped local subgraph. **Neighbor order within an atom's run is a guaranteed invariant**
+  (ascending bond index) — the GAFF port indexes neighbors positionally and truncates to the first
+  4 or 6. Graph routines (`sssr_rings`, `perception::perceive`, all of `gaff`) take a prebuilt
+  adjacency; none builds a throwaway one.
 - **`State`** (`state.rs`) — coordinates (`Vec<Pos>`), optional velocities/forces, timestamp, optional `PeriodicBox`
 - **`System`** (`selection/system.rs`) — owns `Topology + State`; the primary user-facing container
+
+### Adding a new atom or bond property
+
+**Both storages are designed to be extended** — that is the main reason they are columnar. Adding an
+*optional* column costs users who don't set it **nothing** (a `None` column is zero allocation), so
+chemistry/force-field properties can be added without taxing MD workloads. Prefer an optional column
+unless every atom or bond genuinely always has the property.
+
+Reuse the existing generic helpers; do not hand-roll the materialization logic.
+
+**New optional atom column** `foo: Option<Vec<T>>` (`T: Copy`), mirroring `type_id` /
+`formal_charge` / `flags`:
+
+1. `atom.rs` — add `pub foo: Option<T>` to the owned `Atom` row, plus a `with_foo()` builder.
+2. `atom_storage.rs` — add the `foo: Option<Vec<T>>` field, then wire it into **every** place the
+   other optional columns appear: `push_row` (via `push_opt`), `set_row` (via `set_opt`),
+   `retain_by_index` (via `retain_mask`), `reserve`, an `ensure_foo()` materializer, and the
+   `invariant_holds()` length check. Missing one of these is how columns silently desynchronize —
+   `invariant_holds()` is `debug_assert`ed after every mutation and will catch it in tests.
+3. `AtomLike` — `get_foo() -> Option<T>` (optional getters return `Option`); `AtomLikeMut` —
+   `set_foo()`. Implement for `Atom`, `AtomRef`, `AtomRefMut`.
+4. Extend the `to_atom` / `From<&AtomLike>` round-trip so the property survives a detach/reattach.
+
+An always-present *core* column is the same minus the `Option` plumbing; add a slice accessor
+(`foos()`) only if the selection hot path in `ast.rs` actually scans it — that is the sole reason
+those accessors exist.
+
+⚠ **Optional-column setters materialize the column and are therefore serial-only.** Materialize
+before entering any parallel region (see *Parallel operations* below).
+
+**New optional bond column** `bar: Option<Vec<T>>`, mirroring the order column:
+
+1. `bond.rs` — add the field to the owned `Bond` row.
+2. `bond_storage.rs` — add `bar: Option<Vec<T>>`, then: `push` (mirror the `push_order` helper —
+   materialize only when the incoming value is *informative*, so a default-valued bond leaves the
+   column absent), a `set_bar` (mirror `set_order`), the compact-and-truncate step in
+   `remove_by_index`, the manual `Clone` impl, and the `invariant_holds()` length check.
+3. `BondRef::bar()` — return the property's default when the column is absent, exactly as
+   `order()` yields `Unspecified`. Add `has_bar()` only if a caller must distinguish absent from
+   default. Extend `From<&BondRef> for Bond`.
+
+⚠ A new bond column that is **not** connectivity (stereo, wedge direction, rotatable flag, …) must
+**not** invalidate the cached `BondAdjacency` — follow `set_order`, not `push`. Only changes to the
+pair column or the atom count invalidate it.
+
+Good candidates already identified: bond stereo / E-Z configuration and wedge direction (the SDF
+reader currently parses and discards the stereo field), ring-membership and rotatable flags.
 
 ### Selection system (`molar/src/selection/`)
 
