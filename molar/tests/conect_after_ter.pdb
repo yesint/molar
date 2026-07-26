@@ -1,0 +1,16 @@
+REMARK  Minimal regression fixture: CONECT records that reference serials *after* a
+REMARK  TER. A TER consumes a serial number, so serial != index + 1 past this point —
+REMARK  resolving CONECT by arithmetic instead of a serial->index map bonds the wrong
+REMARK  atoms (molar_vis rendered waters cross-linked to their neighbours' hydrogens).
+ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+ATOM      2  CA  ALA A   1       1.458   0.000   0.000  1.00 20.00           C
+TER       3      ALA A   1
+HETATM    4  O   HOH A 100       5.000   0.000   0.000  1.00 20.00           O
+HETATM    5  H1  HOH A 100       5.960   0.000   0.000  1.00 20.00           H
+HETATM    6  H2  HOH A 100       4.760   0.927   0.000  1.00 20.00           H
+HETATM    7  O   HOH A 101       9.000   0.000   0.000  1.00 20.00           O
+HETATM    8  H1  HOH A 101       9.960   0.000   0.000  1.00 20.00           H
+HETATM    9  H2  HOH A 101       8.760   0.927   0.000  1.00 20.00           H
+CONECT    4    5    6
+CONECT    7    8    9
+END

@@ -12,7 +12,9 @@ use thiserror::Error;
 pub struct PdbFileHandler {
     // Reading
     reader: Option<BufReader<DynSource>>,
-    bonds: Vec<[usize; 2]>, // 0-indexed, collected from CONECT records
+    // Raw CONECT **serial numbers** as read; resolved to atom indices via the
+    // serial->index map once the whole model has been parsed (see `read_next_frame`).
+    bonds: Vec<[usize; 2]>,
     stored_topology: Option<Topology>,
     stored_state: Option<State>,
     at_least_one_state_read: bool,
@@ -63,12 +65,16 @@ fn parse_i32_opt(line: &str, start: usize, end: usize) -> Option<i32> {
 }
 
 /// Parse a 1-indexed PDB atom serial from fixed-width column, convert to 0-indexed.
+/// Parse an atom **serial number** field as written. A serial is *not* an atom index:
+/// `TER` records consume serials, numbering need not start at 1, and files in the wild skip
+/// values — so CONECT references must be resolved through the serial->index map built while
+/// reading the atom records, never by arithmetic.
 fn parse_serial_opt(line: &str, start: usize, end: usize) -> Option<usize> {
     let s = line.get(start..end)?.trim();
     if s.is_empty() {
         return None;
     }
-    s.parse::<usize>().ok().map(|n| n.saturating_sub(1))
+    s.parse::<usize>().ok()
 }
 
 /// Format PDB atom name:
@@ -143,6 +149,11 @@ impl FileFormatHandler for PdbFileHandler {
         let mut coords: Vec<Pos> = Vec::new();
         let mut current_box: Option<PeriodicBox> = None;
         let mut has_atoms = false;
+        // Serial number -> atom index, for resolving CONECT. Not `serial - 1`: a `TER`
+        // record consumes a serial, so any file with chain breaks (i.e. most of them) has
+        // gaps, and every CONECT past a gap would otherwise name the wrong atom.
+        let mut serial_to_index: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
         let mut line = String::new();
 
         loop {
@@ -180,6 +191,9 @@ impl FileFormatHandler for PdbFileHandler {
                 // guessing from the atom *name* is ambiguous and gets ordinary protein
                 // names wrong (a cysteine's `SG` is gamma sulfur, not seaborgium). Older or
                 // hand-written PDBs leave the field blank, so fall back to guessing.
+                if let Some(serial) = parse_serial_opt(&line, 6, 11) {
+                    serial_to_index.insert(serial, atoms.len());
+                }
                 let z = atomic_number_from_symbol(line.get(76..78).unwrap_or(""));
                 atoms.push(if z != 0 {
                     atom.with_atomic_number(z).with_mass(ELEMENT_MASS[z as usize] as Float)
@@ -234,13 +248,25 @@ impl FileFormatHandler for PdbFileHandler {
             };
         }
 
-        self.bonds.sort();
-        self.bonds.dedup();
+        // Resolve CONECT serials to atom indices. A record naming a serial this model
+        // doesn't contain (a stale or truncated file) is dropped rather than guessed at.
+        let mut bonds: Vec<[usize; 2]> = self
+            .bonds
+            .iter()
+            .filter_map(|[a, b]| {
+                let (i, j) = (*serial_to_index.get(a)?, *serial_to_index.get(b)?);
+                let mut pair = [i, j];
+                pair.sort();
+                Some(pair)
+            })
+            .collect();
+        bonds.sort();
+        bonds.dedup();
 
         let mut top = Topology::default();
         top.atoms = atoms.into_iter().collect();
         // CONECT records carry no bond order → Unspecified.
-        top.bonds = self.bonds.iter().map(|&[a, b]| Bond::new(a, b)).collect();
+        top.bonds = bonds.iter().map(|&[a, b]| Bond::new(a, b)).collect();
         top.assign_resindex();
 
         self.at_least_one_state_read = true;

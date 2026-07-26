@@ -959,6 +959,29 @@ mod tests {
         Ok(())
     }
 
+    /// CONECT references a **serial number**, not an atom index — and a `TER` record consumes
+    /// a serial, so past any chain break `serial != index + 1`. Resolving it by arithmetic
+    /// shifted every later bond by one, cross-linking each water's oxygen to the *previous*
+    /// water's hydrogens (visible as spurious long bonds in a viewer).
+    #[test]
+    fn conect_serials_resolve_past_a_ter() -> Result<()> {
+        let (top, st) = FileHandler::open("tests/conect_after_ter.pdb")?.read()?;
+        // TER is not an atom: serials 1,2,[3=TER],4..9 → 8 atoms at indices 0..7.
+        let names: Vec<String> = top.atoms.iter().map(|a| a.get_name().to_string()).collect();
+        assert_eq!(names, ["N", "CA", "O", "H1", "H2", "O", "H1", "H2"]);
+        assert_eq!(st.coords.len(), 8);
+
+        // Each water's O bonded to its own two H, and nothing else.
+        let mut bonds: Vec<[usize; 2]> = top.bonds.iter_pairs().collect();
+        bonds.sort();
+        assert_eq!(
+            bonds,
+            vec![[2, 3], [2, 4], [5, 6], [5, 7]],
+            "CONECT must resolve through the serial->index map, not serial - 1"
+        );
+        Ok(())
+    }
+
     /// The PDB element column (77-78) wins over name guessing, which is ambiguous for
     /// ordinary protein atom names: a cysteine's `SG` is gamma **sulfur**, but read as a
     /// two-letter symbol it comes out as seaborgium (Z=106).
