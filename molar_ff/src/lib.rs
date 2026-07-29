@@ -139,8 +139,9 @@ fn bond_order_code(o: BondOrder) -> Option<u8> {
 #[cfg(feature = "espaloma")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChargeModel {
-    /// espaloma-charge GNN (a bundled ONNX). Charges are equilibrated to sum to zero over the
-    /// atoms in scope (espaloma's whole-graph convention — it does not split by fragment).
+    /// espaloma-charge GNN (a bundled ONNX). Charges are equilibrated to sum to the **total
+    /// formal charge** of the atoms in scope (espaloma's whole-graph convention — it does not
+    /// split by fragment), so a cation sums to +1 and an anion to −1.
     Espaloma,
 }
 
@@ -180,9 +181,10 @@ pub enum ChargeError {
 /// molecule** (perception runs over the atoms in scope using only bonds whose endpoints are both
 /// in scope); a selection should be bond-complete (see [`ChargeError::OpenSelection`]).
 ///
-/// Any integer formal charge already on an atom's `charge` (e.g. read from an SDF `M  CHG`
-/// record) is consumed as input to the featurization and then **overwritten** with the predicted
-/// partial charge.
+/// Each atom's integer formal charge (e.g. read from an SDF `M  CHG` record) is consumed as
+/// input to the featurization and then **overwritten** with the predicted partial charge. Their
+/// sum is preserved: the equilibration constrains `Σ q_i` to the molecule's total formal charge,
+/// so charging a protonated amine yields partial charges summing to +1.
 ///
 /// ```no_run
 /// use molar::prelude::*;

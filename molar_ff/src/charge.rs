@@ -286,20 +286,41 @@ pub(crate) fn featurize(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) 
     (feat, adj)
 }
 
-/// End-to-end: atomic numbers + local bonds → espaloma partial charges.
-pub(crate) fn espaloma_charges(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) -> TractResult<Vec<f32>> {
+/// Featurize and run the GNN, returning the raw per-atom electronegativity/hardness
+/// `(e, s)` before charge equilibration.
+pub(crate) fn espaloma_e_s(
+    z: &[u8],
+    fc: &[i32],
+    bonds: &[crate::gaff::LocalBond],
+) -> TractResult<(Vec<f32>, Vec<f32>)> {
     let (feat, adj) = featurize(z, fc, bonds);
-    let (e, s) = run_gnn(&feat, &adj, z.len())?;
-    Ok(equilibrate(&e, &s))
+    run_gnn(&feat, &adj, z.len())
 }
 
-/// Espaloma charge equilibration over the whole molecule with total charge 0:
-/// `q_i = -e_i/s_i + (1/s_i) · (Σ_j e_j/s_j) / (Σ_j 1/s_j)`.
-pub(crate) fn equilibrate(e: &[f32], s: &[f32]) -> Vec<f32> {
+/// End-to-end: atomic numbers + formal charges + local bonds → espaloma partial charges.
+///
+/// The charges are equilibrated to sum to the molecule's **total formal charge**
+/// `Σ_i fc_i`, matching upstream espaloma-charge (which takes `Q = Chem.GetFormalCharge(mol)`
+/// when no explicit total is supplied). A cation therefore sums to +1, not 0.
+pub(crate) fn espaloma_charges(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) -> TractResult<Vec<f32>> {
+    let (e, s) = espaloma_e_s(z, fc, bonds)?;
+    Ok(equilibrate(&e, &s, fc.iter().sum::<i32>() as f32))
+}
+
+/// Espaloma charge equilibration over the whole molecule, constrained to total charge
+/// `q_total`:
+///
+/// `q_i = -e_i/s_i + (1/s_i) · (q_total + Σ_j e_j/s_j) / (Σ_j 1/s_j)`
+///
+/// This is the Lagrange-multiplier solution of `U(q) = Σ_i (e_i q_i + ½ s_i q_i²)` under
+/// `Σ_i q_i = q_total`, and matches upstream espaloma-charge
+/// (`espaloma_charge/models.py::charge_equilibrium`, whose `sum_q` is the molecule's total
+/// formal charge). Passing `q_total = 0.0` recovers the neutral-molecule special case.
+pub(crate) fn equilibrate(e: &[f32], s: &[f32], q_total: f32) -> Vec<f32> {
     let inv: Vec<f32> = s.iter().map(|x| 1.0 / x).collect();
     let sum_inv: f32 = inv.iter().sum();
     let sum_eos: f32 = e.iter().zip(&inv).map(|(a, b)| a * b).sum();
-    let lam = sum_eos / sum_inv;
+    let lam = (q_total + sum_eos) / sum_inv;
     e.iter().zip(&inv).map(|(a, b)| -a * b + b * lam).collect()
 }
 
@@ -331,7 +352,8 @@ mod tests {
 
         let (e, s) = run_gnn(&feats, &adj, n).expect("tract run");
         let de = e.iter().zip(&exp_e).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-        let q = equilibrate(&e, &s);
+        // The fixture molecule is neutral, so the reference charges are the `Q = 0` solution.
+        let q = equilibrate(&e, &s, 0.0);
         let dq = q.iter().zip(&exp_q).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
         println!("tract vs python fixture: max|Δe|={de:.2e}  max|Δq|={dq:.2e}");
         assert!(de < 1e-4, "electronegativity mismatch: {de}");
@@ -378,7 +400,14 @@ mod tests {
                 };
                 bonds.push(crate::gaff::LocalBond { i: b.i1(), j: b.i2(), order });
             }
-            let q = espaloma_charges(&z, &fc, &bonds).unwrap();
+            // `references_espaloma.json` was generated with the total charge pinned at 0 for
+            // every molecule: 274 of the 595 SDFs carry `M CHG` records (mostly protonated
+            // amines, net +1) yet every reference charge set sums to exactly 0.0. So this
+            // test compares against the same `Q = 0` equilibration, which still validates the
+            // featurization, the GNN and the equilibration algebra. The physical
+            // `Σq = Σ fc` path is covered by `total_formal_charge_is_preserved`.
+            let (e, s) = espaloma_e_s(&z, &fc, &bonds).unwrap();
+            let q = equilibrate(&e, &s, 0.0);
             if q.len() != mol.charges.len() {
                 continue;
             }
@@ -400,26 +429,41 @@ mod tests {
         assert!(rmse < 5e-4, "espaloma charge RMSE {rmse} regressed");
     }
 
+    #[derive(serde::Deserialize)]
+    struct RefFile {
+        molecules: Vec<RefMol>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RefMol {
+        name: String,
+        charges: Vec<f32>,
+    }
+
+    fn load_refs() -> Vec<RefMol> {
+        let txt = std::fs::read_to_string("tests/data/gaff_ref/references_espaloma.json").unwrap();
+        serde_json::from_str::<RefFile>(&txt).unwrap().molecules
+    }
+
     /// The public `ApplyCharges` API writes predicted charges into `atom.charge`, matching the
-    /// reference and summing to ~0 over the molecule.
+    /// reference and summing to ~0 over the molecule. Uses the first **neutral** reference
+    /// molecule, since the reference was generated with the total charge pinned at 0 (see
+    /// `corpus_rmse_vs_reference`) and so does not describe charged species.
     #[test]
     fn apply_charges_public_api() {
         use crate::{ApplyCharges, ChargeModel};
         use molar::prelude::*;
-        #[derive(serde::Deserialize)]
-        struct RefFile {
-            molecules: Vec<RefMol>,
-        }
-        #[derive(serde::Deserialize)]
-        struct RefMol {
-            name: String,
-            charges: Vec<f32>,
-        }
-        let txt = std::fs::read_to_string("tests/data/gaff_ref/references_espaloma.json").unwrap();
-        let refs: RefFile = serde_json::from_str(&txt).unwrap();
-        let mol = &refs.molecules[0];
-        let mut sys =
-            System::from_file(format!("tests/data/gaff_ref/sdf/{}.sdf", mol.name)).unwrap();
+
+        let refs = load_refs();
+        let (mol, mut sys) = refs
+            .iter()
+            .find_map(|m| {
+                let sys =
+                    System::from_file(format!("tests/data/gaff_ref/sdf/{}.sdf", m.name)).ok()?;
+                let q_total: i32 =
+                    sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).sum();
+                (q_total == 0).then_some((m, sys))
+            })
+            .expect("corpus must contain a neutral molecule");
 
         sys.apply_charges(ChargeModel::Espaloma).unwrap();
 
@@ -429,5 +473,68 @@ mod tests {
         println!("apply_charges({}): max|Δ|={maxd:.2e}  Σq={sum:.2e}", mol.name);
         assert!(maxd < 1e-3, "apply_charges disagrees with reference: {maxd}");
         assert!(sum.abs() < 1e-3, "charges should sum to ~0: {sum}");
+    }
+
+    /// Charges must sum to the molecule's **total formal charge**, not to zero. 274 of the
+    /// corpus SDFs carry `M CHG` records (protonated amines, carboxylates, …); every one of
+    /// them must equilibrate to its own net charge.
+    #[test]
+    fn total_formal_charge_is_preserved() {
+        use crate::{ApplyCharges, ChargeModel};
+        use molar::prelude::*;
+
+        let (mut n_charged, mut n_neutral, mut worst) = (0usize, 0usize, 0f32);
+        let mut worst_name = String::new();
+        for m in load_refs() {
+            let mut sys = match System::from_file(format!("tests/data/gaff_ref/sdf/{}.sdf", m.name))
+            {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let q_total: i32 = sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).sum();
+            sys.apply_charges(ChargeModel::Espaloma).unwrap();
+            let sum: f32 = sys.iter_atoms().map(|a| a.get_charge() as f32).sum();
+            let d = (sum - q_total as f32).abs();
+            if d > worst {
+                worst = d;
+                worst_name = format!("{} (Q={q_total} Σq={sum:.4})", m.name);
+            }
+            if q_total == 0 {
+                n_neutral += 1;
+            } else {
+                n_charged += 1;
+            }
+        }
+        println!(
+            "Σq vs Σfc: {n_charged} charged + {n_neutral} neutral molecules, \
+             max|Σq − Q|={worst:.2e}  worst={worst_name}"
+        );
+        assert!(n_charged > 0, "corpus must contain charged molecules to exercise this path");
+        assert!(worst < 1e-3, "total charge not preserved: max deviation {worst} ({worst_name})");
+    }
+
+    /// The equilibration is affine in the total charge: `q(Q) = q(0) + Q·(1/s_i)/Σ(1/s_j)`.
+    /// This pins the exact relationship between the two conventions, which is what lets
+    /// `corpus_rmse_vs_reference` keep using the `Q = 0` reference.
+    #[test]
+    fn equilibration_is_affine_in_total_charge() {
+        let e = [0.3f32, -0.7, 1.1, 0.05, -0.2];
+        let s = [1.7f32, 2.3, 0.9, 3.1, 1.2];
+        let inv_sum: f32 = s.iter().map(|x| 1.0 / x).sum();
+
+        let q0 = equilibrate(&e, &s, 0.0);
+        for &q_total in &[-2.0f32, -1.0, 1.0, 3.0] {
+            let q = equilibrate(&e, &s, q_total);
+            let sum: f32 = q.iter().sum();
+            assert!((sum - q_total).abs() < 1e-5, "Σq={sum} != Q={q_total}");
+            for i in 0..e.len() {
+                let expected = q0[i] + q_total * (1.0 / s[i]) / inv_sum;
+                assert!(
+                    (q[i] - expected).abs() < 1e-5,
+                    "atom {i}: {} != {expected} at Q={q_total}",
+                    q[i]
+                );
+            }
+        }
     }
 }
