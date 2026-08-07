@@ -142,6 +142,9 @@ pub enum ChargeModel {
     /// espaloma-charge GNN (a bundled ONNX). Charges are equilibrated to sum to the **total
     /// formal charge** of the atoms in scope (espaloma's whole-graph convention — it does not
     /// split by fragment), so a cation sums to +1 and an anion to −1.
+    ///
+    /// Featurized from a Kekulé structure; aromatic-order bonds in scope are kekulized on the
+    /// way in (see [`kekulize`]), so the resonance form used is arbitrary but valid.
     Espaloma,
 }
 
@@ -149,13 +152,17 @@ pub enum ChargeModel {
 #[cfg(feature = "espaloma")]
 #[derive(Debug, thiserror::Error)]
 pub enum ChargeError {
-    /// A bond in scope lacks an explicit Kekulé order. Charge prediction needs single/double/
-    /// triple bonds (supply an SDF/mol2 input); aromatic-order or unspecified bonds are rejected.
+    /// A bond in scope has no order at all. Charge prediction needs real bond orders, so an
+    /// order-less input (PDB/GRO) is rejected; aromatic orders are *not* — they are kekulized.
     #[error(
-        "bond {0}-{1} has no explicit Kekulé order; charge prediction requires single/double/\
-         triple bonds (use an SDF/mol2 input)"
+        "bond {0}-{1} has no known order; charge prediction requires real bond orders \
+         (use an SDF/mol2 input)"
     )]
     MissingBondOrders(usize, usize),
+
+    /// Aromatic bonds in scope could not be resolved into a Kekulé structure.
+    #[error(transparent)]
+    Kekulize(#[from] molar::KekulizeError),
 
     /// A selected atom is bonded to an atom outside the selection, so the scope is not a
     /// complete molecule and cannot be charged as one.
@@ -222,19 +229,18 @@ impl<T: AtomMutProvider + BondProvider> ApplyCharges for T {
         }
         let fc: Vec<i32> = self.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
 
-        // 3. Local Kekulé bonds; error on boundary-crossing or non-Kekulé bonds.
-        let mut bonds: Vec<gaff::LocalBond> = Vec::new();
+        // 3. Local bonds; error on boundary-crossing or order-less bonds.
+        let mut pairs: Vec<[usize; 2]> = Vec::new();
+        let mut orders: Vec<BondOrder> = Vec::new();
         for b in self.iter_bonds() {
             let ([g1, g2], b_order) = (b.pair(), b.order());
             match (g2l.get(&g1).copied(), g2l.get(&g2).copied()) {
                 (Some(i), Some(j)) => {
-                    let order = match b_order {
-                        BondOrder::Single => 1,
-                        BondOrder::Double => 2,
-                        BondOrder::Triple => 3,
-                        _ => return Err(ChargeError::MissingBondOrders(g1, g2)),
-                    };
-                    bonds.push(gaff::LocalBond { i, j, order });
+                    if b_order == BondOrder::Unspecified {
+                        return Err(ChargeError::MissingBondOrders(g1, g2));
+                    }
+                    pairs.push([i, j]);
+                    orders.push(b_order);
                 }
                 (Some(_), None) => {
                     return Err(ChargeError::OpenSelection { global: g1, neighbor: g2 })
@@ -245,6 +251,26 @@ impl<T: AtomMutProvider + BondProvider> ApplyCharges for T {
                 (None, None) => {}
             }
         }
+
+        // Espaloma is featurized from a Kekulé structure, so aromatic orders are resolved rather
+        // than refused: an SDF order-4 record, or a system already run through
+        // `System::perceive`, is charged like any other. A Kekulé input kekulizes to itself, so
+        // this changes nothing for the common case.
+        let orders = kekulize(&z, &fc, &orders, &BondAdjacency::build(z.len(), pairs.iter().copied()))
+            .map_err(|e| ChargeError::Kekulize(e.remap_atoms(&global)))?;
+        let bonds: Vec<gaff::LocalBond> = pairs
+            .iter()
+            .zip(&orders)
+            .map(|(&[i, j], &o)| gaff::LocalBond {
+                i,
+                j,
+                order: match o {
+                    BondOrder::Double => 2,
+                    BondOrder::Triple => 3,
+                    _ => 1,
+                },
+            })
+            .collect();
 
         // 4. Predict, then write the partial charges back in local order.
         let q = charge::espaloma_charges(&z, &fc, &bonds)

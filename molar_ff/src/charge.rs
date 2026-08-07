@@ -513,6 +513,51 @@ mod tests {
         assert!(worst < 1e-3, "total charge not preserved: max deviation {worst} ({worst_name})");
     }
 
+    /// Aromatic input is kekulized rather than rejected. Before this, an SDF order-4 record — or
+    /// any system run through `System::perceive` — could not be charged at all.
+    ///
+    /// Charging the aromatized structure must reproduce the Kekulé result: the resonance form
+    /// kekulization picks is arbitrary, but espaloma's featurization of an aromatic ring is
+    /// symmetric enough that the predicted charges land in the same place.
+    #[test]
+    fn aromatic_input_is_kekulized_not_rejected() {
+        use crate::{ApplyCharges, ChargeModel};
+        use molar::prelude::*;
+
+        let mut checked = 0usize;
+        let mut worst = 0f32;
+        let mut worst_name = String::new();
+        for m in load_refs().iter().take(80) {
+            let path = format!("tests/data/gaff_ref/sdf/{}.sdf", m.name);
+            let Ok(mut kek) = System::from_file(&path) else { continue };
+            let Ok(mut arom) = System::from_file(&path) else { continue };
+
+            // Only molecules that actually have an aromatic ring exercise the new path.
+            arom.perceive();
+            if !arom.iter_bonds().any(|b| b.order() == BondOrder::Aromatic) {
+                continue;
+            }
+
+            kek.apply_charges(ChargeModel::Espaloma).unwrap();
+            arom.apply_charges(ChargeModel::Espaloma)
+                .unwrap_or_else(|e| panic!("{}: aromatic input rejected: {e}", m.name));
+
+            let d = kek
+                .iter_atoms()
+                .zip(arom.iter_atoms())
+                .map(|(a, b)| (a.get_charge() as f32 - b.get_charge() as f32).abs())
+                .fold(0.0f32, f32::max);
+            if d > worst {
+                worst = d;
+                worst_name = m.name.clone();
+            }
+            checked += 1;
+        }
+        println!("aromatic vs Kekulé charges over {checked} molecules: max|Δ|={worst:.2e} ({worst_name})");
+        assert!(checked > 10, "corpus should supply aromatic molecules to check");
+        assert!(worst < 1e-3, "aromatic path disagrees with Kekulé: {worst} ({worst_name})");
+    }
+
     /// The equilibration is affine in the total charge: `q(Q) = q(0) + Q·(1/s_i)/Σ(1/s_j)`.
     /// This pins the exact relationship between the two conventions, which is what lets
     /// `corpus_rmse_vs_reference` keep using the `Q = 0` reference.
