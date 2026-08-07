@@ -16,6 +16,7 @@
 //! [`BondAdjacency::build`] over the local pairs.
 
 use std::collections::VecDeque;
+use thiserror::Error;
 
 use crate::prelude::*;
 
@@ -288,28 +289,40 @@ struct RingData {
     bonds: Vec<usize>,
 }
 
-fn connected_components(adj: &BondAdjacency) -> usize {
+/// Label each atom with the index of the bonded fragment it belongs to; labels are assigned in
+/// ascending order of each fragment's lowest atom index, so `labels[i] == 0` for the fragment
+/// containing atom 0. An atom with no bonds is its own fragment.
+///
+/// Takes a prebuilt [`BondAdjacency`] like every other graph routine here, which is also where
+/// the atom count comes from.
+pub fn connected_components(adj: &BondAdjacency) -> Vec<usize> {
     let n = adj.n_atoms();
-    let mut seen = vec![false; n];
-    let mut count = 0;
+    let mut labels = vec![usize::MAX; n];
+    let mut next = 0;
     for s in 0..n {
-        if seen[s] {
+        if labels[s] != usize::MAX {
             continue;
         }
-        count += 1;
         let mut q = VecDeque::from([s]);
-        seen[s] = true;
+        labels[s] = next;
         while let Some(x) = q.pop_front() {
             for nb in adj.neighbors(x) {
                 let y = nb.atom();
-                if !seen[y] {
-                    seen[y] = true;
+                if labels[y] == usize::MAX {
+                    labels[y] = next;
                     q.push_back(y);
                 }
             }
         }
+        next += 1;
     }
-    count
+    labels
+}
+
+/// How many bonded fragments `adj` describes — the count [`connected_components`] labels with.
+fn num_components(adj: &BondAdjacency) -> usize {
+    // Labels are dense and ascending, so the count is one past the largest.
+    connected_components(adj).iter().max().map_or(0, |m| m + 1)
 }
 
 /// Smallest ring through bond `(u,v)` (the bond `excl` is the closing edge): BFS the
@@ -362,7 +375,7 @@ fn sssr(adj: &BondAdjacency) -> Vec<RingData> {
     if n == 0 || e == 0 {
         return Vec::new();
     }
-    let comps = connected_components(adj);
+    let comps = num_components(adj);
     let mu = (e as isize - n as isize + comps as isize).max(0) as usize; // cyclomatic number
     if mu == 0 {
         return Vec::new();
@@ -478,6 +491,255 @@ fn ring_is_aromatic(
         }
     }
     matches!(pi, 2 | 6 | 10)
+}
+
+// ---------------------------------------------------------------------------
+// Kekulization
+// ---------------------------------------------------------------------------
+
+/// Ceiling on backtracking steps per aromatic system. Realistic ring systems are matched in
+/// far fewer; the budget only exists so a pathological input fails loudly instead of hanging.
+const KEKULE_BUDGET: u32 = 200_000;
+
+/// Why a structure could not be assigned a Kekulé form. Atom indices are in the caller's
+/// (local) index space — the one [`BondAdjacency`] was built over.
+#[derive(Debug, Error)]
+pub enum KekulizeError {
+    #[error(
+        "atom {0} is over-valent: its explicit bonds already exceed what its element and \
+         formal charge allow"
+    )]
+    OverValent(usize),
+
+    #[error(
+        "atom {0} carries an aromatic bond but element Z={1} has no known valence, so its \
+         π demand cannot be determined"
+    )]
+    UnknownValence(usize, u8),
+
+    #[error(
+        "the aromatic system containing atom {0} has no valid Kekulé structure \
+         ({1} of its atoms each need a double bond, which cannot be paired up)"
+    )]
+    NonKekulizable(usize, usize),
+
+    #[error("kekulizing the aromatic system containing atom {0} exceeded the search budget")]
+    Exhausted(usize),
+}
+
+impl KekulizeError {
+    /// Translate the reported atom index out of a local subgraph and back into the caller's
+    /// global numbering, where `global[local]` is the global index of local atom `local`.
+    ///
+    /// [`kekulize`] necessarily speaks the index space of the [`BondAdjacency`] it was given,
+    /// which for a selection is a local `0..n` remapping. Every molar error names global atoms, so
+    /// callers that remapped translate before letting the error escape.
+    pub fn remap_atoms(self, global: &[usize]) -> Self {
+        let g = |i: usize| global.get(i).copied().unwrap_or(i);
+        match self {
+            Self::OverValent(i) => Self::OverValent(g(i)),
+            Self::UnknownValence(i, z) => Self::UnknownValence(g(i), z),
+            Self::NonKekulizable(i, k) => Self::NonKekulizable(g(i), k),
+            Self::Exhausted(i) => Self::Exhausted(g(i)),
+        }
+    }
+}
+
+/// Resolve [`BondOrder::Aromatic`] bonds into an alternating Kekulé structure, returning the
+/// full order vector (non-aromatic bonds passed through untouched). **Non-mutating** — the
+/// read-only counterpart to what [`perceive`] does destructively, in the same sense
+/// [`aromatic_rings`] is to the ring annotation.
+///
+/// Needed wherever aromatic-order input has to become concrete single/double bonds: writing
+/// SMILES, and charge prediction (espaloma rejects `Aromatic` outright). An input with no
+/// aromatic bonds is returned unchanged, so calling this on a Kekulé SDF is free.
+///
+/// # Indexing
+/// Takes **slices**, not a provider, because the same signature has to serve a whole
+/// [`Topology`](crate::Topology) (collect the columns) *and* a remapped local `0..n` subgraph
+/// with no topology behind it — the [`BondAdjacency::build`] case. `z` and `formal_charge` are
+/// indexed by atom, `orders` by bond, both in `adj`'s index space.
+///
+/// # How
+/// Each atom incident to an aromatic bond gets a π demand:
+/// `target_valence − Σ(non-aromatic bond orders) − (number of aromatic bonds)`, since every
+/// aromatic bond contributes at least 1. A demand of ≥1 means exactly one of that atom's
+/// aromatic bonds must become `Double`; 0 means they all stay `Single` (a pyrrole N-H, furan O,
+/// thiophene S, or any substituted ring heteroatom). Pairing up the demanding atoms is then a
+/// perfect matching over the aromatic bonds joining two of them, solved per aromatic system by
+/// backtracking.
+///
+/// This is exact rather than heuristic because molar carries hydrogens as real bonded atoms, so
+/// the σ-bond count is known outright instead of being inferred.
+///
+/// The resonance form chosen is deterministic but arbitrary — benzene has two valid Kekulé
+/// structures and this returns one of them. Callers must not assume a particular one.
+pub fn kekulize(
+    z: &[u8],
+    formal_charge: &[i32],
+    orders: &[BondOrder],
+    adj: &BondAdjacency,
+) -> Result<Vec<BondOrder>, KekulizeError> {
+    let n = adj.n_atoms();
+    assert_eq!(orders.len(), adj.n_bonds(), "`orders` must be indexed in the adjacency's bond space");
+    assert!(z.len() >= n && formal_charge.len() >= n, "atom arrays shorter than the adjacency");
+
+    let mut out = orders.to_vec();
+    // The overwhelmingly common case: a Kekulé structure straight from an SDF.
+    if !orders.contains(&BondOrder::Aromatic) {
+        return Ok(out);
+    }
+
+    // π demand per atom. `needs[i]`: exactly one of atom i's aromatic bonds must be Double.
+    let mut needs = vec![false; n];
+    for i in 0..n {
+        let mut sigma = 0i32;
+        let mut n_arom = 0i32;
+        for nb in adj.neighbors(i) {
+            match orders[nb.bond()] {
+                BondOrder::Aromatic => n_arom += 1,
+                o => sigma += kekule_sigma(o),
+            }
+        }
+        if n_arom == 0 {
+            continue; // not part of any aromatic system
+        }
+        let target = target_valence(z[i], formal_charge[i]);
+        if target == 0 {
+            // An element outside the organic set this module knows valences for. Guessing here
+            // would silently emit a wrong Kekulé structure, so refuse instead.
+            return Err(KekulizeError::UnknownValence(i, z[i]));
+        }
+        let free = target - sigma - n_arom;
+        if free < 0 {
+            return Err(KekulizeError::OverValent(i));
+        }
+        needs[i] = free >= 1;
+    }
+
+    // Every aromatic bond defaults to Single; the matching promotes the ones it picks.
+    for o in out.iter_mut() {
+        if *o == BondOrder::Aromatic {
+            *o = BondOrder::Single;
+        }
+    }
+
+    // Candidate bonds: aromatic, with a demanding atom at *both* ends. A bond to an already
+    // satisfied atom can never carry the double, so it is not a candidate.
+    let mut cand: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+    for i in 0..n {
+        if !needs[i] {
+            continue;
+        }
+        for nb in adj.neighbors(i) {
+            if orders[nb.bond()] == BondOrder::Aromatic && needs[nb.atom()] {
+                cand[i].push((nb.atom(), nb.bond()));
+            }
+        }
+    }
+
+    // Solve each aromatic system separately: it keeps the search small, and a failure names the
+    // system that actually failed instead of the whole molecule.
+    let mut matched = vec![false; n];
+    let mut seen = vec![false; n];
+    for start in 0..n {
+        if !needs[start] || seen[start] {
+            continue;
+        }
+        let mut comp = vec![start];
+        seen[start] = true;
+        let mut qi = 0;
+        while qi < comp.len() {
+            let x = comp[qi];
+            qi += 1;
+            for &(nb, _) in &cand[x] {
+                if !seen[nb] {
+                    seen[nb] = true;
+                    comp.push(nb);
+                }
+            }
+        }
+        // Ascending order so the branching tie-break — and hence the resonance form chosen — is
+        // reproducible rather than dependent on BFS discovery order.
+        comp.sort_unstable();
+
+        let mut budget = KEKULE_BUDGET;
+        match match_aromatic_system(&comp, &cand, &mut matched, &mut out, &mut budget) {
+            Ok(true) => {}
+            Ok(false) => return Err(KekulizeError::NonKekulizable(start, comp.len())),
+            Err(()) => return Err(KekulizeError::Exhausted(start)),
+        }
+    }
+
+    Ok(out)
+}
+
+/// Valence a **non-aromatic** bond contributes. `Unspecified` counts as single, as everywhere
+/// else in this module.
+fn kekule_sigma(o: BondOrder) -> i32 {
+    match o {
+        BondOrder::Single | BondOrder::Unspecified => 1,
+        BondOrder::Double => 2,
+        BondOrder::Triple => 3,
+        BondOrder::Aromatic => unreachable!("aromatic bonds are counted separately"),
+    }
+}
+
+/// Perfect matching over `atoms` (all demanding a double bond) using only candidate bonds,
+/// writing `Double` into `out` for the chosen ones.
+///
+/// `Ok(false)` means no perfect matching exists; `Err(())` that the step budget ran out.
+/// Backtracking rather than Blossom: aromatic systems are small, this is what RDKit does, and
+/// it is a fraction of the code. If [`KEKULE_BUDGET`] is ever seen to bite on real input,
+/// Blossom is the escape hatch.
+fn match_aromatic_system(
+    atoms: &[usize],
+    cand: &[Vec<(usize, usize)>],
+    matched: &mut [bool],
+    out: &mut [BondOrder],
+    budget: &mut u32,
+) -> Result<bool, ()> {
+    if *budget == 0 {
+        return Err(());
+    }
+    *budget -= 1;
+
+    // Branch from the unmatched atom with the fewest options left: the standard heuristic, and
+    // it surfaces a dead end (an atom with no options at all) immediately.
+    let mut pick = None;
+    let mut fewest = usize::MAX;
+    for &a in atoms {
+        if matched[a] {
+            continue;
+        }
+        let free = cand[a].iter().filter(|&&(nb, _)| !matched[nb]).count();
+        if free < fewest {
+            fewest = free;
+            pick = Some(a);
+        }
+    }
+    let Some(a) = pick else {
+        return Ok(true); // everything paired up
+    };
+    if fewest == 0 {
+        return Ok(false);
+    }
+
+    for &(nb, bond) in &cand[a] {
+        if matched[nb] {
+            continue;
+        }
+        matched[a] = true;
+        matched[nb] = true;
+        out[bond] = BondOrder::Double;
+        if match_aromatic_system(atoms, cand, matched, out, budget)? {
+            return Ok(true);
+        }
+        out[bond] = BondOrder::Single;
+        matched[nb] = false;
+        matched[a] = false;
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -771,6 +1033,239 @@ mod tests {
         for h in imp_h(&mut t) {
             assert_eq!(h, 2, "sp3 ring CH2");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Kekulization
+    // -----------------------------------------------------------------------
+
+    /// Run `kekulize` over a whole topology, building the adjacency it needs.
+    fn kek(t: &mut Topology) -> Result<Vec<BondOrder>, KekulizeError> {
+        let n = t.atoms.len();
+        t.bonds.ensure_adjacency(n);
+        let z: Vec<u8> = t.atoms.iter().map(|a| a.get_atomic_number()).collect();
+        let fc: Vec<i32> = t.atoms.iter().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
+        let orders: Vec<BondOrder> = t.bonds.iter().map(|b| b.order()).collect();
+        kekulize(&z, &fc, &orders, t.bonds.get_adjacency().unwrap())
+    }
+
+    /// Total bond order incident on each atom — the invariant a Kekulé structure must preserve.
+    /// (Which resonance form comes back is arbitrary; the per-atom valences are not.)
+    fn valences(t: &Topology, orders: &[BondOrder]) -> Vec<u32> {
+        let mut v = vec![0u32; t.atoms.len()];
+        for (bi, b) in t.bonds.iter().enumerate() {
+            let w = match orders[bi] {
+                BondOrder::Single | BondOrder::Unspecified => 1,
+                BondOrder::Double => 2,
+                BondOrder::Triple => 3,
+                BondOrder::Aromatic => 0, // must not survive kekulization
+            };
+            let [i, j] = b.pair();
+            v[i] += w;
+            v[j] += w;
+        }
+        v
+    }
+
+    /// The round trip that matters: aromatize with `perceive` (destroying the Kekulé form), then
+    /// recover *a* valid one. Asserts per-atom valences, never order-for-order identity.
+    fn assert_kekule_round_trip(mut t: Topology, what: &str) {
+        let before = valences(&t, &orders(&t));
+        perceive(&mut t);
+        assert!(
+            orders(&t).contains(&BondOrder::Aromatic),
+            "{what}: perceive should have aromatized something"
+        );
+        let after = kek(&mut t).unwrap_or_else(|e| panic!("{what}: kekulize failed: {e}"));
+        assert!(
+            !after.contains(&BondOrder::Aromatic),
+            "{what}: no aromatic bond may survive kekulization"
+        );
+        assert_eq!(valences(&t, &after), before, "{what}: per-atom valence must be preserved");
+    }
+
+    /// Explicit hydrogens, which is what molar structures actually carry — and what makes the
+    /// π-demand computation exact. `h` gives the count to attach to each heavy atom.
+    fn with_hydrogens(z: &[u8], bonds: &[(usize, usize, BondOrder)], h: &[usize]) -> Topology {
+        let mut zs = z.to_vec();
+        let mut bs = bonds.to_vec();
+        for (i, &count) in h.iter().enumerate() {
+            for _ in 0..count {
+                zs.push(1);
+                bs.push((i, zs.len() - 1, S));
+            }
+        }
+        topo(&zs, &bs)
+    }
+
+    #[test]
+    fn kekulize_passes_through_a_structure_with_no_aromatic_bonds() {
+        let mut t = benzene(); // Kekulé alternating, never perceived
+        let before = orders(&t);
+        assert_eq!(kek(&mut t).unwrap(), before, "a Kekulé input must come back untouched");
+    }
+
+    #[test]
+    fn kekulize_benzene() {
+        let t = with_hydrogens(&[6; 6], &[
+            (0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S),
+        ], &[1; 6]);
+        assert_kekule_round_trip(t, "benzene");
+    }
+
+    #[test]
+    fn kekulize_pyridine() {
+        // N has no hydrogen and one π electron to give: it must end up double-bonded.
+        let t = with_hydrogens(&[7, 6, 6, 6, 6, 6], &[
+            (0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S),
+        ], &[0, 1, 1, 1, 1, 1]);
+        assert_kekule_round_trip(t, "pyridine");
+    }
+
+    /// The heteroatom cases the π-demand model exists for: an N-H / O / S in a 5-ring is a
+    /// σ-bonded lone-pair donor with **zero** demand, so its ring bonds must both stay single.
+    #[test]
+    fn kekulize_five_ring_heteroatoms_take_no_double_bond() {
+        for (name, z, h) in [
+            ("pyrrole", 7u8, 1usize),   // N-H
+            ("furan", 8, 0),            // O
+            ("thiophene", 16, 0),       // S
+        ] {
+            let t = with_hydrogens(
+                &[z, 6, 6, 6, 6],
+                &[(0, 1, S), (1, 2, D), (2, 3, S), (3, 4, D), (4, 0, S)],
+                &[h, 1, 1, 1, 1],
+            );
+            assert_kekule_round_trip(t.clone(), name);
+
+            // ...and specifically: neither bond at the heteroatom became double. Atom 0's ring
+            // bonds are bond 0 (0-1) and bond 4 (4-0).
+            let mut t = t;
+            perceive(&mut t);
+            let after = kek(&mut t).unwrap();
+            for bi in [0, 4] {
+                assert_eq!(
+                    after[bi], BondOrder::Single,
+                    "{name}: the heteroatom's ring bonds must stay single"
+                );
+            }
+        }
+    }
+
+    /// Imidazole has both N flavours at once — a demanding pyridine-type N and a satisfied
+    /// N-H — so it is the case a naive "alternate around the ring" kekulizer gets wrong.
+    #[test]
+    fn kekulize_imidazole() {
+        // N1(H)-C2=N3-C4=C5-N1
+        let t = with_hydrogens(&[7, 6, 7, 6, 6], &[
+            (0, 1, S), (1, 2, D), (2, 3, S), (3, 4, D), (4, 0, S),
+        ], &[1, 1, 0, 1, 1]);
+        assert_kekule_round_trip(t, "imidazole");
+    }
+
+    #[test]
+    fn kekulize_fused_and_linked_ring_systems() {
+        // Naphthalene: two 6-rings sharing the 0-1 bond, every ring bond aromatized.
+        let naph = with_hydrogens(&[6; 10], &[
+            (0, 1, S),
+            (1, 2, D), (2, 3, S), (3, 4, D), (4, 5, S), (5, 0, D),
+            (1, 6, S), (6, 7, D), (7, 8, S), (8, 9, D), (9, 0, S),
+        ], &[0, 0, 1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_kekule_round_trip(naph, "naphthalene");
+
+        // Biphenyl: two separate aromatic systems joined by a single bond, which must survive.
+        let biph = with_hydrogens(&[6; 12], &[
+            (0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S),
+            (6, 7, D), (7, 8, S), (8, 9, D), (9, 10, S), (10, 11, D), (11, 6, S),
+            (0, 6, S),
+        ], &[0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1]);
+        let mut t = biph;
+        let link = 12;
+        perceive(&mut t);
+        let after = kek(&mut t).unwrap();
+        assert_eq!(after[link], BondOrder::Single, "the inter-ring link must stay single");
+    }
+
+    /// A charged ring: the +1 lifts the N's target valence to 4, so despite carrying a hydrogen
+    /// it still demands a double bond — unlike the neutral pyrrole N-H above.
+    #[test]
+    fn kekulize_respects_formal_charge() {
+        let mut t = with_hydrogens(&[7, 6, 6, 6, 6, 6], &[
+            (0, 1, D), (1, 2, S), (2, 3, D), (3, 4, S), (4, 5, D), (5, 0, S),
+        ], &[1, 1, 1, 1, 1, 1]);
+        t.atoms.get_mut(0).unwrap().set_formal_charge(1); // pyridinium
+        assert_kekule_round_trip(t, "pyridinium");
+    }
+
+    /// An SDF order-4 record, which arrives aromatic without ever having had a Kekulé form.
+    #[test]
+    fn kekulize_sdf_order_four_input() {
+        use BondOrder::Aromatic as A;
+        let mut t = with_hydrogens(&[6; 6], &[
+            (0, 1, A), (1, 2, A), (2, 3, A), (3, 4, A), (4, 5, A), (5, 0, A),
+        ], &[1; 6]);
+        let after = kek(&mut t).unwrap();
+        let ring = &after[..6];
+        assert_eq!(ring.iter().filter(|&&o| o == BondOrder::Double).count(), 3, "3 double bonds");
+        assert_eq!(ring.iter().filter(|&&o| o == BondOrder::Single).count(), 3, "3 single bonds");
+        // Alternating, so no two adjacent ring bonds share an order.
+        for i in 0..6 {
+            assert_ne!(ring[i], ring[(i + 1) % 6], "ring bonds must alternate");
+        }
+    }
+
+    /// An odd number of demanding atoms in a cycle cannot be paired up. The cyclopentadienyl
+    /// *radical* (5 CH, no charge) is the honest example — this must be reported, not fudged.
+    #[test]
+    fn kekulize_rejects_a_non_kekulizable_system() {
+        use BondOrder::Aromatic as A;
+        let mut t = with_hydrogens(&[6; 5], &[
+            (0, 1, A), (1, 2, A), (2, 3, A), (3, 4, A), (4, 0, A),
+        ], &[1; 5]);
+        assert!(
+            matches!(kek(&mut t), Err(KekulizeError::NonKekulizable(..))),
+            "5 demanding carbons in a 5-cycle have no perfect matching"
+        );
+    }
+
+    /// ...but the same ring as an *anion* is fine: the carbanion's demand drops to zero, leaving
+    /// four atoms to pair up.
+    #[test]
+    fn kekulize_cyclopentadienyl_anion() {
+        use BondOrder::Aromatic as A;
+        let mut t = with_hydrogens(&[6; 5], &[
+            (0, 1, A), (1, 2, A), (2, 3, A), (3, 4, A), (4, 0, A),
+        ], &[1; 5]);
+        t.atoms.get_mut(0).unwrap().set_formal_charge(-1);
+        let after = kek(&mut t).unwrap();
+        assert_eq!(
+            after[..5].iter().filter(|&&o| o == BondOrder::Double).count(),
+            2,
+            "two double bonds among the four demanding carbons"
+        );
+    }
+
+    #[test]
+    fn kekulize_reports_unknown_valence_rather_than_guessing() {
+        use BondOrder::Aromatic as A;
+        // Selenophene: Se (Z=34) has no valence in this module's table.
+        let mut t = with_hydrogens(&[34, 6, 6, 6, 6], &[
+            (0, 1, A), (1, 2, A), (2, 3, A), (3, 4, A), (4, 0, A),
+        ], &[0, 1, 1, 1, 1]);
+        assert!(matches!(kek(&mut t), Err(KekulizeError::UnknownValence(0, 34))));
+    }
+
+    // -----------------------------------------------------------------------
+    // Connected components
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn connected_components_labels_fragments_in_index_order() {
+        // Two chains 0-1-2 and 3-4, plus an isolated atom 5.
+        let mut t = topo(&[6; 6], &[(0, 1, S), (1, 2, S), (3, 4, S)]);
+        t.bonds.ensure_adjacency(6);
+        let labels = connected_components(t.bonds.get_adjacency().unwrap());
+        assert_eq!(labels, vec![0, 0, 0, 1, 1, 2], "labels ascend by lowest member index");
     }
 
     #[test]
