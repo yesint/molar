@@ -20,7 +20,7 @@
 //! (empty type name, type id 0, formal charge 0, no flags), so this is information-preserving.
 
 use crate::atom::{
-    Atom, AtomFlags, AtomLike, AtomLikeMut, AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT,
+    Atom, AtomChemFlags, AtomLike, AtomLikeMut, AtomStr, ATOM_NAME_EXPECT, ATOM_RESNAME_EXPECT,
     ATOM_TYPE_NAME_EXPECT,
 };
 use crate::aliases::Float;
@@ -44,7 +44,7 @@ pub struct AtomStorage {
     type_name: Option<Vec<AtomStr>>,
     type_id: Option<Vec<u32>>,
     formal_charge: Option<Vec<i32>>,
-    flags: Option<Vec<AtomFlags>>,
+    flags: Option<Vec<AtomChemFlags>>,
 }
 
 #[inline]
@@ -134,7 +134,7 @@ impl AtomStorage {
         push_opt(&mut self.type_name, a.type_name, n, empty_atomstr());
         push_opt(&mut self.type_id, a.type_id, n, 0);
         push_opt(&mut self.formal_charge, a.formal_charge, n, 0);
-        push_opt(&mut self.flags, a.flags, n, AtomFlags::default());
+        push_opt(&mut self.flags, a.chem_flags, n, AtomChemFlags::default());
         debug_assert!(self.invariant_holds());
     }
 
@@ -158,7 +158,7 @@ impl AtomStorage {
         set_opt(&mut self.type_name, i, a.type_name, n, empty_atomstr());
         set_opt(&mut self.type_id, i, a.type_id, n, 0);
         set_opt(&mut self.formal_charge, i, a.formal_charge, n, 0);
-        set_opt(&mut self.flags, i, a.flags, n, AtomFlags::default());
+        set_opt(&mut self.flags, i, a.chem_flags, n, AtomChemFlags::default());
         debug_assert!(self.invariant_holds());
     }
 
@@ -298,9 +298,9 @@ impl AtomStorage {
         let n = self.name.len();
         self.formal_charge.get_or_insert_with(|| vec![0; n])
     }
-    fn ensure_flags(&mut self) -> &mut Vec<AtomFlags> {
+    fn ensure_flags(&mut self) -> &mut Vec<AtomChemFlags> {
         let n = self.name.len();
-        self.flags.get_or_insert_with(|| vec![AtomFlags::default(); n])
+        self.flags.get_or_insert_with(|| vec![AtomChemFlags::default(); n])
     }
 
     /// Debug check: every present optional column matches the core length.
@@ -433,7 +433,7 @@ impl AtomLike for AtomRef<'_> {
             .as_ref()
             .map(|c| unsafe { *c.get_unchecked(self.idx) })
     }
-    fn get_flags(&self) -> Option<AtomFlags> {
+    fn get_chem_flags(&self) -> Option<AtomChemFlags> {
         self.st.flags.as_ref().map(|c| unsafe { *c.get_unchecked(self.idx) })
     }
 }
@@ -547,7 +547,7 @@ impl AtomLike for AtomRefMut<'_> {
             .as_ref()
             .map(|c| unsafe { *c.get_unchecked(self.idx) })
     }
-    fn get_flags(&self) -> Option<AtomFlags> {
+    fn get_chem_flags(&self) -> Option<AtomChemFlags> {
         self.st().flags.as_ref().map(|c| unsafe { *c.get_unchecked(self.idx) })
     }
 }
@@ -607,7 +607,7 @@ impl AtomLikeMut for AtomRefMut<'_> {
             *col.get_unchecked_mut(idx) = formal_charge;
         }
     }
-    fn set_flags(&mut self, flags: AtomFlags) {
+    fn set_flags(&mut self, flags: AtomChemFlags) {
         let idx = self.idx;
         unsafe {
             let col = (&mut *self.st).ensure_flags();

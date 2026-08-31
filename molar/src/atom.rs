@@ -11,12 +11,11 @@ pub(crate) const ATOM_TYPE_NAME_EXPECT: &str = "atom type name fits in 8 bytes";
 
 /// Per-atom perceived-chemistry flags (ring membership, aromaticity, …).
 ///
-/// Stored in an optional column (see the SoA `AtomStorage`); this newtype replaces the
-/// former bit-packing of ring/aromatic flags into the top two bits of `type_id`.
+/// Stored in an optional column (see the SoA `AtomStorage).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct AtomFlags(u8);
+pub struct AtomChemFlags(u8);
 
-impl AtomFlags {
+impl AtomChemFlags {
     const IN_RING: u8 = 1 << 0;
     const AROMATIC: u8 = 1 << 1;
 
@@ -44,7 +43,7 @@ impl AtomFlags {
 
 /// Read-only access to atom properties.
 ///
-/// Implemented by the owned [`Atom`] and by the borrowed column proxies
+/// Implemented by the owned [`Atom`] and by the borrowed proxies
 /// [`AtomRef`](crate::AtomRef) / [`AtomRefMut`](crate::AtomRefMut). Optional (force-field /
 /// chemistry) getters return `None` when the property was never assigned.
 pub trait AtomLike {
@@ -77,15 +76,15 @@ pub trait AtomLike {
     /// Integer formal charge (e.g. from an SDF `M  CHG` record).
     fn get_formal_charge(&self) -> Option<i32>;
     /// Perceived-chemistry flags.
-    fn get_flags(&self) -> Option<AtomFlags>;
+    fn get_chem_flags(&self) -> Option<AtomChemFlags>;
 
     /// Whether the atom is a member of some ring (false when flags are unset).
     fn is_in_ring(&self) -> bool {
-        self.get_flags().map_or(false, |f| f.is_in_ring())
+        self.get_chem_flags().map_or(false, |f| f.is_in_ring())
     }
     /// Whether the atom belongs to an aromatic ring (false when flags are unset).
     fn is_aromatic(&self) -> bool {
-        self.get_flags().map_or(false, |f| f.is_aromatic())
+        self.get_chem_flags().map_or(false, |f| f.is_aromatic())
     }
 
     /// Van der Waals radius (nm) from the atomic number; 0.15 nm for unknown (Z=0).
@@ -111,15 +110,15 @@ pub trait AtomLikeMut: AtomLike {
     fn set_type_name(&mut self, type_name: &str);
     fn set_type_id(&mut self, type_id: u32);
     fn set_formal_charge(&mut self, formal_charge: i32);
-    fn set_flags(&mut self, flags: AtomFlags);
+    fn set_flags(&mut self, flags: AtomChemFlags);
 
     fn set_in_ring(&mut self, v: bool) {
-        let mut f = self.get_flags().unwrap_or_default();
+        let mut f = self.get_chem_flags().unwrap_or_default();
         f.set_in_ring(v);
         self.set_flags(f);
     }
     fn set_aromatic(&mut self, v: bool) {
-        let mut f = self.get_flags().unwrap_or_default();
+        let mut f = self.get_chem_flags().unwrap_or_default();
         f.set_aromatic(v);
         self.set_flags(f);
     }
@@ -127,7 +126,7 @@ pub trait AtomLikeMut: AtomLike {
 
 /// Information about the atom except its coordinates.
 ///
-/// Retained as the detached, densely-packed construction/interchange row even though
+/// Used for construction/interchange only. 
 /// [`Topology`](crate::Topology) stores atoms column-wise (Struct-of-Arrays). The four
 /// optional force-field/chemistry fields are `Option` — `None` means "never assigned".
 #[allow(dead_code)]
@@ -163,7 +162,7 @@ pub struct Atom {
     /// Integer formal charge (e.g. from an SDF `M  CHG` record).
     pub formal_charge: Option<i32>,
     /// Perceived-chemistry flags (ring membership, aromaticity, …).
-    pub flags: Option<AtomFlags>,
+    pub chem_flags: Option<AtomChemFlags>,
 }
 
 impl Default for Atom {
@@ -183,7 +182,7 @@ impl Default for Atom {
             type_name: None,
             type_id: None,
             formal_charge: None,
-            flags: None,
+            chem_flags: None,
         }
     }
 }
@@ -219,7 +218,7 @@ impl Atom {
         self.formal_charge = Some(formal_charge);
         self
     }
-    pub fn with_flags(mut self, flags: AtomFlags) -> Self { self.flags = Some(flags); self }
+    pub fn with_flags(mut self, flags: AtomChemFlags) -> Self { self.chem_flags = Some(flags); self }
 
     /// Chainable version of `guess_element_and_mass_from_name()`.
     pub fn guess(mut self) -> Self {
@@ -289,29 +288,6 @@ impl Atom {
         // Fill mass field — periodic table is stored as Float for compactness; cast at lookup.
         self.mass = ELEMENT_MASS[self.atomic_number as usize] as Float;
     }
-
-    // Naive guessing of the mass and element from the atom name.
-    // pub fn guess_element_and_mass_from_name(&mut self) {
-    //     (self.atomic_number, self.mass) = match self
-    //         .name
-    //         .as_str()
-    //         .trim_start_matches(char::is_numeric)
-    //         .chars()
-    //         .next()
-    //         .unwrap()
-    //     {
-    //         'C' => (6, ELEMENT_MASS[6]),
-    //         'O' => (8, ELEMENT_MASS[8]),
-    //         'N' => (7, ELEMENT_MASS[7]),
-    //         'S' => (16, ELEMENT_MASS[16]),
-    //         'H' => (1, ELEMENT_MASS[1]),
-    //         'P' => (15, ELEMENT_MASS[15]),
-    //         'F' => (9, ELEMENT_MASS[9]),
-    //         'B' => (5, ELEMENT_MASS[5]),
-    //         _ => (0, 1.0), // Unknown atom
-    //     }
-    // }
-
 }
 
 /// Resolve an **explicit** element symbol (e.g. `Cl`, `C`, `SE`) to its atomic number,
@@ -321,15 +297,17 @@ impl Atom {
 /// element outright — an SDF atom block, a PDB record's element column. Guessing from an
 /// atom *name* is inherently ambiguous (`SG` is a cysteine's gamma sulfur, not seaborgium;
 /// `CA` an alpha carbon, not calcium), so an explicit symbol always wins.
-/// A blank field means "not stated" and yields 0. That has to be rejected up front:
-/// [`element_symbol`] returns `""` for atomic numbers past the end of the table, so an
-/// empty needle would otherwise match one of those and produce an out-of-range Z.
+/// A blank or unrecognised field means "not stated" and yields 0.
 pub(crate) fn atomic_number_from_symbol(sym: &str) -> u8 {
     let up = sym.trim().to_ascii_uppercase();
-    if up.is_empty() {
-        return 0;
-    }
-    (1u8..=118).find(|&z| element_symbol(z) == up).unwrap_or(0)
+    // Search the table directly. Index 0 is the `"X"` placeholder, so skip it; a blank
+    // or unknown symbol then matches nothing and yields 0.
+    ELEMENT_NAME_UPPER
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|&(_, &s)| s == up)
+        .map_or(0, |(z, _)| z as u8)
 }
 
 /// Returns the uppercase element symbol for the given atomic number (e.g. `"FE"`, `"C"`, `"HE"`).
@@ -363,7 +341,7 @@ impl<T: AtomLike> From<&T> for Atom {
         if let Some(fc) = a.get_formal_charge() {
             at = at.with_formal_charge(fc);
         }
-        if let Some(f) = a.get_flags() {
+        if let Some(f) = a.get_chem_flags() {
             at = at.with_flags(f);
         }
         at
@@ -410,8 +388,8 @@ impl AtomLike for Atom {
     fn get_formal_charge(&self) -> Option<i32> {
         self.formal_charge
     }
-    fn get_flags(&self) -> Option<AtomFlags> {
-        self.flags
+    fn get_chem_flags(&self) -> Option<AtomChemFlags> {
+        self.chem_flags
     }
 }
 
@@ -455,8 +433,8 @@ impl AtomLikeMut for Atom {
     fn set_formal_charge(&mut self, formal_charge: i32) {
         self.formal_charge = Some(formal_charge);
     }
-    fn set_flags(&mut self, flags: AtomFlags) {
-        self.flags = Some(flags);
+    fn set_flags(&mut self, flags: AtomChemFlags) {
+        self.chem_flags = Some(flags);
     }
 }
 
