@@ -228,3 +228,7 @@ All coordinates and distances use **nanometers** (matching Gromacs convention), 
 ### Test data
 
 Integration test files live in `molar/tests/`: `protein.pdb`, `protein.xtc`, `membr.gro`, `topol.tpr`, etc.
+
+## Language and writing style
+
+Only report to me in ASD-STE100 Simplified Technical English.
