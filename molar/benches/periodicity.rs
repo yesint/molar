@@ -88,7 +88,7 @@ fn distance_grid(c: &mut Criterion) {
                     0..points.len(),
                     black_box(&b),
                     black_box(pbc),
-                );
+                ).unwrap();
                 black_box(pairs);
             })
         });

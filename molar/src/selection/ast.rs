@@ -609,7 +609,7 @@ impl Evaluate for LogicalNode {
                         sub2.iter_index(),
                         &lower.coords,
                         &upper.coords,
-                    )
+                    )?
                 } else {
                     // Periodic variant
                     distance_search_within_pbc(
@@ -620,7 +620,7 @@ impl Evaluate for LogicalNode {
                         sub2.iter_index(),
                         data.require_box()?,
                         params.pbc,
-                    )
+                    )?
                 };
 
                 // Add inner if asked
@@ -648,7 +648,7 @@ impl Evaluate for LogicalNode {
                         0..1,
                         &lower,
                         &upper,
-                    )
+                    )?
                 } else {
                     // Periodic variant
                     distance_search_within_pbc(
@@ -659,7 +659,7 @@ impl Evaluate for LogicalNode {
                         0..1,
                         data.require_box()?,
                         prop.pbc,
-                    )
+                    )?
                 };
                 Ok(Cow::from(res))
             }
@@ -1285,6 +1285,9 @@ impl std::fmt::Display for SyntaxError {
 
 #[derive(Error, Debug)]
 pub enum SelectionParserError {
+    #[error(transparent)]
+    DistanceSearch(#[from] DistanceSearchError),
+
     #[error("syntax error: {0}")]
     SyntaxError(SyntaxError),
 

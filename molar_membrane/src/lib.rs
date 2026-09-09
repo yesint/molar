@@ -543,7 +543,7 @@ impl Membrane {
             self.iter_valid_lipids().map(|l| l.id),
             sys.require_box()?,
             PBC_FULL,
-        );
+        )?;
 
         // Clear all patches first!
         for lip in self.lipids.iter_mut() {

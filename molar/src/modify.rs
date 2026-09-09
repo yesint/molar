@@ -75,7 +75,7 @@ pub trait Modify: PosMutProvider {
     {
         let b = self.require_box()?.to_owned();
         let conn: SearchConnectivity =
-            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.len(), &b, PBC_FULL);
+            distance_search_single_pbc(cutoff, self.iter_pos(), 0..self.len(), &b, PBC_FULL)?;
 
         // used atoms
         let mut used = vec![false; self.len()];

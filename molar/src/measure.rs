@@ -731,6 +731,9 @@ pub enum LipidOrderError {
 /// Errors that can occur during measurements
 #[derive(Error, Debug)]
 pub enum MeasureError {
+    #[error(transparent)]
+    DistanceSearch(#[from] DistanceSearchError),
+
     /// Mismatch in sizes between two selections
     #[error("incompatible sizes: {0} and {1}")]
     Sizes(usize, usize),

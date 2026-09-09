@@ -78,3 +78,7 @@ no-default-features = true
 [[bench]]
 name = "periodicity"
 harness = false
+
+[[bench]]
+name = "distance_search"
+harness = false

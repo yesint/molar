@@ -279,9 +279,9 @@ fn distance_search<'py>(
                     sel2.iter_pos(),
                     sel1.iter_index(),
                     sel2.iter_index(),
-                    &sel1.require_box().unwrap(),
+                    sel1.require_box().map_err(to_py_value_err)?,
                     pbc_dims,
-                );
+                ).map_err(to_py_value_err)?;
             } else {
                 res = distance_search_double(
                     d,
@@ -289,7 +289,7 @@ fn distance_search<'py>(
                     &sel2 as &SelPy,
                     sel1.iter_index(),
                     sel2.iter_index(),
-                );
+                ).map_err(to_py_value_err)?;
             }
         } else {
             if pbc_dims.any() {
@@ -297,11 +297,12 @@ fn distance_search<'py>(
                     d,
                     sel1.iter_pos(),
                     sel1.iter_index(),
-                    &sel1.require_box().unwrap(),
+                    sel1.require_box().map_err(to_py_value_err)?,
                     pbc_dims,
-                );
+                ).map_err(to_py_value_err)?;
             } else {
-                res = distance_search_single(d, &sel1 as &SelPy, sel1.iter_index());
+                res = distance_search_single(d, &sel1 as &SelPy, sel1.iter_index())
+                    .map_err(to_py_value_err)?;
             }
         }
     } _ => { match cutoff.extract::<String>() { Ok(s) => {
@@ -338,11 +339,12 @@ fn distance_search<'py>(
                     sel2.iter_pos(),
                     &vdw1,
                     &vdw2,
-                    &sel1.require_box().unwrap(),
+                    sel1.require_box().map_err(to_py_value_err)?,
                     pbc_dims,
-                );
+                ).map_err(to_py_value_err)?;
             } else {
-                res = distance_search_double_vdw(&sel1 as &SelPy, &sel2 as &SelPy, &vdw1, &vdw2);
+                res = distance_search_double_vdw(&sel1 as &SelPy, &sel2 as &SelPy, &vdw1, &vdw2)
+                    .map_err(to_py_value_err)?;
             }
 
             // Convert local indices to global

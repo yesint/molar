@@ -88,7 +88,7 @@ pub(crate) fn command_solvate(
 
     info!("Searching for overlapping solvent molecules...");
     // Do the distance search
-    let vdw1 = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
+    let vdw1: Vec<Float> = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
     let vdw2: Vec<Float> = solute.iter_atoms().map(|a| a.vdw()).collect();
 
     let local_overlap_ind: Vec<usize> = distance_search_double_vdw_pbc(
@@ -98,7 +98,7 @@ pub(crate) fn command_solvate(
         &vdw2,
         b,
         PBC_FULL,
-    );
+    )?;
     info!("{} overlapping atoms", local_overlap_ind.len());
 
     // Find all resindexes for atoms to be removed
