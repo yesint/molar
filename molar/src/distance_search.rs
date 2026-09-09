@@ -1,6 +1,6 @@
+use crate::par::*;
 use crate::prelude::*;
 use num_traits::clamp_min;
-use crate::par::*;
 
 /// Trait for the results of distance seacrh
 pub trait DistanceSearchOutput {
@@ -34,6 +34,8 @@ struct Grid<'a> {
     cells: Vec<Vec<(usize, &'a Pos)>>,
     dims: [usize; 3],
     wrapped_pos: Vec<Pos>,
+    fractional_lower: Vector3f,
+    fractional_span: Vector3f,
 }
 
 static MASK: [([usize; 3], [usize; 3]); 14] = [
@@ -78,6 +80,8 @@ impl<'a> Grid<'a> {
             cells: vec![vec![]; dims[0] * dims[1] * dims[2]],
             dims,
             wrapped_pos: vec![],
+            fractional_lower: Vector3f::zeros(),
+            fractional_span: Vector3f::repeat(1.0),
         }
     }
 
@@ -96,9 +100,11 @@ impl<'a> Grid<'a> {
         self.cells[i].push(data);
     }
 
-    unsafe fn push_ptr(&mut self, ind: usize, data: (usize, *const Pos)) { unsafe {
-        self.cells[ind].push((data.0, &*data.1));
-    }}
+    unsafe fn push_ptr(&mut self, ind: usize, data: (usize, *const Pos)) {
+        unsafe {
+            self.cells[ind].push((data.0, &*data.1));
+        }
+    }
 
     fn from_cutoff_and_extents(cutoff: Float, extents: &Vector3f) -> Self {
         let mut sz = [0, 0, 0];
@@ -113,8 +119,56 @@ impl<'a> Grid<'a> {
         Self::from_cutoff_and_extents(cutoff, &(max - min))
     }
 
-    pub(crate) fn from_cutoff_and_box(cutoff: Float, box_: &PeriodicBox) -> Self {
-        Self::from_cutoff_and_extents(cutoff, &box_.get_lab_extents())
+    pub(crate) fn from_cutoff_and_box(cutoff: Float, box_: &PeriodicBox, pbc: PbcDims) -> Self {
+        let mut spacings = box_.face_spacings();
+        // Start nonperiodic directions with one bin. fit_nonperiodic expands
+        // them to the data bounds before positions are inserted.
+        for d in 0..3 {
+            if !pbc.get_dim(d) {
+                spacings[d] = 0.0;
+            }
+        }
+        Self::from_cutoff_and_extents(cutoff, &spacings)
+    }
+
+    /// Set finite grid bounds from the data along nonperiodic directions.
+    /// The unit-cell faces are not limits on nonperiodic coordinates.
+    fn fit_nonperiodic<'b>(
+        &mut self,
+        cutoff: Float,
+        box_: &PeriodicBox,
+        pbc: PbcDims,
+        points: impl Iterator<Item = &'b Pos>,
+    ) {
+        if pbc == PBC_FULL {
+            return;
+        }
+        let mut lower = Vector3f::repeat(Float::INFINITY);
+        let mut upper = Vector3f::repeat(Float::NEG_INFINITY);
+        for p in points {
+            let f = box_.to_box_coords(&p.coords);
+            lower = lower.inf(&f);
+            upper = upper.sup(&f);
+        }
+        let heights = box_.face_spacings();
+        for d in 0..3 {
+            if !pbc.get_dim(d) && lower[d].is_finite() {
+                self.fractional_lower[d] = lower[d];
+                // Include the upper endpoint in the final cell. Use one bin
+                // for a flat coordinate distribution.
+                let span = (upper[d] - lower[d]).max(cutoff / heights[d]);
+                self.fractional_span[d] = span;
+                self.dims[d] = ((span * heights[d] / cutoff).floor() as usize).max(1);
+            }
+        }
+        self.cells = vec![vec![]; self.dims.iter().product()];
+    }
+
+    fn empty_like(&self) -> Self {
+        let mut grid = Self::new_with_dims(self.dims);
+        grid.fractional_lower = self.fractional_lower;
+        grid.fractional_span = self.fractional_span;
+        grid
     }
 
     pub(crate) fn populate(
@@ -151,51 +205,26 @@ impl<'a> Grid<'a> {
         let mut wrapped_ind = vec![];
         self.wrapped_pos.clear();
 
-        'outer: for (id, pos) in ids.zip(data) {
-            // Relative coordinates
+        for (id, pos) in ids.zip(data) {
             let mut rel = box_.to_box_coords(&pos.coords);
-            let mut loc = [0usize, 0, 0];
-
-            // Check if point is correctly wrapped
-            let mut correct = true;
+            let mut loc = [0usize; 3];
+            let mut shifted = false;
             for d in 0..3 {
-                if rel[d] < 0.0 || rel[d] >= 1.0 {
-                    if !pbc_dims.get_dim(d) {
-                        // Non-pbc dim is out of bound, so skip the point entirely
-                        continue 'outer;
-                    } else {
-                        correct = false;
-                        break;
+                if pbc_dims.get_dim(d) {
+                    if rel[d] < 0.0 || rel[d] >= 1.0 {
+                        rel[d] -= rel[d].floor();
+                        shifted = true;
                     }
                 }
+                let f = (rel[d] - self.fractional_lower[d]) / self.fractional_span[d];
+                loc[d] = ((f * self.dims[d] as Float).floor() as usize).min(self.dims[d] - 1);
             }
 
-            if correct {
-                // Wrapped correctly
-                for d in 0..3 {
-                    loc[d] = ((rel[d] * self.dims[d] as Float).floor() as usize)
-                        .clamp(0, self.dims[d] - 1);
-                    // Accounts for float point errors when loc[d] could be 1.00001
-                }
-                self.push_loc(&loc, (id, pos));
-            } else {
-                // Need to wrap the point
-                for d in 0..3 {
-                    if pbc_dims.get_dim(d) {
-                        // For each periodic dim
-                        rel[d] = rel[d].fract();
-                        if rel[d] < 0.0 {
-                            rel[d] = 1.0 + rel[d] // red[d]<0, so add it, not substract!
-                        }
-                    }
-                    loc[d] = ((rel[d] * self.dims[d] as Float).floor() as usize)
-                        .clamp(0, self.dims[d] - 1);
-                    // Accounts for float point errors when loc[d] could be 1.00001
-                }
-
-                let wp = Pos::from(box_.to_lab_coords(&rel));
-                self.wrapped_pos.push(wp);
+            if shifted {
+                self.wrapped_pos.push(Pos::from(box_.to_lab_coords(&rel)));
                 wrapped_ind.push((self.loc_to_ind(&loc), id));
+            } else {
+                self.push_loc(&loc, (id, pos));
             }
         }
 
@@ -231,13 +260,13 @@ fn search_plan(
                         [x + v2[0], y + v2[1], z + v2[2]],
                     ];
                     // we only go to the right, so need to check the right edge
-                    let mut wrapped = PBC_NONE;
+                    // Use the requested lattice for distance calculations,
+                    // including within-cell pairs and grids with few bins.
                     for i in 0..=1 {
                         for d in 0..3 {
                             if c[i][d] == grid1.dims[d] {
                                 if pbc_dims.get_dim(d) {
                                     c[i][d] = 0;
-                                    wrapped.set_dim(d, true);
                                 } else {
                                     // Drop point for non-periodic dimension
                                     continue 'mask;
@@ -255,15 +284,25 @@ fn search_plan(
                         if (grid1.cells[i1].len() > 0 && grid2.cells[i2].len() > 0)
                             || (grid2.cells[i1].len() > 0 && grid1.cells[i2].len() > 0)
                         {
-                            plan.push((i1, i2, wrapped));
-                            //plan.push((i2, i1, wrapped));
+                            plan.push((i1, i2, pbc_dims));
                         }
                     } else if grid1.cells[i1].len() > 0 && grid1.cells[i2].len() > 0 {
-                        plan.push((i1, i2, wrapped));
+                        plan.push((i1, i2, pbc_dims));
                     }
                 }
             }
         }
+    }
+    // With one or two bins, different stencil entries name the same pair.
+    // Compare each unordered cell pair once, including the within-cell case.
+    if pbc_dims.any() && grid1.dims.iter().any(|&n| n <= 2) {
+        for (i, j, _) in &mut plan {
+            if *i > *j {
+                std::mem::swap(i, j);
+            }
+        }
+        plan.sort_unstable_by_key(|&(i, j, _)| (i, j));
+        plan.dedup_by_key(|pair| (pair.0, pair.1));
     }
     plan
 }
@@ -544,13 +583,15 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_within(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
-            search_cell_pair_within(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                (pair.1, pair.0, pair.2),
-                &mut found,
-            );
+            if pair.0 != pair.1 {
+                search_cell_pair_within(
+                    cutoff * cutoff,
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    &mut found,
+                );
+            }
             found
         })
         .flatten()
@@ -569,8 +610,14 @@ pub(crate) fn distance_search_within_pbc<C>(
 where
     C: FromIterator<usize> + FromParallelIterator<usize>,
 {
-    let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
-    let mut grid2 = Grid::new_with_dims(grid1.get_dims());
+    let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox, pbc_dims);
+    grid1.fit_nonperiodic(
+        cutoff,
+        pbox,
+        pbc_dims,
+        data1.iter_pos().chain(data2.iter_pos()),
+    );
+    let mut grid2 = grid1.empty_like();
 
     grid1.populate_pbc(data1.iter_pos(), ids1, pbox, pbc_dims);
     grid2.populate_pbc(data2.iter_pos(), ids2, pbox, pbc_dims);
@@ -583,14 +630,16 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_within_pbc(cutoff * cutoff, &grid1, &grid2, pair, pbox, &mut found);
-            search_cell_pair_within_pbc(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                (pair.1, pair.0, pair.2),
-                pbox,
-                &mut found,
-            );
+            if pair.0 != pair.1 {
+                search_cell_pair_within_pbc(
+                    cutoff * cutoff,
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    pbox,
+                    &mut found,
+                );
+            }
             found
         })
         .flatten()
@@ -684,13 +733,15 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double(cutoff * cutoff, &grid1, &grid2, pair, &mut found);
-            search_cell_pair_double(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                (pair.1, pair.0, pair.2),
-                &mut found,
-            );
+            if pair.0 != pair.1 {
+                search_cell_pair_double(
+                    cutoff * cutoff,
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    &mut found,
+                );
+            }
             found
         })
         .flatten()
@@ -706,7 +757,7 @@ where
 /// * `ids1` - Iterator providing indices for first set of points
 /// * `ids2` - Iterator providing indices for second set of points
 /// * `pbox` - Periodic box definition
-/// * `pbc_dims` - Which dimensions should use periodic boundaries
+/// * `pbc_dims` - Enabled box vectors; other directions use the bounds of the data
 ///
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
@@ -723,8 +774,28 @@ where
     T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
-    let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
-    let mut grid2 = Grid::new_with_dims(grid1.get_dims());
+    let mut data1 = data1;
+    let mut data2 = data2;
+    let buffered1: Vec<_> = if pbc_dims != PBC_FULL {
+        data1.by_ref().collect()
+    } else {
+        Vec::new()
+    };
+    let buffered2: Vec<_> = if pbc_dims != PBC_FULL {
+        data2.by_ref().collect()
+    } else {
+        Vec::new()
+    };
+    let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox, pbc_dims);
+    grid1.fit_nonperiodic(
+        cutoff,
+        pbox,
+        pbc_dims,
+        buffered1.iter().chain(&buffered2).copied(),
+    );
+    let mut grid2 = grid1.empty_like();
+    let data1 = buffered1.into_iter().chain(data1);
+    let data2 = buffered2.into_iter().chain(data2);
 
     grid1.populate_pbc(data1, ids1, pbox, pbc_dims);
     grid2.populate_pbc(data2, ids2, pbox, pbc_dims);
@@ -739,14 +810,16 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_pbc(cutoff * cutoff, &grid1, &grid2, pair, pbox, &mut found);
-            search_cell_pair_double_pbc(
-                cutoff * cutoff,
-                &grid1,
-                &grid2,
-                (pair.1, pair.0, pair.2),
-                pbox,
-                &mut found,
-            );
+            if pair.0 != pair.1 {
+                search_cell_pair_double_pbc(
+                    cutoff * cutoff,
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    pbox,
+                    &mut found,
+                );
+            }
             found
         })
         .flatten()
@@ -799,14 +872,16 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw(&grid1, &grid2, pair, vdw1, vdw2, &mut found);
-            search_cell_pair_double_vdw(
-                &grid1,
-                &grid2,
-                (pair.1, pair.0, pair.2),
-                vdw1,
-                vdw2,
-                &mut found,
-            );
+            if pair.0 != pair.1 {
+                search_cell_pair_double_vdw(
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    vdw1,
+                    vdw2,
+                    &mut found,
+                );
+            }
             found
         })
         .flatten()
@@ -822,7 +897,7 @@ where
 /// * `vdw1` - Van der Waals radii for first set of points
 /// * `vdw2` - Van der Waals radii for second set of points
 /// * `pbox` - Periodic box definition
-/// * `pbc_dims` - Which dimensions should use periodic boundaries
+/// * `pbc_dims` - Enabled box vectors; other directions use the bounds of the data
 ///
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
@@ -846,8 +921,28 @@ where
         + vdw2.iter().cloned().reduce(Float::max).unwrap()
         + Float::EPSILON;
 
-    let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox);
-    let mut grid2 = Grid::new_with_dims(grid1.get_dims());
+    let mut data1 = data1;
+    let mut data2 = data2;
+    let buffered1: Vec<_> = if pbc_dims != PBC_FULL {
+        data1.by_ref().collect()
+    } else {
+        Vec::new()
+    };
+    let buffered2: Vec<_> = if pbc_dims != PBC_FULL {
+        data2.by_ref().collect()
+    } else {
+        Vec::new()
+    };
+    let mut grid1 = Grid::from_cutoff_and_box(cutoff, pbox, pbc_dims);
+    grid1.fit_nonperiodic(
+        cutoff,
+        pbox,
+        pbc_dims,
+        buffered1.iter().chain(&buffered2).copied(),
+    );
+    let mut grid2 = grid1.empty_like();
+    let data1 = buffered1.into_iter().chain(data1);
+    let data2 = buffered2.into_iter().chain(data2);
 
     grid1.populate_pbc(data1, 0..vdw1.len(), pbox, pbc_dims);
     grid2.populate_pbc(data2, 0..vdw2.len(), pbox, pbc_dims);
@@ -863,15 +958,17 @@ where
         .map(|pair| {
             let mut found = Vec::new();
             search_cell_pair_double_vdw_pbc(&grid1, &grid2, pair, vdw1, vdw2, pbox, &mut found);
-            search_cell_pair_double_vdw_pbc(
-                &grid1,
-                &grid2,
-                (pair.1, pair.0, pair.2),
-                vdw1,
-                vdw2,
-                pbox,
-                &mut found,
-            );
+            if pair.0 != pair.1 {
+                search_cell_pair_double_vdw_pbc(
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    vdw1,
+                    vdw2,
+                    pbox,
+                    &mut found,
+                );
+            }
             found
         })
         .flatten()
@@ -921,7 +1018,7 @@ where
 /// * `data` - Iterator providing positions for points
 /// * `ids` - Iterator providing indices for points
 /// * `pbox` - Periodic box definition
-/// * `pbc_dims` - Which dimensions should use periodic boundaries
+/// * `pbc_dims` - Enabled box vectors; other directions use the bounds of the data
 ///
 /// # Returns
 /// Collection of matched elements as specified by type parameters T and C
@@ -937,7 +1034,15 @@ where
     T: DistanceSearchOutput + Send + Sync,
     C: FromIterator<T> + FromParallelIterator<T>,
 {
-    let mut grid = Grid::from_cutoff_and_box(cutoff, pbox);
+    let mut data = data;
+    let buffered: Vec<_> = if pbc_dims != PBC_FULL {
+        data.by_ref().collect()
+    } else {
+        Vec::new()
+    };
+    let mut grid = Grid::from_cutoff_and_box(cutoff, pbox, pbc_dims);
+    grid.fit_nonperiodic(cutoff, pbox, pbc_dims, buffered.iter().copied());
+    let data = buffered.into_iter().chain(data);
     grid.populate_pbc(data, ids, pbox, pbc_dims);
     // At this point grid is self-referencial. We pin it on the stack
     // to ensure that we don't move or mutate it until it is dorpped.
@@ -975,5 +1080,147 @@ mod tests {
         let sel = src.select_bound("within 2.0 pbc yyy of (resindex 16894 and name OW)")?;
         sel.save("../target/pbc_sel.pdb")?;
         Ok(())
+    }
+
+    #[test]
+    fn triclinic_grid_finds_pair_across_two_old_bins() {
+        let b =
+            PeriodicBox::from_matrix(Matrix3f::new(10., 4., 0., 0., 10., 0., 0., 0., 10.)).unwrap();
+        let points = [Pos::new(2.7, 5., 5.), Pos::new(3.5, 5., 5.)];
+        let pairs: Vec<(usize, usize)> =
+            super::distance_search_single_pbc(1., points.iter(), 0..2, &b, PBC_FULL);
+        assert_eq!(pairs.len(), 1);
+        assert!(pairs[0] == (0, 1) || pairs[0] == (1, 0));
+    }
+
+    #[test]
+    fn periodic_grids_match_direct_search_all_masks_and_cutoffs() {
+        use std::collections::BTreeSet;
+        let matrices = [
+            Matrix3f::new(10., 4., -4., 0., 10., 2., 0., 0., 10.),
+            Matrix3f::new(10., 0., -2., 0., 10., 0., 0., 0., 1.),
+            Matrix3f::from_diagonal(&Vector3f::new(3., 4., 5.)),
+        ];
+        let mut seed = 317_u64;
+        for m in matrices {
+            let b = PeriodicBox::from_matrix(m).unwrap();
+            let mut points: Vec<_> = (0..36)
+                .map(|_| {
+                    Pos::from(
+                        m * Vector3f::from_fn(|_, _| {
+                            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                            ((seed >> 32) as u32 as Float / u32::MAX as Float - 0.5) * 3.0
+                        }),
+                    )
+                })
+                .collect();
+            // Boundary points, plus points far outside nonperiodic faces.
+            points.extend([
+                Pos::origin(),
+                Pos::from(m.column(0).into_owned()),
+                Pos::from(m * Vector3f::new(-1.01, 0.49, 4.0)),
+                Pos::from(m * Vector3f::new(0.01, 0.51, 4.0)),
+            ]);
+            for mask in 0..8 {
+                let pbc = PbcDims::new(mask & 1 != 0, mask & 2 != 0, mask & 4 != 0);
+                for cutoff in [0.7, 2.6, 12.0] {
+                    let mut expected = BTreeSet::new();
+                    for i in 0..points.len() {
+                        for j in i + 1..points.len() {
+                            if b.distance_squared(&points[i], &points[j], pbc) <= cutoff * cutoff {
+                                expected.insert((i, j));
+                            }
+                        }
+                    }
+                    let got: Vec<(usize, usize)> = super::distance_search_single_pbc(
+                        cutoff,
+                        points.iter(),
+                        0..points.len(),
+                        &b,
+                        pbc,
+                    );
+                    let unique: BTreeSet<_> =
+                        got.iter().map(|&(i, j)| (i.min(j), i.max(j))).collect();
+                    assert_eq!(
+                        got.len(),
+                        unique.len(),
+                        "duplicate single pairs, mask {mask}, cutoff {cutoff}"
+                    );
+                    assert_eq!(
+                        unique, expected,
+                        "single mask {mask}, cutoff {cutoff}, box {m:?}"
+                    );
+
+                    let n = points.len() / 2;
+                    let expected: BTreeSet<_> = expected
+                        .into_iter()
+                        .filter(|&(i, j)| i < n && j >= n)
+                        .collect();
+                    let got: Vec<(usize, usize)> = super::distance_search_double_pbc(
+                        cutoff,
+                        points[..n].iter(),
+                        points[n..].iter(),
+                        0..n,
+                        n..points.len(),
+                        &b,
+                        pbc,
+                    );
+                    assert_eq!(
+                        got.len(),
+                        expected.len(),
+                        "double count mask {mask}, cutoff {cutoff}"
+                    );
+                    assert_eq!(got.into_iter().collect::<BTreeSet<_>>(), expected);
+
+                    let radii = vec![cutoff * 0.5; n];
+                    let got: Vec<(usize, usize)> = super::distance_search_double_vdw_pbc(
+                        points[..n].iter(),
+                        points[n..].iter(),
+                        &radii,
+                        &radii,
+                        &b,
+                        pbc,
+                    );
+                    assert_eq!(
+                        got.len(),
+                        expected.len(),
+                        "vdw count mask {mask}, cutoff {cutoff}"
+                    );
+                    assert_eq!(
+                        got.into_iter()
+                            .map(|(i, j)| (i, j + n))
+                            .collect::<BTreeSet<_>>(),
+                        expected
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn within_partial_pbc_keeps_points_outside_nonperiodic_faces() {
+        let b =
+            PeriodicBox::from_matrix(Matrix3f::new(10., 4., 0., 0., 10., 0., 0., 0., 10.)).unwrap();
+        let pbc = PbcDims::new(true, true, false);
+        let points = [Pos::new(-0.1, 0., 100.), Pos::new(10.1, 0., 100.)];
+        let mut grid1 = super::Grid::from_cutoff_and_box(0.5, &b, pbc);
+        let mut grid2 = super::Grid::from_cutoff_and_box(0.5, &b, pbc);
+        grid1.populate_pbc(points[..1].iter(), 0..1, &b, pbc);
+        grid2.populate_pbc(points[1..].iter(), 1..2, &b, pbc);
+        let mut found = Vec::new();
+        for pair in super::search_plan(&grid1, Some(&grid2), pbc) {
+            super::search_cell_pair_within_pbc(0.25, &grid1, &grid2, pair, &b, &mut found);
+            if pair.0 != pair.1 {
+                super::search_cell_pair_within_pbc(
+                    0.25,
+                    &grid1,
+                    &grid2,
+                    (pair.1, pair.0, pair.2),
+                    &b,
+                    &mut found,
+                );
+            }
+        }
+        assert_eq!(found, vec![0]);
     }
 }
