@@ -301,4 +301,3 @@ fn xtc_to_ff_err(e: XtcHandlerError) -> FileFormatError {
     }
     FileFormatError::from(e)
 }
-

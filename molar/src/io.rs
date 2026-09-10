@@ -35,6 +35,7 @@ impl Seek for DynSource {
 }
 
 mod dcd_handler;
+mod cif_handler;
 mod gro_handler;
 mod itp_handler;
 mod netcdf_handler;
@@ -50,6 +51,7 @@ mod cpt_handler;
 mod tpr_handler;
 
 use dcd_handler::DcdFileHandler;
+use cif_handler::CifFileHandler;
 use gro_handler::GroFileHandler;
 use itp_handler::ItpFileHandler;
 use netcdf_handler::NetCdfFileHandler;
@@ -66,6 +68,7 @@ use tpr_handler::TprFileHandler;
 // The per-format error types are part of `FileFormatError`'s public variants,
 // so they must be publicly reachable (otherwise the now-`pub` enum trips E0446).
 pub use dcd_handler::DcdHandlerError;
+pub use cif_handler::CifHandlerError;
 pub use gro_handler::GroHandlerError;
 pub use itp_handler::ItpHandlerError;
 pub use netcdf_handler::NetCdfHandlerError;
@@ -321,6 +324,7 @@ impl FileHandler {
     ///
     /// Supported formats:
     /// - pdb,ent: Protein Data Bank structure format
+    /// - cif,mmcif: PDBx/mmCIF structure format
     /// - dcd: DCD trajectory format
     /// - xyz: XYZ format
     /// - xtc: GROMACS compressed trajectory format
@@ -339,6 +343,9 @@ impl FileHandler {
         let format_handler: Box<dyn FileFormatHandler> = match ext {
             "pdb" | "ent" => Box::new(
                 PdbFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "cif" | "mmcif" => Box::new(
+                CifFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xyz" => Box::new(
                 XyzFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -388,7 +395,7 @@ impl FileHandler {
     /// reader over a `Blob`; reading then uses the same synchronous API as
     /// [`open`](Self::open).
     ///
-    /// Supported formats: pdb/ent, gro, xyz, dcd, trr, xtc (the pure-Rust
+    /// Supported formats: pdb/ent, cif/mmcif, gro, xyz, dcd, trr, xtc (the pure-Rust
     /// readers). tpr/cpt (GROMACS C plugin) and netcdf are path/native only.
     ///
     /// # Errors
@@ -406,6 +413,7 @@ impl FileHandler {
         }
         let format_handler: Box<dyn FileFormatHandler> = match ext {
             "pdb" | "ent" => h!(PdbFileHandler),
+            "cif" | "mmcif" => h!(CifFileHandler),
             "gro" => h!(GroFileHandler),
             "xyz" => h!(XyzFileHandler),
             "sdf" | "sd" | "mol" => h!(SdfFileHandler),
@@ -425,6 +433,7 @@ impl FileHandler {
     ///
     /// Supported formats:
     /// - pdb: Protein Data Bank structure format
+    /// - cif,mmcif: PDBx/mmCIF structure format
     /// - dcd: DCD trajectory format
     /// - xyz: XYZ format
     /// - xtc: GROMACS compressed trajectory format
@@ -441,6 +450,9 @@ impl FileHandler {
         let format_handler: Box<dyn FileFormatHandler> = match ext {
             "pdb" | "ent" => Box::new(
                 PdbFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "cif" | "mmcif" => Box::new(
+                CifFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xyz" => Box::new(
                 XyzFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -481,6 +493,7 @@ impl FileHandler {
     ///
     /// Only works for formats that contain both topology and coordinates in a single file:
     /// - pdb
+    /// - cif, mmcif
     /// - gro
     /// - tpr
     ///
@@ -507,6 +520,7 @@ impl FileHandler {
     ///
     /// Only works for formats that can write both topology and coordinates:
     /// - pdb
+    /// - cif, mmcif
     /// - gro
     ///
     /// # Errors
@@ -528,6 +542,7 @@ impl FileHandler {
     ///
     /// Works for formats containing topology information:
     /// - pdb
+    /// - cif, mmcif
     /// - gro
     /// - tpr
     /// - itp
@@ -858,6 +873,10 @@ pub enum FileFormatError {
     /// PDB format handler error
     #[error("in pdb format handler")]
     Pdb(#[from] PdbHandlerError),
+
+    /// PDBx/mmCIF format handler error
+    #[error("in cif format handler")]
+    Cif(#[from] CifHandlerError),
 
     #[error("in sdf/mol format handler")]
     Sdf(#[from] SdfHandlerError),

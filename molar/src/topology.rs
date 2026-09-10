@@ -4,7 +4,7 @@ use thiserror::Error;
 /// Topology of the molecular system: atoms, bonds, molecules, etc.
 ///
 /// [Topology] is typically read from structure of trajectory file and is not intended
-/// to be manipulated directly by the user. Insead [State](super::State) and [Topology]
+/// to be manipulated directly by the user. Instead [State](super::State) and [Topology]
 /// are used to create atom selections, which give an access to the properties of
 /// individual atoms and allow to query various properties.
 
