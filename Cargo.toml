@@ -29,6 +29,7 @@ description = "Molar is a rust library for analysis of MD trajectories and molec
 # stays on 0.34, producing two incompatible nalgebra types. Bump this in lockstep
 # with numpy's nalgebra support.
 nalgebra = "0.34"
+matrixmultiply = "0.3.10"
 peg = "0.8.5"
 regex = "1.12.2"
 thiserror = "2.0.17"

@@ -1,43 +1,327 @@
-//! espaloma-charge partial charges via a bundled ONNX graph network (feature `espaloma`).
+//! Espaloma-charge partial charges from a fixed graph neural network.
 //!
-//! The GNN maps per-atom features `[n, 116]` + a row-mean-normalised bond adjacency
-//! `[n, n]` to per-atom electronegativity `e` and hardness `s`; a closed-form charge
-//! equilibration then yields partial charges summing to zero over the molecule.
+//! The source model is an ONNX file, but production inference does not use a general
+//! ONNX run time. The model contains only matrix multiplication, addition, `tanh`,
+//! `ReLU`, and two output-column selections. Its reviewed weights are extracted to a
+//! fixed binary file by `tools/extract_espaloma_weights.py`. See `assets/README.md` for
+//! the file format and update procedure.
+//!
+//! ## Large-system behavior
+//!
+//! The GNN maps per-atom features `[n, 116]` to a hidden state `[n, 128]`. Each of
+//! four message layers combines a self transform with the mean hidden state of bonded
+//! neighbors. Neighbor aggregation uses [`BondAdjacency`] directly. It does not create
+//! the mathematically equivalent dense `[n, n]` adjacency matrix. Thus, graph work is
+//! `O(E * 128)` and graph memory is `O(n + E)`, where `E` is the bond count.
+//!
+//! Dense transforms use the SIMD kernels in `matrixmultiply`. Native builds divide
+//! sufficiently large row sets into independent Rayon tasks. Each task keeps only one
+//! bounded neighbor-work block. The two full hidden buffers are `O(n * 128)`. Small
+//! molecules use one task to avoid scheduling and packing overhead.
 
-use std::io::Cursor;
+use matrixmultiply::sgemm;
+use molar::prelude::BondAdjacency;
 use std::sync::LazyLock;
-use tract_onnx::prelude::*;
 
-/// The bundled espaloma-charge model (bias-free, opset 18), exported from v0.0.8.
-const MODEL: &[u8] = include_bytes!("../assets/espaloma_charge.onnx");
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
 
-/// The runnable model, built once (keeps the atom count `N` symbolic so it runs on any molecule).
-static PLAN: LazyLock<TypedRunnableModel<TypedModel>> = LazyLock::new(|| {
-    tract_onnx::onnx()
-        .model_for_read(&mut Cursor::new(MODEL))
-        .expect("read espaloma onnx")
-        .into_optimized()
-        .expect("optimize")
-        .into_runnable()
-        .expect("runnable")
-});
+const FEATURE_WIDTH: usize = 116;
+const HIDDEN_WIDTH: usize = 128;
+const OUTPUT_WIDTH: usize = 2;
+const MESSAGE_LAYERS: usize = 4;
 
-/// Run the GNN. `features` is row-major `[n, 116]`, `adj_mean` is row-major `[n, n]`
-/// (`1/deg_i` for bonded pairs, no self-loop). Returns `(e, s)` per atom.
-pub(crate) fn run_gnn(features: &[f32], adj_mean: &[f32], n: usize) -> TractResult<(Vec<f32>, Vec<f32>)> {
-    let f = Tensor::from_shape(&[n, 116], features)?;
-    let a = Tensor::from_shape(&[n, n], adj_mean)?;
-    let out = PLAN.run(tvec!(f.into(), a.into()))?;
-    let e = out[0].to_array_view::<f32>()?.iter().copied().collect();
-    let s = out[1].to_array_view::<f32>()?.iter().copied().collect();
-    Ok((e, s))
+/// A row block gives each matrix kernel enough work for effective SIMD packing. It also
+/// bounds temporary neighbor storage to 256 KiB per active task.
+const ROW_BLOCK: usize = 512;
+/// Below this size, one matrix call is faster than Rayon task scheduling.
+#[cfg(not(target_arch = "wasm32"))]
+const PARALLEL_ROWS: usize = ROW_BLOCK * 2;
+
+const INPUT_WEIGHT_START: usize = 0;
+const INPUT_WEIGHT_LEN: usize = FEATURE_WIDTH * HIDDEN_WIDTH;
+const INPUT_BIAS_START: usize = INPUT_WEIGHT_START + INPUT_WEIGHT_LEN;
+const INPUT_BIAS_LEN: usize = HIDDEN_WIDTH;
+const LAYER_WEIGHT_START: usize = INPUT_BIAS_START + INPUT_BIAS_LEN;
+const LAYER_WEIGHT_LEN: usize = HIDDEN_WIDTH * HIDDEN_WIDTH;
+const OUTPUT_WEIGHT_START: usize = LAYER_WEIGHT_START + 2 * MESSAGE_LAYERS * LAYER_WEIGHT_LEN;
+const OUTPUT_WEIGHT_LEN: usize = HIDDEN_WIDTH * OUTPUT_WIDTH;
+const OUTPUT_BIAS_START: usize = OUTPUT_WEIGHT_START + OUTPUT_WEIGHT_LEN;
+const OUTPUT_BIAS_LEN: usize = OUTPUT_WIDTH;
+const WEIGHT_COUNT: usize = OUTPUT_BIAS_START + OUTPUT_BIAS_LEN;
+const WEIGHT_MAGIC: &[u8; 8] = b"ESPCHG01";
+const WEIGHT_BYTES: &[u8] = include_bytes!("../assets/espaloma_charge.weights");
+
+/// Parsed fixed-model weights. Parsing copies the unaligned embedded bytes once. All
+/// inference calls then use aligned native `f32` values without byte conversion.
+struct Weights(Box<[f32]>);
+
+impl Weights {
+    fn load() -> Self {
+        assert_eq!(
+            &WEIGHT_BYTES[..WEIGHT_MAGIC.len()],
+            WEIGHT_MAGIC,
+            "invalid espaloma weight-file marker"
+        );
+        let bytes = &WEIGHT_BYTES[WEIGHT_MAGIC.len()..];
+        assert_eq!(
+            bytes.len(),
+            WEIGHT_COUNT * 4,
+            "invalid espaloma weight-file size"
+        );
+        let values = bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self(values)
+    }
+
+    #[inline]
+    fn input_weight(&self) -> &[f32] {
+        &self.0[INPUT_WEIGHT_START..INPUT_BIAS_START]
+    }
+
+    #[inline]
+    fn input_bias(&self) -> &[f32] {
+        &self.0[INPUT_BIAS_START..LAYER_WEIGHT_START]
+    }
+
+    #[inline]
+    fn self_weight(&self, layer: usize) -> &[f32] {
+        let start = LAYER_WEIGHT_START + 2 * layer * LAYER_WEIGHT_LEN;
+        &self.0[start..start + LAYER_WEIGHT_LEN]
+    }
+
+    #[inline]
+    fn neighbor_weight(&self, layer: usize) -> &[f32] {
+        let start = LAYER_WEIGHT_START + (2 * layer + 1) * LAYER_WEIGHT_LEN;
+        &self.0[start..start + LAYER_WEIGHT_LEN]
+    }
+
+    #[inline]
+    fn output_weight(&self) -> &[f32] {
+        &self.0[OUTPUT_WEIGHT_START..OUTPUT_BIAS_START]
+    }
+
+    #[inline]
+    fn output_bias(&self) -> &[f32] {
+        &self.0[OUTPUT_BIAS_START..]
+    }
+}
+
+static WEIGHTS: LazyLock<Weights> = LazyLock::new(Weights::load);
+
+/// Compute `C = A * B + beta * C` for row-major matrices.
+///
+/// `A` is `[rows, inner]`, `B` is `[inner, cols]`, and `C` is `[rows, cols]`.
+fn matmul_into(
+    a: &[f32],
+    rows: usize,
+    inner: usize,
+    b: &[f32],
+    cols: usize,
+    beta: f32,
+    c: &mut [f32],
+) {
+    assert_eq!(a.len(), rows * inner, "invalid left matrix extent");
+    assert_eq!(b.len(), inner * cols, "invalid right matrix extent");
+    assert_eq!(c.len(), rows * cols, "invalid output matrix extent");
+    // SAFETY: The assertions above prove all three matrix extents. The row-major
+    // strides address each element in those slices exactly once. `a`, `b`, and `c`
+    // are separate borrows, so the output cannot alias either input. A zero-sized
+    // matrix is handled before the call because the kernel requires valid pointers.
+    if rows != 0 && inner != 0 && cols != 0 {
+        unsafe {
+            sgemm(
+                rows,
+                inner,
+                cols,
+                1.0,
+                a.as_ptr(),
+                inner as isize,
+                1,
+                b.as_ptr(),
+                cols as isize,
+                1,
+                beta,
+                c.as_mut_ptr(),
+                cols as isize,
+                1,
+            );
+        }
+    }
+}
+
+/// Apply `work` to disjoint row blocks. Large native inputs use Rayon; small and
+/// wasm inputs use the same block operation serially.
+fn row_blocks<F>(output: &mut [f32], row_width: usize, rows: usize, work: F)
+where
+    F: Fn(usize, &mut [f32]) + Send + Sync,
+{
+    debug_assert_eq!(output.len(), rows * row_width);
+    let block_len = ROW_BLOCK * row_width;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if rows >= PARALLEL_ROWS {
+        output
+            .par_chunks_mut(block_len)
+            .enumerate()
+            .for_each(|(block, out)| work(block * ROW_BLOCK, out));
+        return;
+    }
+
+    for (block, out) in output.chunks_mut(block_len).enumerate() {
+        work(block * ROW_BLOCK, out);
+    }
+}
+
+fn input_layer(features: &[f32], n: usize, weights: &Weights) -> Vec<f32> {
+    let mut hidden = vec![0.0; n * HIDDEN_WIDTH];
+    row_blocks(&mut hidden, HIDDEN_WIDTH, n, |start, out| {
+        let rows = out.len() / HIDDEN_WIDTH;
+        let input = &features[start * FEATURE_WIDTH..(start + rows) * FEATURE_WIDTH];
+        matmul_into(
+            input,
+            rows,
+            FEATURE_WIDTH,
+            weights.input_weight(),
+            HIDDEN_WIDTH,
+            0.0,
+            out,
+        );
+        for row in out.chunks_exact_mut(HIDDEN_WIDTH) {
+            for (value, bias) in row.iter_mut().zip(weights.input_bias()) {
+                *value = (*value + bias).tanh();
+            }
+        }
+    });
+    hidden
+}
+
+/// Compute one message layer. The temporary neighbor matrix is one row block, not
+/// `[n, 128]`. Peak full-size inference storage is therefore two hidden matrices.
+fn message_layer(
+    hidden: &[f32],
+    n: usize,
+    adjacency: &BondAdjacency,
+    self_weight: &[f32],
+    neighbor_weight: &[f32],
+) -> Vec<f32> {
+    let mut next = vec![0.0; n * HIDDEN_WIDTH];
+    row_blocks(&mut next, HIDDEN_WIDTH, n, |start, out| {
+        let rows = out.len() / HIDDEN_WIDTH;
+        let mut neighbor_mean = vec![0.0; out.len()];
+        for (local, mean) in neighbor_mean.chunks_exact_mut(HIDDEN_WIDTH).enumerate() {
+            let neighbors = adjacency.neighbors(start + local);
+            if neighbors.is_empty() {
+                continue;
+            }
+            for neighbor in neighbors {
+                let source =
+                    &hidden[neighbor.atom() * HIDDEN_WIDTH..(neighbor.atom() + 1) * HIDDEN_WIDTH];
+                for (sum, value) in mean.iter_mut().zip(source) {
+                    *sum += value;
+                }
+            }
+            let inverse_degree = 1.0 / neighbors.len() as f32;
+            for value in mean {
+                *value *= inverse_degree;
+            }
+        }
+
+        let own = &hidden[start * HIDDEN_WIDTH..(start + rows) * HIDDEN_WIDTH];
+        matmul_into(own, rows, HIDDEN_WIDTH, self_weight, HIDDEN_WIDTH, 0.0, out);
+        matmul_into(
+            &neighbor_mean,
+            rows,
+            HIDDEN_WIDTH,
+            neighbor_weight,
+            HIDDEN_WIDTH,
+            1.0,
+            out,
+        );
+        for value in out {
+            *value = value.max(0.0);
+        }
+    });
+    next
+}
+
+/// Run the fixed GNN. `features` is row-major `[n, 116]`. `adjacency` contains
+/// the undirected molecular bonds and supplies the row-mean neighbor operation.
+/// Returns `(electronegativity, hardness)` with one value per atom.
+pub(crate) fn run_gnn(
+    features: Vec<f32>,
+    adjacency: &BondAdjacency,
+    n: usize,
+) -> Result<(Vec<f32>, Vec<f32>), &'static str> {
+    let expected = n
+        .checked_mul(FEATURE_WIDTH)
+        .ok_or("espaloma input is too large")?;
+    n.checked_mul(HIDDEN_WIDTH)
+        .ok_or("espaloma input is too large")?;
+    n.checked_mul(OUTPUT_WIDTH)
+        .ok_or("espaloma input is too large")?;
+    if features.len() != expected {
+        return Err("espaloma feature matrix has an invalid size");
+    }
+
+    let weights = &*WEIGHTS;
+    let mut hidden = input_layer(&features, n, weights);
+    // Release the 116-column feature matrix before the larger message-layer work.
+    drop(features);
+    for layer in 0..MESSAGE_LAYERS {
+        hidden = message_layer(
+            &hidden,
+            n,
+            adjacency,
+            weights.self_weight(layer),
+            weights.neighbor_weight(layer),
+        );
+    }
+
+    let mut output = vec![0.0; n * OUTPUT_WIDTH];
+    row_blocks(&mut output, OUTPUT_WIDTH, n, |start, out| {
+        let rows = out.len() / OUTPUT_WIDTH;
+        let input = &hidden[start * HIDDEN_WIDTH..(start + rows) * HIDDEN_WIDTH];
+        matmul_into(
+            input,
+            rows,
+            HIDDEN_WIDTH,
+            weights.output_weight(),
+            OUTPUT_WIDTH,
+            0.0,
+            out,
+        );
+        for row in out.chunks_exact_mut(OUTPUT_WIDTH) {
+            row[0] += weights.output_bias()[0];
+            row[1] += weights.output_bias()[1];
+        }
+    });
+
+    let mut electronegativity = Vec::with_capacity(n);
+    let mut hardness = Vec::with_capacity(n);
+    for row in output.chunks_exact(OUTPUT_WIDTH) {
+        electronegativity.push(row[0]);
+        hardness.push(row[1]);
+    }
+    Ok((electronegativity, hardness))
 }
 
 /// Standard atomic weight for the elements espaloma supports (matches RDKit `GetMass`).
 fn mass_by_z(z: u8) -> f32 {
     match z {
-        1 => 1.008, 6 => 12.011, 7 => 14.007, 8 => 15.999, 9 => 18.998,
-        15 => 30.974, 16 => 32.06, 17 => 35.45, 35 => 79.904, 53 => 126.904,
+        1 => 1.008,
+        6 => 12.011,
+        7 => 14.007,
+        8 => 15.999,
+        9 => 18.998,
+        15 => 30.974,
+        16 => 32.06,
+        17 => 35.45,
+        35 => 79.904,
+        53 => 126.904,
         _ => 0.0,
     }
 }
@@ -46,7 +330,14 @@ fn mass_by_z(z: u8) -> f32 {
 /// for hydrogen (RDKit reports S/unspecified). `neighbor_conj` = does any neighbour carry a
 /// multiple bond or is aromatic — a lone pair adjacent to such a π system conjugates into it,
 /// so RDKit reports the atom as SP2 (amide N, ester/conjugated O) rather than SP3.
-fn hybridization(z: u8, degree: usize, n_double: u32, n_triple: u32, aromatic: bool, neighbor_conj: bool) -> Option<usize> {
+fn hybridization(
+    z: u8,
+    degree: usize,
+    n_double: u32,
+    n_triple: u32,
+    aromatic: bool,
+    neighbor_conj: bool,
+) -> Option<usize> {
     if z == 1 {
         return None;
     }
@@ -79,7 +370,16 @@ fn hybridization(z: u8, degree: usize, n_double: u32, n_triple: u32, aromatic: b
 /// Outer-shell (valence) electron count for the elements espaloma supports.
 fn n_outer_elec(z: u8) -> i32 {
     match z {
-        1 => 1, 6 => 4, 7 => 5, 8 => 6, 9 => 7, 15 => 5, 16 => 6, 17 => 7, 35 => 7, 53 => 7,
+        1 => 1,
+        6 => 4,
+        7 => 5,
+        8 => 6,
+        9 => 7,
+        15 => 5,
+        16 => 6,
+        17 => 7,
+        35 => 7,
+        53 => 7,
         _ => 0,
     }
 }
@@ -90,8 +390,17 @@ fn n_outer_elec(z: u8) -> i32 {
 /// quinone-methide, thioxanthene ylidene) disrupts the ring and breaks aromaticity.
 fn electronegativity(z: u8) -> f32 {
     match z {
-        1 => 2.20, 6 => 2.55, 7 => 3.04, 8 => 3.44, 9 => 3.98, 15 => 2.19, 16 => 2.58,
-        17 => 3.16, 35 => 2.96, 53 => 2.66, _ => 0.0,
+        1 => 2.20,
+        6 => 2.55,
+        7 => 3.04,
+        8 => 3.44,
+        9 => 3.98,
+        15 => 2.19,
+        16 => 2.58,
+        17 => 3.16,
+        35 => 2.96,
+        53 => 2.66,
+        _ => 0.0,
     }
 }
 
@@ -106,7 +415,12 @@ fn electronegativity(z: u8) -> f32 {
 /// methylene) donates 0 (its π sits outside the ring); otherwise `avail = n_outer − fc − σ`
 /// leaves an odd count (one p electron → 1) or an even count (a lone pair → 2), with `avail ≤ 0`
 /// (carbocation, quaternary N⁺) donating 0.
-fn aromatic_atoms(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond], rings: &[Vec<usize>]) -> Vec<bool> {
+fn aromatic_atoms(
+    z: &[u8],
+    fc: &[i32],
+    bonds: &[crate::gaff::LocalBond],
+    rings: &[Vec<usize>],
+) -> Vec<bool> {
     let n = z.len();
     let mut inc: Vec<Vec<(usize, u8)>> = vec![Vec::new(); n];
     for b in bonds {
@@ -145,7 +459,13 @@ fn aromatic_atoms(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond], rings:
                 return Some(0);
             }
             let avail = n_outer_elec(z[a]) - fc[a] - sigma;
-            Some(if avail <= 0 { 0 } else if avail % 2 == 1 { 1 } else { 2 })
+            Some(if avail <= 0 {
+                0
+            } else if avail % 2 == 1 {
+                1
+            } else {
+                2
+            })
         })
         .collect();
     let huckel = |atoms: &[usize]| -> bool {
@@ -195,7 +515,10 @@ fn aromatic_atoms(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond], rings:
         Default::default();
     for i in 0..rings.len() {
         let root = find(&mut parent, i);
-        systems.entry(root).or_default().extend(rings[i].iter().copied());
+        systems
+            .entry(root)
+            .or_default()
+            .extend(rings[i].iter().copied());
     }
     for atoms in systems.values() {
         let atoms: Vec<usize> = atoms.iter().copied().collect();
@@ -208,9 +531,13 @@ fn aromatic_atoms(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond], rings:
     arom
 }
 
-/// Build the 116-dim atom feature matrix (row-major `[n,116]`) and the row-mean-normalised
-/// adjacency (`[n,n]`) that the espaloma GNN consumes.
-pub(crate) fn featurize(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) -> (Vec<f32>, Vec<f32>) {
+/// Build the 116-column atom feature matrix and the sparse bond adjacency that
+/// the Espaloma GNN consumes.
+pub(crate) fn featurize(
+    z: &[u8],
+    fc: &[i32],
+    bonds: &[crate::gaff::LocalBond],
+) -> (Vec<f32>, BondAdjacency) {
     let n = z.len();
     // One bonded-adjacency index over the local subgraph, shared by the ring search and the
     // neighbour walks below. Replaces a `build_con` call plus a full `Vec<Bond>` copy that
@@ -270,20 +597,7 @@ pub(crate) fn featurize(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) 
             feat[o + 111 + h] = 1.0;
         }
     }
-    let mut adj = vec![0f32; n * n];
-    for b in bonds {
-        adj[b.i * n + b.j] = 1.0;
-        adj[b.j * n + b.i] = 1.0;
-    }
-    for i in 0..n {
-        let deg: f32 = adj[i * n..(i + 1) * n].iter().sum();
-        if deg > 0.0 {
-            for x in &mut adj[i * n..(i + 1) * n] {
-                *x /= deg;
-            }
-        }
-    }
-    (feat, adj)
+    (feat, bond_adj)
 }
 
 /// Featurize and run the GNN, returning the raw per-atom electronegativity/hardness
@@ -292,9 +606,9 @@ pub(crate) fn espaloma_e_s(
     z: &[u8],
     fc: &[i32],
     bonds: &[crate::gaff::LocalBond],
-) -> TractResult<(Vec<f32>, Vec<f32>)> {
-    let (feat, adj) = featurize(z, fc, bonds);
-    run_gnn(&feat, &adj, z.len())
+) -> Result<(Vec<f32>, Vec<f32>), &'static str> {
+    let (features, adjacency) = featurize(z, fc, bonds);
+    run_gnn(features, &adjacency, z.len())
 }
 
 /// End-to-end: atomic numbers + formal charges + local bonds → espaloma partial charges.
@@ -302,7 +616,11 @@ pub(crate) fn espaloma_e_s(
 /// The charges are equilibrated to sum to the molecule's **total formal charge**
 /// `Σ_i fc_i`, matching upstream espaloma-charge (which takes `Q = Chem.GetFormalCharge(mol)`
 /// when no explicit total is supplied). A cation therefore sums to +1, not 0.
-pub(crate) fn espaloma_charges(z: &[u8], fc: &[i32], bonds: &[crate::gaff::LocalBond]) -> TractResult<Vec<f32>> {
+pub(crate) fn espaloma_charges(
+    z: &[u8],
+    fc: &[i32],
+    bonds: &[crate::gaff::LocalBond],
+) -> Result<Vec<f32>, &'static str> {
     let (e, s) = espaloma_e_s(z, fc, bonds)?;
     Ok(equilibrate(&e, &s, fc.iter().sum::<i32>() as f32))
 }
@@ -332,35 +650,61 @@ mod tests {
         v.as_array()
             .unwrap()
             .iter()
-            .flat_map(|row| row.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32))
+            .flat_map(|row| {
+                row.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_f64().unwrap() as f32)
+            })
             .collect()
     }
     fn col_f32(v: &serde_json::Value) -> Vec<f32> {
-        v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_f64().unwrap() as f32)
+            .collect()
     }
 
-    /// tract must reproduce the Python reference (e, s, charges) for the fixture molecule.
+    /// The fixed kernel must reproduce the Python reference for the fixture molecule.
     #[test]
-    fn tract_matches_python_fixture() {
+    fn fixed_kernel_matches_python_fixture() {
         let txt = std::fs::read_to_string("tests/data/espaloma_fixture.json").unwrap();
         let v: serde_json::Value = serde_json::from_str(&txt).unwrap();
         let n = v["n"].as_u64().unwrap() as usize;
         let feats = rows_f32(&v["features"]);
-        let adj = rows_f32(&v["adjacency_mean"]);
+        let dense_adj = rows_f32(&v["adjacency_mean"]);
         let exp_e = col_f32(&v["e"]);
         let exp_q = col_f32(&v["charges"]);
 
-        let (e, s) = run_gnn(&feats, &adj, n).expect("tract run");
-        let de = e.iter().zip(&exp_e).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let adjacency = BondAdjacency::build(
+            n,
+            (0..n).flat_map(|i| {
+                let adj = &dense_adj;
+                ((i + 1)..n)
+                    .filter(move |&j| adj[i * n + j] != 0.0)
+                    .map(move |j| [i, j])
+            }),
+        );
+        let (e, s) = run_gnn(feats, &adjacency, n).expect("fixed-kernel run");
+        let de = e
+            .iter()
+            .zip(&exp_e)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
         // The fixture molecule is neutral, so the reference charges are the `Q = 0` solution.
         let q = equilibrate(&e, &s, 0.0);
-        let dq = q.iter().zip(&exp_q).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-        println!("tract vs python fixture: max|Δe|={de:.2e}  max|Δq|={dq:.2e}");
+        let dq = q
+            .iter()
+            .zip(&exp_q)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        println!("fixed kernel vs Python fixture: max|Δe|={de:.2e}  max|Δq|={dq:.2e}");
         assert!(de < 1e-4, "electronegativity mismatch: {de}");
         assert!(dq < 1e-4, "charge mismatch: {dq}");
     }
 
-    /// End-to-end: Rust featurization + tract vs the Python espaloma reference over the corpus.
+    /// End-to-end: Rust featurization and inference against the Python reference corpus.
     /// The reference (`references_espaloma.json`) covers only molecules with fully explicit
     /// hydrogens — molar deliberately performs no implicit-H perception, so under-hydrogenated
     /// inputs (where RDKit would silently add H) are excluded from the benchmark by construction.
@@ -390,7 +734,10 @@ mod tests {
                 }
             };
             let z: Vec<u8> = sys.iter_atoms().map(|a| a.get_atomic_number()).collect();
-            let fc: Vec<i32> = sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).collect();
+            let fc: Vec<i32> = sys
+                .iter_atoms()
+                .map(|a| a.get_formal_charge().unwrap_or(0))
+                .collect();
             let mut bonds = Vec::new();
             for b in sys.iter_bonds() {
                 let order = match b.order() {
@@ -398,7 +745,11 @@ mod tests {
                     BondOrder::Triple => 3,
                     _ => 1,
                 };
-                bonds.push(crate::gaff::LocalBond { i: b.i1(), j: b.i2(), order });
+                bonds.push(crate::gaff::LocalBond {
+                    i: b.i1(),
+                    j: b.i2(),
+                    order,
+                });
             }
             // `references_espaloma.json` was generated with the total charge pinned at 0 for
             // every molecule: 274 of the 595 SDFs carry `M CHG` records (mostly protonated
@@ -422,7 +773,9 @@ mod tests {
             }
         }
         let rmse = (se / nat as f64).sqrt();
-        println!("espaloma Rust vs reference: RMSE={rmse:.4}e  max|Δq|={maxd:.4}e  worst={worst}  atoms={nat}  load_err={load_err}");
+        println!(
+            "espaloma Rust vs reference: RMSE={rmse:.4}e  max|Δq|={maxd:.4}e  worst={worst}  atoms={nat}  load_err={load_err}"
+        );
         assert_eq!(load_err, 0);
         // The featurization reproduces RDKit exactly over this corpus, so the charges match the
         // Python espaloma reference to float precision (residual is f32 rounding, ~2e-4).
@@ -459,8 +812,10 @@ mod tests {
             .find_map(|m| {
                 let sys =
                     System::from_file(format!("tests/data/gaff_ref/sdf/{}.sdf", m.name)).ok()?;
-                let q_total: i32 =
-                    sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).sum();
+                let q_total: i32 = sys
+                    .iter_atoms()
+                    .map(|a| a.get_formal_charge().unwrap_or(0))
+                    .sum();
                 (q_total == 0).then_some((m, sys))
             })
             .expect("corpus must contain a neutral molecule");
@@ -468,10 +823,20 @@ mod tests {
         sys.apply_charges(ChargeModel::Espaloma).unwrap();
 
         let got: Vec<f32> = sys.iter_atoms().map(|a| a.get_charge() as f32).collect();
-        let maxd = got.iter().zip(&mol.charges).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let maxd = got
+            .iter()
+            .zip(&mol.charges)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
         let sum: f32 = got.iter().sum();
-        println!("apply_charges({}): max|Δ|={maxd:.2e}  Σq={sum:.2e}", mol.name);
-        assert!(maxd < 1e-3, "apply_charges disagrees with reference: {maxd}");
+        println!(
+            "apply_charges({}): max|Δ|={maxd:.2e}  Σq={sum:.2e}",
+            mol.name
+        );
+        assert!(
+            maxd < 1e-3,
+            "apply_charges disagrees with reference: {maxd}"
+        );
         assert!(sum.abs() < 1e-3, "charges should sum to ~0: {sum}");
     }
 
@@ -491,7 +856,10 @@ mod tests {
                 Ok(s) => s,
                 Err(_) => continue,
             };
-            let q_total: i32 = sys.iter_atoms().map(|a| a.get_formal_charge().unwrap_or(0)).sum();
+            let q_total: i32 = sys
+                .iter_atoms()
+                .map(|a| a.get_formal_charge().unwrap_or(0))
+                .sum();
             sys.apply_charges(ChargeModel::Espaloma).unwrap();
             let sum: f32 = sys.iter_atoms().map(|a| a.get_charge() as f32).sum();
             let d = (sum - q_total as f32).abs();
@@ -509,8 +877,14 @@ mod tests {
             "Σq vs Σfc: {n_charged} charged + {n_neutral} neutral molecules, \
              max|Σq − Q|={worst:.2e}  worst={worst_name}"
         );
-        assert!(n_charged > 0, "corpus must contain charged molecules to exercise this path");
-        assert!(worst < 1e-3, "total charge not preserved: max deviation {worst} ({worst_name})");
+        assert!(
+            n_charged > 0,
+            "corpus must contain charged molecules to exercise this path"
+        );
+        assert!(
+            worst < 1e-3,
+            "total charge not preserved: max deviation {worst} ({worst_name})"
+        );
     }
 
     /// Aromatic input is kekulized rather than rejected. Before this, an SDF order-4 record — or
@@ -529,8 +903,12 @@ mod tests {
         let mut worst_name = String::new();
         for m in load_refs().iter().take(80) {
             let path = format!("tests/data/gaff_ref/sdf/{}.sdf", m.name);
-            let Ok(mut kek) = System::from_file(&path) else { continue };
-            let Ok(mut arom) = System::from_file(&path) else { continue };
+            let Ok(mut kek) = System::from_file(&path) else {
+                continue;
+            };
+            let Ok(mut arom) = System::from_file(&path) else {
+                continue;
+            };
 
             // Only molecules that actually have an aromatic ring exercise the new path.
             arom.perceive();
@@ -553,9 +931,17 @@ mod tests {
             }
             checked += 1;
         }
-        println!("aromatic vs Kekulé charges over {checked} molecules: max|Δ|={worst:.2e} ({worst_name})");
-        assert!(checked > 10, "corpus should supply aromatic molecules to check");
-        assert!(worst < 1e-3, "aromatic path disagrees with Kekulé: {worst} ({worst_name})");
+        println!(
+            "aromatic vs Kekulé charges over {checked} molecules: max|Δ|={worst:.2e} ({worst_name})"
+        );
+        assert!(
+            checked > 10,
+            "corpus should supply aromatic molecules to check"
+        );
+        assert!(
+            worst < 1e-3,
+            "aromatic path disagrees with Kekulé: {worst} ({worst_name})"
+        );
     }
 
     /// The equilibration is affine in the total charge: `q(Q) = q(0) + Q·(1/s_i)/Σ(1/s_j)`.
@@ -581,5 +967,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Opt-in throughput and stability check for an unusually large sparse molecule.
+    ///
+    /// This test is ignored because elapsed time depends on the machine. Run it in release
+    /// mode as documented in `assets/README.md`. The synthetic graph is a 20,000-atom chain.
+    /// It selects the parallel path and verifies that inference does not need a dense
+    /// adjacency matrix.
+    #[test]
+    #[ignore = "large release-mode performance check"]
+    fn large_sparse_inference_smoke() {
+        use std::time::Instant;
+
+        const N: usize = 20_000;
+        let features = vec![0.0; N * FEATURE_WIDTH];
+        let adjacency = BondAdjacency::build(N, (1..N).map(|i| [i - 1, i]));
+        let start = Instant::now();
+        let (e, s) = run_gnn(features, &adjacency, N).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(e.len(), N);
+        assert_eq!(s.len(), N);
+        assert!(e.iter().chain(&s).all(|value| value.is_finite()));
+        eprintln!("20,000-atom sparse Espaloma inference: {elapsed:.3?}");
     }
 }

@@ -17,7 +17,13 @@ exclude = ["tests/data/gaff_ref"]
 [dependencies]
 molar = { version = "2.2.0", path = "../molar" }
 thiserror.workspace = true
-tract-onnx = { version = "0.21", optional = true }
+matrixmultiply.workspace = true
+
+# Native inference divides independent atom-row blocks between Rayon workers. The
+# WASM target uses the same SIMD matrix kernel on one thread because ordinary
+# wasm32-unknown-unknown builds do not have shared-memory threads.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon.workspace = true
 
 [dev-dependencies]
 serde = { workspace = true }
@@ -26,5 +32,7 @@ serde_json = "1.0"
 [features]
 # Forward to molar to build in double precision.
 f64 = ["molar/f64"]
-# espaloma-charge partial charges via a bundled ONNX GNN (pulls in tract).
-espaloma = ["dep:tract-onnx"]
+# Compatibility name for clients that selected the old optional implementation.
+# Espaloma is now always present; this empty feature can be removed in a future
+# major release after downstream manifests stop naming it.
+espaloma = []

@@ -28,7 +28,6 @@ use molar::prelude::*;
 
 mod gaff;
 
-#[cfg(feature = "espaloma")]
 pub mod charge;
 
 /// The force field whose atom types should be assigned.
@@ -136,12 +135,11 @@ fn bond_order_code(o: BondOrder) -> Option<u8> {
 }
 
 /// The partial-charge model used by [`ApplyCharges::apply_charges`].
-#[cfg(feature = "espaloma")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChargeModel {
-    /// espaloma-charge GNN (a bundled ONNX). Charges are equilibrated to sum to the **total
-    /// formal charge** of the atoms in scope (espaloma's whole-graph convention — it does not
-    /// split by fragment), so a cation sums to +1 and an anion to −1.
+    /// Espaloma-charge GNN. Charges are equilibrated to sum to the **total formal charge**
+    /// of the atoms in scope (Espaloma's whole-graph convention does not split by fragment),
+    /// so a cation sums to +1 and an anion to −1.
     ///
     /// Featurized from a Kekulé structure; aromatic-order bonds in scope are kekulized on the
     /// way in (see [`kekulize`]), so the resonance form used is arbitrary but valid.
@@ -149,7 +147,6 @@ pub enum ChargeModel {
 }
 
 /// Errors returned by [`ApplyCharges::apply_charges`].
-#[cfg(feature = "espaloma")]
 #[derive(Debug, thiserror::Error)]
 pub enum ChargeError {
     /// A bond in scope has no order at all. Charge prediction needs real bond orders, so an
@@ -175,7 +172,7 @@ pub enum ChargeError {
     #[error("element Z={0} is not supported by the {1:?} charge model")]
     UnsupportedElement(u8, ChargeModel),
 
-    /// The underlying model failed to run.
+    /// The fixed model received inconsistent internal input dimensions.
     #[error("charge model inference failed: {0}")]
     Inference(String),
 }
@@ -203,12 +200,10 @@ pub enum ChargeError {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "espaloma")]
 pub trait ApplyCharges {
     fn apply_charges(&mut self, model: ChargeModel) -> Result<(), ChargeError>;
 }
 
-#[cfg(feature = "espaloma")]
 impl<T: AtomMutProvider + BondProvider> ApplyCharges for T {
     fn apply_charges(&mut self, model: ChargeModel) -> Result<(), ChargeError> {
         match model {
