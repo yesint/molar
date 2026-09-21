@@ -53,7 +53,7 @@ cd molar_python && maturin build -r && python -m pip install .
 
 ## Architecture
 
-MolAR is a Cargo workspace (**Rust edition 2024**, MSRV 1.85) with these crates:
+MolAR is a Cargo workspace (**Rust edition 2024**, MSRV 1.96) with these crates:
 
 | Crate | Purpose |
 |---|---|
