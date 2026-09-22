@@ -27,6 +27,7 @@ pub(super) fn functional_group_orders(z: &[u8], adj: &BondAdjacency) -> Vec<Opti
                 azide(a, z, adj, &mut orders);
             }
             6 => carboxyl(a, z, adj, &mut orders),
+            16 => sulfoxide(a, z, adj, &mut orders),
             _ => {}
         }
     }
@@ -92,6 +93,26 @@ fn azide(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder
         for nb in neighbors {
             claim(orders, nb.bond(), BondOrder::Double);
         }
+    }
+}
+
+/// A sulfoxide/sulfinyl sulfur: three neighbors, exactly one a terminal oxygen (the other two
+/// carbon or the like). Pin the S-O bond single, giving the charge-separated S+-O- form the
+/// reference structures use for a sulfoxide (as opposed to a sulfone, whose four-coordinate
+/// sulfur keeps its S=O double bonds). The valence model then makes the sulfur +1 and the
+/// oxygen -1.
+fn sulfoxide(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder>]) {
+    if degree(adj, a) != 3 {
+        return;
+    }
+    let terminal_o: Vec<usize> = adj
+        .neighbors(a)
+        .iter()
+        .filter(|nb| z[nb.atom()] == 8 && degree(adj, nb.atom()) == 1)
+        .map(|nb| nb.bond())
+        .collect();
+    if terminal_o.len() == 1 {
+        claim(orders, terminal_o[0], BondOrder::Single);
     }
 }
 
@@ -178,6 +199,28 @@ mod tests {
         let adj = adjacency(5, &bonds);
         let o = functional_group_orders(&z, &adj);
         assert_eq!(o[3], Some(BondOrder::Single), "N-O of the oxide is single");
+    }
+
+    #[test]
+    fn sulfoxide_bond_is_pinned_single() {
+        // (C0)(C1)S2-O3: a dialkyl sulfoxide. The S-O bond is single (S+, O-).
+        let z = [6u8, 6, 16, 8];
+        let bonds = [[0, 2], [1, 2], [2, 3]];
+        let adj = adjacency(4, &bonds);
+        let o = functional_group_orders(&z, &adj);
+        assert_eq!(o[2], Some(BondOrder::Single), "S-O of the sulfoxide is single");
+    }
+
+    #[test]
+    fn sulfone_sulfur_is_not_a_sulfoxide() {
+        // (C0)(C1)S2(-O3)(-O4): a sulfone (four-coordinate S) must NOT be pinned by the
+        // sulfoxide rule; its S=O double bonds are left to the general search.
+        let z = [6u8, 6, 16, 8, 8];
+        let bonds = [[0, 2], [1, 2], [2, 3], [2, 4]];
+        let adj = adjacency(5, &bonds);
+        let o = functional_group_orders(&z, &adj);
+        assert_eq!(o[2], None);
+        assert_eq!(o[3], None);
     }
 
     #[test]

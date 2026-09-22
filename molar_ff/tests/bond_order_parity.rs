@@ -338,14 +338,11 @@ fn solve_pair(name: &str) -> (Topology, Topology) {
 /// solver assigns differently, to guide the later functional-group work (plan step 5).
 #[test]
 fn bond_order_failure_diff() {
-    const FAILING: &[&str] = &[
-        "Omeprazole",
-        "Lansoprazole",
-        "Pantoprazole",
-        "Mesoridazine",
-        "Zidovudine",
-        "Bremazocine",
-    ];
+    // Remaining corpus non-matches are corrupt/incomplete reference data (Bremazocine,
+    // BleomycinA2, transportan3, Dimethylarsinic_acid have chemically invalid truth structures)
+    // or an unusual reference tautomer (Vinblastine ylide, Famotidine_Nicam3 S+ vs N+), not
+    // solver defects. This list drives their diagnostics.
+    const FAILING: &[&str] = &["Vinblastine", "Famotidine_Nicam3"];
     // multiset difference a \ b
     fn diff(
         a: &[(u8, Vec<u8>, i32)],
