@@ -354,14 +354,18 @@ pub fn assign_bond_orders(
     let mut rem_min = vec![0i32; n];
     let mut rem_max = vec![0i32; n];
     let mut assigned_sum = vec![0i32; n];
+    // Per-bond order cap the search uses, narrowed per fragment by propagation. Fragments are
+    // bond-disjoint, so one shared array is safe.
+    let mut dom_max_eff = dom_max.clone();
 
     for c in 0..n_comp {
         if comp_bonds[c].is_empty() {
             continue; // an isolated atom: leave its order/charge unchanged
         }
-        let atoms = &comp_atoms[c];
+        let comp_at = &comp_atoms[c];
 
-        let mut vars: Vec<usize> = Vec::new();
+        // Fixed input bonds contribute to the base sum; the rest start as free.
+        let mut free_bonds: Vec<usize> = Vec::new();
         for &b in &comp_bonds[c] {
             let [i, j] = pairs[b];
             match fixed[b] {
@@ -369,114 +373,199 @@ pub fn assign_bond_orders(
                     base[i] += o as i32;
                     base[j] += o as i32;
                 }
-                None => {
-                    let dm = dom_max[b] as i32;
-                    vars.push(b);
-                    rem_min[i] += 1;
-                    rem_max[i] += dm;
-                    rem_min[j] += 1;
-                    rem_max[j] += dm;
+                None => free_bonds.push(b),
+            }
+        }
+
+        // Propagate valence bounds to fix the forced bonds and narrow the rest before searching.
+        let Some((dmin, dmax_p)) =
+            propagate_domains(&free_bonds, &pairs, &z, &base, &dom_max, infer)
+        else {
+            return Err(BondPerceptionError::NoValidAssignment { atom: comp_at[0] });
+        };
+        let mut all_vars: Vec<usize> = Vec::new();
+        let mut prop_fixed: Vec<(usize, u8)> = Vec::new();
+        for (p, &b) in free_bonds.iter().enumerate() {
+            let [i, j] = pairs[b];
+            if dmax_p[p] == dmin[p] {
+                // Only one order is possible: treat it as fixed.
+                base[i] += dmax_p[p] as i32;
+                base[j] += dmax_p[p] as i32;
+                prop_fixed.push((b, dmax_p[p]));
+            } else {
+                dom_max_eff[b] = dmax_p[p];
+                all_vars.push(b);
+            }
+        }
+
+        // A whole-molecule charge target couples the free bonds, so when one is set they are
+        // solved together — still small after propagation, so still fast on the drug-sized
+        // molecules where a target is used. Without a target the free bonds are split into
+        // independent clusters (typically one per aromatic ring) that share no atoms, and each
+        // is solved on its own atoms; this is what keeps a whole protein tractable.
+        let active: std::collections::HashSet<usize> =
+            all_vars.iter().flat_map(|&b| pairs[b]).collect();
+        let constrained = bonded_comp_count == 1 && options.total_charge.is_some();
+        let clusters = if constrained {
+            if all_vars.is_empty() {
+                Vec::new()
+            } else {
+                vec![all_vars.clone()]
+            }
+        } else {
+            cluster_free_bonds(&all_vars, &pairs)
+        };
+        let single_cluster = constrained;
+
+        // Atoms with no free bond have a determined valence: resolve them directly.
+        let mut comp_charge = 0i32;
+        for &a in comp_at {
+            if active.contains(&a) {
+                continue;
+            }
+            match fixed_atom_state(z[a], base[a], infer) {
+                FixedState::Wildcard => {}
+                FixedState::Infeasible => {
+                    return Err(BondPerceptionError::NoValidAssignment { atom: a });
+                }
+                FixedState::Feasible { fc, implicit_h } => {
+                    comp_charge += fc;
+                    if fc != input_fc[a] {
+                        formal_charges[a] = Some(fc);
+                    }
+                    implicit_hydrogens[a] = implicit_h;
                 }
             }
         }
-        // Order the free bonds by a connected walk so that each atom's incident bonds are
-        // decided together. An atom whose bonds are all assigned has a fixed valence, which the
-        // feasibility bound then checks immediately — this keeps the search near-linear on
-        // sparse molecules instead of scattering decisions and pruning only at the leaves.
-        vars = connected_order(atoms, &vars, &pairs);
+        let fixed_charge = comp_charge;
 
-        let target = if bonded_comp_count == 1 {
-            options.total_charge
-        } else {
-            None
+        let mut solved_orders: Vec<(usize, u8)> = Vec::new();
+        let mut ambiguous_any = false;
+        let mut truncated_any = false;
+        for cluster in &clusters {
+            let mut cl_atoms: Vec<usize> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for &b in cluster {
+                for a in pairs[b] {
+                    if seen.insert(a) {
+                        cl_atoms.push(a);
+                    }
+                }
+            }
+            cl_atoms.sort_unstable();
+            for &b in cluster {
+                let [i, j] = pairs[b];
+                let dm = dom_max_eff[b] as i32;
+                rem_min[i] += 1;
+                rem_max[i] += dm;
+                rem_min[j] += 1;
+                rem_max[j] += dm;
+            }
+            let cl_vars = connected_order(&cl_atoms, cluster, &pairs);
+            // A whole-molecule charge target can be honored only when a single cluster carries
+            // the remaining freedom; otherwise each cluster's charge follows from its own atoms.
+            let target = if single_cluster {
+                options.total_charge.map(|t| t - fixed_charge)
+            } else {
+                None
+            };
+            let mut search = Search {
+                pairs: &pairs,
+                z: &z,
+                dom_max: &dom_max_eff,
+                bond_in_ring: &bond_in_ring,
+                infer,
+                vars: &cl_vars,
+                atoms: &cl_atoms,
+                base: &base,
+                rem_min: &mut rem_min,
+                rem_max: &mut rem_max,
+                assigned_sum: &mut assigned_sum,
+                order_out: vec![0u8; cl_vars.len()],
+                total_charge: target,
+                max_branches: options.limits.max_branches,
+                branches: 0,
+                best_cost: None,
+                best_orders: Vec::new(),
+                best_fc: Vec::new(),
+                best_ih: Vec::new(),
+                ambiguous: false,
+                truncated: false,
+            };
+            search.run(0);
+            let best_cost = search.best_cost;
+            let best_orders = search.best_orders.clone();
+            let best_fc = search.best_fc.clone();
+            let best_ih = search.best_ih.clone();
+            ambiguous_any |= search.ambiguous;
+            truncated_any |= search.truncated;
+            let truncated = search.truncated;
+            drop(search);
+
+            for &a in &cl_atoms {
+                rem_min[a] = 0;
+                rem_max[a] = 0;
+                assigned_sum[a] = 0;
+            }
+
+            if best_cost.is_none() {
+                let atom = cl_atoms[0];
+                return Err(if truncated {
+                    BondPerceptionError::SearchLimitExceeded { atom }
+                } else {
+                    BondPerceptionError::NoValidAssignment { atom }
+                });
+            }
+            for (pos, &b) in cl_vars.iter().enumerate() {
+                solved_orders.push((b, best_orders[pos]));
+            }
+            for &(a, fc) in &best_fc {
+                comp_charge += fc;
+                if fc != input_fc[a] {
+                    formal_charges[a] = Some(fc);
+                }
+            }
+            for &(a, h) in &best_ih {
+                implicit_hydrogens[a] = h;
+            }
+        }
+
+        // Write out every bond whose solved order differs from the input (`None` = unchanged):
+        // the searched bonds, the bonds propagation fixed, and the originally-fixed bonds.
+        let mut emit = |b: usize, order: u8| {
+            let solved = int_to_order(order);
+            if solved != input_orders[b] {
+                bond_orders[b] = Some(solved);
+            }
         };
+        for &(b, order) in &solved_orders {
+            emit(b, order);
+        }
+        for &(b, order) in &prop_fixed {
+            emit(b, order);
+        }
+        for &b in &comp_bonds[c] {
+            if let Some(o) = fixed[b] {
+                emit(b, o);
+            }
+        }
 
-        let mut search = Search {
-            pairs: &pairs,
-            z: &z,
-            dom_max: &dom_max,
-            bond_in_ring: &bond_in_ring,
-            infer,
-            vars: &vars,
-            atoms,
-            base: &base,
-            rem_min: &mut rem_min,
-            rem_max: &mut rem_max,
-            assigned_sum: &mut assigned_sum,
-            order_out: vec![0u8; vars.len()],
-            total_charge: target,
-            max_branches: options.limits.max_branches,
-            branches: 0,
-            best_cost: None,
-            best_orders: Vec::new(),
-            best_fc: Vec::new(),
-            best_ih: Vec::new(),
-            ambiguous: false,
-            truncated: false,
-        };
-        search.run(0);
+        if ambiguous_any {
+            warnings.push(PerceptionWarning::AmbiguousAssignment);
+        }
+        if options.total_charge.is_none() && comp_charge != 0 {
+            warnings.push(PerceptionWarning::ChargeWasNotConstrained);
+        }
+        if truncated_any {
+            warnings.push(PerceptionWarning::SearchTruncated);
+        }
 
-        let best_cost = search.best_cost;
-        let best_orders = search.best_orders.clone();
-        let best_fc = search.best_fc.clone();
-        let best_ih = search.best_ih.clone();
-        let ambiguous = search.ambiguous;
-        let truncated = search.truncated;
-        drop(search);
-
-        // Restore the scratch this fragment touched (the search left the counters at their
-        // pre-search values; zero them for the next fragment).
-        for &a in atoms {
+        // Restore the scratch this fragment touched.
+        for &a in comp_at {
             base[a] = 0;
             rem_min[a] = 0;
             rem_max[a] = 0;
             assigned_sum[a] = 0;
-        }
-
-        let Some(_) = best_cost else {
-            let atom = atoms[0];
-            return Err(if truncated {
-                BondPerceptionError::SearchLimitExceeded { atom }
-            } else {
-                BondPerceptionError::NoValidAssignment { atom }
-            });
-        };
-
-        // Write out every bond whose solved order differs from the input (`None` = unchanged).
-        for (pos, &b) in vars.iter().enumerate() {
-            let solved = int_to_order(best_orders[pos]);
-            if solved != input_orders[b] {
-                bond_orders[b] = Some(solved);
-            }
-        }
-        for &b in &comp_bonds[c] {
-            if let Some(o) = fixed[b] {
-                let solved = int_to_order(o);
-                if solved != input_orders[b] {
-                    bond_orders[b] = Some(solved);
-                }
-            }
-        }
-
-        let mut comp_charge = 0i32;
-        for &(a, fc) in &best_fc {
-            comp_charge += fc;
-            if fc != input_fc[a] {
-                formal_charges[a] = Some(fc);
-            }
-        }
-        for &(a, h) in &best_ih {
-            implicit_hydrogens[a] = h;
-        }
-
-        if ambiguous {
-            warnings.push(PerceptionWarning::AmbiguousAssignment);
-        }
-        if target.is_none() && comp_charge != 0 {
-            warnings.push(PerceptionWarning::ChargeWasNotConstrained);
-        }
-        if truncated {
-            warnings.push(PerceptionWarning::SearchTruncated);
         }
     }
 
@@ -532,6 +621,167 @@ fn connected_order(atoms: &[usize], vars: &[usize], pairs: &[[usize; 2]]) -> Vec
 /// opposed to a Kekulé structure with one double per atom). Large so it dominates the state
 /// penalties, but applied only when inferring hydrogens (see [`Search::record_leaf`]).
 const RING_CUMULENE_PENALTY: u32 = 100;
+
+/// Bounds-consistency propagation over a fragment's free bonds. Given the fixed-bond
+/// contribution per atom (`base`) and each free bond's order cap (`dom_cap`, indexed by global
+/// bond), it repeatedly tightens each free bond's `[min, max]` order range from the valence its
+/// two endpoints can still reach, to a fixpoint.
+///
+/// This is what makes a large fragment (a whole protein, one connected piece once connectivity
+/// is perceived) tractable: a valence-saturated atom — a backbone or aliphatic carbon carrying
+/// its hydrogens — forces every incident bond to single, and that propagates, so only genuinely
+/// free clusters (aromatic rings) are left for the search.
+///
+/// Returns the per-free-bond `(min, max)` order ranges (parallel to `free_bonds`), or `None` if
+/// some atom has no reachable valence state (the fragment cannot be solved).
+fn propagate_domains(
+    free_bonds: &[usize],
+    pairs: &[[usize; 2]],
+    z: &[u8],
+    base: &[i32],
+    dom_cap: &[u8],
+    infer: bool,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    use std::collections::HashMap;
+    let mut dmin = vec![1u8; free_bonds.len()];
+    let mut dmax: Vec<u8> = free_bonds.iter().map(|&b| dom_cap[b]).collect();
+    let mut incident: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (p, &b) in free_bonds.iter().enumerate() {
+        let [i, j] = pairs[b];
+        incident.entry(i).or_default().push(p);
+        incident.entry(j).or_default().push(p);
+    }
+
+    loop {
+        let mut changed = false;
+        for (&a, positions) in &incident {
+            let Some(states) = valence_states(z[a]) else {
+                continue; // unmodeled element: no valence constraint
+            };
+            let lo = base[a] + positions.iter().map(|&p| dmin[p] as i32).sum::<i32>();
+            let hi = base[a] + positions.iter().map(|&p| dmax[p] as i32).sum::<i32>();
+            let mut vmin = i32::MAX;
+            let mut vmax = i32::MIN;
+            for st in states {
+                let v = st.valence as i32;
+                let fits = if infer { v >= lo } else { v >= lo && v <= hi };
+                if fits {
+                    vmin = vmin.min(v);
+                    vmax = vmax.max(v);
+                }
+            }
+            if vmax == i32::MIN {
+                return None; // no reachable valence state
+            }
+            // Inferring hydrogens only bounds the sum from above (hydrogen fills any shortfall),
+            // and the sum can never exceed `hi`.
+            let vmax = if infer { vmax.min(hi) } else { vmax };
+            for &p in positions {
+                // Raising this bond alone (others at their minimum) must keep the sum <= vmax.
+                let new_max = (dmin[p] as i32 + (vmax - lo)).clamp(dmin[p] as i32, dmax[p] as i32);
+                if (new_max as u8) < dmax[p] {
+                    dmax[p] = new_max as u8;
+                    changed = true;
+                }
+                // With explicit hydrogen the sum must also reach vmin, so lowering this bond
+                // alone (others at their maximum) is bounded from below.
+                if !infer {
+                    let new_min =
+                        (dmax[p] as i32 - (hi - vmin)).clamp(dmin[p] as i32, dmax[p] as i32);
+                    if (new_min as u8) > dmin[p] {
+                        dmin[p] = new_min as u8;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    Some((dmin, dmax))
+}
+
+/// Group the free bonds into connected clusters — maximal sets that share atoms. Distinct
+/// clusters have no atom in common, so each is an independent bond-order sub-problem. Bonds are
+/// returned in a deterministic order (clusters seeded by ascending position in `vars`).
+fn cluster_free_bonds(vars: &[usize], pairs: &[[usize; 2]]) -> Vec<Vec<usize>> {
+    use std::collections::{HashMap, VecDeque};
+    let mut incident: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (p, &b) in vars.iter().enumerate() {
+        let [i, j] = pairs[b];
+        incident.entry(i).or_default().push(p);
+        incident.entry(j).or_default().push(p);
+    }
+    let mut cluster_of = vec![usize::MAX; vars.len()];
+    let mut clusters: Vec<Vec<usize>> = Vec::new();
+    for start in 0..vars.len() {
+        if cluster_of[start] != usize::MAX {
+            continue;
+        }
+        let id = clusters.len();
+        cluster_of[start] = id;
+        let mut members = Vec::new();
+        let mut queue = VecDeque::from([start]);
+        while let Some(p) = queue.pop_front() {
+            members.push(vars[p]);
+            for a in pairs[vars[p]] {
+                for &q in &incident[&a] {
+                    if cluster_of[q] == usize::MAX {
+                        cluster_of[q] = id;
+                        queue.push_back(q);
+                    }
+                }
+            }
+        }
+        clusters.push(members);
+    }
+    clusters
+}
+
+/// The resolution of an atom whose incident bonds are all determined (`bosum` known).
+enum FixedState {
+    /// An element the tables do not model: leave its charge unchanged, add no hydrogen.
+    Wildcard,
+    /// No valence state matches the determined bond-order sum.
+    Infeasible,
+    /// A formal charge and implicit-hydrogen count.
+    Feasible { fc: i32, implicit_h: u8 },
+}
+
+/// Resolve an atom whose bond-order sum is fixed at `bosum`: pick its minimum-penalty valence
+/// state (smallest valence, charge nearest neutral on a tie) and read off the charge and the
+/// implicit-hydrogen shortfall. Mirrors [`Search::record_leaf`] for the single-atom case.
+fn fixed_atom_state(z: u8, bosum: i32, infer: bool) -> FixedState {
+    let Some(states) = valence_states(z) else {
+        return FixedState::Wildcard;
+    };
+    let fits = |v: i32| if infer { v >= bosum } else { v == bosum };
+    let Some(min_pen) = states
+        .iter()
+        .filter(|s| fits(s.valence as i32))
+        .map(|s| s.penalty)
+        .min()
+    else {
+        return FixedState::Infeasible;
+    };
+    let valence = states
+        .iter()
+        .filter(|s| fits(s.valence as i32) && s.penalty == min_pen)
+        .map(|s| s.valence as i32)
+        .min()
+        .unwrap();
+    let fc = states
+        .iter()
+        .filter(|s| s.valence as i32 == valence && s.penalty == min_pen)
+        .map(|s| s.formal_charge)
+        .min_by_key(|c| c.unsigned_abs())
+        .unwrap();
+    FixedState::Feasible {
+        fc,
+        implicit_h: (valence - bosum) as u8,
+    }
+}
 
 /// The result of [`Search::bound`]: a penalty lower bound and two net-charge ranges (see there).
 struct Bound {

@@ -8,6 +8,35 @@
 use molar::prelude::*;
 
 #[test]
+fn whole_protein_perceived_from_coordinates() {
+    // A real protein with explicit hydrogens but no bond records: perceive connectivity, then
+    // bond orders. Propagation collapses the ~2000-heavy-atom fragment so the search stays small.
+    let mut sys = System::from_file("tests/protein.pdb").expect("load protein.pdb");
+    sys.perceive_connectivity(&ConnectivityOptions::default())
+        .expect("connectivity");
+
+    let assignment = sys
+        .assign_bond_orders(&BondOrderOptions::default())
+        .expect("bond-order perception on the whole protein");
+
+    let mut solved = sys.topology().clone();
+    assignment.apply_to(&mut solved).unwrap();
+
+    // Every backbone carbonyl (an intra-residue "C"-"O" bond) must be double.
+    let mut carbonyls = 0usize;
+    for b in solved.bonds.iter() {
+        let [i, j] = b.pair();
+        let (ai, aj) = (solved.atoms.get(i).unwrap(), solved.atoms.get(j).unwrap());
+        let names = [ai.get_name(), aj.get_name()];
+        if ai.get_resindex() == aj.get_resindex() && names.contains(&"C") && names.contains(&"O") {
+            carbonyls += 1;
+            assert_eq!(b.order(), BondOrder::Double, "backbone C=O");
+        }
+    }
+    assert!(carbonyls > 100, "expected many backbone carbonyls, found {carbonyls}");
+}
+
+#[test]
 fn diglycine_backbone_perceived_with_residue_templates() {
     // Two glycine residues, heavy atoms only: N-CA-C(=O)-N-CA-C(=O).
     let names = ["N", "CA", "C", "O", "N", "CA", "C", "O"];

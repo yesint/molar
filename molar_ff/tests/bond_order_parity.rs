@@ -339,11 +339,12 @@ fn solve_pair(name: &str) -> (Topology, Topology) {
 #[test]
 fn bond_order_failure_diff() {
     const FAILING: &[&str] = &[
-        "Vinblastine",
         "Omeprazole",
+        "Lansoprazole",
+        "Pantoprazole",
+        "Mesoridazine",
         "Zidovudine",
         "Bremazocine",
-        "transportan3",
     ];
     // multiset difference a \ b
     fn diff(
