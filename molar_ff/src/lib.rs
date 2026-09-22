@@ -19,16 +19,21 @@
 //!
 //! # Input requirement
 //! Molecules must already carry bond orders (SDF/mol2). Inputs without bond orders
-//! (PDB/GRO) return [`FFError::MissingBondOrders`] — this crate does not perceive bond
-//! orders itself.
+//! (PDB/GRO) return [`FFError::MissingBondOrders`] — [`ApplyFF`] does not perceive bond orders
+//! itself. To type such an input, run the opt-in [`PrepareForFF::prepare_for_ff`] first: it
+//! perceives connectivity, bond orders, charges, and (optionally) hydrogens, then the strict
+//! typing/charging operations apply.
 
 use std::collections::HashMap;
 
 use molar::prelude::*;
 
 mod gaff;
+mod prepare;
 
 pub mod charge;
+
+pub use prepare::{PrepareForFF, PrepareOptions};
 
 /// The force field whose atom types should be assigned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
