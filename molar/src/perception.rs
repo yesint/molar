@@ -20,6 +20,68 @@ use thiserror::Error;
 
 use crate::prelude::*;
 
+mod assignment;
+mod bond_orders;
+mod connectivity_perception;
+mod functional_groups;
+mod hydrogen_addition;
+
+pub use assignment::{BondAssignment, PerceptionWarning};
+pub use bond_orders::{
+    BondOrderOptions, HydrogenPolicy, InputOrders, SearchLimits, assign_bond_orders,
+};
+pub use connectivity_perception::{ConnectivityOptions, perceive_connectivity};
+pub use hydrogen_addition::{HydrogenAddition, HydrogenOptions, plan_hydrogen_addition};
+
+/// Error from connectivity or chemical bond perception.
+#[derive(Debug, Error, PartialEq)]
+pub enum BondPerceptionError {
+    #[error(transparent)]
+    DistanceSearch(#[from] DistanceSearchError),
+    #[error("periodic connectivity perception requires a periodic box")]
+    MissingPeriodicBox,
+    #[error("connectivity perception does not have a covalent radius for atom {atom} (Z={atomic_number})")]
+    UnsupportedElement { atom: usize, atomic_number: u8 },
+    #[error("connectivity tolerance must be finite and nonnegative: {0}")]
+    InvalidTolerance(Float),
+    #[error("minimum bond distance must be finite and nonnegative: {0}")]
+    InvalidMinimumDistance(Float),
+    #[error("bond assignment has {actual} {field} values; expected {expected}")]
+    AssignmentLength {
+        field: &'static str,
+        expected: usize,
+        actual: usize,
+    },
+    #[error("bond assignment was made for {expected} atoms, but the topology has {actual}")]
+    AtomCountChanged { expected: usize, actual: usize },
+    #[error("bond assignment source atom {atom} changed from Z={expected} to Z={actual}")]
+    AtomTableChanged {
+        atom: usize,
+        expected: u8,
+        actual: u8,
+    },
+    #[error("bond assignment source bond {bond} changed from {expected:?} to {actual:?}")]
+    BondTableChanged {
+        bond: usize,
+        expected: Option<[usize; 2]>,
+        actual: Option<[usize; 2]>,
+    },
+    #[error("could not kekulize aromatic input before bond-order perception: {0}")]
+    Kekulization(String),
+    #[error("no valid bond-order assignment for the bonded fragment containing atom {atom}")]
+    NoValidAssignment { atom: usize },
+    #[error("bond-order search for the fragment containing atom {atom} exceeded its branch limit")]
+    SearchLimitExceeded { atom: usize },
+    #[error("a total-charge constraint is only supported for a single bonded fragment")]
+    TotalChargeWithMultipleComponents,
+    #[error("inferring hydrogens from geometry requires atom coordinates")]
+    MissingCoordinates,
+    #[error("coordinate count does not match the atom count")]
+    CoordinateCountMismatch,
+    #[error("cannot add hydrogens: the system has velocities or forces and zero-fill was disabled")]
+    DynamicsPresent,
+}
+
 /// Outcome of [`perceive`]: the SSSR ring list and the net molecular charge. (Bond
 /// aromaticity is recorded in `bond.order`; per-atom flags in the `AtomFlags` column —
 /// see the module docs.)

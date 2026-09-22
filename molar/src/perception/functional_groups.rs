@@ -1,0 +1,191 @@
+//! Functional-group constraints (delivery step 5 of the bond-perception plan).
+//!
+//! The general valence search finds a chemically valid assignment, but for a few groups it can
+//! land on an equivalent resonance form that is not the conventional one (azide is the clearest
+//! case). This pass recognizes such groups and pins their canonical bond orders. The pinned
+//! orders enter [`assign_bond_orders`](super::assign_bond_orders) as fixed bonds; formal charges
+//! then follow from the valence model, so a template only needs to fix **orders**, never
+//! charges.
+//!
+//! Every pattern here uses connectivity that does not depend on explicit hydrogen (terminal
+//! oxygens, a terminal-nitrogen chain), so it is safe under both hydrogen policies. Groups the
+//! general search already assigns canonically (nitrile, amide, aromatic rings) are left to it.
+//! The set is deliberately small and extensible; residue templates (step 6) will build on the
+//! same "fix orders, let charges follow" mechanism.
+
+use crate::prelude::*;
+
+/// Canonical bond orders for the recognized functional groups, indexed by bond. `None` means no
+/// template applies to that bond.
+pub(super) fn functional_group_orders(z: &[u8], adj: &BondAdjacency) -> Vec<Option<BondOrder>> {
+    let mut orders: Vec<Option<BondOrder>> = vec![None; adj.n_bonds()];
+    for a in 0..adj.n_atoms() {
+        match z[a] {
+            7 => {
+                nitro(a, z, adj, &mut orders);
+                n_oxide(a, z, adj, &mut orders);
+                azide(a, z, adj, &mut orders);
+            }
+            6 => carboxyl(a, z, adj, &mut orders),
+            _ => {}
+        }
+    }
+    orders
+}
+
+fn degree(adj: &BondAdjacency, a: usize) -> usize {
+    adj.neighbors(a).len()
+}
+
+/// Claim a bond for a template order. The first template to reach a bond wins; because atoms are
+/// scanned in ascending order the choice is deterministic.
+fn claim(orders: &mut [Option<BondOrder>], bond: usize, o: BondOrder) {
+    if orders[bond].is_none() {
+        orders[bond] = Some(o);
+    }
+}
+
+/// R-NO2: a nitrogen with three neighbors, two of them terminal oxygens. Pin one N=O and one
+/// N-O; the valence model then makes the nitrogen +1 and the single-bonded oxygen -1.
+fn nitro(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder>]) {
+    if degree(adj, a) != 3 {
+        return;
+    }
+    let mut terminal_o: Vec<(usize, usize)> = Vec::new();
+    let mut others = 0;
+    for nb in adj.neighbors(a) {
+        if z[nb.atom()] == 8 && degree(adj, nb.atom()) == 1 {
+            terminal_o.push((nb.atom(), nb.bond()));
+        } else {
+            others += 1;
+        }
+    }
+    if terminal_o.len() == 2 && others == 1 {
+        terminal_o.sort_by_key(|&(atom, _)| atom);
+        claim(orders, terminal_o[0].1, BondOrder::Double);
+        claim(orders, terminal_o[1].1, BondOrder::Single);
+    }
+}
+
+/// R3N+-O-: a nitrogen with four neighbors and a terminal oxygen (an amine oxide, or the
+/// N-oxide of a pyridine). Pin the N-O bond single so the valence model makes the nitrogen +1
+/// and the oxygen -1, rather than a neutral N=O the four-coordinate nitrogen cannot support.
+fn n_oxide(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder>]) {
+    if degree(adj, a) != 4 {
+        return;
+    }
+    for nb in adj.neighbors(a) {
+        if z[nb.atom()] == 8 && degree(adj, nb.atom()) == 1 {
+            claim(orders, nb.bond(), BondOrder::Single);
+        }
+    }
+}
+
+/// R-N=N+=N-: the middle nitrogen of a three-nitrogen chain whose far end is terminal. Pin both
+/// N-N bonds double; the valence model then makes the ends 0 / -1 and the middle +1.
+fn azide(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder>]) {
+    let neighbors = adj.neighbors(a);
+    if neighbors.len() != 2 || !neighbors.iter().all(|nb| z[nb.atom()] == 7) {
+        return;
+    }
+    if neighbors.iter().any(|nb| degree(adj, nb.atom()) == 1) {
+        for nb in neighbors {
+            claim(orders, nb.bond(), BondOrder::Double);
+        }
+    }
+}
+
+/// A carboxyl/carboxylate/ester carbon: bonded to exactly two oxygens, at least one terminal.
+/// Pin the terminal oxygen (lowest index) as the C=O and the other as a single bond; the charge
+/// (carboxylate -1, or neutral for an acid/ester whose second oxygen keeps a substituent or
+/// hydrogen) then follows from the valence model.
+fn carboxyl(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder>]) {
+    let oxygens: Vec<(usize, usize, usize)> = adj
+        .neighbors(a)
+        .iter()
+        .filter(|nb| z[nb.atom()] == 8)
+        .map(|nb| (nb.atom(), nb.bond(), degree(adj, nb.atom())))
+        .collect();
+    // Exactly two oxygens and at least one non-oxygen neighbor (the R group). This excludes
+    // carbon dioxide (O=C=O, two oxygens and nothing else), which is not a carboxyl.
+    if oxygens.len() != 2 || !adj.neighbors(a).iter().any(|nb| z[nb.atom()] != 8) {
+        return;
+    }
+    let mut terminal: Vec<&(usize, usize, usize)> =
+        oxygens.iter().filter(|&&(_, _, d)| d == 1).collect();
+    if terminal.is_empty() {
+        return;
+    }
+    terminal.sort_by_key(|&&(atom, _, _)| atom);
+    let double_bond = terminal[0].1;
+    claim(orders, double_bond, BondOrder::Double);
+    for &(_, bond, _) in &oxygens {
+        if bond != double_bond {
+            claim(orders, bond, BondOrder::Single);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn adjacency(n: usize, bonds: &[[usize; 2]]) -> BondAdjacency {
+        BondAdjacency::build(n, bonds.iter().copied())
+    }
+
+    #[test]
+    fn nitro_group_is_pinned() {
+        // C0-N1(-O2)(-O3): nitromethane's heavy atoms (methyl carbon standing in for R).
+        let z = [6u8, 7, 8, 8];
+        let bonds = [[0, 1], [1, 2], [1, 3]];
+        let adj = adjacency(4, &bonds);
+        let o = functional_group_orders(&z, &adj);
+        assert_eq!(o[0], None, "C-N left to the solver");
+        assert_eq!(o[1], Some(BondOrder::Double), "N=O on the lower-index oxygen");
+        assert_eq!(o[2], Some(BondOrder::Single), "N-O on the other oxygen");
+    }
+
+    #[test]
+    fn azide_chain_is_pinned_double_double() {
+        // C0-N1=N2=N3
+        let z = [6u8, 7, 7, 7];
+        let bonds = [[0, 1], [1, 2], [2, 3]];
+        let adj = adjacency(4, &bonds);
+        let o = functional_group_orders(&z, &adj);
+        assert_eq!(o[0], None, "R-N stays single via the solver");
+        assert_eq!(o[1], Some(BondOrder::Double));
+        assert_eq!(o[2], Some(BondOrder::Double));
+    }
+
+    #[test]
+    fn carboxyl_pins_one_double_one_single() {
+        // C0(-O1)(-O2)-C3, both oxygens terminal (carboxylate).
+        let z = [6u8, 8, 8, 6];
+        let bonds = [[0, 1], [0, 2], [0, 3]];
+        let adj = adjacency(4, &bonds);
+        let o = functional_group_orders(&z, &adj);
+        assert_eq!(o[0], Some(BondOrder::Double), "=O on the lower-index oxygen");
+        assert_eq!(o[1], Some(BondOrder::Single));
+        assert_eq!(o[2], None, "C-C left to the solver");
+    }
+
+    #[test]
+    fn n_oxide_bond_is_pinned_single() {
+        // (C0)(C1)(C2)N3-O4: a tertiary amine oxide. The N-O bond must be single.
+        let z = [6u8, 6, 6, 7, 8];
+        let bonds = [[0, 3], [1, 3], [2, 3], [3, 4]];
+        let adj = adjacency(5, &bonds);
+        let o = functional_group_orders(&z, &adj);
+        assert_eq!(o[3], Some(BondOrder::Single), "N-O of the oxide is single");
+    }
+
+    #[test]
+    fn amine_nitrogen_is_not_mistaken_for_a_group() {
+        // A plain amine N (C-N with two hydrogens) must match nothing.
+        let z = [6u8, 7, 1, 1];
+        let bonds = [[0, 1], [1, 2], [1, 3]];
+        let adj = adjacency(4, &bonds);
+        assert!(functional_group_orders(&z, &adj).iter().all(|o| o.is_none()));
+    }
+}

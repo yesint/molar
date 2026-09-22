@@ -110,6 +110,95 @@ impl System {
         Ok(self.top.set_bonds(bonds)?)
     }
 
+    /// Perceive connectivity from the current elements and coordinates.
+    ///
+    /// This replaces the complete bond table. New bonds have unspecified order.
+    pub fn perceive_connectivity(
+        &mut self,
+        options: &ConnectivityOptions,
+    ) -> Result<usize, BondPerceptionError> {
+        let bonds = crate::perception::perceive_connectivity(&*self, options)?;
+        let count = bonds.len();
+        // The free function returns indices local to its input. `System` has an
+        // identity index, so every endpoint was checked by construction.
+        self.top.bonds = bonds;
+        Ok(count)
+    }
+
+    /// Perceive bond orders and formal charges for the current topology, returning a validated
+    /// [`BondAssignment`]. This does not change the system; apply the result with
+    /// [`System::apply_bond_assignment`].
+    pub fn assign_bond_orders(
+        &self,
+        options: &BondOrderOptions,
+    ) -> Result<BondAssignment, BondPerceptionError> {
+        crate::perception::assign_bond_orders(self.topology(), Some(&self.st.coords), options)
+    }
+
+    /// Apply a bond-order and formal-charge result to this system's topology.
+    pub fn apply_bond_assignment(
+        &mut self,
+        assignment: &BondAssignment,
+    ) -> Result<(), BondPerceptionError> {
+        assignment.apply_to(&mut self.top)
+    }
+
+    /// Add the explicit hydrogens of a [`HydrogenAddition`] plan as one transaction: the new
+    /// atoms, their coordinates, and their bonds are appended together. New atoms go at the end,
+    /// so existing atom indices — and any selection built on them — stay valid. All validation
+    /// happens before the first change, so a rejected plan leaves the system untouched.
+    pub fn add_hydrogens(
+        &mut self,
+        plan: &HydrogenAddition,
+    ) -> Result<(), BondPerceptionError> {
+        let n = self.top.atoms.len();
+        if n != plan.source_atom_count() {
+            return Err(BondPerceptionError::AtomCountChanged {
+                expected: plan.source_atom_count(),
+                actual: n,
+            });
+        }
+        for &parent in plan.parents() {
+            if parent >= n {
+                return Err(BondPerceptionError::NoValidAssignment { atom: parent });
+            }
+        }
+        let has_vel = self.st.has_vel();
+        let has_force = self.st.has_force();
+        if !plan.zero_fill_dynamics() && (has_vel || has_force) {
+            return Err(BondPerceptionError::DynamicsPresent);
+        }
+
+        // Validation passed; append atoms, coordinates, and bonds together.
+        for (i, (&parent, &pos)) in plan.parents().iter().zip(plan.positions()).enumerate() {
+            let src = self.top.atoms.get(parent).unwrap();
+            let hydrogen = Atom::new()
+                .with_atomic_number(1)
+                .with_mass(1.008)
+                .with_name("H")
+                .with_resname(src.get_resname())
+                .with_resid(src.get_resid() as i32)
+                .with_resindex(src.get_resindex())
+                .with_chain(src.get_chain());
+            self.top.atoms.push(&hydrogen);
+            self.st.coords.push(pos);
+            if has_vel {
+                self.st.velocities.push(Vel::zeros());
+            }
+            if has_force {
+                self.st.forces.push(Force::zeros());
+            }
+            self.top.bonds.push(&Bond::with_order(parent, n + i, BondOrder::Single));
+        }
+        // A single molecule range grows to cover the new atoms; leave a multi-molecule table
+        // (only TPR sets one) untouched.
+        if let [range] = self.top.molecules.as_mut_slice() {
+            range[1] = self.top.atoms.len();
+        }
+        self.top.bonds.invalidate_adjacency();
+        Ok(())
+    }
+
     /// Perceive rings + aromaticity, annotating this system's topology in place: sets
     /// `BondOrder::Aromatic` on aromatic-ring bonds and the in-ring/aromatic flag bits on
     /// the atoms (see [`crate::perception`]). Returns the [`Perception`] (SSSR rings + net
