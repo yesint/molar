@@ -25,6 +25,7 @@ mod bond_orders;
 mod connectivity_perception;
 mod functional_groups;
 mod hydrogen_addition;
+mod residue_templates;
 
 pub use assignment::{BondAssignment, PerceptionWarning};
 pub use bond_orders::{

@@ -83,6 +83,9 @@ pub struct BondOrderOptions {
     /// Pin recognized functional groups (nitro, carboxyl, azide, …) to their canonical bond
     /// orders before the search. On by default.
     pub use_functional_groups: bool,
+    /// Pin standard biopolymer residues (amino-acid backbones and side chains) to their
+    /// canonical bond orders before the search. On by default.
+    pub use_residue_templates: bool,
     /// Optional net formal charge of the molecule. Only supported when the molecule is a
     /// single bonded fragment; with more than one fragment it is an error.
     pub total_charge: Option<i32>,
@@ -96,6 +99,7 @@ impl Default for BondOrderOptions {
             input_orders: InputOrders::ReassignAll,
             hydrogens: HydrogenPolicy::AllExplicit,
             use_functional_groups: true,
+            use_residue_templates: true,
             total_charge: None,
             limits: SearchLimits::default(),
         }
@@ -251,13 +255,21 @@ pub fn assign_bond_orders(
         input_orders.clone()
     };
 
-    // Canonical bond orders for recognized functional groups; these take priority over the
-    // input orders and the search.
-    let template = if options.use_functional_groups {
+    // Canonical bond orders pinned before the search: standard residues first (most specific),
+    // then functional groups. These take priority over the input orders and the search.
+    let mut template = if options.use_functional_groups {
         super::functional_groups::functional_group_orders(&z, &adj)
     } else {
         vec![None; m]
     };
+    if options.use_residue_templates {
+        let residue = super::residue_templates::residue_template_orders(top, &pairs);
+        for b in 0..m {
+            if residue[b].is_some() {
+                template[b] = residue[b];
+            }
+        }
+    }
 
     // Per bond: a fixed integer order, or `None` for a free variable. The domain cap is the
     // chemical limit, tightened to the geometry-implied order when inferring from coordinates.
@@ -521,6 +533,15 @@ fn connected_order(atoms: &[usize], vars: &[usize], pairs: &[[usize; 2]]) -> Vec
 /// penalties, but applied only when inferring hydrogens (see [`Search::record_leaf`]).
 const RING_CUMULENE_PENALTY: u32 = 100;
 
+/// The result of [`Search::bound`]: a penalty lower bound and two net-charge ranges (see there).
+struct Bound {
+    penalty: u32,
+    full_lo: i32,
+    full_hi: i32,
+    tight_lo: i32,
+    tight_hi: i32,
+}
+
 /// One connected fragment's branch-and-bound over the free bond orders.
 struct Search<'a> {
     pairs: &'a [[usize; 2]],
@@ -569,15 +590,16 @@ impl Search<'_> {
         }
 
         // Feasibility + admissible lower bound on the primary (penalty) objective, plus the
-        // achievable net-charge range over the fragment.
-        let Some((lb, charge_lo, charge_hi)) = self.bound() else {
+        // achievable net-charge ranges over the fragment.
+        let Some(bound) = self.bound() else {
             return;
         };
+        let lb = bound.penalty;
         // With a fixed total charge, prune as soon as the atoms still open cannot bring the net
         // charge to the target. This is the key cut on large fragments: without it the search
         // descends to a full leaf before the leaf-level charge check rejects it.
         if let Some(target) = self.total_charge
-            && (target < charge_lo || target > charge_hi)
+            && (target < bound.full_lo || target > bound.full_hi)
         {
             return;
         }
@@ -587,14 +609,20 @@ impl Search<'_> {
             if lb > best_penalty {
                 return;
             }
-            // Equal-penalty branches are kept only while they might still improve the result: to
-            // find a strictly better secondary cost, or the first distinct equal-cost solution
-            // that proves the assignment ambiguous. Once the charge cost is at its floor and
-            // ambiguity is known, pruning them stops the tie explosion on big symmetric and
-            // poly-aromatic fragments. This tie-prune is skipped when inferring hydrogens, where
-            // the implicit-hydrogen tie-break can still improve an equal-penalty, floor-charge
-            // branch; those fragments are small enough not to need it.
-            if !self.infer && lb == best_penalty && best_dev == 0 && self.ambiguous {
+            // For an equal-penalty branch, bound the secondary cost (net-charge magnitude) from
+            // the charge the minimum-penalty states can still reach: with a target every tying
+            // leaf has magnitude 0, otherwise the smallest reachable magnitude. Once a solution
+            // is known (ambiguity seen) and this branch cannot beat it on penalty or charge,
+            // prune it — this stops the tie explosion on large poly-aromatic, multiply-charged
+            // fragments (whole proteins). Skipped when inferring hydrogens, where the
+            // implicit-hydrogen tie-break could still improve such a branch, and those fragments
+            // are small.
+            let dev_lb = match self.total_charge {
+                Some(_) => 0,
+                None if bound.tight_lo <= 0 && bound.tight_hi >= 0 => 0,
+                None => bound.tight_lo.unsigned_abs().min(bound.tight_hi.unsigned_abs()),
+            };
+            if !self.infer && lb == best_penalty && dev_lb >= best_dev && self.ambiguous {
                 return;
             }
         }
@@ -637,12 +665,15 @@ impl Search<'_> {
     }
 
     /// For the current partial assignment: the least summed penalty any completion could reach
-    /// (an admissible lower bound), together with the range of net formal charge the still-open
-    /// atoms allow. `None` if some atom already has no reachable valence state.
-    fn bound(&self) -> Option<(u32, i32, i32)> {
+    /// (an admissible lower bound), the range of net formal charge any completion allows
+    /// (`full_*`, for target feasibility), and the tighter range that only the **minimum-penalty**
+    /// states allow (`tight_*`). A completion that ties the penalty lower bound must use each
+    /// atom's minimum-penalty state, so its net charge lies in the tight range — which is what
+    /// bounds the charge tie-break. `None` if some atom already has no reachable valence state.
+    fn bound(&self) -> Option<Bound> {
         let mut lb = 0u32;
-        let mut charge_lo = 0i32;
-        let mut charge_hi = 0i32;
+        let (mut full_lo, mut full_hi) = (0i32, 0i32);
+        let (mut tight_lo, mut tight_hi) = (0i32, 0i32);
         for &a in self.atoms {
             let Some(states) = valence_states(self.z[a]) else {
                 continue; // unmodeled element: no constraint, no penalty, no charge
@@ -650,8 +681,7 @@ impl Search<'_> {
             let lo = self.base[a] + self.assigned_sum[a] + self.rem_min[a];
             let hi = self.base[a] + self.assigned_sum[a] + self.rem_max[a];
             let mut best_pen: Option<u32> = None;
-            let mut min_fc = i32::MAX;
-            let mut max_fc = i32::MIN;
+            let (mut min_fc, mut max_fc) = (i32::MAX, i32::MIN);
             for st in states {
                 if self.state_fits(st.valence as i32, lo, hi) {
                     best_pen = Some(best_pen.map_or(st.penalty, |p| p.min(st.penalty)));
@@ -659,11 +689,28 @@ impl Search<'_> {
                     max_fc = max_fc.max(st.formal_charge);
                 }
             }
-            lb += best_pen?;
-            charge_lo += min_fc;
-            charge_hi += max_fc;
+            let best_pen = best_pen?;
+            lb += best_pen;
+            full_lo += min_fc;
+            full_hi += max_fc;
+            // Charge range over only the minimum-penalty states in the window.
+            let (mut tmin, mut tmax) = (i32::MAX, i32::MIN);
+            for st in states {
+                if st.penalty == best_pen && self.state_fits(st.valence as i32, lo, hi) {
+                    tmin = tmin.min(st.formal_charge);
+                    tmax = tmax.max(st.formal_charge);
+                }
+            }
+            tight_lo += tmin;
+            tight_hi += tmax;
         }
-        Some((lb, charge_lo, charge_hi))
+        Some(Bound {
+            penalty: lb,
+            full_lo,
+            full_hi,
+            tight_lo,
+            tight_hi,
+        })
     }
 
     /// The number of ring double (or higher) bonds incident to each atom, for the cumulene
