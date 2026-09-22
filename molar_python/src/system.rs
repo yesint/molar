@@ -2,7 +2,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use molar::prelude::*;
-use molar_ff::{ApplyCharges, ApplyFF};
+use molar_ff::{ApplyCharges, ApplyFF, PrepareForFF, PrepareOptions};
 use numpy::nalgebra::{Const, VectorView};
 use numpy::{PyArray1, PyArrayLike1};
 use pyo3::exceptions::{PyIndexError, PyValueError};
@@ -75,6 +75,23 @@ impl SystemPy {
 
     pub fn py_st_mut(&self) -> &mut Py<StatePy> {
         unsafe { &mut *self.st.get() }
+    }
+
+    /// Run `f` on a real [`molar::System`] assembled from this object's topology and state
+    /// (moved out and back, without copying), so the System-level perception operations can be
+    /// used. The topology and state are always restored, even when `f` fails.
+    fn with_owned_system<R>(
+        &self,
+        f: impl FnOnce(&mut System) -> Result<R, BondPerceptionError>,
+    ) -> PyResult<R> {
+        let top = std::mem::take(self.r_top_mut());
+        let st = std::mem::take(self.r_st_mut());
+        let mut sys = System::new(top, st).map_err(to_py_value_err)?;
+        let outcome = f(&mut sys);
+        let (top, st) = sys.release();
+        *self.r_top_mut() = top;
+        *self.r_st_mut() = st;
+        outcome.map_err(to_py_value_err)
     }
 }
 
@@ -398,6 +415,100 @@ impl SystemPy {
     fn apply_charges(&self, model: &str) -> PyResult<()> {
         let model = parse_charge_model(model)?;
         self.r_top_mut().apply_charges(model).map_err(to_py_value_err)
+    }
+
+    /// Perceive the bond table from the current elements and coordinates, replacing any existing
+    /// bonds. New bonds have unspecified order (use :meth:`perceive_bond_orders` next).
+    ///
+    /// :param tolerance: added to the covalent-radius sum, in nm (default 0.045).
+    /// :param min_distance: reject atom pairs closer than this, in nm (default 0.04).
+    /// :param pbc: search across periodic boundaries (needs a periodic box).
+    /// :returns: the number of bonds perceived.
+    #[pyo3(signature = (tolerance=0.045, min_distance=0.04, pbc=false))]
+    fn perceive_connectivity(&self, tolerance: f64, min_distance: f64, pbc: bool) -> PyResult<usize> {
+        let options = ConnectivityOptions {
+            tolerance: tolerance as Float,
+            minimum_distance: min_distance as Float,
+            pbc: if pbc { PBC_FULL } else { PBC_NONE },
+            cleanup_overcoordination: true,
+        };
+        self.with_owned_system(|sys| sys.perceive_connectivity(&options))
+    }
+
+    /// Perceive bond orders and formal charges from the connection table, writing them into the
+    /// topology.
+    ///
+    /// :param infer_hydrogens: infer implicit hydrogens from geometry (for a hydrogen-free
+    ///     structure); otherwise every hydrogen must already be an explicit atom.
+    /// :param total_charge: constrain the net formal charge of a single-fragment molecule.
+    /// :returns: a list of diagnostic warnings (e.g. ``"AmbiguousAssignment"``).
+    #[pyo3(signature = (infer_hydrogens=false, total_charge=None))]
+    fn perceive_bond_orders(
+        &self,
+        infer_hydrogens: bool,
+        total_charge: Option<i32>,
+    ) -> PyResult<Vec<String>> {
+        let options = BondOrderOptions {
+            hydrogens: if infer_hydrogens {
+                HydrogenPolicy::InferFromGeometry
+            } else {
+                HydrogenPolicy::AllExplicit
+            },
+            total_charge,
+            ..BondOrderOptions::default()
+        };
+        self.with_owned_system(|sys| {
+            let assignment = sys.assign_bond_orders(&options)?;
+            let warnings = assignment.warnings().iter().map(|w| format!("{w:?}")).collect();
+            sys.apply_bond_assignment(&assignment)?;
+            Ok(warnings)
+        })
+    }
+
+    /// Add explicit hydrogen atoms for the implicit-hydrogen counts implied by the current bond
+    /// orders and charges, placing them by local geometry. Existing atom indices are unchanged
+    /// (new atoms are appended).
+    ///
+    /// :returns: the number of hydrogens added.
+    fn add_hydrogens(&self) -> PyResult<usize> {
+        self.with_owned_system(|sys| {
+            let plan = plan_hydrogen_addition(sys, &HydrogenOptions::default());
+            let added = plan.len();
+            sys.add_hydrogens(&plan)?;
+            Ok(added)
+        })
+    }
+
+    /// Prepare a raw structure for :meth:`apply_ff` / :meth:`apply_charges`: perceive
+    /// connectivity (if the topology has no bonds), then bond orders and charges, then
+    /// optionally add hydrogens. This is the opt-in bridge that lets an order-less input
+    /// (PDB/GRO) be typed and charged.
+    ///
+    /// :param infer_hydrogens: infer implicit hydrogens from geometry (hydrogen-free input).
+    /// :param add_hydrogens: also add the perceived hydrogens as explicit atoms.
+    /// :param total_charge: constrain the net formal charge of a single-fragment molecule.
+    #[pyo3(signature = (infer_hydrogens=false, add_hydrogens=false, total_charge=None))]
+    fn prepare_for_ff(
+        &self,
+        infer_hydrogens: bool,
+        add_hydrogens: bool,
+        total_charge: Option<i32>,
+    ) -> PyResult<()> {
+        let options = PrepareOptions {
+            bond_orders: BondOrderOptions {
+                input_orders: InputOrders::PreserveKnown,
+                hydrogens: if infer_hydrogens {
+                    HydrogenPolicy::InferFromGeometry
+                } else {
+                    HydrogenPolicy::AllExplicit
+                },
+                total_charge,
+                ..BondOrderOptions::default()
+            },
+            add_hydrogens: add_hydrogens.then(HydrogenOptions::default),
+            ..PrepareOptions::default()
+        };
+        self.with_owned_system(|sys| sys.prepare_for_ff(&options))
     }
 
     /// Remove atoms selected by argument (``Sel``, query string, range, or indices).
