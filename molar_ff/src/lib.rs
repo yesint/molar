@@ -63,6 +63,13 @@ pub enum FFError {
     )]
     OpenSelection { global: usize, neighbor: usize },
 
+    /// The aromatic bonds in scope describe no valid molecule: an aromatic system has no Kekulé
+    /// structure, or an atom is over-valent. GAFF would still assign types to such input, but
+    /// they would be wrong without any sign of it (an indole N with its N-H lost types as `n2`,
+    /// not `na`), so it is refused — the same input [`ApplyCharges`] rejects.
+    #[error(transparent)]
+    InvalidAromatic(molar::KekulizeError),
+
     /// No matching rule assigned a type to this atom.
     #[error("could not assign a {ff:?} atom type to atom {local} (element Z={z})")]
     UntypedAtom { ff: FFType, local: usize, z: u8 },
@@ -97,6 +104,7 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
         // 3. Local bonds: keep only bonds whose both endpoints are in scope, remapped
         //    to local indices; error on unknown orders and boundary-crossing bonds.
         let mut bonds: Vec<gaff::LocalBond> = Vec::new();
+        let mut orders: Vec<BondOrder> = Vec::new();
         for b in self.iter_bonds() {
             let ([g1, g2], b_order) = (b.pair(), b.order());
             match (g2l.get(&g1).copied(), g2l.get(&g2).copied()) {
@@ -104,6 +112,7 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
                     let order =
                         bond_order_code(b_order).ok_or(FFError::MissingBondOrders(g1, g2))?;
                     bonds.push(gaff::LocalBond { i, j, order });
+                    orders.push(b_order);
                 }
                 (Some(_), None) => {
                     return Err(FFError::OpenSelection { global: g1, neighbor: g2 })
@@ -115,10 +124,30 @@ impl<T: AtomMutProvider + BondProvider> ApplyFF for T {
             }
         }
 
-        // 4. Compute the types on the local subgraph.
+        // 4. Typing reads aromatic orders as they are, but only a structure that has a Kekulé
+        //    form is chemically valid. An element with no known valence, or a search that ran
+        //    out of budget, proves nothing wrong, so those still type.
+        if orders.contains(&BondOrder::Aromatic) {
+            let adj = BondAdjacency::build(z.len(), bonds.iter().map(|b| [b.i, b.j]));
+            let fc: Vec<i32> = self
+                .iter_atoms()
+                .map(|a| a.get_formal_charge().unwrap_or(0))
+                .collect();
+            match kekulize(&z, &fc, &orders, &adj) {
+                Err(
+                    e @ (molar::KekulizeError::NonKekulizable(_)
+                    | molar::KekulizeError::OverValent(_)),
+                ) => {
+                    return Err(FFError::InvalidAromatic(e.remap_atoms(&global)));
+                }
+                _ => {}
+            }
+        }
+
+        // 5. Compute the types on the local subgraph.
         let types = gaff::gaff_types(&z, &bonds, ff)?;
 
-        // 5. Write results back in local order.
+        // 6. Write results back in local order.
         for (mut a, t) in self.iter_atoms_mut().zip(types) {
             a.set_type_name(&t);
         }

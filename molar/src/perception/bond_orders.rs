@@ -258,7 +258,7 @@ pub fn assign_bond_orders(
     // Canonical bond orders pinned before the search: standard residues first (most specific),
     // then functional groups. These take priority over the input orders and the search.
     let mut template = if options.use_functional_groups {
-        super::functional_groups::functional_group_orders(&z, &adj)
+        super::functional_groups::functional_group_orders(&z, &adj, coords)
     } else {
         vec![None; m]
     };
@@ -313,6 +313,36 @@ pub fn assign_bond_orders(
         }
     }
 
+    // Carbons and oxygens the geometry shows as sp2/sp: a heavy-atom bond short enough for a
+    // multiple order. A saturated neutral state contradicts that geometry (see
+    // `geometry_contradiction`), which the search counts as a tie-break (only when inferring
+    // hydrogens).
+    let sp2_geometry: Vec<bool> = (0..n)
+        .map(|a| {
+            infer
+                && matches!(z[a], 6 | 8)
+                && adj.neighbors(a).iter().any(|nb| dom_max[nb.bond()] >= 2)
+        })
+        .collect();
+    let degree: Vec<i32> = (0..n).map(|a| adj.neighbors(a).len() as i32).collect();
+    // Two-coordinate C and N the geometry shows as bent. Two π bonds (C=C=C, HN=C=O, R-C≡N)
+    // make an atom sp, which is linear; on a bent atom that is a contradiction (see
+    // `Search::linear_violations`). Only C and N can carry two π bonds among the modeled
+    // second-row elements.
+    let bent: Vec<bool> = match coords {
+        Some(c) => (0..n)
+            .map(|a| {
+                let nbs = adj.neighbors(a);
+                matches!(z[a], 6 | 7) && nbs.len() == 2 && {
+                    let u = c[nbs[0].atom()] - c[a];
+                    let v = c[nbs[1].atom()] - c[a];
+                    u.dot(&v) / (u.norm() * v.norm()) > SP_MIN_ANGLE_DEG.to_radians().cos()
+                }
+            })
+            .collect(),
+        None => vec![false; n],
+    };
+
     let comp = connected_components(&adj);
     let n_comp = comp.iter().copied().max().map_or(0, |c| c + 1);
     let mut comp_bonds: Vec<Vec<usize>> = vec![Vec::new(); n_comp];
@@ -329,18 +359,22 @@ pub fn assign_bond_orders(
         return Err(BondPerceptionError::TotalChargeWithMultipleComponents);
     }
 
-    // Ring membership per bond, for the cumulene guard (only needed when inferring hydrogens).
-    let bond_in_ring: Vec<bool> = if infer {
-        let mut r = vec![false; m];
-        for ring in super::sssr(&adj) {
-            for b in ring.bonds {
-                r[b] = true;
-            }
+    // Rings and ring membership, for the cumulene guard and the tautomer tie-break (only needed
+    // when inferring hydrogens).
+    let rings = if infer { super::sssr(&adj) } else { Vec::new() };
+    let mut bond_in_ring = vec![false; m];
+    let mut atom_in_ring = vec![false; n];
+    for ring in &rings {
+        for &b in &ring.bonds {
+            bond_in_ring[b] = true;
         }
-        r
-    } else {
-        vec![false; m]
-    };
+        for &a in &ring.atoms {
+            atom_in_ring[a] = true;
+        }
+    }
+    // Order of every bond that is not searched (template/input pins and propagation), 0 while
+    // unknown; lets a leaf read whole rings, not only its own free bonds.
+    let mut known_order = vec![0u8; m];
 
     let mut bond_orders: Vec<Option<BondOrder>> = vec![None; m];
     let mut formal_charges: Vec<Option<i32>> = vec![None; n];
@@ -397,6 +431,14 @@ pub fn assign_bond_orders(
                 all_vars.push(b);
             }
         }
+        for &b in &comp_bonds[c] {
+            if let Some(o) = fixed[b] {
+                known_order[b] = o;
+            }
+        }
+        for &(b, o) in &prop_fixed {
+            known_order[b] = o;
+        }
 
         // A whole-molecule charge target couples the free bonds, so when one is set they are
         // solved together — still small after propagation, so still fast on the drug-sized
@@ -406,7 +448,15 @@ pub fn assign_bond_orders(
         let active: std::collections::HashSet<usize> =
             all_vars.iter().flat_map(|&b| pairs[b]).collect();
         let constrained = bonded_comp_count == 1 && options.total_charge.is_some();
-        let clusters = if constrained {
+        // Inferring hydrogen, an atom whose bonds are all fixed still has a choice: an amine N
+        // with one single bond is R-NH2 or R-NH3+. With a charge target that choice cannot be
+        // made up front. Instead the clusters stay independent, each is solved for its best
+        // assignment *per net charge*, and a small dynamic program over those tables and the
+        // fixed atoms' own states then meets the target (see `combine_per_net`). (With explicit
+        // hydrogen a fixed atom's valence, and so its charge, is determined, and resolving it up
+        // front loses nothing.)
+        let joint_states = constrained && infer;
+        let clusters = if constrained && !joint_states {
             if all_vars.is_empty() {
                 Vec::new()
             } else {
@@ -415,12 +465,12 @@ pub fn assign_bond_orders(
         } else {
             cluster_free_bonds(&all_vars, &pairs)
         };
-        let single_cluster = constrained;
+        let single_cluster = constrained && !joint_states;
 
         // Atoms with no free bond have a determined valence: resolve them directly.
         let mut comp_charge = 0i32;
         for &a in comp_at {
-            if active.contains(&a) {
+            if active.contains(&a) || joint_states {
                 continue;
             }
             match fixed_atom_state(z[a], base[a], infer) {
@@ -442,6 +492,8 @@ pub fn assign_bond_orders(
         let mut solved_orders: Vec<(usize, u8)> = Vec::new();
         let mut ambiguous_any = false;
         let mut truncated_any = false;
+        // Joint mode only: one per-net-charge table per cluster, with that cluster's variables.
+        let mut cluster_tables: Vec<(Vec<usize>, NetTable)> = Vec::new();
         for cluster in &clusters {
             let mut cl_atoms: Vec<usize> = Vec::new();
             let mut seen = std::collections::HashSet::new();
@@ -462,6 +514,11 @@ pub fn assign_bond_orders(
                 rem_max[j] += dm;
             }
             let cl_vars = connected_order(&cl_atoms, cluster, &pairs);
+            let tautomer = if infer {
+                TautomerScope::new(&cl_vars, &cl_atoms, &rings, &adj, &z, &known_order)
+            } else {
+                TautomerScope::default()
+            };
             // A whole-molecule charge target can be honored only when a single cluster carries
             // the remaining freedom; otherwise each cluster's charge follows from its own atoms.
             let target = if single_cluster {
@@ -474,6 +531,14 @@ pub fn assign_bond_orders(
                 z: &z,
                 dom_max: &dom_max_eff,
                 bond_in_ring: &bond_in_ring,
+                atom_in_ring: &atom_in_ring,
+                rings: &rings,
+                adj: &adj,
+                known_order: &known_order,
+                tautomer,
+                sp2_geometry: &sp2_geometry,
+                bent: &bent,
+                degree: &degree,
                 infer,
                 vars: &cl_vars,
                 atoms: &cl_atoms,
@@ -489,10 +554,12 @@ pub fn assign_bond_orders(
                 best_orders: Vec::new(),
                 best_fc: Vec::new(),
                 best_ih: Vec::new(),
+                per_net: joint_states.then(NetTable::new),
                 ambiguous: false,
                 truncated: false,
             };
             search.run(0);
+            let per_net = search.per_net.take();
             let best_cost = search.best_cost;
             let best_orders = search.best_orders.clone();
             let best_fc = search.best_fc.clone();
@@ -508,6 +575,18 @@ pub fn assign_bond_orders(
                 assigned_sum[a] = 0;
             }
 
+            if let Some(table) = per_net {
+                if table.is_empty() {
+                    let atom = cl_atoms[0];
+                    return Err(if truncated {
+                        BondPerceptionError::SearchLimitExceeded { atom }
+                    } else {
+                        BondPerceptionError::NoValidAssignment { atom }
+                    });
+                }
+                cluster_tables.push((cl_vars, table));
+                continue;
+            }
             if best_cost.is_none() {
                 let atom = cl_atoms[0];
                 return Err(if truncated {
@@ -527,6 +606,51 @@ pub fn assign_bond_orders(
             }
             for &(a, h) in &best_ih {
                 implicit_hydrogens[a] = h;
+            }
+        }
+
+        if joint_states {
+            // Every atom off the clusters is a one-atom table of its own states.
+            let mut tables: Vec<(Vec<usize>, NetTable)> = cluster_tables;
+            for &a in comp_at {
+                if active.contains(&a) || valence_states(z[a]).is_none() {
+                    continue;
+                }
+                let mut table = NetTable::new();
+                for (fc, cost, ih) in atom_state_options(z[a], base[a], sp2_geometry[a], degree[a])
+                {
+                    let entry = NetEntry {
+                        cost,
+                        orders: Vec::new(),
+                        fcs: vec![(a, fc)],
+                        ihs: vec![(a, ih)],
+                        ambiguous: false,
+                    };
+                    offer_net(&mut table, fc, entry);
+                }
+                if table.is_empty() {
+                    return Err(BondPerceptionError::NoValidAssignment { atom: a });
+                }
+                tables.push((Vec::new(), table));
+            }
+            let target = options.total_charge.expect("joint mode has a target");
+            let Some((picks, ambiguous)) = combine_per_net(&tables, target) else {
+                return Err(BondPerceptionError::NoValidAssignment { atom: comp_at[0] });
+            };
+            ambiguous_any |= ambiguous;
+            for ((vars, _), entry) in tables.iter().zip(picks) {
+                for (pos, &b) in vars.iter().enumerate() {
+                    solved_orders.push((b, entry.orders[pos]));
+                }
+                for &(a, fc) in &entry.fcs {
+                    comp_charge += fc;
+                    if fc != input_fc[a] {
+                        formal_charges[a] = Some(fc);
+                    }
+                }
+                for &(a, h) in &entry.ihs {
+                    implicit_hydrogens[a] = h;
+                }
             }
         }
 
@@ -616,6 +740,10 @@ fn connected_order(atoms: &[usize], vars: &[usize], pairs: &[[usize; 2]]) -> Vec
     }
     ordered
 }
+
+/// Smallest bond angle, in degrees, still read as linear (sp). Real sp centers sit at 170-180°;
+/// sp2 at ~120°, so 150° separates them with margin for crystal-structure noise.
+const SP_MIN_ANGLE_DEG: Float = 150.0;
 
 /// Penalty for an atom carrying more than one ring double bond (a cumulated aromatic ring, as
 /// opposed to a Kekulé structure with one double per atom). Large so it dominates the state
@@ -799,6 +927,21 @@ struct Search<'a> {
     dom_max: &'a [u8],
     /// Whether each bond lies on a ring (used only when inferring hydrogens).
     bond_in_ring: &'a [bool],
+    /// Per global atom: whether it lies on a ring.
+    atom_in_ring: &'a [bool],
+    /// The fragment's SSSR rings (only when inferring).
+    rings: &'a [super::RingData],
+    adj: &'a BondAdjacency,
+    /// Order of each bond outside the search, 0 if unknown (see `known_order`).
+    known_order: &'a [u8],
+    /// What this cluster's leaves score for the tautomer tie-break.
+    tautomer: TautomerScope,
+    /// Per global atom: a C or O whose geometry rules out saturation (used only when inferring).
+    sp2_geometry: &'a [bool],
+    /// Per global atom: a two-coordinate C or N whose bond angle is not linear.
+    bent: &'a [bool],
+    /// Number of bonds per global atom.
+    degree: &'a [i32],
     /// When true, an atom's bond-order sum may fall short of its valence, the shortfall being
     /// implicit hydrogen; otherwise the sum must reach a valence state exactly.
     infer: bool,
@@ -819,14 +962,23 @@ struct Search<'a> {
     total_charge: Option<i32>,
     max_branches: u64,
     branches: u64,
-    /// Best objective found: `(summed penalty, net-charge magnitude, total implicit H)`. The
-    /// penalty (state penalties plus any ring-cumulene penalty) is primary; the charge
-    /// magnitude breaks ties toward the least charge-separated form; the implicit-hydrogen
-    /// count breaks the remaining ties toward the most-saturated structure the geometry allows.
-    best_cost: Option<(u32, u32, u32)>,
+    /// Best objective found: `(summed penalty, net-charge magnitude, geometry contradictions,
+    /// total implicit H, non-aromatic rings, terminal imines, non-amide N)`. The penalty (state
+    /// penalties plus any ring-cumulene penalty) is primary; the charge magnitude breaks ties
+    /// toward the least charge-separated form. The contradiction count then rejects what the
+    /// geometry rules out: a C or O left saturated although its geometry is sp2/sp (an sp3 CG in
+    /// an indole, an O-H on a lactam C=O), and a bent atom given two π bonds (HN=C=O read into
+    /// formamide). The implicit-hydrogen count breaks the remaining ties toward the most-saturated
+    /// structure the geometry allows. The contradiction count is a tie-break, not a penalty, so
+    /// noisy geometry can never force a charged form. The last three terms only separate
+    /// tautomers, which tie on everything before them (see [`Search::tautomer_terms`]).
+    best_cost: Option<(u32, u32, u32, u32, u32, u32, u32)>,
     best_orders: Vec<u8>,
     best_fc: Vec<(usize, i32)>,
     best_ih: Vec<(usize, u8)>,
+    /// Joint mode (inferring hydrogen under a charge target): instead of one best leaf, the best
+    /// leaf for every net charge the cluster can take. `best_cost` is then unused.
+    per_net: Option<NetTable>,
     ambiguous: bool,
     truncated: bool,
 }
@@ -854,7 +1006,18 @@ impl Search<'_> {
             return;
         }
 
-        if let Some((best_penalty, best_dev, _)) = self.best_cost {
+        // Per-net mode: a branch can only land on a net charge in `[full_lo, full_hi]`. Once every
+        // such charge already has a leaf strictly cheaper than this branch's penalty bound, no
+        // completion can improve any entry.
+        if let Some(table) = &self.per_net
+            && !table.is_empty()
+            && (bound.full_lo..=bound.full_hi)
+                .all(|net| table.get(&net).is_some_and(|e| e.cost.0 < lb))
+        {
+            return;
+        }
+
+        if let Some((best_penalty, best_dev, ..)) = self.best_cost {
             // The penalty lower bound alone rules this branch out.
             if lb > best_penalty {
                 return;
@@ -983,6 +1146,10 @@ impl Search<'_> {
         } else {
             std::collections::HashMap::new()
         };
+        if self.per_net.is_some() {
+            self.record_leaf_per_net(&ring_doubles);
+            return;
+        }
         let target = self.total_charge.unwrap_or(0);
 
         let mut penalty = 0u32;
@@ -990,6 +1157,7 @@ impl Search<'_> {
         let mut fcs: Vec<(usize, i32)> = Vec::with_capacity(self.atoms.len());
         let mut ihs: Vec<(usize, u8)> = Vec::with_capacity(self.atoms.len());
         let mut charge_choice_tie = false;
+        let mut contradictions = 0u32;
 
         for &a in self.atoms {
             let Some(states) = valence_states(self.z[a]) else {
@@ -1034,21 +1202,199 @@ impl Search<'_> {
             {
                 penalty += (count - 1) * RING_CUMULENE_PENALTY;
             }
+            if geometry_contradiction(
+                self.z[a],
+                self.sp2_geometry[a],
+                valence,
+                fc,
+                bosum,
+                self.degree[a],
+            ) {
+                contradictions += 1;
+            }
             fcs.push((a, fc));
             ihs.push((a, (valence - bosum) as u8));
         }
 
-        let charge_dev = match self.total_charge {
-            Some(t) => {
-                if net != t {
-                    return;
-                }
-                0
+        let tautomer = self.tautomer_terms();
+        self.offer(
+            penalty,
+            charge_dev_of(self.total_charge, net),
+            contradictions + self.linear_violations(),
+            tautomer,
+            fcs,
+            ihs,
+            charge_choice_tie,
+        );
+    }
+
+    /// Bent atoms given two π bonds at this leaf: a geometry contradiction that depends on the
+    /// bond orders, not on the atom's state, so it is counted per leaf.
+    fn linear_violations(&self) -> u32 {
+        self.atoms
+            .iter()
+            .filter(|&&a| {
+                self.bent[a]
+                    && self
+                        .adj
+                        .neighbors(a)
+                        .iter()
+                        .map(|nb| self.leaf_order(nb.bond()) as u32 - 1)
+                        .sum::<u32>()
+                        >= 2
+            })
+            .count() as u32
+    }
+
+    /// Order of bond `b` at this leaf: searched, or known from outside the search.
+    fn leaf_order(&self, b: usize) -> u8 {
+        match self.tautomer.var_pos.get(&b) {
+            Some(&pos) => self.order_out[pos],
+            None => self.known_order[b].max(1),
+        }
+    }
+
+    /// The tautomer tie-break, `(non-aromatic rings, terminal imines, non-amide N)`, all to be
+    /// minimized. Two tautomers carry the same hydrogens, charges and penalty, so everything
+    /// before these in the cost ties; chemistry then prefers, in this order,
+    /// 1. the form that keeps more rings aromatic (molar's own Hückel test) — purine N7/N9-H
+    ///    over N1/N3-H, which breaks a ring;
+    /// 2. the amino over the imino form: no C=N to an N without another heavy neighbour —
+    ///    cytosine and guanine keep their NH2, not a ring N-H plus an exocyclic C=NH;
+    /// 3. the lactam: an N-H next to a C=O rather than elsewhere — guanine N1-H over N3-H,
+    ///    3H-quinazolin-4-one over the 1H form. This comes after (2), which it would otherwise
+    ///    overrule: imino-oxo cytosine has one more N-H beside its C=O than the real amino form.
+    ///
+    /// Measured over the rings and nitrogens this cluster can change ([`TautomerScope`]).
+    fn tautomer_terms(&self) -> (u32, u32, u32) {
+        if !self.infer {
+            return (0, 0, 0);
+        }
+        let as_order = |o: u8| match o {
+            2 => BondOrder::Double,
+            3 => BondOrder::Triple,
+            _ => BondOrder::Single,
+        };
+        let non_aromatic = self
+            .tautomer
+            .ring_ids
+            .iter()
+            .filter(|&&r| {
+                !super::ring_is_huckel_aromatic(
+                    &self.rings[r],
+                    |b| as_order(self.leaf_order(b)),
+                    self.adj,
+                    self.z,
+                    self.atom_in_ring,
+                )
+            })
+            .count() as u32;
+        let non_amide = self
+            .tautomer
+            .nitrogens
+            .iter()
+            .filter(|&&nn| {
+                let nbs = self.adj.neighbors(nn);
+                nbs.iter().all(|nb| self.leaf_order(nb.bond()) == 1)
+                    && !nbs.iter().any(|nb| {
+                        self.z[nb.atom()] == 6
+                            && self.adj.neighbors(nb.atom()).iter().any(|cb| {
+                                self.z[cb.atom()] == 8
+                                    && self.degree[cb.atom()] == 1
+                                    && self.leaf_order(cb.bond()) == 2
+                            })
+                    })
+            })
+            .count() as u32;
+        let terminal_imines = self
+            .tautomer
+            .nitrogens
+            .iter()
+            .filter(|&&nn| {
+                let nbs = self.adj.neighbors(nn);
+                nbs.iter().filter(|nb| self.z[nb.atom()] != 1).count() == 1
+                    && nbs
+                        .iter()
+                        .any(|nb| self.z[nb.atom()] == 6 && self.leaf_order(nb.bond()) == 2)
+            })
+            .count() as u32;
+        (non_aromatic, terminal_imines, non_amide)
+    }
+
+    /// Per-net leaf: for this bond assignment, the cheapest choice of atom states for every
+    /// reachable net charge, by a dynamic program over the running charge minimizing
+    /// `(penalty, contradictions, implicit H)`, with the leaf's tautomer terms added. Each result
+    /// is offered to `per_net`.
+    fn record_leaf_per_net(&mut self, ring_doubles: &std::collections::HashMap<usize, u32>) {
+        let mut cumulene = 0u32;
+        let mut units: Vec<Vec<(i32, Cost, usize, u8)>> = Vec::new();
+        for &a in self.atoms {
+            if valence_states(self.z[a]).is_none() {
+                continue;
             }
-            None => net.unsigned_abs(),
+            if let Some(&count) = ring_doubles.get(&a)
+                && count >= 2
+            {
+                cumulene += (count - 1) * RING_CUMULENE_PENALTY;
+            }
+            let bosum = self.base[a] + self.assigned_sum[a];
+            let opts = atom_state_options(self.z[a], bosum, self.sp2_geometry[a], self.degree[a]);
+            units.push(
+                opts.into_iter()
+                    .map(|(fc, cost, ih)| (fc, cost, a, ih))
+                    .collect(),
+            );
+        }
+        let (non_aromatic, terminal_imines, non_amide) = self.tautomer_terms();
+        let linear = self.linear_violations();
+        for (net, cost, ways, picks) in charge_dp(&units) {
+            let fcs = picks.iter().map(|&(fc, a, _)| (a, fc)).collect();
+            let ihs = picks.iter().map(|&(_, a, ih)| (a, ih)).collect();
+            let entry = NetEntry {
+                cost: add_cost(
+                    cost,
+                    (
+                        cumulene,
+                        linear,
+                        0,
+                        non_aromatic,
+                        terminal_imines,
+                        non_amide,
+                    ),
+                ),
+                orders: self.order_out.clone(),
+                fcs,
+                ihs,
+                ambiguous: ways > 1,
+            };
+            offer_net(self.per_net.as_mut().expect("per-net mode"), net, entry);
+        }
+    }
+
+    /// Compare a completed leaf with the best so far and keep it if it is better.
+    fn offer(
+        &mut self,
+        penalty: u32,
+        charge_dev: Option<u32>,
+        contradictions: u32,
+        (non_aromatic, terminal_imines, non_amide): (u32, u32, u32),
+        fcs: Vec<(usize, i32)>,
+        ihs: Vec<(usize, u8)>,
+        charge_choice_tie: bool,
+    ) {
+        let Some(charge_dev) = charge_dev else {
+            return; // missed the charge target
         };
         let implicit_total: u32 = ihs.iter().map(|&(_, h)| h as u32).sum();
-        let cost = (penalty, charge_dev, implicit_total);
+        let cost = (
+            penalty,
+            charge_dev,
+            contradictions,
+            implicit_total,
+            non_aromatic,
+            terminal_imines,
+            non_amide,
+        );
 
         match self.best_cost {
             Some(best) if cost > best => {}
@@ -1065,6 +1411,245 @@ impl Search<'_> {
                 self.ambiguous = charge_choice_tie;
             }
         }
+    }
+}
+
+/// Per-net cost: `(penalty, geometry contradictions, implicit H, non-aromatic rings, terminal
+/// imines, non-amide N)`, compared lexicographically — the search's cost without the charge term, which the table
+/// key replaces.
+type Cost = (u32, u32, u32, u32, u32, u32);
+
+fn add_cost(a: Cost, b: Cost) -> Cost {
+    (
+        a.0 + b.0,
+        a.1 + b.1,
+        a.2 + b.2,
+        a.3 + b.3,
+        a.4 + b.4,
+        a.5 + b.5,
+    )
+}
+
+/// What one cluster's leaves score for the tautomer tie-break: the rings and nitrogens whose
+/// every bond is either searched in this cluster or known from outside the search, and which the
+/// cluster touches. A ring or N that also depends on another cluster's bonds is left out, so each
+/// cluster's score is exact over what it measures.
+#[derive(Default)]
+struct TautomerScope {
+    /// Position of each of the cluster's variables in its walk order, by bond index.
+    var_pos: std::collections::HashMap<usize, usize>,
+    /// Indices into the fragment's ring list.
+    ring_ids: Vec<usize>,
+    nitrogens: Vec<usize>,
+}
+
+impl TautomerScope {
+    fn new(
+        vars: &[usize],
+        atoms: &[usize],
+        rings: &[super::RingData],
+        adj: &BondAdjacency,
+        z: &[u8],
+        known_order: &[u8],
+    ) -> Self {
+        let var_pos: std::collections::HashMap<usize, usize> =
+            vars.iter().enumerate().map(|(p, &b)| (b, p)).collect();
+        let known = |b: usize| known_order[b] > 0 || var_pos.contains_key(&b);
+        let settled = |a: usize| adj.neighbors(a).iter().all(|nb| known(nb.bond()));
+        let touches = |a: usize| atoms.binary_search(&a).is_ok();
+        let ring_ids = (0..rings.len())
+            .filter(|&r| {
+                rings[r].bonds.iter().any(|b| var_pos.contains_key(b))
+                    && rings[r].atoms.iter().all(|&a| settled(a))
+            })
+            .collect();
+        // An amide N needs its own bonds and its carbon neighbours' bonds settled.
+        let mut nitrogens: Vec<usize> = atoms
+            .iter()
+            .flat_map(|&a| std::iter::once(a).chain(adj.neighbors(a).iter().map(|nb| nb.atom())))
+            .filter(|&a| z[a] == 7)
+            .filter(|&a| {
+                settled(a)
+                    && adj
+                        .neighbors(a)
+                        .iter()
+                        .all(|nb| z[nb.atom()] != 6 || settled(nb.atom()))
+                    && (touches(a) || adj.neighbors(a).iter().any(|nb| touches(nb.atom())))
+            })
+            .collect();
+        nitrogens.sort_unstable();
+        nitrogens.dedup();
+        Self {
+            var_pos,
+            ring_ids,
+            nitrogens,
+        }
+    }
+}
+
+/// A cluster's (or fixed atom's) best assignment at one net charge.
+#[derive(Clone)]
+struct NetEntry {
+    cost: Cost,
+    /// Orders for the cluster's variables, in its walk order (empty for a fixed atom).
+    orders: Vec<u8>,
+    fcs: Vec<(usize, i32)>,
+    ihs: Vec<(usize, u8)>,
+    /// Another assignment ties this one.
+    ambiguous: bool,
+}
+
+type NetTable = std::collections::BTreeMap<i32, NetEntry>;
+
+/// Keep `entry` at `net` if it beats what is there; a tie marks the entry ambiguous.
+fn offer_net(table: &mut NetTable, net: i32, entry: NetEntry) {
+    match table.get_mut(&net) {
+        Some(e) if entry.cost > e.cost => {}
+        Some(e) if entry.cost == e.cost => e.ambiguous = true,
+        _ => {
+            table.insert(net, entry);
+        }
+    }
+}
+
+/// Whether a state contradicts the geometry: a C or O with a bond short enough for a multiple
+/// order (`sp2_geometry`), left saturated — all bonds single, neutral, the rest implicit H. That
+/// is an sp3 CG in an indole or a C-OH on a 0.123 nm lactam C=O. N is exempt: a pyrrole or
+/// aniline N-H is saturated with short bonds. A charged state is exempt too (a phenolate's short
+/// C-O⁻), and since this is only a tie-break it never forces a charge either.
+fn geometry_contradiction(
+    z: u8,
+    sp2_geometry: bool,
+    valence: i32,
+    fc: i32,
+    bosum: i32,
+    degree: i32,
+) -> bool {
+    let neutral_valence = match z {
+        6 => 4,
+        8 => 2,
+        _ => return false,
+    };
+    sp2_geometry && fc == 0 && bosum == degree && valence == neutral_valence
+}
+
+/// Every valence state an atom with bond-order sum `bosum` can take when inferring hydrogen, as
+/// `(formal charge, cost, implicit H)`.
+fn atom_state_options(z: u8, bosum: i32, sp2_geometry: bool, degree: i32) -> Vec<(i32, Cost, u8)> {
+    let Some(states) = valence_states(z) else {
+        return Vec::new();
+    };
+    states
+        .iter()
+        .filter(|st| st.valence as i32 >= bosum)
+        .map(|st| {
+            let valence = st.valence as i32;
+            let contradiction =
+                geometry_contradiction(z, sp2_geometry, valence, st.formal_charge, bosum, degree)
+                    as u32;
+            let ih = (valence - bosum) as u8;
+            (
+                st.formal_charge,
+                (st.penalty, contradiction, ih as u32, 0, 0, 0),
+                ih,
+            )
+        })
+        .collect()
+}
+
+/// Pick one option per unit to reach each reachable net charge at least cost. Returns, per net
+/// charge, `(net, cost, optimal ways capped at 2, picks)` with picks as `(fc, atom, ih)`.
+fn charge_dp(units: &[Vec<(i32, Cost, usize, u8)>]) -> Vec<(i32, Cost, u8, Vec<(i32, usize, u8)>)> {
+    use std::collections::BTreeMap;
+    // net -> (cost, ways, back-pointer into `steps`)
+    let mut layer: BTreeMap<i32, (Cost, u8, usize)> =
+        BTreeMap::from([(0, ((0, 0, 0, 0, 0, 0), 1, usize::MAX))]);
+    let mut steps: Vec<((i32, usize, u8), usize)> = Vec::new();
+    for opts in units {
+        let mut next: BTreeMap<i32, (Cost, u8, usize)> = BTreeMap::new();
+        for (&net, &(cost, ways, back)) in &layer {
+            for &(fc, c, a, ih) in opts {
+                let total = add_cost(cost, c);
+                match next.get_mut(&(net + fc)) {
+                    Some(e) if total > e.0 => {}
+                    Some(e) if total == e.0 => e.1 = (e.1 + ways).min(2),
+                    _ => {
+                        steps.push(((fc, a, ih), back));
+                        next.insert(net + fc, (total, ways, steps.len() - 1));
+                    }
+                }
+            }
+        }
+        layer = next;
+    }
+    layer
+        .into_iter()
+        .map(|(net, (cost, ways, mut at))| {
+            let mut picks = Vec::new();
+            while at != usize::MAX {
+                picks.push(steps[at].0);
+                at = steps[at].1;
+            }
+            picks.reverse();
+            (net, cost, ways, picks)
+        })
+        .collect()
+}
+
+/// Meet the charge `target` by picking one entry from each table, minimizing the summed cost.
+/// Returns the picks (parallel to `tables`) and whether the choice is ambiguous: another
+/// combination ties, or a picked entry was itself tied.
+fn combine_per_net(
+    tables: &[(Vec<usize>, NetTable)],
+    target: i32,
+) -> Option<(Vec<NetEntry>, bool)> {
+    use std::collections::BTreeMap;
+    let mut layer: BTreeMap<i32, (Cost, u8, usize)> =
+        BTreeMap::from([(0, ((0, 0, 0, 0, 0, 0), 1, usize::MAX))]);
+    // (unit, net charge chosen in that unit, back-pointer)
+    let mut steps: Vec<(usize, i32, usize)> = Vec::new();
+    for (u, (_, table)) in tables.iter().enumerate() {
+        let mut next: BTreeMap<i32, (Cost, u8, usize)> = BTreeMap::new();
+        for (&net, &(cost, ways, back)) in &layer {
+            for (&q, e) in table {
+                let total = add_cost(cost, e.cost);
+                match next.get_mut(&(net + q)) {
+                    Some(x) if total > x.0 => {}
+                    Some(x) if total == x.0 => x.1 = (x.1 + ways).min(2),
+                    _ => {
+                        steps.push((u, q, back));
+                        next.insert(net + q, (total, ways, steps.len() - 1));
+                    }
+                }
+            }
+        }
+        layer = next;
+    }
+    let &(_, ways, mut at) = layer.get(&target)?;
+    let mut picks: Vec<Option<NetEntry>> = vec![None; tables.len()];
+    let mut ambiguous = ways > 1;
+    while at != usize::MAX {
+        let (u, q, back) = steps[at];
+        let e = &tables[u].1[&q];
+        ambiguous |= e.ambiguous;
+        picks[u] = Some(e.clone());
+        at = back;
+    }
+    Some((
+        picks
+            .into_iter()
+            .map(|p| p.expect("every table picked once"))
+            .collect(),
+        ambiguous,
+    ))
+}
+
+/// The charge tie-break term: 0 on target (or `None` when the target is missed), else the net
+/// magnitude when no target is set.
+fn charge_dev_of(target: Option<i32>, net: i32) -> Option<u32> {
+    match target {
+        Some(t) => (net == t).then_some(0),
+        None => Some(net.unsigned_abs()),
     }
 }
 
@@ -1312,6 +1897,86 @@ mod tests {
             ..BondOrderOptions::default()
         };
         assign_bond_orders(&top, Some(&pos), &opts).unwrap()
+    }
+
+    /// Like [`solve_geom`], with a total-charge target.
+    fn solve_geom_charged(
+        z: &[u8],
+        bonds: &[(usize, usize)],
+        coords: &[[Float; 3]],
+        total_charge: i32,
+    ) -> Result<BondAssignment, BondPerceptionError> {
+        let bond_rows: Vec<(usize, usize, BondOrder)> =
+            bonds.iter().map(|&(i, j)| (i, j, U)).collect();
+        let top = topo(z, &bond_rows);
+        let pos: Vec<Pos> = coords.iter().map(|c| Pos::new(c[0], c[1], c[2])).collect();
+        let opts = BondOrderOptions {
+            hydrogens: HydrogenPolicy::InferFromGeometry,
+            total_charge: Some(total_charge),
+            ..BondOrderOptions::default()
+        };
+        assign_bond_orders(&top, Some(&pos), &opts)
+    }
+
+    /// Heavy-atom ethylamine with a +1 target is ethylammonium. Every bond is single by length,
+    /// so no bond is free: the charge must come from choosing the nitrogen's state, which the
+    /// solver used to fix as neutral before the search and then report no valid assignment.
+    #[test]
+    fn geometry_with_charge_target_protonates_a_fixed_amine() {
+        let coords = [[0.0, 0.0, 0.0], [0.153, 0.0, 0.0], [0.200, 0.140, 0.0]];
+        let a = solve_geom_charged(&[6, 6, 7], &[(0, 1), (1, 2)], &coords, 1).unwrap();
+        assert_eq!(a.implicit_hydrogens(), &[3, 2, 3], "CH3-CH2-NH3+");
+        assert_eq!(a.formal_charges()[2], Some(1));
+    }
+
+    /// The same with a free cluster present: benzylamine + 1. The ring is solved on its own and
+    /// the +1 still lands on the amine, not in the ring.
+    #[test]
+    fn geometry_with_charge_target_combines_ring_and_fixed_atoms() {
+        let r = 0.139;
+        let mut coords: Vec<[Float; 3]> = (0..6)
+            .map(|k| {
+                let t = std::f64::consts::PI / 3.0 * k as f64;
+                [r * t.cos() as Float, r * t.sin() as Float, 0.0]
+            })
+            .collect();
+        coords.push([0.290, 0.0, 0.0]); // CH2, 0.151 nm from ring C0
+        coords.push([0.340, 0.138, 0.0]); // N, 0.147 nm from CH2
+        let mut bonds: Vec<(usize, usize)> = (0..6).map(|k| (k, (k + 1) % 6)).collect();
+        bonds.extend([(0, 6), (6, 7)]);
+        let a = solve_geom_charged(&[6, 6, 6, 6, 6, 6, 6, 7], &bonds, &coords, 1).unwrap();
+        assert_eq!(
+            a.implicit_hydrogens(),
+            &[0, 1, 1, 1, 1, 1, 2, 3],
+            "C6H5-CH2-NH3+"
+        );
+        assert_eq!(a.formal_charges()[7], Some(1));
+    }
+
+    /// Heavy-atom formamide. The 0.135 nm amide C-N is short enough to pass the double-bond
+    /// cap, and HN=C=O needs fewer implicit hydrogens, but its carbon would be sp while the
+    /// N-C-O angle is 124°: the linear-geometry rule keeps H2N-CH=O.
+    #[test]
+    fn geometry_rejects_two_pi_bonds_on_a_bent_atom() {
+        let t = (124.0 as Float).to_radians();
+        let coords = [
+            [0.135, 0.0, 0.0],                       // N
+            [0.0, 0.0, 0.0],                         // C
+            [0.123 * t.cos(), 0.123 * t.sin(), 0.0], // O
+        ];
+        let a = solve_geom(&[7, 6, 8], &[(0, 1), (1, 2)], &coords);
+        assert_eq!(a.implicit_hydrogens(), &[2, 1, 0], "H2N-CH=O, not HN=C=O");
+        assert_eq!(a.bond_orders()[0], Some(S));
+        assert_eq!(a.bond_orders()[1], Some(D));
+    }
+
+    /// ...while a linear atom keeps its two π bonds: acetonitrile's C≡N stays triple.
+    #[test]
+    fn geometry_keeps_a_linear_nitrile() {
+        let coords = [[-0.146, 0.0, 0.0], [0.0, 0.0, 0.0], [0.116, 0.0, 0.0]];
+        let a = solve_geom(&[6, 6, 7], &[(0, 1), (1, 2)], &coords);
+        assert_eq!(a.bond_orders()[1], Some(T));
+        assert_eq!(a.implicit_hydrogens(), &[3, 0, 0], "CH3-C≡N");
     }
 
     #[test]
