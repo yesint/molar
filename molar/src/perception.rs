@@ -518,7 +518,22 @@ fn ring_is_aromatic(
     if ring.bonds.iter().all(|&bi| order(bi) == BondOrder::Aromatic) {
         return true; // already aromatized / SDF order-4
     }
+    ring_is_huckel_aromatic(ring, order, adj, z, in_ring)
+}
 
+/// The Hückel half of [`ring_is_aromatic`], over bond orders from `order` (by bond index) so a
+/// candidate assignment can be tested without writing it: the bond-order solver uses this to
+/// prefer the tautomer that keeps more rings aromatic.
+fn ring_is_huckel_aromatic(
+    ring: &RingData,
+    order: impl Fn(usize) -> BondOrder,
+    adj: &BondAdjacency,
+    z: &[u8],
+    in_ring: &[bool],
+) -> bool {
+    if !(5..=6).contains(&ring.atoms.len()) {
+        return false;
+    }
     let mut pi = 0i32;
     for &a in &ring.atoms {
         // A double bond to a ring neighbour (possibly in a fused ring) puts a π electron
@@ -580,11 +595,10 @@ pub enum KekulizeError {
     )]
     UnknownValence(usize, u8),
 
-    #[error(
-        "the aromatic system containing atom {0} has no valid Kekulé structure \
-         ({1} of its atoms each need a double bond, which cannot be paired up)"
-    )]
-    NonKekulizable(usize, usize),
+    /// One entry per aromatic system that failed, so a molecule with several broken rings is
+    /// diagnosed in one pass instead of one ring per retry.
+    #[error("{}", describe_unpaired(.0))]
+    NonKekulizable(Vec<UnpairedSystem>),
 
     #[error("kekulizing the aromatic system containing atom {0} exceeded the search budget")]
     Exhausted(usize),
@@ -602,10 +616,57 @@ impl KekulizeError {
         match self {
             Self::OverValent(i) => Self::OverValent(g(i)),
             Self::UnknownValence(i, z) => Self::UnknownValence(g(i), z),
-            Self::NonKekulizable(i, k) => Self::NonKekulizable(g(i), k),
+            Self::NonKekulizable(systems) => Self::NonKekulizable(
+                systems
+                    .into_iter()
+                    .map(|s| UnpairedSystem {
+                        atom: g(s.atom),
+                        n_demanding: s.n_demanding,
+                        h_candidates: s.h_candidates.into_iter().map(g).collect(),
+                    })
+                    .collect(),
+            ),
             Self::Exhausted(i) => Self::Exhausted(g(i)),
         }
     }
+}
+
+/// An aromatic system with no Kekulé structure, as reported by [`KekulizeError::NonKekulizable`].
+#[derive(Debug, Clone)]
+pub struct UnpairedSystem {
+    /// Lowest-indexed atom of the system that needs a double bond.
+    pub atom: usize,
+    /// How many atoms of the system each need a double bond.
+    pub n_demanding: usize,
+    /// When `n_demanding` is odd: the hydrogen-free, two-coordinate aromatic nitrogens where an
+    /// added N-H would make the system kekulizable. The usual cause of an odd system
+    /// is exactly that H being lost upstream — a pyrrole/indole/imidazole/triazole N-H or a
+    /// lactam N-H, e.g. from an aromatic mol block written without explicit hydrogens. Adding
+    /// the H to *any one* of these gives a Kekulé structure; which one is a tautomer choice this
+    /// module cannot make. Empty for an even system (the demand is paired wrong, not missing),
+    /// and when no single N-H would fix it.
+    pub h_candidates: Vec<usize>,
+}
+
+fn describe_unpaired(systems: &[UnpairedSystem]) -> String {
+    let parts: Vec<String> = systems
+        .iter()
+        .map(|s| {
+            let mut m = format!(
+                "the aromatic system containing atom {} has no valid Kekulé structure ({} of its \
+                 atoms each need a double bond, which cannot be paired up)",
+                s.atom, s.n_demanding
+            );
+            if !s.h_candidates.is_empty() {
+                m += &format!(
+                    "; a hydrogen is probably missing on one of the aromatic N atoms {:?}",
+                    s.h_candidates
+                );
+            }
+            m
+        })
+        .collect();
+    parts.join("; also, ")
 }
 
 /// Resolve [`BondOrder::Aromatic`] bonds into an alternating Kekulé structure, returning the
@@ -705,6 +766,7 @@ pub fn kekulize(
     // system that actually failed instead of the whole molecule.
     let mut matched = vec![false; n];
     let mut seen = vec![false; n];
+    let mut unpaired = Vec::new();
     for start in 0..n {
         if !needs[start] || seen[start] {
             continue;
@@ -729,11 +791,46 @@ pub fn kekulize(
         let mut budget = KEKULE_BUDGET;
         match match_aromatic_system(&comp, &cand, &mut matched, &mut out, &mut budget) {
             Ok(true) => {}
-            Ok(false) => return Err(KekulizeError::NonKekulizable(start, comp.len())),
+            Ok(false) => {
+                // An N-H on a bare two-coordinate aromatic N removes exactly one demand — the fix
+                // for an odd count. Only the nitrogens for which the rest then pairs up are named:
+                // in a guanine without its N1-H, an H on N7 leaves the six-ring still unpaired.
+                let h_candidates = if comp.len() % 2 == 1 {
+                    comp.iter()
+                        .copied()
+                        .filter(|&a| {
+                            z[a] == 7
+                                && adj.neighbors(a).len() == 2
+                                && adj
+                                    .neighbors(a)
+                                    .iter()
+                                    .all(|nb| orders[nb.bond()] == BondOrder::Aromatic)
+                        })
+                        .filter(|&a| {
+                            // Probe on scratch copies: marking `a` matched drops its demand.
+                            let mut m = matched.clone();
+                            m[a] = true;
+                            let mut o = out.clone();
+                            let mut b = KEKULE_BUDGET;
+                            match_aromatic_system(&comp, &cand, &mut m, &mut o, &mut b) == Ok(true)
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                unpaired.push(UnpairedSystem {
+                    atom: start,
+                    n_demanding: comp.len(),
+                    h_candidates,
+                });
+            }
             Err(()) => return Err(KekulizeError::Exhausted(start)),
         }
     }
 
+    if !unpaired.is_empty() {
+        return Err(KekulizeError::NonKekulizable(unpaired));
+    }
     Ok(out)
 }
 
@@ -1285,10 +1382,64 @@ mod tests {
         let mut t = with_hydrogens(&[6; 5], &[
             (0, 1, A), (1, 2, A), (2, 3, A), (3, 4, A), (4, 0, A),
         ], &[1; 5]);
+        let Err(KekulizeError::NonKekulizable(systems)) = kek(&mut t) else {
+            panic!("5 demanding carbons in a 5-cycle have no perfect matching");
+        };
+        assert_eq!(systems.len(), 1);
+        assert_eq!(systems[0].n_demanding, 5);
         assert!(
-            matches!(kek(&mut t), Err(KekulizeError::NonKekulizable(..))),
-            "5 demanding carbons in a 5-cycle have no perfect matching"
+            systems[0].h_candidates.is_empty(),
+            "no nitrogen, so no N-H to suggest"
         );
+    }
+
+    /// Imidazole with its N-H lost upstream: all 5 ring atoms need a double bond. Either N
+    /// could take the missing H (a tautomer choice), so both are named.
+    #[test]
+    fn kekulize_names_the_nitrogens_that_could_carry_a_lost_nh() {
+        use BondOrder::Aromatic as A;
+        let mut t = with_hydrogens(
+            &[7, 6, 7, 6, 6],
+            &[(0, 1, A), (1, 2, A), (2, 3, A), (3, 4, A), (4, 0, A)],
+            &[0, 1, 0, 1, 1],
+        );
+        let err = kek(&mut t).unwrap_err();
+        let KekulizeError::NonKekulizable(systems) = &err else {
+            panic!("expected NonKekulizable, got {err:?}");
+        };
+        assert_eq!(systems[0].h_candidates, vec![0, 2]);
+        assert!(
+            err.to_string().contains("hydrogen is probably missing"),
+            "{err}"
+        );
+    }
+
+    /// Two broken rings in one molecule are both reported, so one pass diagnoses the whole input.
+    #[test]
+    fn kekulize_reports_every_broken_system() {
+        use BondOrder::Aromatic as A;
+        // An N-H-less imidazole (0..5) and a cyclopentadienyl radical (5..10), disconnected.
+        let mut t = with_hydrogens(
+            &[7, 6, 7, 6, 6, 6, 6, 6, 6, 6],
+            &[
+                (0, 1, A),
+                (1, 2, A),
+                (2, 3, A),
+                (3, 4, A),
+                (4, 0, A),
+                (5, 6, A),
+                (6, 7, A),
+                (7, 8, A),
+                (8, 9, A),
+                (9, 5, A),
+            ],
+            &[0, 1, 0, 1, 1, 1, 1, 1, 1, 1],
+        );
+        let Err(KekulizeError::NonKekulizable(systems)) = kek(&mut t) else {
+            panic!("both rings are odd");
+        };
+        let atoms: Vec<usize> = systems.iter().map(|s| s.atom).collect();
+        assert_eq!(atoms, vec![0, 5]);
     }
 
     /// ...but the same ring as an *anion* is fine: the carbanion's demand drops to zero, leaving

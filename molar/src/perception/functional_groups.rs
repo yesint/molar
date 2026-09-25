@@ -7,8 +7,11 @@
 //! then follow from the valence model, so a template only needs to fix **orders**, never
 //! charges.
 //!
-//! Every pattern here uses connectivity that does not depend on explicit hydrogen (terminal
-//! oxygens, a terminal-nitrogen chain), so it is safe under both hydrogen policies. Groups the
+//! Every pattern here is matched on connectivity that does not depend on explicit hydrogen
+//! (terminal oxygens, a terminal-nitrogen chain), so it applies under both hydrogen policies.
+//! Choosing *which* terminal atom carries the double bond can depend on hydrogen, though: with
+//! hydrogens removed, a carboxylic acid's O-H oxygen is terminal too. Where that matters the
+//! choice follows bond length when coordinates are given. Groups the
 //! general search already assigns canonically (nitrile, amide, aromatic rings) are left to it.
 //! The set is deliberately small and extensible; residue templates (step 6) will build on the
 //! same "fix orders, let charges follow" mechanism.
@@ -17,7 +20,14 @@ use crate::prelude::*;
 
 /// Canonical bond orders for the recognized functional groups, indexed by bond. `None` means no
 /// template applies to that bond.
-pub(super) fn functional_group_orders(z: &[u8], adj: &BondAdjacency) -> Vec<Option<BondOrder>> {
+///
+/// `coords` (one position per atom, or `None`) decides between otherwise equivalent terminal
+/// oxygens by bond length; without it the lowest index wins.
+pub(super) fn functional_group_orders(
+    z: &[u8],
+    adj: &BondAdjacency,
+    coords: Option<&[Pos]>,
+) -> Vec<Option<BondOrder>> {
     let mut orders: Vec<Option<BondOrder>> = vec![None; adj.n_bonds()];
     for a in 0..adj.n_atoms() {
         match z[a] {
@@ -26,7 +36,7 @@ pub(super) fn functional_group_orders(z: &[u8], adj: &BondAdjacency) -> Vec<Opti
                 n_oxide(a, z, adj, &mut orders);
                 azide(a, z, adj, &mut orders);
             }
-            6 => carboxyl(a, z, adj, &mut orders),
+            6 => carboxyl(a, z, adj, coords, &mut orders),
             16 => sulfoxide(a, z, adj, &mut orders),
             _ => {}
         }
@@ -117,10 +127,18 @@ fn sulfoxide(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondO
 }
 
 /// A carboxyl/carboxylate/ester carbon: bonded to exactly two oxygens, at least one terminal.
-/// Pin the terminal oxygen (lowest index) as the C=O and the other as a single bond; the charge
-/// (carboxylate -1, or neutral for an acid/ester whose second oxygen keeps a substituent or
-/// hydrogen) then follows from the valence model.
-fn carboxyl(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOrder>]) {
+/// Pin a terminal oxygen as the C=O and the other as a single bond; the charge (carboxylate -1,
+/// or neutral for an acid/ester whose second oxygen keeps a substituent or hydrogen) then
+/// follows from the valence model. Between two terminal oxygens the shorter C-O bond is the
+/// double one when `coords` is given — with hydrogens stripped that separates C=O (~0.12 nm)
+/// from C-OH (~0.135 nm) — and the lowest index otherwise.
+fn carboxyl(
+    a: usize,
+    z: &[u8],
+    adj: &BondAdjacency,
+    coords: Option<&[Pos]>,
+    orders: &mut [Option<BondOrder>],
+) {
     let oxygens: Vec<(usize, usize, usize)> = adj
         .neighbors(a)
         .iter()
@@ -138,6 +156,12 @@ fn carboxyl(a: usize, z: &[u8], adj: &BondAdjacency, orders: &mut [Option<BondOr
         return;
     }
     terminal.sort_by_key(|&&(atom, _, _)| atom);
+    if let Some(c) = coords {
+        // Stable sort: equal lengths keep the lowest-index order.
+        terminal.sort_by(|&&(p, _, _), &&(q, _, _)| {
+            (c[p] - c[a]).norm().total_cmp(&(c[q] - c[a]).norm())
+        });
+    }
     let double_bond = terminal[0].1;
     claim(orders, double_bond, BondOrder::Double);
     for &(_, bond, _) in &oxygens {
@@ -161,7 +185,7 @@ mod tests {
         let z = [6u8, 7, 8, 8];
         let bonds = [[0, 1], [1, 2], [1, 3]];
         let adj = adjacency(4, &bonds);
-        let o = functional_group_orders(&z, &adj);
+        let o = functional_group_orders(&z, &adj, None);
         assert_eq!(o[0], None, "C-N left to the solver");
         assert_eq!(o[1], Some(BondOrder::Double), "N=O on the lower-index oxygen");
         assert_eq!(o[2], Some(BondOrder::Single), "N-O on the other oxygen");
@@ -173,7 +197,7 @@ mod tests {
         let z = [6u8, 7, 7, 7];
         let bonds = [[0, 1], [1, 2], [2, 3]];
         let adj = adjacency(4, &bonds);
-        let o = functional_group_orders(&z, &adj);
+        let o = functional_group_orders(&z, &adj, None);
         assert_eq!(o[0], None, "R-N stays single via the solver");
         assert_eq!(o[1], Some(BondOrder::Double));
         assert_eq!(o[2], Some(BondOrder::Double));
@@ -185,10 +209,29 @@ mod tests {
         let z = [6u8, 8, 8, 6];
         let bonds = [[0, 1], [0, 2], [0, 3]];
         let adj = adjacency(4, &bonds);
-        let o = functional_group_orders(&z, &adj);
+        let o = functional_group_orders(&z, &adj, None);
         assert_eq!(o[0], Some(BondOrder::Double), "=O on the lower-index oxygen");
         assert_eq!(o[1], Some(BondOrder::Single));
         assert_eq!(o[2], None, "C-C left to the solver");
+    }
+
+    /// Hydrogen-stripped carboxylic acid: both oxygens are terminal. The short bond is the C=O
+    /// even when it is on the higher-index oxygen.
+    #[test]
+    fn carboxyl_double_bond_follows_geometry() {
+        // C0(-O1 0.135 nm)(-O2 0.120 nm)-C3
+        let z = [6u8, 8, 8, 6];
+        let bonds = [[0, 1], [0, 2], [0, 3]];
+        let adj = adjacency(4, &bonds);
+        let coords = [
+            Pos::new(0.0, 0.0, 0.0),
+            Pos::new(0.135, 0.0, 0.0),
+            Pos::new(-0.060, 0.104, 0.0),
+            Pos::new(-0.075, -0.130, 0.0),
+        ];
+        let o = functional_group_orders(&z, &adj, Some(&coords));
+        assert_eq!(o[0], Some(BondOrder::Single), "long C-O is the C-OH");
+        assert_eq!(o[1], Some(BondOrder::Double), "short C-O is the C=O");
     }
 
     #[test]
@@ -197,7 +240,7 @@ mod tests {
         let z = [6u8, 6, 6, 7, 8];
         let bonds = [[0, 3], [1, 3], [2, 3], [3, 4]];
         let adj = adjacency(5, &bonds);
-        let o = functional_group_orders(&z, &adj);
+        let o = functional_group_orders(&z, &adj, None);
         assert_eq!(o[3], Some(BondOrder::Single), "N-O of the oxide is single");
     }
 
@@ -207,7 +250,7 @@ mod tests {
         let z = [6u8, 6, 16, 8];
         let bonds = [[0, 2], [1, 2], [2, 3]];
         let adj = adjacency(4, &bonds);
-        let o = functional_group_orders(&z, &adj);
+        let o = functional_group_orders(&z, &adj, None);
         assert_eq!(o[2], Some(BondOrder::Single), "S-O of the sulfoxide is single");
     }
 
@@ -218,7 +261,7 @@ mod tests {
         let z = [6u8, 6, 16, 8, 8];
         let bonds = [[0, 2], [1, 2], [2, 3], [2, 4]];
         let adj = adjacency(5, &bonds);
-        let o = functional_group_orders(&z, &adj);
+        let o = functional_group_orders(&z, &adj, None);
         assert_eq!(o[2], None);
         assert_eq!(o[3], None);
     }
@@ -229,6 +272,10 @@ mod tests {
         let z = [6u8, 7, 1, 1];
         let bonds = [[0, 1], [1, 2], [1, 3]];
         let adj = adjacency(4, &bonds);
-        assert!(functional_group_orders(&z, &adj).iter().all(|o| o.is_none()));
+        assert!(
+            functional_group_orders(&z, &adj, None)
+                .iter()
+                .all(|o| o.is_none())
+        );
     }
 }
