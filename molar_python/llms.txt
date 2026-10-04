@@ -1,0 +1,20 @@
+# pymolar
+
+> Python interface to MolAR for molecular structures and trajectory analysis.
+> Coordinates: nm. Time: ps. NumPy selection coordinates: (3, n), copied.
+
+Read these repository documents in order:
+
+- [Agent guide](docs/agent_guide.rst): capabilities, data sharing, units, limits, task-to-API map.
+- [Selections](docs/selections.rst): syntax, global/local indices, tuple endpoints, operators.
+- [Workflows](docs/workflows.rst): complete Python examples and trajectory task rules.
+- [Python API types](python/pymolar/molar.pyi): exported names and call signatures.
+- [Install and build](README.md): precision variants, optional formats, documentation build.
+- [Coverage audit](docs/coverage-audit.md): evidence, corrected gaps, remaining implementation limits.
+
+Critical rules: use rmsd_py, not rmsd. Use gyration(pbc=True), not gyration_pbc.
+Use replace_state_deep(frame) to update existing selections; it swaps frame data.
+Assign Fortran-contiguous arrays with the package's dtype to sel.coords.
+Do not retain coordinate views across frame swaps or atom-count changes.
+Python Sel already has topology/state references; no bind method is required.
+There is no exposed Sel.sasa method or membrane analysis API in this version.

@@ -51,17 +51,10 @@ use crate::{
 //-------------------------------------------
 /// Solvent-accessible surface area and volume measurements for a selection.
 ///
-/// Both a result holder and a persistent calculator: call :meth:`update` on subsequent
-/// frames to reuse the power diagram without full reconstruction.
+/// The current Python interface exports this result type but provides no public
+/// constructor, selection SASA method, or update method. SASA calculation is
+/// available in the Rust interface only.
 ///
-/// **Example**
-///
-/// .. code-block:: python
-///
-///    sasa = sel.sasa()
-///    print(sasa.total_area)    # total SASA in nm²
-///    print(sasa.areas[:5])     # per-atom areas
-
 #[pyclass(unsendable, name = "Sasa")]
 struct SasaPy(Sasa);
 
@@ -104,6 +97,7 @@ impl SasaPy {
 /// Rigid-body isometry (rotation + translation) returned by ``fit_transform``.
 ///
 /// No public constructor; obtained from :func:`pymolar.fit_transform`.
+/// This returned type is not exported as a package-level name.
 #[pyclass]
 struct IsometryTransform(nalgebra::IsometryMatrix3<Float>);
 
@@ -192,7 +186,7 @@ fn fit_transform_matching_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<IsometryTra
 /// .. code-block:: python
 ///
 ///    import pymolar
-///    r = pymolar.rmsd(sel1, sel2)
+///    r = pymolar.rmsd_py(sel1, sel2)
 
 #[pyfunction]
 fn rmsd_py(sel1: &SelPy, sel2: &SelPy) -> PyResult<Float> {
@@ -244,9 +238,13 @@ impl ParticleIterator {
 /// :param cutoff: Distance cutoff in nm, or ``"vdw"`` for van der Waals radii sum.
 /// :param data1: First selection.
 /// :param data2: Second selection (optional; self-search if omitted).
-/// :param dims: Periodic dimensions ``[x, y, z]`` booleans.
+/// :param dims: Periodic dimensions ``[x, y, z]`` booleans; None disables PBC.
+///     PBC requires a box on data1.
+/// :raises ValueError: For a non-finite or non-positive numeric cutoff, or missing box.
+/// :raises NotImplementedError: For a single-selection ``"vdw"`` search.
 /// :returns: Tuple ``(pairs, distances)`` — ``pairs`` is ``[N, 2]`` index array,
-///     ``distances`` is length-N float array.
+///     ``distances`` is length-N float array in nm. Pair indices are global in
+///     the respective systems, not local selection indices.
 /// :rtype: tuple[numpy.ndarray, numpy.ndarray]
 ///
 /// **Example**

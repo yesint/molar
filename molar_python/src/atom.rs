@@ -77,7 +77,7 @@ impl AtomPy {
     }
 
     // mass
-    /// Atomic mass.
+    /// Atomic mass in Da.
     #[getter(mass)]
     fn get_mass(&self) -> Float {
         self.0.mass
@@ -89,7 +89,7 @@ impl AtomPy {
     }
 
     // charge
-    /// Atom charge.
+    /// Partial charge in elementary charge units; separate from formal charge.
     #[getter(charge)]
     fn get_charge(&self) -> Float {
         self.0.charge
@@ -101,7 +101,7 @@ impl AtomPy {
     }
 
     // type_name
-    /// Force-field atom type name.
+    /// Force-field atom type name, or None when absent.
     #[getter(type_name)]
     fn get_type_name(&self) -> Option<&str> {
         self.0.get_type_name()
@@ -113,7 +113,7 @@ impl AtomPy {
     }
 
     // type_id
-    /// Force-field atom type identifier.
+    /// Force-field atom type identifier, or None when absent.
     #[getter(type_id)]
     fn get_type_id(&self) -> Option<u32> {
         self.0.type_id
@@ -322,10 +322,10 @@ impl AtomView {
         Ok(())
     }
 
-    /// Force-field atom type name.
+    /// Force-field atom type name, or None when absent.
     ///
     /// :returns: Type name.
-    /// :rtype: str
+    /// :rtype: str or None
     #[getter(type_name)]
     fn get_type_name(&self) -> PyResult<Option<String>> {
         Ok(self.atom()?.get_type_name().map(|s| s.to_owned()))
@@ -343,7 +343,7 @@ impl AtomView {
     /// Force-field atom type integer ID.
     ///
     /// :returns: Type ID.
-    /// :rtype: int
+    /// :rtype: int or None
     #[getter(type_id)]
     fn get_type_id(&self) -> PyResult<Option<u32>> {
         Ok(self.atom()?.get_type_id())

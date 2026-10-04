@@ -1,3 +1,9 @@
+"""Molecular structures and trajectory analysis in single precision.
+
+Coordinates and distances use nm; time uses ps. Selection coordinates are
+copies of shape (3, n). Read molar_python/llms.txt and docs/agent_guide.rst
+for capabilities, units, data sharing, workflows, and interface limits.
+"""
 from .molar import *
 import argparse
 import logging
@@ -24,11 +30,15 @@ def _process_suffix(s):
 
 
 class AnalysisTask:
-    """Base class for trajectory processing tasks.
+    """Base class for command-line trajectory processing.
 
-    Subclass and implement `register_args`, `pre_process`, `process_frame`,
-    and `post_process`. The constructor parses CLI arguments, streams trajectory
-    frames, and calls the hooks in processing order.
+    Construction parses arguments and runs the complete task. The files argument
+    must contain a topology file followed by at least one trajectory. Implement
+    register_args(parser), pre_process(), process_frame(), and post_process().
+    pre_process runs on the first processed frame; post_process also runs when
+    no frames were processed. Use self.src for current coordinates and time.
+    self.state receives previous-frame data after replace_state_deep swaps.
+    See docs/workflows.rst for frame limits and multi-file timing behavior.
     """
 
     def __init__(self):
@@ -127,20 +137,20 @@ class AnalysisTask:
 
 
     def register_args(self,parser):
-        """Register task-specific CLI arguments on the provided parser."""
+        """Add task-specific arguments before CLI parsing."""
         pass
 
 
     def pre_process(self):
-        """Hook called once before the first processed frame."""
+        """Initialize selections on self.src at the first processed frame."""
         pass
 
 
     def process_frame(self):
-        """Hook called for each processed frame."""
+        """Process the current frame through self.src; called once per processed frame."""
         pass
 
 
     def post_process(self):
-        """Hook called once after all frames are processed."""
+        """Finish the task; called even when no frames were processed."""
         pass

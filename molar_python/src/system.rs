@@ -287,7 +287,15 @@ impl SystemPy {
         ))
     }
 
-    /// Swap internal state data with `st` when layouts are compatible.
+    /// Swap internal state data with ``st`` when layouts are compatible.
+    ///
+    /// Existing selections sharing the state see the new frame. The input state
+    /// receives the old frame, including time and box. Atom order must match.
+    /// Release NumPy position views before a swap. Assigning ``sys.state`` instead
+    /// changes only this system's reference and does not update existing selections.
+    ///
+    /// :param st: Compatible state.
+    /// :raises ValueError: If state layouts are incompatible.
     fn replace_state_deep(&self, st: &Bound<StatePy>) -> PyResult<()> {
         if self.r_st().interchangeable(st.get().inner()) {
             unsafe { std::ptr::swap(self.r_st_mut(), st.get().inner_mut()) };
@@ -384,7 +392,7 @@ impl SystemPy {
     ///
     /// :param ff: Force field, ``"gaff"`` (default) or ``"gaff2"``.
     /// :raises ValueError: on an unknown force field or missing bond orders (the input
-    ///     must carry bond orders, e.g. from an SDF/mol2 file).
+    ///     must carry bond orders, e.g. from an SDF/mol file).
     ///
     /// .. code-block:: python
     ///
@@ -399,12 +407,12 @@ impl SystemPy {
     /// Predict partial charges for all atoms, writing each atom's ``charge``.
     ///
     /// The whole system is treated as the molecule and charges are equilibrated to sum to
-    /// zero over it. Any integer formal charge already on ``charge`` (e.g. read from an SDF
-    /// ``M  CHG`` record) is used as input and then overwritten with the predicted charge.
+    /// zero over it. Formal charges are read from the separate topology formal-charge
+    /// field. Existing partial ``charge`` values are overwritten; formal charges remain.
     ///
     /// :param model: Charge model, ``"espaloma"`` (default).
     /// :raises ValueError: on an unknown model, missing bond orders (the input must carry
-    ///     explicit single/double/triple bonds, e.g. from an SDF/mol2 file), or an
+    ///     explicit single/double/triple bonds, e.g. from an SDF/mol file), or an
     ///     unsupported element.
     ///
     /// .. code-block:: python

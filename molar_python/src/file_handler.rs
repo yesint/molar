@@ -11,6 +11,12 @@ use crate::{SystemPy, SelPy};
 const ALREADY_TRANDFORMED: &str = "file handler is already transformed to state iterator";
 /// Reader/writer for topology and trajectory files.
 ///
+/// The extension selects the format. Each format supports its own operations.
+/// Seek before iteration: iteration consumes the reader, and explicit reads,
+/// writes, seeks, stats, and file_name then raise TypeError.
+/// The context manager does not close a retained handler; release it to finish
+/// buffered output.
+///
 /// **Example**
 ///
 /// .. code-block:: python
@@ -144,6 +150,9 @@ impl FileHandlerPy {
 
     /// Write topology from ``System``, ``Sel``, or ``Topology``.
     ///
+    /// A Sel currently writes its full backing topology. Use ``write(sel)`` or
+    /// ``sel.save(path)`` for selected atoms only.
+    ///
     /// :param data: Source object containing topology.
     /// :returns: ``None``.
     /// :rtype: None
@@ -169,6 +178,9 @@ impl FileHandlerPy {
     }
 
     /// Write state from ``System``, ``Sel``, or ``State``.
+    ///
+    /// A Sel currently writes its full backing state. Use ``write(sel)`` or
+    /// ``sel.save(path)`` for selected atoms only.
     ///
     /// :param data: Source object containing state.
     /// :returns: ``None``.
@@ -281,7 +293,7 @@ impl FileHandlerPy {
 
     /// Seek reader to simulation time.
     ///
-    /// :param t: Target simulation time.
+    /// :param t: Target simulation time in ps.
     /// :returns: ``None``.
     /// :rtype: None
     fn skip_to_time(&mut self, t: Float) -> PyResult<()> {

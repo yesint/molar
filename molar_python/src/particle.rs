@@ -60,7 +60,10 @@ impl ParticlePy {
 impl ParticlePy {
     /// Return atom position as a length-3 NumPy array view.
     ///
-    /// :returns: Position vector ``[x, y, z]``.
+    /// Copy this view for stored results. Release it before frame swaps or
+    /// atom-count changes.
+    ///
+    /// :returns: Writable position view ``[x, y, z]`` in nm.
     /// :rtype: numpy.ndarray
     #[getter(pos)]
     fn get_pos<'py>(slf: &'py Bound<'py, Self>) -> Bound<'py, PyArray1<Float>> {
@@ -71,6 +74,9 @@ impl ParticlePy {
     }
 
     /// Set atom position from a length-3 vector.
+    ///
+    /// The current implementation writes to the first coordinate slot. Use the
+    /// ``x``, ``y``, and ``z`` setters for an indexed particle edit.
     ///
     /// :param pos: New position vector.
     /// :returns: ``None``.
@@ -164,7 +170,7 @@ impl ParticlePy {
     /// Get mutable atom view.
     ///
     /// :returns: Mutable atom view.
-    /// :rtype: Atom
+    /// :rtype: AtomView
     #[getter(atom)]
     fn get_atom(slf: &Bound<'_, Self>) -> AtomView {
         let s = slf.get();
@@ -355,7 +361,7 @@ impl ParticlePy {
     /// Force-field atom type name.
     ///
     /// :returns: Force-field type name.
-    /// :rtype: str
+    /// :rtype: str or None
     #[getter(type_name)]
     fn get_type_name(&self) -> Option<String> {
         unsafe {
@@ -386,7 +392,7 @@ impl ParticlePy {
     /// Force-field atom type identifier.
     ///
     /// :returns: Force-field type id.
-    /// :rtype: int
+    /// :rtype: int or None
     #[getter(type_id)]
     fn get_type_id(&self) -> Option<u32> {
         unsafe { self.top().atoms.get_unchecked(self.id).get_type_id() }

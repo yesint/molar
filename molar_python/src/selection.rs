@@ -385,7 +385,8 @@ impl SelPy {
 
     /// Build sub-selection from query string, range, or explicit indices.
     ///
-    /// :param arg: Selection expression, range tuple, or index list.
+    /// :param arg: Selection expression, inclusive local range tuple ``(start, end)``,
+    ///     or local index list. Text ``index`` queries use global indices.
     /// :returns: Derived selection.
     /// :rtype: Sel
     fn __call__(&self, arg: &Bound<'_, PyAny>) -> PyResult<SelPy> {
@@ -475,7 +476,11 @@ impl SelPy {
 
     /// Coordinates of selected atoms as an array of shape ``[3, n_atoms]``.
     ///
-    /// :returns: Coordinate array.
+    /// This getter returns an independent copy. To edit the state, assign the array
+    /// back with the same dtype and Fortran-contiguous storage:
+    /// ``sel.coords = numpy.asfortranarray(coords, dtype=sel.coords.dtype)``.
+    ///
+    /// :returns: Coordinate copy.
     /// :rtype: numpy.ndarray
     #[getter("coords")]
     fn get_coords<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<Float>> {
@@ -522,7 +527,8 @@ impl SelPy {
 
     /// Set coordinates from an array of shape ``[3, n_atoms]``.
     ///
-    /// :param arr: Coordinate array.
+    /// :param arr: Fortran-contiguous coordinate array with the package float dtype.
+    ///     Use ``numpy.asfortranarray(arr, dtype=sel.coords.dtype)`` before assignment.
     /// :returns: ``None``.
     /// :rtype: None
     #[setter("coords")]
@@ -597,7 +603,11 @@ impl SelPy {
 
     /// Replace state data in-place by swapping with a compatible state.
     ///
-    /// :param st: Compatible state object.
+    /// Existing selections sharing this state see the new frame. The input state
+    /// receives the old frame data; this operation is a swap, not a copy.
+    /// Release NumPy position views before calling it.
+    ///
+    /// :param st: Compatible state object with matching atom order.
     /// :returns: ``None``.
     /// :rtype: None
     fn replace_state_deep(&self, st: &Bound<StatePy>) -> PyResult<()> {
@@ -657,6 +667,9 @@ impl SelPy {
     /// .. code-block:: python
     ///
     ///    sel.set_same_chain('A')
+    ///
+    /// The current implementation changes the full backing topology. For a
+    /// restricted edit, set the property through ``sel.iter_atoms()`` instead.
     pub fn set_same_chain(&self, val: char) {
         AtomMutProvider::set_same_chain(self.r_top_mut(), val)
     }
@@ -670,6 +683,9 @@ impl SelPy {
     /// .. code-block:: python
     ///
     ///    sel.set_same_resname('ALA')
+    ///
+    /// The current implementation changes the full backing topology. For a
+    /// restricted edit, set the property through ``sel.iter_atoms()`` instead.
     pub fn set_same_resname(&self, val: &str) {
         AtomMutProvider::set_same_resname(self.r_top_mut(), val)
     }
@@ -677,6 +693,9 @@ impl SelPy {
     /// Set residue ID for all selected atoms in-place.
     ///
     /// :param val: New residue ID.
+    ///
+    /// The current implementation changes the full backing topology. For a
+    /// restricted edit, set the property through ``sel.iter_atoms()`` instead.
     pub fn set_same_resid(&self, val: i32) {
         AtomMutProvider::set_same_resid(self.r_top_mut(), val)
     }
@@ -684,6 +703,9 @@ impl SelPy {
     /// Set atom name for all selected atoms in-place.
     ///
     /// :param val: New atom name.
+    ///
+    /// The current implementation changes the full backing topology. For a
+    /// restricted edit, set the property through ``sel.iter_atoms()`` instead.
     pub fn set_same_name(&self, val: &str) {
         AtomMutProvider::set_same_name(self.r_top_mut(), val)
     }
@@ -691,6 +713,9 @@ impl SelPy {
     /// Set atomic mass for all selected atoms in-place.
     ///
     /// :param val: New mass in Da.
+    ///
+    /// The current implementation changes the full backing topology. For a
+    /// restricted edit, set the property through ``sel.iter_atoms()`` instead.
     pub fn set_same_mass(&self, val: Float) {
         AtomMutProvider::set_same_mass(self.r_top_mut(), val)
     }
@@ -698,6 +723,9 @@ impl SelPy {
     /// Set B-factor for all selected atoms in-place.
     ///
     /// :param val: New B-factor value.
+    ///
+    /// The current implementation changes the full backing topology. For a
+    /// restricted edit, set the property through ``sel.iter_atoms()`` instead.
     pub fn set_same_bfactor(&self, val: Float) {
         AtomMutProvider::set_same_bfactor(self.r_top_mut(), val)
     }
@@ -728,8 +756,8 @@ impl SelPy {
     /// Predict partial charges for the selected atoms, writing each atom's ``charge``. The
     /// selection is treated as the molecule (only bonds whose both endpoints are selected are
     /// used, so it should span complete molecule(s)) and charges are equilibrated to sum to
-    /// zero over it. Any integer formal charge already on ``charge`` is used as input and then
-    /// overwritten with the predicted charge.
+    /// zero over it. Formal charges are read from the separate topology formal-charge
+    /// field. Existing partial ``charge`` values are overwritten; formal charges remain.
     ///
     /// :param model: Charge model, ``"espaloma"`` (default).
     /// :raises ValueError: on an unknown model, missing bond orders, an unsupported element,
@@ -803,7 +831,7 @@ impl SelPy {
     #[pyo3(text_signature = "($self, dims=None)")]
     /// Center of mass, optionally using periodic dimensions.
     ///
-    /// :param dims: Periodic dimensions ``[x, y, z]`` booleans.
+    /// :param dims: Periodic dimensions ``[x, y, z]`` booleans. None disables PBC.
     /// :returns: Center-of-mass vector ``[x, y, z]`` in nm.
     /// :rtype: numpy.ndarray
     ///
@@ -832,7 +860,7 @@ impl SelPy {
     #[pyo3(text_signature = "($self, dims=None)")]
     /// Center of geometry, optionally using periodic dimensions.
     ///
-    /// :param dims: Periodic dimensions ``[x, y, z]`` booleans.
+    /// :param dims: Periodic dimensions ``[x, y, z]`` booleans. None disables PBC.
     /// :returns: Center-of-geometry vector ``[x, y, z]`` in nm.
     /// :rtype: numpy.ndarray
     ///

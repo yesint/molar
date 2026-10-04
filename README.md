@@ -800,6 +800,10 @@ analysis_task -f structure.pdb traj_1.xtc traj_2.xtc -b 150 -e 100ns -log 100 --
 
 MolAR provides convenient Python bindings, creatively named `pymolar`, which has its own ["Pythonic" API](https://yesint.github.io/molar/).
 
+Start with the [Python agent guide](molar_python/docs/agent_guide.rst) and
+[workflow examples](molar_python/docs/workflows.rst). The
+[agent documentation index](molar_python/llms.txt) lists API sources and usage rules.
+
 The bindings are made as performant as possible, but they are not as fast as the native Rust functions. Nevertheless, `pymolar` is still significanly faster than MDAnalysis or other similar pure-python libraries.
 
 ## Installation
@@ -851,7 +855,7 @@ class MyTask(AnalysisTask):
     # This method is called before starting trajectory processing
     def pre_process(self):
         # Create a selection using selection string from the command line
-        # self.src contains a Source with the first state read
+        # self.src is a System with the first processed frame
         self.sel = self.src(self.args.sel)
         # Average center of masses
         self.com_ave = np.array([0.0,0.0,0.0])
@@ -860,12 +864,14 @@ class MyTask(AnalysisTask):
     # This method is called on each trajectory frame
     def process_frame(self):
         cm = self.sel.com()
-        print(f"time: {self.state.time}, com: {cm}")
+        print(f"time: {self.src.time}, com: {cm}")
         self.com_ave += cm
 
 
     # This method is called after trajectory processing is finished
     def post_process(self):
+        if self.consumed_frames == 0:
+            return
         self.com_ave /= self.consumed_frames
         print(f"Average com: {self.com_ave}")
 

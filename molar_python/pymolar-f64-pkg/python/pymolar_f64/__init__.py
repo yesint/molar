@@ -36,10 +36,15 @@ def _process_suffix(s):
 
 
 class AnalysisTask:
-    """Base class for trajectory processing tasks (f64 build).
+    """Base class for command-line trajectory processing.
 
-    See :class:`pymolar.AnalysisTask` for the full docstring; behavior is
-    identical except that all numerical values are double precision.
+    Construction parses arguments and runs the complete task. The files argument
+    must contain a topology file followed by at least one trajectory. Implement
+    register_args(parser), pre_process(), process_frame(), and post_process().
+    pre_process runs on the first processed frame; post_process also runs when
+    no frames were processed. Use self.src for current coordinates and time.
+    self.state receives previous-frame data after replace_state_deep swaps.
+    See docs/workflows.rst for frame limits and multi-file timing behavior.
     """
 
     def __init__(self):
@@ -123,13 +128,17 @@ class AnalysisTask:
         logging.info(f'At frame {self.consumed_frames}, time {t}')
 
     def register_args(self, parser):
+        """Add task-specific arguments before CLI parsing."""
         pass
 
     def pre_process(self):
+        """Initialize selections on self.src at the first processed frame."""
         pass
 
     def process_frame(self):
+        """Process the current frame through self.src; called once per processed frame."""
         pass
 
     def post_process(self):
+        """Finish the task; called even when no frames were processed."""
         pass

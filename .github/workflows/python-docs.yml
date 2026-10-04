@@ -42,9 +42,13 @@ jobs:
         run: |
           python -m pip install target/wheels/pymolar-*.whl --force-reinstall
 
+      - name: Check documentation examples and API type coverage
+        run: |
+          python molar_python/scripts/check_docs.py
+
       - name: Generate docs
         run: |
-          python molar_python/scripts/generate_sphinx_docs.py --skip-install
+          python molar_python/scripts/generate_sphinx_docs.py --skip-install --strict
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
