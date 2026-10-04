@@ -1,6 +1,6 @@
 [package]
 name = "molar_ff"
-version = "2.2.0"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -15,7 +15,7 @@ categories.workspace = true
 exclude = ["tests/data/gaff_ref"]
 
 [dependencies]
-molar = { version = "2.2.0", path = "../molar" }
+molar = { version = "2.3.0", path = "../molar" }
 thiserror.workspace = true
 matrixmultiply.workspace = true
 

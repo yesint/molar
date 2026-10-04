@@ -1,6 +1,6 @@
 [package]
 name = "molar_gromacs"
-version = "2.1.0"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
