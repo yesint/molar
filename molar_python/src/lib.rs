@@ -11,6 +11,7 @@ use pyo3::{
     IntoPyObjectExt,
 };
 
+mod force_field;
 mod utils;
 use utils::*;
 
@@ -437,6 +438,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// module (the molar_vis native viewer) can register pymolar into its **own** module,
 /// giving `System`/`Sel`/… one consistent PyO3 type identity across both APIs.
 pub fn register_molar(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    force_field::register(m)?;
     m.add_class::<AtomPy>()?;
     m.add_class::<ParticlePy>()?;
     m.add_class::<TopologyPy>()?;

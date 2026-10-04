@@ -69,6 +69,8 @@ class Particle:
 
 
 class Topology:
+    def apply_ff(self, ff: FFType | builtins.str = "gaff") -> None: ...
+    def apply_charges(self, model: ChargeModel | builtins.str = "espaloma") -> None: ...
     def __len__(self) -> builtins.int: ...
 
 
@@ -154,12 +156,12 @@ class System:
     def __call__(self, arg: builtins.str | tuple[builtins.int, builtins.int] | list[builtins.int] | None = None) -> Sel: ...
     def replace_state_deep(self, st: State) -> None: ...
     def save(self, fname: builtins.str) -> None: ...
-    def apply_ff(self, ff: builtins.str = "gaff") -> None: ...
-    def apply_charges(self, model: builtins.str = "espaloma") -> None: ...
+    def apply_ff(self, ff: FFType | builtins.str = "gaff") -> None: ...
+    def apply_charges(self, model: ChargeModel | builtins.str = "espaloma") -> None: ...
     def perceive_connectivity(self, tolerance: builtins.float = 0.045, min_distance: builtins.float = 0.04, pbc: builtins.bool = False) -> builtins.int: ...
     def perceive_bond_orders(self, infer_hydrogens: builtins.bool = False, total_charge: builtins.int | None = None) -> list[builtins.str]: ...
     def add_hydrogens(self) -> builtins.int: ...
-    def prepare_for_ff(self, infer_hydrogens: builtins.bool = False, add_hydrogens: builtins.bool = False, total_charge: builtins.int | None = None) -> None: ...
+    def prepare_for_ff(self, infer_hydrogens: builtins.bool = False, add_hydrogens: builtins.bool = False, total_charge: builtins.int | None = None, *, options: PrepareOptions | None = None) -> None: ...
     def remove(self, arg: Sel | builtins.str | tuple[builtins.int, builtins.int] | list[builtins.int]) -> None: ...
     @typing.overload
     def append(self, arg: Sel | builtins.str | tuple[builtins.int, builtins.int] | list[builtins.int]) -> None: ...
@@ -209,8 +211,8 @@ class Sel:
     def unwrap_simple(self) -> None: ...
     def whole_residues(self) -> Sel: ...
     def whole_chains(self) -> Sel: ...
-    def apply_ff(self, ff: builtins.str = "gaff") -> None: ...
-    def apply_charges(self, model: builtins.str = "espaloma") -> None: ...
+    def apply_ff(self, ff: FFType | builtins.str = "gaff") -> None: ...
+    def apply_charges(self, model: ChargeModel | builtins.str = "espaloma") -> None: ...
     def dssp(self) -> list[builtins.str]: ...
     def dssp_string(self) -> builtins.str: ...
     def ss(self, algo: builtins.str = "dssp") -> list[builtins.str]: ...
@@ -281,3 +283,78 @@ def distance_search(
     data2: Sel | None = None,
     dims: list[builtins.bool] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+class FFType:
+    """Force-field choices; use named values rather than integers."""
+    Gaff: typing.ClassVar[FFType]
+    Gaff2: typing.ClassVar[FFType]
+
+
+class ChargeModel:
+    Espaloma: typing.ClassVar[ChargeModel]
+
+
+class InputOrders:
+    PreserveKnown: typing.ClassVar[InputOrders]
+    ReassignAll: typing.ClassVar[InputOrders]
+
+
+class HydrogenPolicy:
+    AllExplicit: typing.ClassVar[HydrogenPolicy]
+    InferFromGeometry: typing.ClassVar[HydrogenPolicy]
+
+
+class ConnectivityOptions:
+    """All distances use nm. pbc is a three-boolean list."""
+    tolerance: builtins.float
+    minimum_distance: builtins.float
+    pbc: list[builtins.bool]
+    cleanup_overcoordination: builtins.bool
+    def __new__(cls, *, tolerance: builtins.float = 0.045, minimum_distance: builtins.float = 0.04, pbc: list[builtins.bool] | None = None, cleanup_overcoordination: builtins.bool = True) -> ConnectivityOptions: ...
+
+
+class SearchLimits:
+    max_branches: builtins.int
+    def __new__(cls, *, max_branches: builtins.int = 5_000_000) -> SearchLimits: ...
+
+
+class BondOrderOptions:
+    input_orders: InputOrders
+    hydrogens: HydrogenPolicy
+    use_functional_groups: builtins.bool
+    use_residue_templates: builtins.bool
+    total_charge: builtins.int | None
+    limits: SearchLimits
+    def __new__(cls, *, input_orders: InputOrders = InputOrders.ReassignAll, hydrogens: HydrogenPolicy = HydrogenPolicy.AllExplicit, use_functional_groups: builtins.bool = True, use_residue_templates: builtins.bool = True, total_charge: builtins.int | None = None, limits: SearchLimits | None = None) -> BondOrderOptions: ...
+
+
+class HydrogenOptions:
+    zero_fill_dynamics: builtins.bool
+    def __new__(cls, *, zero_fill_dynamics: builtins.bool = True) -> HydrogenOptions: ...
+
+
+class PrepareOptions:
+    """Nested options are live references. Defaults use PreserveKnown input orders."""
+    connectivity: ConnectivityOptions
+    bond_orders: BondOrderOptions
+    add_hydrogens: HydrogenOptions | None
+    def __new__(cls, *, connectivity: ConnectivityOptions | None = None, bond_orders: BondOrderOptions | None = None, add_hydrogens: HydrogenOptions | None = None) -> PrepareOptions: ...
+
+
+class FFError(builtins.ValueError):
+    """Typing error. Library-generated instances expose kind and details."""
+    kind: builtins.str
+    details: dict[builtins.str, object]
+
+
+class ChargeError(builtins.ValueError):
+    """Charge-prediction error. Library-generated instances expose kind and details."""
+    kind: builtins.str
+    details: dict[builtins.str, object]
+
+
+class BondPerceptionError(builtins.ValueError):
+    """Preparation error. Library-generated instances expose kind and details."""
+    kind: builtins.str
+    details: dict[builtins.str, object]

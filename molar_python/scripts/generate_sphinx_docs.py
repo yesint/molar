@@ -156,6 +156,7 @@ def write_index(path: Path) -> None:
            agent_guide
            selections
            workflows
+           force_field
            api_reference
         """
     ).lstrip()
@@ -247,7 +248,7 @@ def main() -> None:
 
     build_html(source_dir, build_dir, args.strict)
     llms = (project_root / "llms.txt").read_text()
-    for page in ("agent_guide", "selections", "workflows"):
+    for page in ("agent_guide", "selections", "workflows", "force_field"):
         llms = llms.replace(f"docs/{page}.rst", f"{page}.html")
     llms = llms.replace("python/pymolar/molar.pyi", "_static/molar.pyi")
     llms = llms.replace("(README.md)", "(_static/README.md)")

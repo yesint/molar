@@ -13,6 +13,9 @@ use crate::particle::ParticlePy;
 use crate::periodic_box::PeriodicBoxPy;
 use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
+use crate::force_field::{
+    ChargeArg, FFArg, PrepareOptionsPy, to_charge_error, to_ff_error, to_perception_error,
+};
 use crate::SelPy;
 /// Coupled topology + state object used as the primary analysis source.
 ///
@@ -91,7 +94,7 @@ impl SystemPy {
         let (top, st) = sys.release();
         *self.r_top_mut() = top;
         *self.r_st_mut() = st;
-        outcome.map_err(to_py_value_err)
+        outcome.map_err(to_perception_error)
     }
 }
 
@@ -390,7 +393,8 @@ impl SystemPy {
 
     /// Assign force-field atom types to all atoms, writing each atom's ``type_name``.
     ///
-    /// :param ff: Force field, ``"gaff"`` (default) or ``"gaff2"``.
+    /// :param ff: ``FFType.Gaff``, ``FFType.Gaff2``, or a string ``"gaff"`` / ``"gaff2"``.
+    /// :raises FFError: If atom typing fails; also a subclass of ValueError.
     /// :raises ValueError: on an unknown force field or missing bond orders (the input
     ///     must carry bond orders, e.g. from an SDF/mol file).
     ///
@@ -398,19 +402,20 @@ impl SystemPy {
     ///
     ///    sys = pymolar.System("ligand.sdf")
     ///    sys.apply_ff("gaff")
-    #[pyo3(signature = (ff="gaff"))]
-    fn apply_ff(&self, ff: &str) -> PyResult<()> {
-        let fftype = parse_ff(ff)?;
-        self.r_top_mut().apply_ff(fftype).map_err(to_py_value_err)
+    #[pyo3(signature = (ff=FFArg::Name("gaff".to_owned())), text_signature = "($self, ff='gaff')")]
+    fn apply_ff(&self, ff: FFArg) -> PyResult<()> {
+        let fftype = ff.resolve()?;
+        self.r_top_mut().apply_ff(fftype).map_err(to_ff_error)
     }
 
     /// Predict partial charges for all atoms, writing each atom's ``charge``.
     ///
     /// The whole system is treated as the molecule and charges are equilibrated to sum to
-    /// zero over it. Formal charges are read from the separate topology formal-charge
-    /// field. Existing partial ``charge`` values are overwritten; formal charges remain.
+    /// the total formal charge over it. Formal charges are read from the separate
+    /// topology formal-charge field. Existing partial ``charge`` values are overwritten; formal charges remain.
     ///
-    /// :param model: Charge model, ``"espaloma"`` (default).
+    /// :param model: ``ChargeModel.Espaloma`` or ``"espaloma"`` (default).
+    /// :raises ChargeError: If prediction fails; also a subclass of ValueError.
     /// :raises ValueError: on an unknown model, missing bond orders (the input must carry
     ///     explicit single/double/triple bonds, e.g. from an SDF/mol file), or an
     ///     unsupported element.
@@ -419,10 +424,10 @@ impl SystemPy {
     ///
     ///    sys = pymolar.System("ligand.sdf")
     ///    sys.apply_charges("espaloma")
-    #[pyo3(signature = (model="espaloma"))]
-    fn apply_charges(&self, model: &str) -> PyResult<()> {
-        let model = parse_charge_model(model)?;
-        self.r_top_mut().apply_charges(model).map_err(to_py_value_err)
+    #[pyo3(signature = (model=ChargeArg::Name("espaloma".to_owned())), text_signature = "($self, model='espaloma')")]
+    fn apply_charges(&self, model: ChargeArg) -> PyResult<()> {
+        let model = model.resolve()?;
+        self.r_top_mut().apply_charges(model).map_err(to_charge_error)
     }
 
     /// Perceive the bond table from the current elements and coordinates, replacing any existing
@@ -495,13 +500,25 @@ impl SystemPy {
     /// :param infer_hydrogens: infer implicit hydrogens from geometry (hydrogen-free input).
     /// :param add_hydrogens: also add the perceived hydrogens as explicit atoms.
     /// :param total_charge: constrain the net formal charge of a single-fragment molecule.
-    #[pyo3(signature = (infer_hydrogens=false, add_hydrogens=false, total_charge=None))]
+    /// :param options: Complete PrepareOptions. Do not combine with non-default legacy keywords.
+    /// :raises BondPerceptionError: If preparation fails; has kind and details fields.
+    #[pyo3(signature = (infer_hydrogens=false, add_hydrogens=false, total_charge=None, *, options=None))]
     fn prepare_for_ff(
         &self,
         infer_hydrogens: bool,
         add_hydrogens: bool,
         total_charge: Option<i32>,
+        options: Option<&Bound<PrepareOptionsPy>>,
     ) -> PyResult<()> {
+        if let Some(options) = options {
+            if infer_hydrogens || add_hydrogens || total_charge.is_some() {
+                return Err(PyValueError::new_err(
+                    "options cannot be combined with non-default preparation keywords",
+                ));
+            }
+            let options = options.borrow().options(options.py());
+            return self.with_owned_system(|sys| sys.prepare_for_ff(&options));
+        }
         let options = PrepareOptions {
             bond_orders: BondOrderOptions {
                 input_orders: InputOrders::PreserveKnown,

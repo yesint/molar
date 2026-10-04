@@ -80,6 +80,7 @@ For agents and new users, read [llms.txt](llms.txt), then use these guides:
 - [Agent guide](docs/agent_guide.rst): capability map, units, shared data, and interface limits.
 - [Selections](docs/selections.rst): query syntax, index rules, and selection operations.
 - [Workflows](docs/workflows.rst): complete examples for trajectories, fitting, contacts, secondary structure, chemistry, IO, and CLI tasks.
+- [Force-field API](docs/force_field.rst): methods on systems, topologies, and selections; all preparation options; typed choices and errors.
 - [Python API types](python/pymolar/molar.pyi): names and signatures for static inspection.
 - [Coverage audit](docs/coverage-audit.md): gaps found, corrections, and remaining implementation limits.
 

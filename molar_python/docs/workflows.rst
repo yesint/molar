@@ -205,17 +205,20 @@ Review the returned warnings.
 
 ``prepare_for_ff(infer_hydrogens=True, add_hydrogens=True, total_charge=0)``
 combines missing-connectivity perception, bond-order assignment, and hydrogen
-addition. It returns ``None`` and logs bond-order warnings. Use the separate
-steps when diagnostics must be stored. Hydrogen addition appends atoms;
+addition. It returns ``None``. Use the separate steps when warning diagnostics
+must be stored. Pass ``options=PrepareOptions(...)`` for full settings; see
+:doc:`force_field`. Hydrogen addition appends atoms;
 create selections again afterwards.
 
-``apply_ff`` accepts ``"gaff"`` or ``"gaff2"`` and writes ``type_name``.
+``apply_ff`` accepts ``FFType.Gaff``, ``FFType.Gaff2``, ``"gaff"``, or
+``"gaff2"`` and writes ``type_name``.
 It assigns atom types, not full bonded or nonbonded parameters.
-``apply_charges`` accepts ``"espaloma"`` and writes partial ``charge``.
+``apply_charges`` accepts ``ChargeModel.Espaloma`` or ``"espaloma"`` and
+writes partial ``charge``.
 It reads the separate formal charges from topology, not the existing partial
-``charge`` values. Its current charge equilibration makes the predicted
-charges sum to zero over the input system or selection. Do not treat that
-result as charge-conserving for an ion. Supported elements are H, C, N, O,
+``charge`` values. Charge equilibration makes the predicted charges sum to the
+total formal charge of the input system or selection, including for ions.
+Supported elements are H, C, N, O,
 F, P, S, Cl, Br, and I. For multiple molecules, call charge prediction on each
 complete molecular selection when that is the intended scope. Bonds with
 unspecified order or bonds crossing a selection boundary cause ``ValueError``.

@@ -60,10 +60,14 @@ def check_types(module, path: Path):
                     members.add(node.name)
                 elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                     members.add(node.target.id)
+            if issubclass(obj, BaseException):
+                members.update(n for n in dir(ValueError) if not n.startswith("_"))
             public = {n for n in dir(obj) if not n.startswith("_")}
             member_count += len(public)
             errors.extend(f"Missing member: {name}.{n}" for n in sorted(public - members))
-            errors.extend(f"Unexported member: {name}.{n}" for n in sorted(members - public)
+            # Structured exception data lives on instances, not the exception class.
+            instance_fields = {"kind", "details"} if issubclass(obj, BaseException) else set()
+            errors.extend(f"Unexported member: {name}.{n}" for n in sorted(members - public - instance_fields)
                           if not n.startswith("_"))
         elif inspect.isbuiltin(obj):
             function_count += 1

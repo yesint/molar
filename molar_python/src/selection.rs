@@ -15,6 +15,7 @@ use crate::periodic_box::PeriodicBoxPy;
 use crate::system::SystemPy;
 use crate::topology_state::{StatePy, TopologyPy};
 use crate::utils::*;
+use crate::force_field::{ChargeArg, FFArg, to_charge_error, to_ff_error};
 use crate::{ParticleIterator, ParticlePy};
 /// Atom selection view with analysis and editing utilities.
 ///
@@ -734,7 +735,8 @@ impl SelPy {
     /// ``type_name``. The selection is treated as the molecule: only bonds whose both
     /// endpoints are selected are used, so it should span complete molecule(s).
     ///
-    /// :param ff: Force field, ``"gaff"`` (default) or ``"gaff2"``.
+    /// :param ff: ``FFType.Gaff``, ``FFType.Gaff2``, or a string ``"gaff"`` / ``"gaff2"``.
+    /// :raises FFError: If atom typing fails; also a subclass of ValueError.
     /// :raises ValueError: on an unknown force field, missing bond orders, or a selection
     ///     that cuts across a molecule.
     ///
@@ -742,24 +744,25 @@ impl SelPy {
     ///
     ///    sel = system("resname LIG")
     ///    sel.apply_ff("gaff2")
-    #[pyo3(signature = (ff="gaff"))]
-    pub fn apply_ff(&self, ff: &str) -> PyResult<()> {
-        let fftype = parse_ff(ff)?;
+    #[pyo3(signature = (ff=FFArg::Name("gaff".to_owned())), text_signature = "($self, ff='gaff')")]
+    pub fn apply_ff(&self, ff: FFArg) -> PyResult<()> {
+        let fftype = ff.resolve()?;
         let mut sel = TmpSelMut {
             top: self.top_ptr_mut(),
             st: self.st_ptr_mut(),
             index: self.index(),
         };
-        sel.apply_ff(fftype).map_err(to_py_value_err)
+        sel.apply_ff(fftype).map_err(to_ff_error)
     }
 
     /// Predict partial charges for the selected atoms, writing each atom's ``charge``. The
     /// selection is treated as the molecule (only bonds whose both endpoints are selected are
     /// used, so it should span complete molecule(s)) and charges are equilibrated to sum to
-    /// zero over it. Formal charges are read from the separate topology formal-charge
-    /// field. Existing partial ``charge`` values are overwritten; formal charges remain.
+    /// the total formal charge over it. Formal charges are read from the separate
+    /// topology formal-charge field. Existing partial ``charge`` values are overwritten; formal charges remain.
     ///
-    /// :param model: Charge model, ``"espaloma"`` (default).
+    /// :param model: ``ChargeModel.Espaloma`` or ``"espaloma"`` (default).
+    /// :raises ChargeError: If prediction fails; also a subclass of ValueError.
     /// :raises ValueError: on an unknown model, missing bond orders, an unsupported element,
     ///     or a selection that cuts across a molecule.
     ///
@@ -767,15 +770,15 @@ impl SelPy {
     ///
     ///    sel = system("resname LIG")
     ///    sel.apply_charges("espaloma")
-    #[pyo3(signature = (model="espaloma"))]
-    pub fn apply_charges(&self, model: &str) -> PyResult<()> {
-        let model = parse_charge_model(model)?;
+    #[pyo3(signature = (model=ChargeArg::Name("espaloma".to_owned())), text_signature = "($self, model='espaloma')")]
+    pub fn apply_charges(&self, model: ChargeArg) -> PyResult<()> {
+        let model = model.resolve()?;
         let mut sel = TmpSelMut {
             top: self.top_ptr_mut(),
             st: self.st_ptr_mut(),
             index: self.index(),
         };
-        sel.apply_charges(model).map_err(to_py_value_err)
+        sel.apply_charges(model).map_err(to_charge_error)
     }
 
     /// Selection time value (proxied to backing state).

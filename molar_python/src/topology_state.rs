@@ -1,4 +1,6 @@
 use std::cell::UnsafeCell;
+use molar_ff::{ApplyFF, ApplyCharges};
+use crate::force_field::{ChargeArg, FFArg, to_charge_error, to_ff_error};
 
 use crate::{SelPy, SystemPy};
 
@@ -240,6 +242,28 @@ impl LenProvider for TopologyPy {
 
 #[pymethods]
 impl TopologyPy {
+    /// Assign atom types to all topology atoms without coordinates.
+    ///
+    /// :param ff: FFType.Gaff, FFType.Gaff2, or a string "gaff" / "gaff2".
+    /// :raises FFError: If bond orders or chemistry are invalid.
+    ///
+    /// Changes shared atom type_name fields. Preparation requires a System.
+    #[pyo3(signature = (ff=FFArg::Name("gaff".to_owned())), text_signature = "($self, ff='gaff')")]
+    fn apply_ff(&self, ff: FFArg) -> PyResult<()> {
+        self.inner_mut().apply_ff(ff.resolve()?).map_err(to_ff_error)
+    }
+
+    /// Predict partial charges for all topology atoms without coordinates.
+    ///
+    /// :param model: ChargeModel.Espaloma or "espaloma".
+    /// :raises ChargeError: If bond orders or elements are invalid.
+    ///
+    /// Changes shared partial charges; preserves the total formal charge.
+    #[pyo3(signature = (model=ChargeArg::Name("espaloma".to_owned())), text_signature = "($self, model='espaloma')")]
+    fn apply_charges(&self, model: ChargeArg) -> PyResult<()> {
+        self.inner_mut().apply_charges(model.resolve()?).map_err(to_charge_error)
+    }
+
     /// Number of atoms in this topology.
     fn __len__(&self) -> usize {
         self.inner().len()

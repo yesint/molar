@@ -11,8 +11,9 @@ typing and charge prediction. This guide describes the Python interface in
 this checkout. The Rust interface has additional capabilities.
 
 Read this page first. Then read :doc:`selections` for query syntax and
-:doc:`workflows` for complete examples. Use :doc:`api_reference` for method
-signatures. The package also supplies ``molar.pyi`` for static inspection.
+:doc:`workflows` for complete examples. Read :doc:`force_field` for all
+force-field options, typed choices, and typed errors. Use :doc:`api_reference`
+for method signatures. The package also supplies ``molar.pyi`` for static inspection.
 Use ``help(pymolar.Sel)`` to check an installed version. Do not infer Python
 method names from the Rust API.
 
@@ -85,10 +86,10 @@ Task to API map
      - ``System()``, ``append(atom, pos)``, ``append(sel)``, ``remove(arg)``
      - Changes atom count
    * - Prepare chemistry
-     - ``perceive_connectivity()``, ``perceive_bond_orders()``, ``add_hydrogens()``, ``prepare_for_ff()``
+     - ``perceive_connectivity()``, ``perceive_bond_orders()``, ``add_hydrogens()``, ``prepare_for_ff(options=PrepareOptions(...))``
      - Bonds, formal charges, hydrogens
    * - Assign atom types and partial charges
-     - ``sys.apply_ff("gaff2")``, ``sel.apply_charges("espaloma")``
+     - ``System``, ``Topology``, and ``Sel`` methods ``apply_ff`` and ``apply_charges``
      - Changes atom properties
    * - Save structures or trajectories
      - ``sys.save(path)``, ``sel.save(path)``, ``FileHandler.write(data)``
@@ -119,6 +120,7 @@ Data and units
   even when residue identifiers repeat across chains.
 * ``type_name`` and ``type_id`` can be ``None``. The Python interface does not
   expose the separate integer formal-charge field or direct bond editing.
+  ``Topology`` also exposes ``apply_ff`` and ``apply_charges`` without coordinates.
 
 Rules for correct use
 ---------------------

@@ -33,9 +33,28 @@ The 12 missing methods were `FileHandler.read_state_pick`, `skip_to_last`,
 `Particle.id`, selection indices, iterator item types, transform return types,
 optional atom types, and `FileHandler.__next__` were also checked.
 
+## Force-field API follow-up
+
+The binding now exposes all public `molar_ff` operations on the object types
+supported by Rust. `Topology` has `apply_ff` and `apply_charges`, matching
+`System` and `Sel`. Preparation remains System-only, as in Rust.
+
+The new `FFType` and `ChargeModel` choices work alongside existing strings.
+`PrepareOptions` exposes all connectivity, bond-order, search, and hydrogen
+settings. Nested option objects are mutable references. `FFError`,
+`ChargeError`, and `BondPerceptionError` preserve error variants and fields
+through `kind` and `details`, while remaining subclasses of `ValueError`.
+The source charge documentation was corrected: partial charges preserve total
+formal charge, including for ions.
+
+Both type files and the dedicated force-field guide cover these additions.
+The updated native API has 28 classes, 6 functions, and 154 public class
+members, including inherited exception methods.
+
 ## Remaining implementation limits
 
-These are documented; this documentation change does not change API behavior.
+These limits were recorded in the original documentation audit and remain
+outside the force-field API additions.
 
 - Python cannot start or update a SASA calculation. `Sasa` is only an exported
   result type. Membrane bindings are disabled. Several Rust-only capabilities
@@ -53,8 +72,6 @@ These are documented; this documentation change does not change API behavior.
 - The coordinate setter requires the documented dtype and Fortran layout.
 - System/state box assignment requires an existing box. Use an all-atom
   selection's box setter to add a box. Inspect `state.box` for absence.
-- Charge equilibration currently produces a zero total partial charge. It is
-  not charge-conserving for ions.
 - `AnalysisTask.state` can hold previous-frame data after swaps. Multi-file
   `--add-time` reads that object. Zero bounds are ignored, and end frame limits
   count processed frames after skipping.
@@ -80,3 +97,12 @@ old docstrings. Prefer `--skip-install` after an explicit wheel installation.
 - Confirmed coordinate copy/layout, shared state, frame assignment, indexed
   position assignment, and full-topology bulk-setter behavior at runtime.
 - Checked Python syntax, documentation links, and Git whitespace errors.
+
+### Force-field follow-up validation
+
+- Built both precision wheels with the new bindings.
+- Passed 71 Python API and regression tests, including both precision packages.
+- Passed 12 documentation examples per package: 24 successful example checks.
+- Checked all 28 classes, 6 functions, and 154 public members against both type files.
+- Built both Sphinx references with warnings treated as errors.
+- Added the force-field API tests to the documentation CI workflow.
