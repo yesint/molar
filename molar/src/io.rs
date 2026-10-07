@@ -38,6 +38,7 @@ mod dcd_handler;
 mod cif_handler;
 mod gro_handler;
 mod itp_handler;
+mod lammps_handler;
 mod netcdf_handler;
 mod pdb_handler;
 mod sdf_handler;
@@ -54,6 +55,7 @@ use dcd_handler::DcdFileHandler;
 use cif_handler::CifFileHandler;
 use gro_handler::GroFileHandler;
 use itp_handler::ItpFileHandler;
+use lammps_handler::LammpsFileHandler;
 use netcdf_handler::NetCdfFileHandler;
 use pdb_handler::PdbFileHandler;
 use sdf_handler::SdfFileHandler;
@@ -71,6 +73,7 @@ pub use dcd_handler::DcdHandlerError;
 pub use cif_handler::CifHandlerError;
 pub use gro_handler::GroHandlerError;
 pub use itp_handler::ItpHandlerError;
+pub use lammps_handler::{LammpsHandlerError, LammpsOptions};
 pub use netcdf_handler::NetCdfHandlerError;
 pub use pdb_handler::PdbHandlerError;
 pub use sdf_handler::SdfHandlerError;
@@ -87,6 +90,31 @@ pub trait SaveTopology: LenProvider {
     fn iter_atoms_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = AtomRef<'a>> + 'a>;
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a>;
     fn num_bonds(&self) -> usize;
+
+    /// Bonds with endpoints relative to the atom order written by this provider.
+    /// Bonds with an endpoint outside the selected atoms are omitted. Chemical
+    /// orders and the source bond sequence are retained. Format writers must use
+    /// this method rather than the global indices from `iter_bonds_dyn`.
+    fn bonds_for_write(&self) -> Result<Vec<Bond>, FileFormatError> {
+        let atoms: Vec<_> = self.iter_atoms_dyn().collect();
+        let mut map = std::collections::HashMap::with_capacity(atoms.len());
+        for (i, atom) in atoms.iter().enumerate() {
+            if map.insert(atom.storage_index(), i).is_some() {
+                return Err(FileFormatError::DuplicateAtomIndex(atom.storage_index()));
+            }
+        }
+        let storage_len = atoms.first().map_or(0, |atom| atom.storage().len());
+        let mut bonds = Vec::new();
+        for bond in self.iter_bonds_dyn() {
+            if bond.i1() >= storage_len || bond.i2() >= storage_len || bond.i1() == bond.i2() {
+                return Err(FileFormatError::InvalidBondEndpoints(bond.i1(), bond.i2()));
+            }
+            if let (Some(&i), Some(&j)) = (map.get(&bond.i1()), map.get(&bond.i2())) {
+                bonds.push(Bond::with_order(i, j, bond.order()));
+            }
+        }
+        Ok(bonds)
+    }
 }
 
 /// Trait for saving [State] to file
@@ -320,12 +348,60 @@ fn get_ext(fname: &Path) -> Result<&str, FileFormatError> {
 //------------------------------------------------------------------
 
 impl FileHandler {
+    /// Open a LAMMPS data file with explicit conversion scales.
+    /// The extension is not used by this method. See [`LammpsOptions`].
+    pub fn open_lammps(
+        fname: impl AsRef<Path>,
+        options: LammpsOptions,
+    ) -> Result<Self, FileIoError> {
+        let path = fname.as_ref().to_path_buf();
+        let handler = LammpsFileHandler::open_with_options(&path, options)
+            .map_err(|e| FileIoError(path.clone(), e))?;
+        Ok(Self {
+            file_path: path,
+            format_handler: Box::new(handler),
+            stats: Default::default(),
+        })
+    }
+
+    /// Create a LAMMPS data file with explicit conversion scales.
+    /// The extension is not used by this method. See [`LammpsOptions`].
+    pub fn create_lammps(
+        fname: impl AsRef<Path>,
+        options: LammpsOptions,
+    ) -> Result<Self, FileIoError> {
+        let path = fname.as_ref().to_path_buf();
+        let handler = LammpsFileHandler::create_with_options(&path, options)
+            .map_err(|e| FileIoError(path.clone(), e))?;
+        Ok(Self {
+            file_path: path,
+            format_handler: Box::new(handler),
+            stats: Default::default(),
+        })
+    }
+
+    /// Read LAMMPS data from an arbitrary byte source with explicit scales.
+    pub fn from_lammps_reader(
+        src: impl Read + Seek + Send + 'static,
+        options: LammpsOptions,
+    ) -> Result<Self, FileIoError> {
+        let path = PathBuf::from("<reader:data>");
+        let handler = LammpsFileHandler::from_source(DynSource(Box::new(src)), options)
+            .map_err(|e| FileIoError(path.clone(), e))?;
+        Ok(Self {
+            file_path: path,
+            format_handler: Box::new(handler),
+            stats: Default::default(),
+        })
+    }
+
     /// Opens a file for reading. Format is determined by extension.
     ///
     /// Supported formats:
     /// - pdb,ent: Protein Data Bank structure format
     /// - cif,mmcif: PDBx/mmCIF structure format
     /// - dcd: DCD trajectory format
+    /// - data: LAMMPS molecular data (one structure; default KG scales)
     /// - xyz: XYZ format
     /// - xtc: GROMACS compressed trajectory format
     /// - gro: GROMACS structure format
@@ -346,6 +422,9 @@ impl FileHandler {
             ),
             "cif" | "mmcif" => Box::new(
                 CifFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "data" => Box::new(
+                LammpsFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xyz" => Box::new(
                 XyzFileHandler::open(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -396,7 +475,8 @@ impl FileHandler {
     /// [`open`](Self::open).
     ///
     /// Supported formats: pdb/ent, cif/mmcif, gro, xyz, dcd, trr, xtc (the pure-Rust
-    /// readers). tpr/cpt (GROMACS C plugin) and netcdf are path/native only.
+    /// readers), plus data (LAMMPS molecular data). tpr/cpt (GROMACS C plugin)
+    /// and netcdf are path/native only.
     ///
     /// # Errors
     /// Returns [FileIoError] if the format is unsupported or the header is invalid.
@@ -416,6 +496,10 @@ impl FileHandler {
             "cif" | "mmcif" => h!(CifFileHandler),
             "gro" => h!(GroFileHandler),
             "xyz" => h!(XyzFileHandler),
+            "data" => Box::new(
+                LammpsFileHandler::from_source(s, LammpsOptions::default())
+                    .map_err(|e| FileIoError(path.clone(), e))?,
+            ),
             "sdf" | "sd" | "mol" => h!(SdfFileHandler),
             "dcd" => h!(DcdFileHandler),
             "trr" => h!(TrrFileHandler),
@@ -435,6 +519,7 @@ impl FileHandler {
     /// - pdb: Protein Data Bank structure format
     /// - cif,mmcif: PDBx/mmCIF structure format
     /// - dcd: DCD trajectory format
+    /// - data: LAMMPS molecular data (one structure; default KG scales)
     /// - xyz: XYZ format
     /// - xtc: GROMACS compressed trajectory format
     /// - gro: GROMACS structure format
@@ -453,6 +538,9 @@ impl FileHandler {
             ),
             "cif" | "mmcif" => Box::new(
                 CifFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
+            ),
+            "data" => Box::new(
+                LammpsFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
             ),
             "xyz" => Box::new(
                 XyzFileHandler::create(fname).map_err(|e| FileIoError(fname.to_path_buf(), e))?,
@@ -495,6 +583,7 @@ impl FileHandler {
     /// - pdb
     /// - cif, mmcif
     /// - gro
+    /// - data (LAMMPS molecular data)
     /// - tpr
     ///
     /// # Errors
@@ -522,6 +611,7 @@ impl FileHandler {
     /// - pdb
     /// - cif, mmcif
     /// - gro
+    /// - data (LAMMPS molecular data)
     ///
     /// # Errors
     /// Returns [FileIoError] if format doesn't support writing both topology and state
@@ -544,6 +634,7 @@ impl FileHandler {
     /// - pdb
     /// - cif, mmcif
     /// - gro
+    /// - data (LAMMPS molecular data)
     /// - tpr
     /// - itp
     /// - xyz
@@ -881,6 +972,10 @@ pub enum FileFormatError {
     #[error("in sdf/mol format handler")]
     Sdf(#[from] SdfHandlerError),
 
+    /// LAMMPS data format handler error
+    #[error("in LAMMPS data format handler")]
+    Lammps(#[from] LammpsHandlerError),
+
     /// XYZ format handler error
     #[error("in xyz format handler")]
     Xyz(#[from] XyzHandlerError),
@@ -888,6 +983,12 @@ pub enum FileFormatError {
     /// NetCDF format handler error
     #[error("in netcdf format handler")]
     NetCdf(#[from] NetCdfHandlerError),
+
+    #[error("bond endpoints {0}-{1} are invalid for the source atom storage")]
+    InvalidBondEndpoints(usize, usize),
+
+    #[error("atom index {0} occurs more than once in the output")]
+    DuplicateAtomIndex(usize),
 
     #[error("file has no extension")]
     NoExtension,

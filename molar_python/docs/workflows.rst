@@ -5,6 +5,36 @@ The examples use ``pymolar``. For double precision, change the import to
 ``pymolar_f64``. Run examples with repository test files from the workspace
 root. Use your own files in production.
 
+LAMMPS polymer data
+--------------------
+
+``.data`` files support molecular polymer atoms, masses, bonds, and orthogonal
+or restricted triclinic boxes. Coordinates are unwrapped and translated to a
+zero box origin. Bond type IDs, velocities, and interaction parameters are
+not retained. Output bonds all use type 1.
+
+The default assigns 1 nm and 1 atomic mass unit to one input unit. For LJ
+models, set scales from the model's sigma and reference mass. The title
+comment does not select units. For Angstrom input, use a length scale of 0.1.
+Use the same scales for output and subsequent input.
+
+.. code-block:: python
+
+   import pymolar as mol
+
+   reader = mol.FileHandler("polymer.data", "r",
+                            lammps_length_scale=0.1,
+                            lammps_mass_scale=1.0)
+   top, state = reader.read()
+   writer = mol.FileHandler("output.data", "w",
+                            lammps_length_scale=0.1,
+                            lammps_mass_scale=1.0)
+   writer.write((top, state))
+
+``System("polymer.data")`` and ``system.save("output.data")`` use default
+scales. The writer also accepts a selection and remaps its bond endpoints.
+A data file contains one structure.
+
 Read, measure, edit, and save
 -----------------------------
 
@@ -33,6 +63,10 @@ Read, measure, edit, and save
 
 Use known masses for mass-weighted measurements. Do not assume every format
 supplies correct masses, atom types, charges, connectivity, or a periodic box.
+
+When saving a selection as SDF/MOL, CIF/mmCIF, or LAMMPS data, bond endpoints
+use the output atom order. Bonds with an endpoint outside the selection are
+omitted. SDF and CIF retain chemical bond orders; LAMMPS data retains connectivity.
 ``principal_transform(pbc=False)`` returns a transform for principal-axis
 alignment; apply it with ``apply_transform()``.
 

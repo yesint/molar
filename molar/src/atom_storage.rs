@@ -367,6 +367,11 @@ pub struct AtomRef<'a> {
 }
 
 impl<'a> AtomRef<'a> {
+    /// Global index in the backing storage, for remapping IO bond endpoints.
+    pub(crate) fn storage_index(&self) -> usize {
+        self.idx
+    }
+
     /// Atom name, borrowed from the backing storage (lifetime `'a`, not `&self`).
     #[inline]
     pub fn name(&self) -> &'a str {

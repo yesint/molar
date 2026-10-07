@@ -39,20 +39,39 @@ impl FileHandlerPy {
     ///
     /// :param fname: Input/output file path.
     /// :param mode: Open mode (``"r"`` or ``"w"``).
+    /// :param lammps_length_scale: Nanometers per LAMMPS distance unit (default 1).
+    /// :param lammps_mass_scale: Atomic mass units per LAMMPS mass unit (default 1).
     /// :returns: Initialized file handler.
     /// :rtype: FileHandler
-    fn new(fname: &str, mode: &str) -> PyResult<Self> {
-        match mode {
-            "r" => Ok(FileHandlerPy(
-                Some(FileHandler::open(fname).map_err(to_py_io_err)?),
-                None,
-            )),
-            "w" => Ok(FileHandlerPy(
-                Some(FileHandler::create(fname).map_err(to_py_io_err)?),
-                None,
-            )),
-            _ => Err(PyValueError::new_err("Wrong file open mode")),
+    #[pyo3(signature = (fname, mode, *, lammps_length_scale=None, lammps_mass_scale=None))]
+    fn new(
+        fname: &str,
+        mode: &str,
+        lammps_length_scale: Option<Float>,
+        lammps_mass_scale: Option<Float>,
+    ) -> PyResult<Self> {
+        let has_scales = lammps_length_scale.is_some() || lammps_mass_scale.is_some();
+        if has_scales
+            && std::path::Path::new(fname)
+                .extension()
+                .and_then(|e| e.to_str())
+                != Some("data")
+        {
+            return Err(PyValueError::new_err("LAMMPS scales require a .data file"));
         }
+        let options = LammpsOptions {
+            length_scale: lammps_length_scale.unwrap_or(1.0),
+            mass_scale: lammps_mass_scale.unwrap_or(1.0),
+        };
+        let handler = match (mode, has_scales) {
+            ("r", true) => FileHandler::open_lammps(fname, options),
+            ("w", true) => FileHandler::create_lammps(fname, options),
+            ("r", false) => FileHandler::open(fname),
+            ("w", false) => FileHandler::create(fname),
+            _ => return Err(PyValueError::new_err("Wrong file open mode")),
+        }
+        .map_err(to_py_io_err)?;
+        Ok(FileHandlerPy(Some(handler), None))
     }
 
     /// Read topology and the next state frame.
@@ -134,11 +153,12 @@ impl FileHandlerPy {
                     s.len()
                 )));
             }
-            let top = s.get_item(0)?.cast::<TopologyPy>()?.as_ptr() as *const TopologyPy;
-
-            let st = s.get_item(1)?.cast::<StatePy>()?.as_ptr() as *const StatePy;
-            h.write_topology(unsafe { &*top }).map_err(to_py_io_err)?;
-            h.write_state(unsafe { &*st }).map_err(to_py_io_err)?;
+            let top_obj = s.get_item(0)?;
+            let st_obj = s.get_item(1)?;
+            let top = top_obj.cast::<TopologyPy>()?.borrow();
+            let st = st_obj.cast::<StatePy>()?.borrow();
+            h.write_topology(&*top).map_err(to_py_io_err)?;
+            h.write_state(&*st).map_err(to_py_io_err)?;
         } _ => {
             return Err(PyTypeError::new_err(format!(
                 "Invalid data type {} when writing to file",

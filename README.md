@@ -48,6 +48,7 @@ BibTeX:
 
 # Features
 * Reading and writing PDB, GRO, XYZ, XTC, TRR, TPR, CPT, and AMBER NetCDF (.nc) files
+    * Partial [LAMMPS data support](docs/lammps.md) for KG polymer models.
     * Reading and writing trajectories with random access.
     * Reading Gromacs TPR and CPT (checkpoint) files (if Gromacs is installed).
 * Selections using the syntax similar to VMD and Pteros

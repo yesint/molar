@@ -175,10 +175,10 @@ impl SaveTopology for SelPy {
         Box::new(self.iter_atoms())
     }
     fn iter_bonds_dyn<'a>(&'a self) -> Box<dyn Iterator<Item = BondRef<'a>> + 'a> {
-        Box::new(BondProvider::iter_bonds(self))
+        self.r_top().iter_bonds_dyn()
     }
     fn num_bonds(&self) -> usize {
-        BondProvider::num_bonds(self)
+        SaveTopology::num_bonds(self.r_top())
     }
 }
 

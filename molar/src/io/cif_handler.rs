@@ -997,6 +997,7 @@ impl FileFormatHandler for CifFileHandler {
 
     fn write(&mut self, data: &dyn SaveTopologyState) -> Result<(), FileFormatError> {
         let w = self.writer.as_mut().ok_or(FileFormatError::NotWritable)?;
+        let bonds = data.bonds_for_write()?;
         writeln!(w, "data_molar\n#")?;
         if let Some(b) = data.get_box() {
             let (lengths, angles) = b.to_vectors_angles();
@@ -1059,7 +1060,7 @@ impl FileFormatHandler for CifFileHandler {
                 name
             )?;
         }
-        if data.num_bonds() != 0 {
+        if !bonds.is_empty() {
             writeln!(w, "#\nloop_")?;
             for tag in [
                 "id",
@@ -1077,10 +1078,10 @@ impl FileFormatHandler for CifFileHandler {
                 writeln!(w, "_struct_conn.{tag}")?;
             }
             let atoms: Vec<_> = data.iter_atoms_dyn().collect();
-            for (i, bond) in data.iter_bonds_dyn().enumerate() {
-                let a = atoms[bond.i1()];
-                let b = atoms[bond.i2()];
-                let order = match bond.order() {
+            for (i, bond) in bonds.iter().enumerate() {
+                let a = atoms[bond.i1];
+                let b = atoms[bond.i2];
+                let order = match bond.order {
                     BondOrder::Unspecified => "?",
                     BondOrder::Single => "sing",
                     BondOrder::Double => "doub",

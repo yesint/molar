@@ -298,7 +298,8 @@ impl FileFormatHandler for SdfFileHandler {
         let sdf = self.sdf;
         let w = self.writer.as_mut().ok_or(FileFormatError::NotWritable)?;
         let natoms = data.len();
-        let nbonds = data.num_bonds();
+        let bonds = data.bonds_for_write()?;
+        let nbonds = bonds.len();
 
         // Header: title / program / comment, then the V2000 counts line.
         writeln!(w)?; // title (blank — molar has no per-molecule name here)
@@ -322,15 +323,15 @@ impl FileFormatHandler for SdfFileHandler {
             )?;
         }
 
-        for b in data.iter_bonds_dyn() {
-            let ty = match b.order() {
+        for b in &bonds {
+            let ty = match b.order {
                 BondOrder::Double => 2,
                 BondOrder::Triple => 3,
                 BondOrder::Aromatic => 4,
                 BondOrder::Single | BondOrder::Unspecified => 1,
             };
             // 1-based atom indices.
-            writeln!(w, "{:>3}{:>3}{:>3}  0  0  0  0", b.i1() + 1, b.i2() + 1, ty)?;
+            writeln!(w, "{:>3}{:>3}{:>3}  0  0  0  0", b.i1 + 1, b.i2 + 1, ty)?;
         }
 
         // `M  CHG` properties for atoms carrying a nonzero integer formal charge (8 pairs per
