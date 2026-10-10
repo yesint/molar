@@ -191,7 +191,9 @@ void tpr_fill_atoms(TprHandle* h, TprAtom* out)
 
         a.resind        = (uint32_t)resi;
         a.type_id       = (uint32_t)atoms[i].type;
-        a.atomic_number = (uint32_t)atoms[i].atomnumber;
+        // Gromacs stores -1 for atoms without an element (e.g. coarse-grained beads);
+        // molar uses 0 for an unknown element.
+        a.atomic_number = atoms[i].atomnumber < 0 ? 0 : (uint32_t)atoms[i].atomnumber;
         a.charge        = atoms[i].q;
         a.mass          = atoms[i].m;
 
