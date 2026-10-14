@@ -355,6 +355,13 @@ impl SelBoundParts<'_> {
     }
 }
 
+impl SelectionSource for SelBoundParts<'_> {
+    fn selection_view(&self) -> SelectionSourceView<'_> {
+        SelectionSourceView::from_parts(self.top, self.st, Some(self.index))
+            .expect("bound topology, state and indices must be compatible")
+    }
+}
+
 impl IndexSliceProvider for SelBoundParts<'_> {
     fn get_index_slice(&self) -> &[usize] {
         self.index

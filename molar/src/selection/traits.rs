@@ -5,12 +5,30 @@ use crate::{prelude::*, selection::utils::{difference_sorted, intersection_sorte
 pub trait Selectable {
     // Make unbound immutable selection
     fn select(&self, def: impl SelectionDef) -> Result<Sel, SelectionError>;
+
+    /// Evaluate an expression prepared by `SelectionExpr::new_with_resolver`.
+    fn select_with(
+        &self,
+        expr: &SelectionExpr,
+        resolver: &dyn SelectionResolver,
+    ) -> Result<Sel, SelectionError> {
+        self.select(expr.with_resolver(resolver))
+    }
 }
 
 /// Trait for objects that support creating bound selections
 pub trait SelectableBound: SystemProvider + Selectable {
     // Make bound immutable selection
     fn select_bound(&self, def: impl SelectionDef) -> Result<SelOwnBound<'_>, SelectionError>;
+
+    /// Evaluate a prepared expression and bind the result to this system.
+    fn select_bound_with(
+        &self,
+        expr: &SelectionExpr,
+        resolver: &dyn SelectionResolver,
+    ) -> Result<SelOwnBound<'_>, SelectionError> {
+        self.select_bound(expr.with_resolver(resolver))
+    }
 }
 
 //=============================================================================

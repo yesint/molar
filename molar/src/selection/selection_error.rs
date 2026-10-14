@@ -13,6 +13,8 @@ pub struct TopologyStateSizesError(pub(crate) usize, pub(crate) usize);
 /// Error related to creation of selections
 #[derive(Error, Debug)]
 pub enum SelectionError {
+    #[error("source indices or optional array lengths are invalid")]
+    InvalidSourceIndices,
     #[error("selection parser failed")]
     Parser(#[from] SelectionParserError),
 

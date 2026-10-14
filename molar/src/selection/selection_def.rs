@@ -25,10 +25,7 @@ impl SelectionDef for &SelectionExpr
     ) -> Result<SVec, SelectionError> {        
         let ind = match subset {
             None => self.apply_whole(sys)?,
-            Some(_) => {
-                // We can't apply existing expr to a subset
-                Err(SelectionError::SelDefInSubsel)?
-            }
+            Some(subset) => self.apply_subset(sys, subset)?,
         };
         if ind.is_empty() {
             Err(SelectionError::EmptyExpr(self.get_str().to_string()))

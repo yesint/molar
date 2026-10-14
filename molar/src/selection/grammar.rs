@@ -132,7 +132,7 @@ peg::parser! {
         }
 
         rule vec3_cog() -> VectorNode
-        = "com" __ p:pbc_expr()? "of" ___ v:logical_expr() {
+        = "cog" __ p:pbc_expr()? "of" ___ v:logical_expr() {
             let pbc = match p {
                 Some(dims) => dims,
                 None => PBC_NONE,
@@ -352,6 +352,29 @@ peg::parser! {
         pub rule polar_hydrogen() -> ChemicalNode = "polh" wb() _ { ChemicalNode::PolarH };
         pub rule apolar_hydrogen() -> ChemicalNode = "apolh" wb() _ { ChemicalNode::ApolarH };
 
+        // The caller owns the variable micro-grammar. Molar only recognizes the
+        // opaque non-whitespace token before ':'; numeric ranges remain keywords.
+        rule variable_scope() -> LogicalNode
+        = start:position!() name:$((![' ' | '\t' | ':' | '(' | ')' | '&' | '|'] [_])+)
+          end:position!() ":" _ inner:("(" _ e:logical_expr() _ ")" { e })? {
+            LogicalNode::Scope { name: name.to_owned(), span: start..end,
+                reference: None, inner: Box::new(inner.unwrap_or(LogicalNode::All)) }
+        }
+
+        // Bare references are fallback operands. Reserved selection/vector words
+        // retain their existing grammar; ':' can still disambiguate any name.
+        rule bare_variable() -> LogicalNode
+        = !(("com" / "cog" / "pos" / "and" / "or" / "not" / "within" /
+             "name" / "resname" / "resid" / "resindex" / "index" / "chain" /
+             "same" / "dist" / "of") wb())
+          start:position!()
+          name:$(['a'..='z' | 'A'..='Z' | '_']
+                 (![' ' | '\t' | ':' | '(' | ')' | '&' | '|' | '<' | '>' | '=' | '!' | ','] [_])*)
+          end:position!() {
+            LogicalNode::Scope { name: name.to_owned(), span: start..end,
+                reference: None, inner: Box::new(LogicalNode::All) }
+        }
+
         // Logic
         pub rule logical_expr() -> LogicalNode
         = precedence!{
@@ -365,6 +388,7 @@ peg::parser! {
             // Within from inner selection
             p:within_expr() ___ v:@ {LogicalNode::Within(p, v.into())}
             --
+            v:variable_scope() { v }
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
             v:comparison_expr_chained() { LogicalNode::Comparison(v) }
@@ -373,6 +397,7 @@ peg::parser! {
             p:within_expr() ___ v:vec3()  {LogicalNode::WithinPoint(p,v)}
             "all" wb() _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
+            v:bare_variable() { v }
         }
     } // grammar
 } // parser

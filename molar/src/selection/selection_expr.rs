@@ -1,5 +1,8 @@
-use std::cell::RefCell;
-use crate::{prelude::*, selection::ast::{Evaluate, SelectionParserError, SyntaxError}};
+use crate::{
+    prelude::*,
+    selection::ast::{Evaluate, SelectionParserError, SyntaxError},
+};
+use std::collections::HashMap;
 
 /// Byte range of the token at/around `offset` (where the PEG parser failed), so the
 /// whole offending word can be highlighted rather than a single character. If `offset`
@@ -43,9 +46,9 @@ fn offending_token_span(s: &str, offset: usize) -> std::ops::Range<usize> {
 /// that can be evaluated against a molecular system to select atoms matching the criteria.
 #[derive(Debug)]
 pub struct SelectionExpr {
-    // The internals of the parser AST are changed when parsed
-    // but we don't want to expose it, so internal mutability. 
-    ast: RefCell<super::ast::LogicalNode>,
+    // Keep the compiled tree intact; evaluated nodes are cached only in a scratch copy.
+    ast: super::ast::LogicalNode,
+    resolver: Option<SelectionResolverId>,
     sel_str: String,
 }
 
@@ -72,56 +75,173 @@ impl SelectionExpr {
     /// let expr = SelectionExpr::new("resname ALA").unwrap();
     /// ```
     pub fn new(s: impl AsRef<str>) -> Result<Self, SelectionParserError> {
+        let mut expr = Self::parse(s)?;
+        expr.ast.visit_variables(&mut |name, span, _| {
+            Err(SelectionParserError::ResolverRequired {
+                name: name.into(),
+                span: span.clone(),
+            })
+        })?;
+        Ok(expr)
+    }
+
+    /// Compile an expression and prepare each distinct opaque variable once.
+    /// Names such as `m1[0]` and `m0.r2[3]` are interpreted only by the resolver.
+    /// This does not bind or borrow molecular data. Evaluate with a resolver that
+    /// shares this resolver's identity and prepared-reference table.
+    pub fn new_with_resolver(
+        s: impl AsRef<str>,
+        resolver: &mut dyn SelectionResolver,
+    ) -> Result<Self, SelectionParserError> {
+        let mut expr = Self::parse(s)?;
+        let identity = resolver.identity();
+        let mut prepared = HashMap::new();
+        expr.ast.visit_variables(&mut |name, span, reference| {
+            let id = if let Some(&id) = prepared.get(name) {
+                id
+            } else {
+                let id =
+                    resolver
+                        .prepare(name)
+                        .map_err(|error| SelectionParserError::Variable {
+                            name: name.into(),
+                            span: span.clone(),
+                            error,
+                        })?;
+                if id.resolver() != identity {
+                    return Err(SelectionParserError::ResolverMismatch);
+                }
+                prepared.insert(name.to_owned(), id);
+                id
+            };
+            *reference = Some(id);
+            Ok(())
+        })?;
+        expr.resolver = Some(identity);
+        Ok(expr)
+    }
+
+    fn parse(s: impl AsRef<str>) -> Result<Self, SelectionParserError> {
         let s = s.as_ref().trim();
         Ok(Self {
-            ast: RefCell::new(
-                super::grammar::selection_parser::logical_expr(s).map_err(|e| {
-                    let offset = e.location.offset;
-                    // Curate peg's raw "expected" set: strip the quotes it puts around
-                    // literals ("and" -> and), drop empty/whitespace tokens that slip
-                    // through, dedupe, and sort for a stable message.
-                    let mut expected: Vec<String> = e
-                        .expected
-                        .tokens()
-                        .map(|t| t.trim_matches('"').to_string())
-                        .filter(|t| !t.trim().is_empty())
-                        .collect();
-                    expected.sort();
-                    expected.dedup();
-                    SelectionParserError::SyntaxError(SyntaxError {
-                        input: s.to_owned(),
-                        offset,
-                        span: offending_token_span(s, offset),
-                        expected,
-                    })
-                })?,
-            ),
+            resolver: None,
+            ast: super::grammar::selection_parser::logical_expr(s).map_err(|e| {
+                let offset = e.location.offset;
+                // Curate peg's raw "expected" set: strip the quotes it puts around
+                // literals ("and" -> and), drop empty/whitespace tokens that slip
+                // through, dedupe, and sort for a stable message.
+                let mut expected: Vec<String> = e
+                    .expected
+                    .tokens()
+                    .map(|t| t.trim_matches('"').to_string())
+                    .filter(|t| !t.trim().is_empty())
+                    .collect();
+                expected.sort();
+                expected.dedup();
+                SelectionParserError::SyntaxError(SyntaxError {
+                    input: s.to_owned(),
+                    offset,
+                    span: offending_token_span(s, offset),
+                    expected,
+                })
+            })?,
             sel_str: s.to_owned(),
         })
     }
 
-    /// Applies selection expression to all atoms in the system
-    pub(super) fn apply_whole (
+    /// Evaluate against a default source. Public results contain only its indices.
+    /// Each evaluation binds references again and caches views only for this call.
+    pub fn evaluate(
         &self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider)
+        default: &impl SelectionSource,
+        resolver: &dyn SelectionResolver,
+    ) -> Result<Sel, SelectionError> {
+        let view = default.selection_view();
+        let index = self.apply_with(&view, view.indices(), resolver)?;
+        if index.is_empty() {
+            return Err(SelectionError::EmptyExpr(self.get_str().into()));
+        }
+        Ok(Sel(index))
+    }
+
+    /// Attach a binding resolver to an already prepared expression. The returned
+    /// definition works with existing `select`, `select_bound` and subselect APIs.
+    pub fn with_resolver<'a>(
+        &'a self,
+        resolver: &'a dyn SelectionResolver,
+    ) -> ResolvedSelection<'a> {
+        ResolvedSelection {
+            expr: self,
+            resolver,
+        }
+    }
+
+    fn apply_with(
+        &self,
+        sys: &(
+             impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider
+         ),
+        subset: Option<&[usize]>,
+        resolver: &dyn SelectionResolver,
+    ) -> Result<SVec, SelectionParserError> {
+        if self.resolver.is_some_and(|id| id != resolver.identity()) {
+            return Err(SelectionParserError::ResolverMismatch);
+        }
+        let sources = super::source::EvaluationSources::new(resolver);
+        let data = super::ast::EvalContext::new(sys, subset)?.with_sources(&sources);
+        let mut ast = self.ast.clone();
+        let index = ast.apply(&data)?.into_owned();
+        Ok(SVec::from_unsorted(index))
+    }
+
+    /// Applies selection expression to all atoms in the system
+    pub(super) fn apply_whole(
+        &self,
+        sys: &(
+             impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider
+         ),
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvalContext::new(sys, None)?;
-        let mut ast = self.ast.borrow_mut();
+        let mut ast = self.ast.clone();
         //println!("BEFORE:\n{ast:#?}\n");
         let ind = ast.apply(&data)?.into_owned();
         Ok(SVec::from_unsorted(ind))
     }
 
     /// Applies the selection expression to a subset of atoms
-    pub(super) fn apply_subset (
+    pub(super) fn apply_subset(
         &self,
-        sys: &(impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider),
+        sys: &(
+             impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider
+         ),
         subset: &[usize],
     ) -> Result<SVec, SelectionParserError> {
         let data = super::ast::EvalContext::new(sys, Some(subset))?;
-        let mut ast = self.ast.borrow_mut();
+        let mut ast = self.ast.clone();
         let ind = ast.apply(&data)?.into_owned();
         Ok(SVec::from_unsorted(ind))
+    }
+}
+
+/// Prepared expression plus its evaluation-time binding resolver.
+/// No source views are retained by this wrapper or the compiled expression.
+pub struct ResolvedSelection<'a> {
+    expr: &'a SelectionExpr,
+    resolver: &'a dyn SelectionResolver,
+}
+impl SelectionDef for ResolvedSelection<'_> {
+    fn into_sel_index(
+        self,
+        sys: &(
+             impl PosProvider + AtomProvider + BoxProvider + BondProvider + VelProvider + ForceProvider
+         ),
+        subset: Option<&[usize]>,
+    ) -> Result<SVec, SelectionError> {
+        let index = self.expr.apply_with(sys, subset, self.resolver)?;
+        if index.is_empty() {
+            return Err(SelectionError::EmptyExpr(self.expr.get_str().into()));
+        }
+        Ok(index)
     }
 }
 
@@ -150,9 +270,8 @@ mod tests {
         assert!(e.expected.contains(&"or".to_string()));
     }
 
-    static SYS: LazyLock<System> = LazyLock::new(|| {
-        System::from_file("tests/albumin.pdb").unwrap()
-    });
+    static SYS: LazyLock<System> =
+        LazyLock::new(|| System::from_file("tests/albumin.pdb").unwrap());
 
     #[test]
     fn within_syntax_test() {
@@ -189,36 +308,57 @@ mod tests {
 
     fn get_selection_index(sel_str: &str) -> Vec<usize> {
         let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
-        ast.apply_whole(&*SYS)
-            .expect("Error applying AST")
-            .to_vec()
+        ast.apply_whole(&*SYS).expect("Error applying AST").to_vec()
     }
 
     fn get_selection_index2(sel_str: &str) -> Vec<usize> {
         let ast = SelectionExpr::new(sel_str).expect("Error generating AST");
-        ast.apply_whole(&*SYS)
-            .expect("Error applying AST")
-            .to_vec()
+        ast.apply_whole(&*SYS).expect("Error applying AST").to_vec()
     }
 
     #[test]
     fn polar_hydrogen_uses_bonds() {
         use crate::prelude::*;
         let atom = |name: &str, z: u8| {
-            Atom::new().with_name(name).with_atomic_number(z).with_resname("MOL")
+            Atom::new()
+                .with_name(name)
+                .with_atomic_number(z)
+                .with_resname("MOL")
         };
         // O–H1, O–H2 are polar; C–HC is a nonpolar C–H.
         let top = Topology {
-            atoms: [atom("O", 8), atom("H1", 1), atom("H2", 1), atom("C", 6), atom("HC", 1)].into_iter().collect(),
-            bonds: [Bond::new(0, 1), Bond::new(0, 2), Bond::new(3, 4)].into_iter().collect(),
+            atoms: [
+                atom("O", 8),
+                atom("H1", 1),
+                atom("H2", 1),
+                atom("C", 6),
+                atom("HC", 1),
+            ]
+            .into_iter()
+            .collect(),
+            bonds: [Bond::new(0, 1), Bond::new(0, 2), Bond::new(3, 4)]
+                .into_iter()
+                .collect(),
             ..Default::default()
         };
         let sys = System::new(top, State::new_fake(5)).unwrap();
-        let mut polh = SelectionExpr::new("polh").unwrap().apply_whole(&sys).unwrap().to_vec();
+        let mut polh = SelectionExpr::new("polh")
+            .unwrap()
+            .apply_whole(&sys)
+            .unwrap()
+            .to_vec();
         polh.sort_unstable();
-        assert_eq!(polh, vec![1, 2], "polar H = hydrogens bonded to O, not the C–H");
+        assert_eq!(
+            polh,
+            vec![1, 2],
+            "polar H = hydrogens bonded to O, not the C–H"
+        );
         // Apolar hydrogens = bonded to a non-electronegative heavy atom (the C–H).
-        let apolh = SelectionExpr::new("apolh").unwrap().apply_whole(&sys).unwrap().to_vec();
+        let apolh = SelectionExpr::new("apolh")
+            .unwrap()
+            .apply_whole(&sys)
+            .unwrap()
+            .to_vec();
         assert_eq!(apolh, vec![4], "apolar H = the C–H hydrogen");
 
         // No bonds → nothing is polar/apolar → an empty selection (an error via `select`).
@@ -227,9 +367,22 @@ mod tests {
             ..Default::default()
         };
         let sys2 = System::new(bare, State::new_fake(2)).unwrap();
-        assert!(SelectionExpr::new("polh").unwrap().apply_whole(&sys2).unwrap().to_vec().is_empty());
-        assert!(sys2.select("polh").is_err(), "no bonds → empty selection → error");
-        assert!(sys2.select("apolh").is_err(), "no bonds → empty selection → error");
+        assert!(
+            SelectionExpr::new("polh")
+                .unwrap()
+                .apply_whole(&sys2)
+                .unwrap()
+                .to_vec()
+                .is_empty()
+        );
+        assert!(
+            sys2.select("polh").is_err(),
+            "no bonds → empty selection → error"
+        );
+        assert!(
+            sys2.select("apolh").is_err(),
+            "no bonds → empty selection → error"
+        );
     }
 
     #[test]
@@ -241,14 +394,10 @@ mod tests {
     #[test]
     fn test_sqrt() {
         let ast = SelectionExpr::new("within 0.3 of x>2+2*3").expect("Error generating AST");
-        let _vec1 = ast
-            .apply_whole(&*SYS)
-            .expect("Error applying AST");
+        let _vec1 = ast.apply_whole(&*SYS).expect("Error applying AST");
 
         let ast = SelectionExpr::new("x<25").expect("Error generating AST");
-        let _vec2 = ast
-            .apply_whole(&*SYS)
-            .expect("Error applying AST");
+        let _vec2 = ast.apply_whole(&*SYS).expect("Error applying AST");
 
         //assert_eq!(vec1.len(), vec2.len());
     }
@@ -279,18 +428,15 @@ mod tests {
 
     #[test]
     fn test_x_of() {
-        let _ast = SelectionExpr::new("x < x of com of name CA")
-            .expect("Error generating AST");
+        let _ast = SelectionExpr::new("x < x of com of name CA").expect("Error generating AST");
         // x < name(CA).com.x
         // pbc=yyy; resid(13 14 15).within(0.35).cog.dist < 3.0
     }
 
     #[test]
     fn test_nth_pos_of() {
-        let _ast = SelectionExpr::new("x < x of pos 3 of name CA")
-            .expect("Error generating AST");
+        let _ast = SelectionExpr::new("x < x of pos 3 of name CA").expect("Error generating AST");
     }
-
 
     #[test]
     fn debug_print() {

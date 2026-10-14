@@ -30,6 +30,26 @@ impl System {
         unsafe {Ok(self.try_bind_sorted_slice(ind.get_index_slice())?.select(def)?)}
     }
 
+    /// Evaluate a prepared expression within an existing selection domain.
+    pub fn sub_select_with(
+        &self,
+        ind: &impl IndexSliceProvider,
+        expr: &SelectionExpr,
+        resolver: &dyn SelectionResolver,
+    ) -> Result<Sel, SelectionError> {
+        self.sub_select(ind, expr.with_resolver(resolver))
+    }
+
+    /// Evaluate a prepared expression, then mutably bind its result.
+    /// The resolver cannot retain an immutable borrow of this system.
+    pub fn select_bound_mut_with(
+        &mut self,
+        expr: &SelectionExpr,
+        resolver: &dyn SelectionResolver,
+    ) -> Result<SelOwnBoundMut<'_>, SelectionError> {
+        self.select_bound_mut(expr.with_resolver(resolver))
+    }
+
     /// Create all detached
     pub fn select_all(&self) -> Sel {
         Sel(unsafe { SVec::from_sorted((0..self.len()).into_iter().collect()) })

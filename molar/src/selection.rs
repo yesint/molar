@@ -3,6 +3,8 @@ mod ast;
 // error); the rest of `ast` stays private.
 pub use ast::{SelectionParserError, SyntaxError};
 mod grammar;
+mod source;
+pub use source::*;
 
 #[allow(dead_code)]
 mod selection_expr;

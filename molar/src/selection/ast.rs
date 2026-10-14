@@ -132,6 +132,12 @@ pub(super) struct WithinParams {
 // Top level
 #[derive(Clone)]
 pub(super) enum LogicalNode {
+    Scope {
+        name: String,
+        span: std::ops::Range<usize>,
+        reference: Option<SelectionReferenceId>,
+        inner: Box<Self>,
+    },
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
     And(Box<Self>, Box<Self>),
@@ -217,6 +223,7 @@ impl IndexProvider for EvalSubset<'_> {
 #[derive(Clone)]
 pub(super) struct EvalContext<'a,S> {
     sys: &'a S, // Something system-like
+    sources: Option<&'a dyn super::source::SourceBindings>,
     // This is a subset passed from outside.
     // Selection is completely within it.
     // Parser is never changing it.
@@ -242,6 +249,7 @@ impl<'a,S> EvalContext<'a,S> {
         if part.is_none() {
             Ok(Self {
                 sys,
+                sources: None,
                 global_subset: EvalSubset::Whole(0..sys.len()),
                 cur_subset: EvalSubset::Whole(0..sys.len()),
                 vel_ptr,
@@ -250,6 +258,7 @@ impl<'a,S> EvalContext<'a,S> {
         } else {
             Ok(Self {
                 sys,
+                sources: None,
                 global_subset: EvalSubset::Part(part.unwrap()),
                 cur_subset: EvalSubset::Part(part.unwrap()),
                 vel_ptr,
@@ -258,11 +267,16 @@ impl<'a,S> EvalContext<'a,S> {
         }
     }
 
+    pub(super) fn with_sources(mut self, sources: &'a dyn super::source::SourceBindings) -> Self {
+        self.sources = Some(sources); self
+    }
+
     fn with_custom_subset(&'a self, custom_subset: &'a [usize]) -> Self {
         Self {
             cur_subset: EvalSubset::Part(custom_subset),
             global_subset: self.global_subset.clone(),
             sys: self.sys,
+            sources: self.sources,
             vel_ptr: self.vel_ptr,
             force_ptr: self.force_ptr,
         }
@@ -273,6 +287,7 @@ impl<'a,S> EvalContext<'a,S> {
             cur_subset: self.global_subset.clone(),
             global_subset: self.global_subset.clone(),
             sys: self.sys,
+            sources: self.sources,
             vel_ptr: self.vel_ptr,
             force_ptr: self.force_ptr,
         }
@@ -351,24 +366,21 @@ pub(super) trait Evaluate {
 }
 
 impl DistanceNode {
-    fn closest_image<S>(&mut self, point: &mut Pos, data: &EvalContext<'_,S>) 
-    where
-        S: PosProvider + AtomProvider + BoxProvider + BondProvider
-    {
-        if let Some(pbox) = data.get_box() {
-            match self {
-                Self::Point(target, dims)
-                | Self::Line(target, _, dims)
-                | Self::LineDir(target, _, dims)
-                | Self::Plane(target, _, _, dims)
-                | Self::PlaneNormal(target, _, dims) => {
-                    if dims.any() {
-                        *point =
-                            pbox.closest_image_dims(point, target.get_vec(data).unwrap(), *dims)
-                    }
+    fn closest_image<S>(&mut self, point: &mut Pos, data: &EvalContext<'_, S>) -> Result<(), SelectionParserError>
+    where S: PosProvider + AtomProvider + BoxProvider + BondProvider {
+        match self {
+            Self::Point(target, dims)
+            | Self::Line(target, _, dims)
+            | Self::LineDir(target, _, dims)
+            | Self::Plane(target, _, _, dims)
+            | Self::PlaneNormal(target, _, dims) => {
+                if dims.any() {
+                    let target = target.get_vec(data)?;
+                    *point = data.require_box()?.closest_image_dims(point, target, *dims);
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -380,33 +392,28 @@ impl VectorNode {
         match self {
             Self::Const(v) => Ok(v),
             Self::UnitConst(v) => Ok(v),
-            Self::Com(inner, dims) => {
-                let res = inner.apply(data)?;
-                let v = if *dims == PBC_NONE {
-                    data.with_custom_subset(&res).center_of_mass()?
-                } else {
-                    data.with_custom_subset(&res).center_of_mass_pbc_dims(*dims)?
-                };
-                *self = Self::Const(v);
-                self.get_vec(data)
-            }
-            Self::Cog(inner, dims) => {
-                let res = inner.apply(data)?;
-                let v = if *dims == PBC_NONE {
-                    data.with_custom_subset(&res).center_of_geometry()
-                } else {
-                    data.with_custom_subset(&res)
-                        .center_of_geometry_pbc_dims(*dims)?
-                };
+            Self::Com(_, _) | Self::Cog(_, _) => {
+                let mass_weighted = matches!(self, Self::Com(_, _));
+                let (inner, dims) = match self { Self::Com(i, d) | Self::Cog(i, d) => (i, *d), _ => unreachable!() };
+                let groups = inner.apply_references(data)?;
+                let v = reference_center(groups, data, dims, mass_weighted)?;
                 *self = Self::Const(v);
                 self.get_vec(data)
             }
             Self::NthAtomOf(inner, i) => {
-                let res = inner.apply(data)?;
-                let v = data
-                    .get_pos(*i)
-                    .ok_or_else(|| SelectionParserError::OutOfBounds(*i, res.len()))?;
-                *self = Self::Const(*v);
+                let mut groups = inner.apply_references(data)?;
+                if groups.len() != 1 { return Err(SelectionParserError::MixedSources); }
+                let v = match groups.pop().unwrap() {
+                    ReferenceAtoms::Local(ind) => {
+                        let sub = data.with_custom_subset(&ind);
+                        *sub.get_pos(*i).ok_or(SelectionParserError::OutOfBounds(*i, ind.len()))?
+                    }
+                    ReferenceAtoms::Named(view, ind) => {
+                        let sub = EvalContext::new(&view, Some(&ind))?;
+                        *sub.get_pos(*i).ok_or(SelectionParserError::OutOfBounds(*i, ind.len()))?
+                    }
+                };
+                *self = Self::Const(v);
                 self.get_vec(data)
             }
         }
@@ -478,6 +485,7 @@ impl std::fmt::Debug for LogicalNode {
             LogicalNode::And(a, b) => f.debug_tuple("And").field(a).field(b).finish(),
             LogicalNode::Keyword(k) => f.debug_tuple("Keyword").field(k).finish(),
             LogicalNode::Comparison(c) => f.debug_tuple("Comparison").field(c).finish(),
+            LogicalNode::Scope { name, inner, .. } => f.debug_tuple("Scope").field(name).field(inner).finish(),
             LogicalNode::Same(attr, n) => f.debug_tuple("Same").field(attr).field(n).finish(),
             LogicalNode::Within(p, n) => f.debug_tuple("Within").field(p).field(n).finish(),
             LogicalNode::WithinPoint(p, v) => f.debug_tuple("WithinPoint").field(p).field(v).finish(),
@@ -490,11 +498,12 @@ impl std::fmt::Debug for LogicalNode {
 impl Evaluate for LogicalNode {
     fn is_state_dependent(&self) -> bool {
         match self {
+            Self::Scope { .. } => true,
             Self::All | Self::Chemical(_) | Self::Keyword(_) | Self::Precomputed(_) => false,
             Self::Within(_, _) => true,
             Self::WithinPoint(_, _) => true,
             Self::Not(v) | Self::Same(_, v) => v.is_state_dependent(),
-            Self::And(a, b) | Self::Or(a, b) => a.is_state_dependent() && b.is_state_dependent(),
+            Self::And(a, b) | Self::Or(a, b) => a.is_state_dependent() || b.is_state_dependent(),
             Self::Comparison(v) => v.is_state_dependent(),
         }
     }
@@ -508,6 +517,22 @@ impl Evaluate for LogicalNode {
     {
         use rustc_hash::FxHashSet;
         match self {
+            Self::Scope { .. } => {
+                let groups = self.apply_references(data)?;
+                let mut indices = Vec::new();
+                for group in groups {
+                    match group {
+                        ReferenceAtoms::Local(ind) => indices.extend(ind),
+                        ReferenceAtoms::Named(view, ind) => {
+                            if !view.same_source(data.sys) { return Err(SelectionParserError::SourceMismatch); }
+                            indices.extend(ind);
+                        }
+                    }
+                }
+                let allowed: HashSet<_> = data.iter_index().collect();
+                indices.retain(|i| allowed.contains(i));
+                Ok(Cow::Owned(indices))
+            }
             Self::Precomputed(v) => Ok(Cow::from(&*v)),
 
             Self::Not(node) => {
@@ -587,47 +612,31 @@ impl Evaluate for LogicalNode {
             }
 
             Self::Within(params, node) => {
-                // Inner expr have to be evaluated in global context!
                 let glob_data = data.with_global_subset();
-                let inner_res = node.apply(&glob_data)?;
-
-                let sub1 = data;
-                let sub2 = data.with_custom_subset(&inner_res);
-                // Perform distance search
-                let mut res: Vec<usize> = if params.pbc == PBC_NONE {
-                    // Non-periodic variant
-                    // Find extents
-                    let (mut lower, mut upper) = data.min_max();
-                    lower.coords.add_scalar_mut(-params.cutoff - Float::EPSILON);
-                    upper.coords.add_scalar_mut(params.cutoff + Float::EPSILON);
-
-                    distance_search_within(
-                        params.cutoff,
-                        sub1,
-                        &sub2,
-                        sub1.iter_index(),
-                        sub2.iter_index(),
-                        &lower.coords,
-                        &upper.coords,
-                    )?
-                } else {
-                    // Periodic variant
-                    distance_search_within_pbc(
-                        params.cutoff,
-                        sub1,
-                        &sub2,
-                        sub1.iter_index(),
-                        sub2.iter_index(),
-                        data.require_box()?,
-                        params.pbc,
-                    )?
-                };
-
-                // Add inner if asked
-                if params.include_inner {
-                    res.extend(inner_res.iter());
+                let groups = node.apply_references(&glob_data)?;
+                let mut res = Vec::new();
+                for group in groups {
+                    match group {
+                        ReferenceAtoms::Local(ind) => {
+                            if ind.is_empty() { continue; }
+                            let reference = data.with_custom_subset(&ind);
+                            res.extend(search_reference(params, data, &reference)?);
+                            if params.include_inner { res.extend(ind); }
+                        }
+                        ReferenceAtoms::Named(view, ind) => {
+                            if ind.is_empty() { continue; }
+                            let reference = EvalContext::new(&view, Some(&ind))?;
+                            res.extend(search_reference(params, data, &reference)?);
+                            // Never add indices from a foreign dataset.
+                            if params.include_inner && view.same_source(data.sys) {
+                                let allowed: HashSet<_> = data.with_global_subset().iter_index().collect();
+                                res.extend(ind.into_iter().filter(|i| allowed.contains(i)));
+                            }
+                        }
+                    }
                 }
-                Ok(Cow::from(res))
+                res.sort_unstable(); res.dedup();
+                Ok(Cow::Owned(res))
             }
 
             Self::WithinPoint(prop, point) => {
@@ -1071,7 +1080,7 @@ impl MathNode {
             Self::Dist(node) => {
                 let mut pos = p.pos.clone();
                 // Point should be unwrapped first!
-                node.closest_image(&mut pos, data);
+                node.closest_image(&mut pos, data)?;
 
                 match node {
                     DistanceNode::Point(p, _) => Ok((pos - p.get_vec(data)?).norm()),
@@ -1285,6 +1294,17 @@ impl std::fmt::Display for SyntaxError {
 
 #[derive(Error, Debug)]
 pub enum SelectionParserError {
+    #[error("variable '{name}': {error}")]
+    Variable { name: String, span: std::ops::Range<usize>, error: SelectionResolveError },
+    #[error("variable '{name}' requires a resolver")]
+    ResolverRequired { name: String, span: std::ops::Range<usize> },
+    #[error("expression and resolver use different prepared-reference tables")]
+    ResolverMismatch,
+    #[error("selection operand belongs to a different source")]
+    SourceMismatch,
+    #[error("this operation requires a single source")]
+    MixedSources,
+
     #[error(transparent)]
     DistanceSearch(#[from] DistanceSearchError),
 
@@ -1314,4 +1334,337 @@ pub enum SelectionParserError {
 
     #[error("forces are not present; cannot use fx/fy/fz in selection")]
     NoForces,
+}
+
+
+impl LogicalNode {
+    pub(super) fn visit_variables(
+        &mut self,
+        visitor: &mut impl FnMut(
+            &str,
+            &std::ops::Range<usize>,
+            &mut Option<SelectionReferenceId>,
+        ) -> Result<(), SelectionParserError>,
+    ) -> Result<(), SelectionParserError> {
+        match self {
+            Self::Scope {
+                name,
+                span,
+                reference,
+                inner,
+            } => {
+                visitor(name, span, reference)?;
+                inner.visit_variables(visitor)?;
+            }
+            Self::Not(n) | Self::Same(_, n) | Self::Within(_, n) => n.visit_variables(visitor)?,
+            Self::Or(a, b) | Self::And(a, b) => {
+                a.visit_variables(visitor)?;
+                b.visit_variables(visitor)?;
+            }
+            Self::WithinPoint(_, v) => v.visit_variables(visitor)?,
+            Self::Comparison(c) => c.visit_variables(visitor)?,
+            _ => (),
+        }
+        Ok(())
+    }
+}
+impl VectorNode {
+    fn visit_variables(
+        &mut self,
+        visitor: &mut impl FnMut(
+            &str,
+            &std::ops::Range<usize>,
+            &mut Option<SelectionReferenceId>,
+        ) -> Result<(), SelectionParserError>,
+    ) -> Result<(), SelectionParserError> {
+        match self {
+            Self::Com(n, _) | Self::Cog(n, _) | Self::NthAtomOf(n, _) => {
+                n.visit_variables(visitor)?
+            }
+            _ => (),
+        }
+        Ok(())
+    }
+}
+impl MathNode {
+    fn visit_variables(
+        &mut self,
+        visitor: &mut impl FnMut(
+            &str,
+            &std::ops::Range<usize>,
+            &mut Option<SelectionReferenceId>,
+        ) -> Result<(), SelectionParserError>,
+    ) -> Result<(), SelectionParserError> {
+        match self {
+            Self::Function(_, n) | Self::UnaryMinus(n) => n.visit_variables(visitor)?,
+            Self::BinaryOp(a, _, b) => {
+                a.visit_variables(visitor)?;
+                b.visit_variables(visitor)?;
+            }
+            Self::Xof(v) | Self::Yof(v) | Self::Zof(v) => v.visit_variables(visitor)?,
+            Self::Dist(d) => match d {
+                DistanceNode::Point(v, _) => v.visit_variables(visitor)?,
+                DistanceNode::Line(a, b, _)
+                | DistanceNode::LineDir(a, b, _)
+                | DistanceNode::PlaneNormal(a, b, _) => {
+                    a.visit_variables(visitor)?;
+                    b.visit_variables(visitor)?;
+                }
+                DistanceNode::Plane(a, b, c, _) => {
+                    a.visit_variables(visitor)?;
+                    b.visit_variables(visitor)?;
+                    c.visit_variables(visitor)?;
+                }
+            },
+            _ => (),
+        }
+        Ok(())
+    }
+}
+impl ComparisonNode {
+    fn visit_variables(
+        &mut self,
+        visitor: &mut impl FnMut(
+            &str,
+            &std::ops::Range<usize>,
+            &mut Option<SelectionReferenceId>,
+        ) -> Result<(), SelectionParserError>,
+    ) -> Result<(), SelectionParserError> {
+        match self {
+            Self::Eq(a, b)
+            | Self::Neq(a, b)
+            | Self::Gt(a, b)
+            | Self::Geq(a, b)
+            | Self::Lt(a, b)
+            | Self::Leq(a, b) => {
+                a.visit_variables(visitor)?;
+                b.visit_variables(visitor)?;
+            }
+            Self::LtLt(a, b, c)
+            | Self::LeqLt(a, b, c)
+            | Self::LtLeq(a, b, c)
+            | Self::LeqLeq(a, b, c)
+            | Self::GtGt(a, b, c)
+            | Self::GtGeq(a, b, c)
+            | Self::GeqGt(a, b, c)
+            | Self::GeqGeq(a, b, c) => {
+                a.visit_variables(visitor)?;
+                b.visit_variables(visitor)?;
+                c.visit_variables(visitor)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Reference indices always travel with the source that supplies their data.
+enum ReferenceAtoms<'a> {
+    Local(Vec<usize>),
+    Named(SelectionSourceView<'a>, Vec<usize>),
+}
+impl LogicalNode {
+    // Only source-valued Boolean operands need the reference-set path.
+    // Ordinary predicates retain the existing candidate-subset evaluation rules.
+    fn has_reference_scope(&self) -> bool {
+        match self {
+            Self::Scope { .. } => true,
+            Self::And(a, b) | Self::Or(a, b) => a.has_reference_scope() || b.has_reference_scope(),
+            _ => false,
+        }
+    }
+
+    fn apply_references<'a, S>(
+        &mut self,
+        data: &EvalContext<'a, S>,
+    ) -> Result<Vec<ReferenceAtoms<'a>>, SelectionParserError>
+    where
+        S: PosProvider + AtomProvider + BoxProvider + BondProvider,
+    {
+        match self {
+            Self::Scope {
+                name,
+                span,
+                reference,
+                inner,
+            } => {
+                let id = reference.ok_or_else(|| SelectionParserError::ResolverRequired {
+                    name: name.clone(),
+                    span: span.clone(),
+                })?;
+                let sources =
+                    data.sources
+                        .ok_or_else(|| SelectionParserError::ResolverRequired {
+                            name: name.clone(),
+                            span: span.clone(),
+                        })?;
+                let view = sources.bind(id, name, span)?;
+                let scoped = EvalContext::new(&view, view.indices())?.with_sources(sources);
+                let mut indices = inner.apply(&scoped)?.into_owned();
+                indices.sort_unstable();
+                indices.dedup();
+                Ok(vec![ReferenceAtoms::Named(view, indices)])
+            }
+            Self::And(a, b) if a.has_reference_scope() || b.has_reference_scope() => {
+                let left = a.apply_references(data)?;
+                let right = b.apply_references(data)?;
+                let mut result = Vec::new();
+                for mut group in left {
+                    let mut allowed = HashSet::new();
+                    let mut matched_source = false;
+                    for other in &right {
+                        if same_reference_source(&group, other, data.sys) {
+                            matched_source = true;
+                            allowed.extend(reference_indices(other).iter().copied());
+                        }
+                    }
+                    if !matched_source {
+                        return Err(SelectionParserError::SourceMismatch);
+                    }
+                    match &mut group {
+                        ReferenceAtoms::Local(ind) | ReferenceAtoms::Named(_, ind) => {
+                            ind.retain(|i| allowed.contains(i))
+                        }
+                    }
+                    result.push(group);
+                }
+                Ok(merge_references(result, data.sys))
+            }
+            Self::Or(a, b) if a.has_reference_scope() || b.has_reference_scope() => {
+                let mut groups = a.apply_references(data)?;
+                groups.extend(b.apply_references(data)?);
+                Ok(merge_references(groups, data.sys))
+            }
+            _ => {
+                let mut indices = self.apply(data)?.into_owned();
+                indices.sort_unstable();
+                indices.dedup();
+                Ok(vec![ReferenceAtoms::Local(indices)])
+            }
+        }
+    }
+}
+
+fn search_reference<A, B>(
+    params: &WithinParams,
+    candidates: &A,
+    reference: &B,
+) -> Result<Vec<usize>, SelectionParserError>
+where
+    A: PosProvider + BoxProvider,
+    B: PosProvider,
+{
+    if candidates.len() == 0 || reference.len() == 0 {
+        return Ok(Vec::new());
+    }
+    if params.pbc == PBC_NONE {
+        let (mut lower, mut upper) = candidates.min_max();
+        lower.coords.add_scalar_mut(-params.cutoff - Float::EPSILON);
+        upper.coords.add_scalar_mut(params.cutoff + Float::EPSILON);
+        Ok(distance_search_within(
+            params.cutoff,
+            candidates,
+            reference,
+            candidates.iter_index(),
+            reference.iter_index(),
+            &lower.coords,
+            &upper.coords,
+        )?)
+    } else {
+        // The outer source defines the periodic coordinate frame.
+        Ok(distance_search_within_pbc(
+            params.cutoff,
+            candidates,
+            reference,
+            candidates.iter_index(),
+            reference.iter_index(),
+            candidates.require_box()?,
+            params.pbc,
+        )?)
+    }
+}
+
+fn reference_center<S>(
+    mut groups: Vec<ReferenceAtoms<'_>>,
+    data: &EvalContext<'_, S>,
+    dims: PbcDims,
+    mass_weighted: bool,
+) -> Result<Pos, SelectionParserError>
+where
+    S: PosProvider + AtomProvider + BoxProvider + BondProvider,
+{
+    if groups.len() != 1 {
+        return Err(SelectionParserError::MixedSources);
+    }
+    fn center<P: PosProvider + AtomProvider + BoxProvider>(
+        p: &P,
+        dims: PbcDims,
+        mass: bool,
+    ) -> Result<Pos, SelectionParserError> {
+        if p.len() == 0 {
+            return Err(SelectionParserError::OutOfBounds(0, 0));
+        }
+        Ok(if mass {
+            if dims == PBC_NONE {
+                p.center_of_mass()?
+            } else {
+                p.center_of_mass_pbc_dims(dims)?
+            }
+        } else {
+            if dims == PBC_NONE {
+                p.center_of_geometry()
+            } else {
+                p.center_of_geometry_pbc_dims(dims)?
+            }
+        })
+    }
+    match groups.pop().unwrap() {
+        ReferenceAtoms::Local(ind) => center(&data.with_custom_subset(&ind), dims, mass_weighted),
+        ReferenceAtoms::Named(view, ind) => {
+            center(&EvalContext::new(&view, Some(&ind))?, dims, mass_weighted)
+        }
+    }
+}
+
+fn merge_references<'a, S: AtomProvider + PosProvider>(
+    groups: Vec<ReferenceAtoms<'a>>,
+    default: &S,
+) -> Vec<ReferenceAtoms<'a>> {
+    let mut merged: Vec<ReferenceAtoms<'a>> = Vec::new();
+    for group in groups {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|g| same_reference_source(g, &group, default))
+        {
+            let indices = match existing {
+                ReferenceAtoms::Local(i) | ReferenceAtoms::Named(_, i) => i,
+            };
+            indices.extend(match group {
+                ReferenceAtoms::Local(i) | ReferenceAtoms::Named(_, i) => i,
+            });
+            indices.sort_unstable();
+            indices.dedup();
+        } else {
+            merged.push(group);
+        }
+    }
+    merged
+}
+
+fn reference_indices<'a>(group: &'a ReferenceAtoms<'_>) -> &'a [usize] {
+    match group {
+        ReferenceAtoms::Local(i) | ReferenceAtoms::Named(_, i) => i,
+    }
+}
+fn same_reference_source<S: AtomProvider + PosProvider>(
+    a: &ReferenceAtoms<'_>,
+    b: &ReferenceAtoms<'_>,
+    default: &S,
+) -> bool {
+    match (a, b) {
+        (ReferenceAtoms::Local(_), ReferenceAtoms::Local(_)) => true,
+        (ReferenceAtoms::Named(a, _), ReferenceAtoms::Named(b, _)) => a.same_source(b),
+        (ReferenceAtoms::Named(v, _), _) | (_, ReferenceAtoms::Named(v, _)) => {
+            v.same_source(default)
+        }
+    }
 }
