@@ -1,25 +1,16 @@
 # Selection sources and variable resolvers
 
-A selection has one default source. Unqualified predicates use that source.
-Variables supply other sources for reference operands. For example:
+Foreign selection syntax is provided by the caller through PEG parsing hooks.
+`parse_atom(input, position)` recognizes a reference operand; `parse_prefix` recognizes
+only a unary operation head. Each returns `ForeignParse` with an exclusive byte end,
+opaque name, and optional structured error, or `None` to decline. Hooks must be pure:
+PEG may backtrack. Invalid consumed ranges are rejected. Only the committed AST is
+prepared, and source/operation syntax never enters molar's built-in grammar.
 
-```text
-protein and within 0.5 of m0.r1
-within 0.5 of m1:(name CA)
-within 0.5 of m1[0]
-within 0.5 of m0.r2[3]:(name CA)
-```
-
-Molar treats `m0.r1`, `m1[0]` and `m0.r2[3]` as opaque strings. It does not parse
-molecule, representation, group or frame identifiers. The caller owns that
-micro-grammar. Molar recognizes the token before `:` and an optional parenthesized
-selection after it. The token must not contain whitespace, `:`, parentheses, `&`
-or `|`. A scope with no group, such as `m0.r1:`, means all atoms in that source's
-allowed domain. The colon is optional for a bare variable, so `m0.r1` is
-equivalent to `m0.r1:`. Bare tokens start with an ASCII letter or underscore and
-exclude comparison operators and commas; selection keywords retain their existing
-meaning. Use the colon form for an otherwise ambiguous variable name. Existing ranges such as `index 0:10` and colons in atom-name values
-remain valid.
+Molar parses parentheses, Boolean operators and prefix operands. Prefixes have the
+same binding strength as `within`. A caller can support `touches (peer or name CA)`
+without parsing Boolean syntax itself. Optional `:(selection)` filters remain
+available after foreign reference operands.
 
 ## Three separate roles
 
@@ -69,6 +60,12 @@ struct References<'a> {
 }
 
 impl SelectionResolver for References<'_> {
+    fn parse_atom(&self, input: &str, position: usize) -> Option<ForeignParse> {
+        let name = "m0.r2[3]";
+        input[position..].starts_with(name)
+            .then(|| ForeignParse::matched(position + name.len(), name))
+    }
+
     fn identity(&self) -> SelectionResolverId { self.identity }
 
     fn prepare(&mut self, name: &str)
@@ -155,3 +152,14 @@ binding requires recursive representation evaluation.
 Mutable binding follows Rust's normal borrowing rules. If a resolver borrows the
 system to be modified, first evaluate to a detached `Sel`, release the resolver's
 borrows, then bind mutably.
+
+## Foreign operation evaluation
+
+`evaluate_prefix(reference, current, operands)` receives the current evaluation
+source and source-aware child selections. A source filter changes that evaluation
+source; the final public result must still belong to the original caller. The callback returns current-source
+indices; empty results are valid, out-of-bounds indices are rejected. Child sets
+may refer to different sources, but a foreign source in the final public selection
+is always a hard error. Calls evaluate per AST occurrence and are not cached by
+operation-head ID, because their operands can differ. Reference `bind`/`resolve`
+results remain cached per prepared ID for each evaluation.

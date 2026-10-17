@@ -138,6 +138,13 @@ pub(super) enum LogicalNode {
         reference: Option<SelectionReferenceId>,
         inner: Box<Self>,
     },
+    ForeignCall {
+        name: String,
+        span: std::ops::Range<usize>,
+        reference: Option<SelectionReferenceId>,
+        inner: Box<Self>,
+    },
+    ForeignInvalid { name: String, span: std::ops::Range<usize>, error: String },
     Not(Box<Self>),
     Or(Box<Self>, Box<Self>),
     And(Box<Self>, Box<Self>),
@@ -485,6 +492,8 @@ impl std::fmt::Debug for LogicalNode {
             LogicalNode::And(a, b) => f.debug_tuple("And").field(a).field(b).finish(),
             LogicalNode::Keyword(k) => f.debug_tuple("Keyword").field(k).finish(),
             LogicalNode::Comparison(c) => f.debug_tuple("Comparison").field(c).finish(),
+            LogicalNode::ForeignInvalid { name, error, .. } => f.debug_tuple("ForeignInvalid").field(name).field(error).finish(),
+            LogicalNode::ForeignCall { name, inner, .. } => f.debug_tuple("ForeignCall").field(name).field(inner).finish(),
             LogicalNode::Scope { name, inner, .. } => f.debug_tuple("Scope").field(name).field(inner).finish(),
             LogicalNode::Same(attr, n) => f.debug_tuple("Same").field(attr).field(n).finish(),
             LogicalNode::Within(p, n) => f.debug_tuple("Within").field(p).field(n).finish(),
@@ -498,7 +507,7 @@ impl std::fmt::Debug for LogicalNode {
 impl Evaluate for LogicalNode {
     fn is_state_dependent(&self) -> bool {
         match self {
-            Self::Scope { .. } => true,
+            Self::Scope { .. } | Self::ForeignCall { .. } | Self::ForeignInvalid { .. } => true,
             Self::All | Self::Chemical(_) | Self::Keyword(_) | Self::Precomputed(_) => false,
             Self::Within(_, _) => true,
             Self::WithinPoint(_, _) => true,
@@ -517,6 +526,28 @@ impl Evaluate for LogicalNode {
     {
         use rustc_hash::FxHashSet;
         match self {
+            Self::ForeignInvalid { name, span, error } => Err(SelectionParserError::Variable {
+                name: name.clone(), span: span.clone(), error: SelectionResolveError::new(error.clone()),
+            }),
+            Self::ForeignCall { name, span, reference, inner } => {
+                let id = reference.ok_or_else(|| SelectionParserError::ResolverRequired { name: name.clone(), span: span.clone() })?;
+                let sources = data.sources.ok_or_else(|| SelectionParserError::ResolverRequired { name: name.clone(), span: span.clone() })?;
+                let global = data.with_global_subset();
+                let groups = inner.apply_references(&global)?;
+                // A source filter can change the evaluation source. Keep its
+                // identity on all local child domains and in the host callback.
+                let coords = unsafe { std::slice::from_raw_parts(data.sys.coords_ptr(), data.sys.atom_storage().len()) };
+                let current = SelectionSourceView::from_buffers(data.sys.atom_storage(), coords, None)
+                    .map_err(|_| SelectionParserError::SourceMismatch)?.with_box(data.sys.get_box());
+                let views = groups.iter().map(|group| match group {
+                    ReferenceAtoms::Local(indices) => current.with_indices(indices),
+                    ReferenceAtoms::Named(view, indices) => view.with_indices(indices),
+                }).collect::<Result<Vec<_>, _>>().map_err(|_| SelectionParserError::SourceMismatch)?;
+                let mut indices = sources.evaluate_prefix(id, name, span, current, &views)?;
+                let allowed: HashSet<_> = data.iter_index().collect();
+                indices.retain(|i| allowed.contains(i));
+                Ok(Cow::Owned(indices))
+            }
             Self::Scope { .. } => {
                 let groups = self.apply_references(data)?;
                 let mut indices = Vec::new();
@@ -1347,7 +1378,10 @@ impl LogicalNode {
         ) -> Result<(), SelectionParserError>,
     ) -> Result<(), SelectionParserError> {
         match self {
-            Self::Scope {
+            Self::ForeignInvalid { name, span, error } => return Err(SelectionParserError::Variable {
+                name: name.clone(), span: span.clone(), error: SelectionResolveError::new(error.clone()),
+            }),
+            Self::ForeignCall { name, span, reference, inner } | Self::Scope {
                 name,
                 span,
                 reference,
@@ -1467,7 +1501,7 @@ impl LogicalNode {
     // Ordinary predicates retain the existing candidate-subset evaluation rules.
     fn has_reference_scope(&self) -> bool {
         match self {
-            Self::Scope { .. } => true,
+            Self::Scope { .. } | Self::ForeignCall { .. } | Self::ForeignInvalid { .. } => true,
             Self::And(a, b) | Self::Or(a, b) => a.has_reference_scope() || b.has_reference_scope(),
             _ => false,
         }

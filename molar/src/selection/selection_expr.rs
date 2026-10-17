@@ -75,7 +75,7 @@ impl SelectionExpr {
     /// let expr = SelectionExpr::new("resname ALA").unwrap();
     /// ```
     pub fn new(s: impl AsRef<str>) -> Result<Self, SelectionParserError> {
-        let mut expr = Self::parse(s)?;
+        let mut expr = Self::parse(s, None)?;
         expr.ast.visit_variables(&mut |name, span, _| {
             Err(SelectionParserError::ResolverRequired {
                 name: name.into(),
@@ -93,7 +93,7 @@ impl SelectionExpr {
         s: impl AsRef<str>,
         resolver: &mut dyn SelectionResolver,
     ) -> Result<Self, SelectionParserError> {
-        let mut expr = Self::parse(s)?;
+        let mut expr = Self::parse(s, Some(resolver))?;
         let identity = resolver.identity();
         let mut prepared = HashMap::new();
         expr.ast.visit_variables(&mut |name, span, reference| {
@@ -121,11 +121,11 @@ impl SelectionExpr {
         Ok(expr)
     }
 
-    fn parse(s: impl AsRef<str>) -> Result<Self, SelectionParserError> {
+    fn parse(s: impl AsRef<str>, resolver: Option<&dyn SelectionResolver>) -> Result<Self, SelectionParserError> {
         let s = s.as_ref().trim();
         Ok(Self {
             resolver: None,
-            ast: super::grammar::selection_parser::logical_expr(s).map_err(|e| {
+            ast: super::grammar::selection_parser::logical_expr(s, resolver).map_err(|e| {
                 let offset = e.location.offset;
                 // Curate peg's raw "expected" set: strip the quotes it puts around
                 // literals ("and" -> and), drop empty/whitespace tokens that slip
@@ -187,7 +187,12 @@ impl SelectionExpr {
         if self.resolver.is_some_and(|id| id != resolver.identity()) {
             return Err(SelectionParserError::ResolverMismatch);
         }
-        let sources = super::source::EvaluationSources::new(resolver);
+        // Providers guarantee one coordinate for every atom in their storage.
+        let coords = unsafe { std::slice::from_raw_parts(sys.coords_ptr(), sys.atom_storage().len()) };
+        let current = SelectionSourceView::from_buffers(sys.atom_storage(), coords, subset)
+            .map_err(|_| SelectionParserError::SourceMismatch)?
+            .with_box(sys.get_box());
+        let sources = super::source::EvaluationSources::new(resolver, current);
         let data = super::ast::EvalContext::new(sys, subset)?.with_sources(&sources);
         let mut ast = self.ast.clone();
         let index = ast.apply(&data)?.into_owned();

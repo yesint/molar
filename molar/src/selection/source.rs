@@ -59,6 +59,21 @@ impl SelectionResolveError {
     }
 }
 
+/// One foreign atom or prefix head recognized by an external parser.
+/// `end` is an exclusive byte offset in the original input, strictly after
+/// the supplied position and on a UTF-8 boundary. Parsing must have no side effects.
+#[derive(Clone, Debug)]
+pub struct ForeignParse {
+    pub end: usize,
+    pub name: String,
+    pub error: Option<String>,
+}
+impl ForeignParse {
+    pub fn matched(end: usize, name: impl Into<String>) -> Self {
+        Self { end, name: name.into(), error: None }
+    }
+}
+
 /// Resolve names in two stages. Implementors own the prepared-reference table.
 ///
 /// `prepare` is called once for each distinct variable string during construction.
@@ -67,11 +82,39 @@ impl SelectionResolveError {
 /// identity and table of the resolver used to construct the expression.
 pub trait SelectionResolver {
     fn identity(&self) -> SelectionResolverId;
+    /// Recognize a foreign leaf at a selection-operand position.
+    fn parse_atom(&self, _input: &str, _position: usize) -> Option<ForeignParse> { None }
+    /// Recognize only the prefix head. Molar parses its unary operand and nesting.
+    fn parse_prefix(&self, _input: &str, _position: usize) -> Option<ForeignParse> { None }
+    /// Evaluate a prefix against source-aware intermediate operands. Returned
+    /// indices must belong to `current`; empty results are allowed. Unlike source
+    /// binding, calls are evaluated per AST occurrence, not cached by head ID.
+    fn evaluate_prefix(
+        &self,
+        _reference: SelectionReferenceId,
+        _current: SelectionSourceView<'_>,
+        _operands: &[SelectionSourceView<'_>],
+    ) -> Result<Vec<usize>, SelectionResolveError> {
+        Err(SelectionResolveError::new("foreign prefix evaluator is not provided"))
+    }
     fn prepare(&mut self, variable: &str) -> Result<SelectionReferenceId, SelectionResolveError>;
     fn bind(
         &self,
+        _reference: SelectionReferenceId,
+    ) -> Result<SelectionSourceView<'_>, SelectionResolveError> {
+        Err(SelectionResolveError::new("foreign expression requires evaluation context"))
+    }
+
+    /// Evaluate a prepared foreign expression in the original selection source.
+    /// The default preserves source-reference resolvers; computed selections may
+    /// return a checked domain over `current`. No expression syntax is imposed.
+    fn resolve<'a>(
+        &'a self,
         reference: SelectionReferenceId,
-    ) -> Result<SelectionSourceView<'_>, SelectionResolveError>;
+        _current: SelectionSourceView<'a>,
+    ) -> Result<SelectionSourceView<'a>, SelectionResolveError> {
+        self.bind(reference)
+    }
 }
 
 /// Adapter from a selection-like object to a concrete borrowed source view.
@@ -158,10 +201,20 @@ impl<'a> SelectionSourceView<'a> {
         self.forces = forces;
         Ok(self)
     }
+    /// Restrict this source to sorted, unique atom indices (empty is valid).
+    pub fn with_indices(mut self, indices: &'a [usize]) -> Result<Self, SelectionError> {
+        if indices.windows(2).any(|w| w[0] >= w[1])
+            || indices.last().is_some_and(|&i| i >= self.atoms.len()) {
+            return Err(SelectionError::InvalidSourceIndices);
+        }
+        self.indices = Some(indices);
+        Ok(self)
+    }
+
     pub fn indices(&self) -> Option<&'a [usize]> {
         self.indices
     }
-    pub(super) fn same_source<S: AtomProvider + PosProvider>(&self, other: &S) -> bool {
+    pub fn same_source<S: AtomProvider + PosProvider>(&self, other: &S) -> bool {
         std::ptr::eq(self.atoms, other.atom_storage())
             && self.coords.as_ptr() == unsafe { other.coords_ptr() }
     }
@@ -252,12 +305,14 @@ impl<T: SystemProvider + IndexSliceProvider> SelectionSource for T {
 /// A cache lives only as long as one evaluation and borrows the binding resolver.
 pub(super) struct EvaluationSources<'a> {
     resolver: &'a dyn SelectionResolver,
+    current: SelectionSourceView<'a>,
     cache: RefCell<HashMap<SelectionReferenceId, SelectionSourceView<'a>>>,
 }
 impl<'a> EvaluationSources<'a> {
-    pub fn new(resolver: &'a dyn SelectionResolver) -> Self {
+    pub fn new(resolver: &'a dyn SelectionResolver, current: SelectionSourceView<'a>) -> Self {
         Self {
             resolver,
+            current,
             cache: RefCell::new(HashMap::new()),
         }
     }
@@ -272,7 +327,7 @@ impl<'a> EvaluationSources<'a> {
         }
         let view = self
             .resolver
-            .bind(id)
+            .resolve(id, self.current)
             .map_err(|error| SelectionParserError::Variable {
                 name: name.into(),
                 span: span.clone(),
@@ -283,8 +338,27 @@ impl<'a> EvaluationSources<'a> {
     }
 }
 
+impl EvaluationSources<'_> {
+    fn evaluate_prefix(&self, id: SelectionReferenceId, name: &str,
+        span: &std::ops::Range<usize>, current: SelectionSourceView<'_>, operands: &[SelectionSourceView<'_>])
+        -> Result<Vec<usize>, SelectionParserError> {
+        let mut indices = self.resolver.evaluate_prefix(id, current, operands)
+            .map_err(|error| SelectionParserError::Variable { name: name.into(), span: span.clone(), error })?;
+        indices.sort_unstable();
+        indices.dedup();
+        current.with_indices(&indices).map_err(|_| SelectionParserError::Variable {
+            name: name.into(), span: span.clone(),
+            error: SelectionResolveError::new("foreign evaluator returned an out-of-bounds current-source index"),
+        })?;
+        Ok(indices)
+    }
+}
+
 // Erase the cache's lifetime so evaluation contexts can borrow shorter subsets.
 pub(super) trait SourceBindings {
+    fn evaluate_prefix(&self, id: SelectionReferenceId, name: &str,
+        span: &std::ops::Range<usize>, current: SelectionSourceView<'_>, operands: &[SelectionSourceView<'_>])
+        -> Result<Vec<usize>, SelectionParserError>;
     fn bind<'a>(
         &'a self,
         id: SelectionReferenceId,
@@ -293,6 +367,11 @@ pub(super) trait SourceBindings {
     ) -> Result<SelectionSourceView<'a>, SelectionParserError>;
 }
 impl SourceBindings for EvaluationSources<'_> {
+    fn evaluate_prefix(&self, id: SelectionReferenceId, name: &str,
+        span: &std::ops::Range<usize>, current: SelectionSourceView<'_>, operands: &[SelectionSourceView<'_>])
+        -> Result<Vec<usize>, SelectionParserError> {
+        EvaluationSources::evaluate_prefix(self, id, name, span, current, operands)
+    }
     fn bind<'a>(
         &'a self,
         id: SelectionReferenceId,

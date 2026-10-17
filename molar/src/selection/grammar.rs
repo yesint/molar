@@ -6,7 +6,7 @@ use super::ast::*;
 use crate::prelude::*;
 
 peg::parser! {
-    pub(super) grammar selection_parser() for str {
+    pub(super) grammar selection_parser(resolver: Option<&dyn SelectionResolver>) for str {
         // Optional whitespace. `quiet!` keeps the whitespace literals (" ", "\t") out
         // of the parser's "expected" set, so syntax errors report meaningful tokens
         // (keywords, operators) instead of noise like `Expected one of " ", "\t", …`.
@@ -352,27 +352,37 @@ peg::parser! {
         pub rule polar_hydrogen() -> ChemicalNode = "polh" wb() _ { ChemicalNode::PolarH };
         pub rule apolar_hydrogen() -> ChemicalNode = "apolh" wb() _ { ChemicalNode::ApolarH };
 
-        // The caller owns the variable micro-grammar. Molar only recognizes the
-        // opaque non-whitespace token before ':'; numeric ranges remain keywords.
+        rule foreign_atom() -> LogicalNode
+        = #{|input, pos| {
+            match resolver.and_then(|r| r.parse_atom(input, pos)) {
+                Some(head) if head.end > pos && head.end <= input.len() && input.is_char_boundary(head.end) => {
+                    let end = head.end;
+                    let node = if let Some(error) = head.error {
+                        LogicalNode::ForeignInvalid { name: head.name, span: pos..end, error }
+                    } else {
+                        LogicalNode::Scope { name: head.name, span: pos..end,
+                            reference: None, inner: Box::new(LogicalNode::All) }
+                    };
+                    peg::RuleResult::Matched(end, node)
+                }
+                _ => peg::RuleResult::Failed,
+            }
+        }}
+        rule foreign_prefix() -> (ForeignParse, usize)
+        = #{|input, pos| {
+            match resolver.and_then(|r| r.parse_prefix(input, pos)) {
+                Some(head) if head.end > pos && head.end <= input.len() && input.is_char_boundary(head.end) =>
+                    peg::RuleResult::Matched(head.end, (head, pos)),
+                _ => peg::RuleResult::Failed,
+            }
+        }}
         rule variable_scope() -> LogicalNode
-        = start:position!() name:$((![' ' | '\t' | ':' | '(' | ')' | '&' | '|'] [_])+)
-          end:position!() ":" _ inner:("(" _ e:logical_expr() _ ")" { e })? {
-            LogicalNode::Scope { name: name.to_owned(), span: start..end,
-                reference: None, inner: Box::new(inner.unwrap_or(LogicalNode::All)) }
-        }
-
-        // Bare references are fallback operands. Reserved selection/vector words
-        // retain their existing grammar; ':' can still disambiguate any name.
-        rule bare_variable() -> LogicalNode
-        = !(("com" / "cog" / "pos" / "and" / "or" / "not" / "within" /
-             "name" / "resname" / "resid" / "resindex" / "index" / "chain" /
-             "same" / "dist" / "of") wb())
-          start:position!()
-          name:$(['a'..='z' | 'A'..='Z' | '_']
-                 (![' ' | '\t' | ':' | '(' | ')' | '&' | '|' | '<' | '>' | '=' | '!' | ','] [_])*)
-          end:position!() {
-            LogicalNode::Scope { name: name.to_owned(), span: start..end,
-                reference: None, inner: Box::new(LogicalNode::All) }
+        = mut_node:foreign_atom() _ inner:(":" _ e:("(" _ e:logical_expr() _ ")" { e })? { e.unwrap_or(LogicalNode::All) })? {
+            let mut node = mut_node;
+            if let (LogicalNode::Scope { inner: target, .. }, Some(filter)) = (&mut node, inner) {
+                *target = Box::new(filter);
+            }
+            node
         }
 
         // Logic
@@ -382,13 +392,22 @@ peg::parser! {
             x:(@) _ "or" wb() _ y:@ { LogicalNode::Or(x.into(), y.into()) }
             x:(@) _ "and" wb() _ y:@ { LogicalNode::And(x.into(), y.into()) }
             --
-            // Unary prefixes
+            // Unary prefixes, including caller-defined operation heads.
             "not" wb() ___ v:@ { LogicalNode::Not(v.into()) }
             t:same_expr() ___ v:@ { LogicalNode::Same(t, v.into()) }
             // Within from inner selection
             p:within_expr() ___ v:@ {LogicalNode::Within(p, v.into())}
+            head:foreign_prefix() ___ v:@ {
+                let (head, start) = head;
+                let end = head.end;
+                if let Some(error) = head.error {
+                    LogicalNode::ForeignInvalid { name: head.name, span: start..end, error }
+                } else {
+                    LogicalNode::ForeignCall { name: head.name, span: start..end,
+                        reference: None, inner: Box::new(v) }
+                }
+            }
             --
-            v:variable_scope() { v }
             v:keyword_expr() { LogicalNode::Keyword(v) }
             v:comparison_expr() { LogicalNode::Comparison(v) }
             v:comparison_expr_chained() { LogicalNode::Comparison(v) }
@@ -397,7 +416,7 @@ peg::parser! {
             p:within_expr() ___ v:vec3()  {LogicalNode::WithinPoint(p,v)}
             "all" wb() _ { LogicalNode::All }
             "(" _ e:logical_expr() _ ")" { e }
-            v:bare_variable() { v }
+            v:variable_scope() { v }
         }
     } // grammar
 } // parser
