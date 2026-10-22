@@ -15,7 +15,7 @@ categories.workspace = true
 exclude = ["tests/data/gaff_ref"]
 
 [dependencies]
-molar = { version = "2.3.0", path = "../molar" }
+molar = { version = "2.4.0", path = "../molar" }
 thiserror.workspace = true
 matrixmultiply.workspace = true
 
