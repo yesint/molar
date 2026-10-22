@@ -158,7 +158,7 @@ cargo build --features molar/netcdf
 MolAR uses a powerful and flexible selection language similar to VMD and Pteros. Selections are composed of logical expressions that combine keywords, comparisons, and geometric criteria to identify specific atoms.
 
 Selections can use other systems or bound selections as named sources. See
-[Selection sources and variable resolvers](docs/selection-sources.md) for the
+[Selection sources and variable resolvers](molar/docs/selection-sources.md) for the
 `variable:` syntax, resolver lifecycle, and Rust API.
 
 ## Keywords

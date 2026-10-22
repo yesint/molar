@@ -1,4 +1,4 @@
-#![doc = include_str!("../../../docs/selection-sources.md")]
+#![doc = include_str!("../../docs/selection-sources.md")]
 
 use crate::prelude::*;
 use std::{
