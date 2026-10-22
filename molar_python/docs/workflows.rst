@@ -64,6 +64,17 @@ Read, measure, edit, and save
 Use known masses for mass-weighted measurements. Do not assume every format
 supplies correct masses, atom types, charges, connectivity, or a periodic box.
 
+Bonds are read as a copy and replaced as a whole table:
+
+.. code-block:: python
+
+   pairs = sys.bonds                 # (n_bonds, 2) atom indices
+   orders = sys.bond_orders          # list of names, or None if unrecorded
+   sys.set_bonds([[0, 1], [1, 2]], orders=["single", "double"])
+
+Orders are ``"unspecified"``, ``"single"``, ``"double"``, ``"triple"`` and
+``"aromatic"``. Selections remain valid after ``set_bonds``.
+
 When saving a selection as SDF/MOL, CIF/mmCIF, or LAMMPS data, bond endpoints
 use the output atom order. Bonds with an endpoint outside the selection are
 omitted. SDF and CIF retain chemical bond orders; LAMMPS data retains connectivity.

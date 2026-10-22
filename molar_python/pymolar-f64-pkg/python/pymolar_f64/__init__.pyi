@@ -1,5 +1,6 @@
 """Package API; coordinate arrays use this package's compiled precision."""
 from .molar import *
+from .molar import __version__ as __version__
 import argparse
 
 PBC_FULL: list[bool]

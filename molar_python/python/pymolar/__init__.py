@@ -5,6 +5,7 @@ copies of shape (3, n). Read molar_python/llms.txt and docs/agent_guide.rst
 for capabilities, units, data sharing, workflows, and interface limits.
 """
 from .molar import *
+from .molar import __version__  # dunder names are not star-exported
 import argparse
 import logging
 

@@ -430,6 +430,45 @@ impl SystemPy {
         self.r_top_mut().apply_charges(model).map_err(to_charge_error)
     }
 
+    /// Bonds as a new ``(n_bonds, 2)`` integer array of atom indices.
+    ///
+    /// :returns: Copy of the bond table; editing it does not change the system.
+    /// :rtype: numpy.ndarray
+    #[getter("bonds")]
+    fn get_bonds<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<usize>> {
+        crate::topology_state::bonds_array(py, &self.r_top().bonds)
+    }
+
+    /// Bond orders, one per bond (see :attr:`Topology.bond_orders`).
+    ///
+    /// :returns: ``None`` when the source recorded no orders.
+    /// :rtype: list[str] | None
+    #[getter("bond_orders")]
+    fn get_bond_orders(&self) -> Option<Vec<&'static str>> {
+        crate::topology_state::bond_order_names(&self.r_top().bonds)
+    }
+
+    /// Replace the whole bond table (see :meth:`Topology.set_bonds`).
+    ///
+    /// Selections stay valid: bonds take no part in the topology/state size invariant.
+    ///
+    /// :param pairs: ``(n_bonds, 2)`` atom indices (array or sequence of pairs).
+    /// :param orders: Optional order name per bond.
+    /// :raises ValueError: On a malformed table, an index out of range, or a self-bond.
+    /// :returns: ``None``.
+    /// :rtype: None
+    #[pyo3(signature = (pairs, orders=None))]
+    fn set_bonds(
+        &self,
+        pairs: numpy::PyArrayLike2<'_, i64, numpy::AllowTypeChange>,
+        orders: Option<Vec<String>>,
+    ) -> PyResult<()> {
+        let bonds = crate::topology_state::bond_storage(&pairs, orders)?;
+        self.r_top_mut()
+            .set_bonds(bonds)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
     /// Perceive the bond table from the current elements and coordinates, replacing any existing
     /// bonds. New bonds have unspecified order (use :meth:`perceive_bond_orders` next).
     ///

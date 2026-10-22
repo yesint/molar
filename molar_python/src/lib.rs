@@ -439,6 +439,7 @@ fn molar_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// giving `System`/`Sel`/… one consistent PyO3 type identity across both APIs.
 pub fn register_molar(m: &Bound<'_, PyModule>) -> PyResult<()> {
     force_field::register(m)?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<AtomPy>()?;
     m.add_class::<ParticlePy>()?;
     m.add_class::<TopologyPy>()?;

@@ -11,6 +11,7 @@ distinct native modules (``pymolar.molar`` vs ``pymolar_f64.molar``).
 """
 
 from .molar import *
+from .molar import __version__  # dunder names are not star-exported
 import argparse
 import logging
 

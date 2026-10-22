@@ -75,8 +75,9 @@ outside the force-field API additions.
 - `AnalysisTask.state` can hold previous-frame data after swaps. Multi-file
   `--add-time` reads that object. Zero bounds are ignored, and end frame limits
   count processed frames after skipping.
-- Python does not expose direct bond editing, the separate formal-charge field,
-  or general force-field parameter export.
+- Python does not expose the separate formal-charge field or general
+  force-field parameter export. Bonds are read with `bonds` / `bond_orders` and
+  replaced with `set_bonds` on `System` and `Topology`.
 
 ## Maintenance
 

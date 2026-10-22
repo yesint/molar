@@ -5,6 +5,8 @@ import datetime
 import typing
 import numpy as np
 
+__version__: builtins.str
+
 # Python binding API. Coordinates and distances use nm; time uses ps.
 # Arrays use float32 in pymolar and float64 in pymolar_f64.
 
@@ -68,7 +70,16 @@ class Particle:
     occupancy: builtins.float
 
 
+BondOrderName = typing.Literal["unspecified", "single", "double", "triple", "aromatic"]
+
 class Topology:
+    @property
+    def bonds(self) -> np.ndarray:
+        """(n_bonds, 2) atom indices; a copy."""
+    @property
+    def bond_orders(self) -> list[BondOrderName] | None:
+        """One order per bond; None when the source recorded no orders."""
+    def set_bonds(self, pairs: np.ndarray | typing.Sequence[typing.Sequence[builtins.int]], orders: typing.Sequence[BondOrderName] | None = None) -> None: ...
     def apply_ff(self, ff: FFType | builtins.str = "gaff") -> None: ...
     def apply_charges(self, model: ChargeModel | builtins.str = "espaloma") -> None: ...
     def __len__(self) -> builtins.int: ...
@@ -158,6 +169,13 @@ class System:
     def save(self, fname: builtins.str) -> None: ...
     def apply_ff(self, ff: FFType | builtins.str = "gaff") -> None: ...
     def apply_charges(self, model: ChargeModel | builtins.str = "espaloma") -> None: ...
+    @property
+    def bonds(self) -> np.ndarray:
+        """(n_bonds, 2) atom indices; a copy."""
+    @property
+    def bond_orders(self) -> list[BondOrderName] | None:
+        """One order per bond; None when the source recorded no orders."""
+    def set_bonds(self, pairs: np.ndarray | typing.Sequence[typing.Sequence[builtins.int]], orders: typing.Sequence[BondOrderName] | None = None) -> None: ...
     def perceive_connectivity(self, tolerance: builtins.float = 0.045, min_distance: builtins.float = 0.04, pbc: builtins.bool = False) -> builtins.int: ...
     def perceive_bond_orders(self, infer_hydrogens: builtins.bool = False, total_charge: builtins.int | None = None) -> list[builtins.str]: ...
     def add_hydrogens(self) -> builtins.int: ...

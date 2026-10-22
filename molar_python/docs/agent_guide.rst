@@ -85,6 +85,9 @@ Task to API map
    * - Build or change a system
      - ``System()``, ``append(atom, pos)``, ``append(sel)``, ``remove(arg)``
      - Changes atom count
+   * - Read or replace bonds
+     - ``System`` and ``Topology``: ``bonds``, ``bond_orders``, ``set_bonds(pairs, orders=None)``
+     - ``(n_bonds, 2)`` index array (a copy); ``set_bonds`` replaces the table
    * - Prepare chemistry
      - ``perceive_connectivity()``, ``perceive_bond_orders()``, ``add_hydrogens()``, ``prepare_for_ff(options=PrepareOptions(...))``
      - Bonds, formal charges, hydrogens
@@ -119,7 +122,10 @@ Data and units
   residues in internal order. Use ``split_resindex()`` to separate residues
   even when residue identifiers repeat across chains.
 * ``type_name`` and ``type_id`` can be ``None``. The Python interface does not
-  expose the separate integer formal-charge field or direct bond editing.
+  expose the separate integer formal-charge field.
+* ``bonds`` is an ``(n_bonds, 2)`` copy of the atom-index pairs; ``bond_orders``
+  is ``None`` when the source recorded no orders. ``set_bonds`` replaces the
+  whole table and raises ``ValueError`` for out-of-range indices or self-bonds.
   ``Topology`` also exposes ``apply_ff`` and ``apply_charges`` without coordinates.
 
 Rules for correct use

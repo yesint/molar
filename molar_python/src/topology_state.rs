@@ -6,10 +6,93 @@ use crate::{SelPy, SystemPy};
 
 use super::periodic_box::PeriodicBoxPy;
 use molar::prelude::*;
+use numpy::{AllowTypeChange, PyArray2, PyArrayLike2, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::{
-    exceptions::{PyAttributeError, PyTypeError},
+    exceptions::{PyAttributeError, PyTypeError, PyValueError},
     prelude::*,
 };
+
+/// Python names of [`BondOrder`] variants.
+fn order_name(o: BondOrder) -> &'static str {
+    match o {
+        BondOrder::Unspecified => "unspecified",
+        BondOrder::Single => "single",
+        BondOrder::Double => "double",
+        BondOrder::Triple => "triple",
+        BondOrder::Aromatic => "aromatic",
+    }
+}
+
+fn order_from_name(name: &str) -> PyResult<BondOrder> {
+    Ok(match name {
+        "unspecified" => BondOrder::Unspecified,
+        "single" => BondOrder::Single,
+        "double" => BondOrder::Double,
+        "triple" => BondOrder::Triple,
+        "aromatic" => BondOrder::Aromatic,
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "unknown bond order {name:?}; expected unspecified, single, double, triple or aromatic"
+            )));
+        }
+    })
+}
+
+/// Bond atom-index pairs as a new ``(n_bonds, 2)`` integer array.
+pub(crate) fn bonds_array<'py>(py: Python<'py>, bonds: &BondStorage) -> Bound<'py, PyArray2<usize>> {
+    let arr = PyArray2::<usize>::zeros(py, [bonds.len(), 2], false);
+    {
+        let mut view = unsafe { arr.as_array_mut() };
+        for (k, [i, j]) in bonds.iter_pairs().enumerate() {
+            view[[k, 0]] = i;
+            view[[k, 1]] = j;
+        }
+    }
+    arr
+}
+
+/// Bond orders by name, or ``None`` when the source recorded no orders.
+pub(crate) fn bond_order_names(bonds: &BondStorage) -> Option<Vec<&'static str>> {
+    bonds
+        .has_orders()
+        .then(|| bonds.iter().map(|b| order_name(b.order())).collect())
+}
+
+/// Build a bond table from Python pairs and optional order names. Index
+/// validation against the atom count is left to `Topology::set_bonds`.
+pub(crate) fn bond_storage(
+    pairs: &PyArrayLike2<'_, i64, AllowTypeChange>,
+    orders: Option<Vec<String>>,
+) -> PyResult<BondStorage> {
+    let shape = pairs.shape();
+    if shape[1] != 2 && shape[0] != 0 {
+        return Err(PyValueError::new_err(format!(
+            "bond pairs must have shape (n_bonds, 2), not {shape:?}"
+        )));
+    }
+    let n = shape[0];
+    let orders = match orders {
+        Some(names) if names.len() != n => {
+            return Err(PyValueError::new_err(format!(
+                "{} bond orders for {n} bonds",
+                names.len()
+            )));
+        }
+        Some(names) => names.iter().map(|s| order_from_name(s)).collect::<PyResult<Vec<_>>>()?,
+        None => vec![BondOrder::Unspecified; n],
+    };
+    let view = pairs.as_array();
+    let mut bonds = BondStorage::default();
+    bonds.reserve(n);
+    for (k, order) in orders.into_iter().enumerate() {
+        let (i, j) = (view[[k, 0]], view[[k, 1]]);
+        if i < 0 || j < 0 {
+            return Err(PyValueError::new_err(format!("negative atom index in bond ({i}, {j})")));
+        }
+        bonds.push(&Bond::with_order(i as usize, j as usize, order));
+    }
+    Ok(bonds)
+}
 /// Coordinate frame with simulation time and periodic box.
 ///
 /// Stores coordinates, optional periodic box, and time for one frame.
@@ -271,6 +354,44 @@ impl TopologyPy {
 
     fn __repr__(&self) -> String {
         format!("Topology(n={} atoms)", self.inner().len())
+    }
+
+    /// Bonds as a new ``(n_bonds, 2)`` integer array of atom indices.
+    ///
+    /// :returns: Copy of the bond table; editing it does not change the topology.
+    /// :rtype: numpy.ndarray
+    #[getter("bonds")]
+    fn get_bonds<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<usize>> {
+        bonds_array(py, &self.inner().bonds)
+    }
+
+    /// Bond orders, one per bond: ``"unspecified"``, ``"single"``, ``"double"``,
+    /// ``"triple"`` or ``"aromatic"``.
+    ///
+    /// :returns: ``None`` when the source recorded no orders (PDB, GRO, TPR, ...).
+    /// :rtype: list[str] | None
+    #[getter("bond_orders")]
+    fn get_bond_orders(&self) -> Option<Vec<&'static str>> {
+        bond_order_names(&self.inner().bonds)
+    }
+
+    /// Replace the whole bond table.
+    ///
+    /// :param pairs: ``(n_bonds, 2)`` atom indices (array or sequence of pairs).
+    /// :param orders: Optional order name per bond (see :attr:`bond_orders`).
+    /// :raises ValueError: On a malformed table, an index out of range, or a self-bond.
+    /// :returns: ``None``.
+    /// :rtype: None
+    #[pyo3(signature = (pairs, orders=None))]
+    fn set_bonds(
+        &self,
+        pairs: PyArrayLike2<'_, i64, AllowTypeChange>,
+        orders: Option<Vec<String>>,
+    ) -> PyResult<()> {
+        let bonds = bond_storage(&pairs, orders)?;
+        self.inner_mut()
+            .set_bonds(bonds)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 
