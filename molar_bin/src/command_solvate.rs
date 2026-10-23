@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use log::info;
 use molar::prelude::*;
 
@@ -13,11 +11,6 @@ pub(crate) fn command_solvate(
     info!("Loading solute from file '{file}'...");
     let mut solute = System::from_file(file)?;
 
-    // Check periodic box
-    if solute.get_box().is_none() {
-        bail!("can't solvate a system without a periodic box");
-    }
-
     // Solvent
     let solvent_file = match solvent {
         Some(s) => s.clone(),
@@ -29,107 +22,14 @@ pub(crate) fn command_solvate(
         }
     };
     info!("Loading solvent from file '{solvent_file}'...");
-    let mut solvent = System::from_file(&solvent_file)?;
-    if solvent.get_box().is_none() {
-        bail!("solvent lacks a periodic box");
-    }
-    if solvent.get_box().unwrap().is_triclinic() {
-        bail!("triclinic solvent boxes are not supported yet");
-    }
+    let solvent = System::from_file(&solvent_file)?;
 
-    // Get solute extents
-    let solute_max_ext = solute.get_box().unwrap().get_lab_extents();
-
-    // We will fill the rectangular region with solvent
-    // even if the actual box is triclinic and then we will
-    // remove molecules outside the box
-    let solvent_ext = solvent.get_box().unwrap().get_box_extents();
-    let mut nbox = [0; 3];
-    for i in 0..=2 {
-        nbox[i] = (solute_max_ext[i] / solvent_ext[i]).ceil() as usize;
-    }
-    info!(
-        "Solute box extents [{},{},{}]",
-        solute_max_ext[0], solute_max_ext[1], solute_max_ext[2]
-    );
-    info!(
-        "Solvent box extents [{},{},{}]",
-        solvent_ext[0], solvent_ext[1], solvent_ext[2]
-    );
-    info!(
-        "Duplicating solvent box [{},{},{}]...",
-        nbox[0], nbox[1], nbox[2]
-    );
-
-    // Duplicating the solvent
-    solvent.multiply_periodically(nbox)?;
-
-    info!("Removing solvent molecules outside the box...");
-    //solvent.save("./target/duplicated_solvent.gro")?;
-
-    // Removing solvent molecules not in the box
-    let mut inside_ind = vec![];
-    let b = solute.get_box().unwrap();
-    let all = solvent.select_all_bound();
-    'outer: for res in all.split_resindex_bound() {
-        for p in res.iter_pos() {
-            if !b.is_inside(p) {
-                // Break without adding this residue to good list
-                continue 'outer;
-            }
-        }
-        // If we are here then all atoms of this residue are inside the box
-        inside_ind.extend(res.iter_index());
-    }
-
-    let inside_sel = solvent.select_bound(inside_ind)?;
-
-    //inside_sel.save("target/inside.gro")?;
-
-    info!("Searching for overlapping solvent molecules...");
-    // Do the distance search
-    let vdw1: Vec<Float> = inside_sel.iter_atoms().map(|a| a.vdw()).collect();
-    let vdw2: Vec<Float> = solute.iter_atoms().map(|a| a.vdw()).collect();
-
-    let local_overlap_ind: Vec<usize> = distance_search_double_vdw_pbc(
-        inside_sel.iter_pos(),
-        solute.iter_pos(),
-        &vdw1,
-        &vdw2,
-        b,
-        PBC_FULL,
-    )?;
-    info!("{} overlapping atoms", local_overlap_ind.len());
-
-    // Find all resindexes for atoms to be removed
-    let mut resind_to_remove = HashSet::new();
-    for i in local_overlap_ind {
-        unsafe {
-            resind_to_remove.insert(inside_sel.get_atom_unchecked(i).get_resindex());
-        }
-    }
-
-    info!(
-        "{} overlapping water molecules to remove",
-        resind_to_remove.len()
-    );
-
-    let mut good_ind = vec![];
-    for res in inside_sel.split_resindex_bound() {
-        if !resind_to_remove.contains(&res.first_atom().get_resindex()) {
-            good_ind.extend(res.iter_index());
-        }
-    }
-    info!("{} water atoms to keep", good_ind.len());
-
-    let good_sel = solvent.select_bound(good_ind)?;
-
-    // Add solvent
-    solute.append(&good_sel)?;
+    let n = solute.len();
+    let added = solute.solvate(&solvent)?;
+    info!("{added} solvent molecules ({} atoms) added", solute.len() - n);
 
     // If exclude selection is provided remove it
-    if exclude.is_some() {
-        let sel_str = exclude.as_ref().unwrap();
+    if let Some(sel_str) = exclude {
         let not_excl_sel = solute.select_bound(format!("not ({})", sel_str))?;
         info!("Excluding atoms by selection '{}'", sel_str);
         not_excl_sel.save(outfile)?;

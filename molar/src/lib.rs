@@ -25,6 +25,7 @@ mod sasa;
 mod secondary_structure;
 mod selection;
 mod smiles;
+mod solvate;
 mod state;
 mod topology;
 mod seq_align;
@@ -39,7 +40,7 @@ pub mod prelude {
         connectivity::*,
         distance_search::*, dssp::*, io::*, measure::*, modify::*, ndx_file::*, particle::*,
         perception::*, periodic_box::*, providers::*, dss::*, sasa::*, secondary_structure::*,
-        selection::*, smiles::*, state::*, topology::*,
+        selection::*, smiles::*, solvate::*, state::*, topology::*,
     };
     // Parallel-iterator traits via the `par` shim: rayon on native, serial
     // std-iterator fallbacks on wasm32 (which has no threads). See `crate::par`.
@@ -49,7 +50,7 @@ pub mod prelude {
 pub use crate::{
     aliases::*, analysis_task::*, atom::*, bond::*, connectivity::*, distance_search::*, dss::*, dssp::*, io::*,
     measure::*, modify::*, ndx_file::*, particle::*, perception::*, periodic_box::*, providers::*, sasa::*,
-    secondary_structure::*, selection::*, smiles::*, state::*, topology::*,
+    secondary_structure::*, selection::*, smiles::*, solvate::*, state::*, topology::*,
 };
 
 const BOLD: &str = "\x1b[1m";
