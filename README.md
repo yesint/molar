@@ -404,6 +404,8 @@ let src = System::from_file(&args[0])?;
 ```
 
 The file type (PDB, GRO, etc) is automatically recognized by its extention.
+
+The PDB reader keeps atoms with a blank alternate-location field or identifier `A` and skips all other alternate positions. This rule applies to every model and does not depend on occupancy. `CONECT` bonds to skipped atoms are discarded.
 If reading the file fails for whatever reason the `?` operator will return an error, which will be nicely printed by `anyhow` crate.
 
 ## Making selections

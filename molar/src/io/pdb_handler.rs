@@ -30,7 +30,7 @@ pub enum PdbHandlerError {
     #[error("can't open pdb file for writing")]
     OpenWrite(#[source] std::io::Error),
 
-    #[error("pdb file is empty or contains no ATOM/HETATM records")]
+    #[error("pdb file is empty or contains no ATOM/HETATM records with blank or A alternate location")]
     Empty,
 
     #[error(transparent)]
@@ -165,6 +165,14 @@ impl FileFormatHandler for PdbFileHandler {
 
             if line.starts_with("ATOM  ") || line.starts_with("HETATM") {
                 has_atoms = true;
+                // Column 17 identifies mutually exclusive alternate positions.
+                // Keep shared (blank) sites and conformer A in every model. Filter
+                // before adding coordinates or serials so CONECT cannot refer to
+                // a discarded site and atom/coordinate indices remain aligned.
+                let alt_loc = line.as_bytes().get(16).copied().unwrap_or(b' ');
+                if !matches!(alt_loc, b' ' | b'A') {
+                    continue;
+                }
                 let x = parse_f32(&line, 30, 38).unwrap_or(0.0);
                 let y = parse_f32(&line, 38, 46).unwrap_or(0.0);
                 let z = parse_f32(&line, 46, 54).unwrap_or(0.0);
@@ -246,6 +254,12 @@ impl FileFormatHandler for PdbFileHandler {
             } else {
                 Err(PdbHandlerError::Empty)?
             };
+        }
+
+        // A model can contain atom records but no accepted alternate positions.
+        // Reject it before assign_resindex(), which requires at least one atom.
+        if atoms.is_empty() {
+            return Err(PdbHandlerError::Empty.into());
         }
 
         // Resolve CONECT serials to atom indices. A record naming a serial this model
