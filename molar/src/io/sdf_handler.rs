@@ -2,7 +2,7 @@
 //! no external cheminformatics dependency (the format is simple and molar's IO is
 //! deliberately self-contained).
 //!
-//! Supports the **V2000** connection table: a counts line, an atom block
+//! Reads **V2000** and **V3000** connection tables and writes V2000: a counts line, an atom block
 //! (`x y z element …`, coordinates in Ångströms), and a bond block
 //! (`atom1 atom2 type …`, 1-based atom indices). The bond `type` maps to molar's
 //! [`BondOrder`] (1→Single, 2→Double, 3→Triple, 4→Aromatic) — this is the format
@@ -11,7 +11,8 @@
 //! successive records (each its own topology), like reading multi-MODEL PDB.
 //!
 //! **Out of scope (deliberate):**
-//! - **V3000** connection tables (detected and rejected with a clear error).
+//! - Stereo, query, Sgroup, and collection annotations are not retained in the topology.
+//!   V3000 reading retains elements, coordinates, bond orders, formal charges, and masses.
 //! - **Data fields** (the `> <name>` blocks after `M  END`) are skipped on read.
 //!   Exposing them is future work and will get its own *non-trait* accessor rather
 //!   than being forced through the generic `read` interface.
@@ -26,6 +27,8 @@ use std::{
     path::Path,
 };
 use thiserror::Error;
+
+mod v3000;
 
 /// Molfile coordinates are in Ångströms; molar works in nanometres.
 const ANGSTROM_TO_NM: Float = 0.1;
@@ -59,8 +62,14 @@ pub enum SdfHandlerError {
     #[error("malformed counts line: {0:?}")]
     BadCounts(String),
 
-    #[error("V3000 molfiles are not supported yet (only V2000)")]
-    V3000Unsupported,
+    #[error("malformed or unsupported V3000 record: {0}")]
+    BadV3000(String),
+
+    #[error("invalid V3000 integer in {0}")]
+    V3000Integer(String, #[source] ParseIntError),
+
+    #[error("invalid V3000 number in {0}")]
+    V3000Number(String, #[source] ParseFloatError),
 
     #[error("truncated atom block at atom {0}")]
     TruncatedAtoms(usize),
@@ -175,69 +184,74 @@ impl FileFormatHandler for SdfFileHandler {
         }
         let counts = &header[3];
 
-        if counts.contains("V3000") {
-            return Err(SdfHandlerError::V3000Unsupported)?;
-        }
-        let natoms = int_field(counts, 0, 3)
-            .map_err(|_| SdfHandlerError::BadCounts(counts.clone()))? as usize;
-        let nbonds = int_field(counts, 3, 3)
-            .map_err(|_| SdfHandlerError::BadCounts(counts.clone()))? as usize;
-        if natoms == 0 {
-            return Err(SdfHandlerError::BadCounts(counts.clone()))?;
-        }
-
-        // Atom block: `x y z element …` (coords whitespace-separated in practice).
-        let mut atoms: Vec<Atom> = Vec::with_capacity(natoms);
-        let mut coords: Vec<Pos> = Vec::with_capacity(natoms);
-        for i in 0..natoms {
-            let line = next_line(buf)?.ok_or(SdfHandlerError::TruncatedAtoms(i))?;
-            let mut t = line.split_whitespace();
-            let mut coord = [0.0 as Float; 3];
-            for c in coord.iter_mut() {
-                *c = t
-                    .next()
-                    .ok_or(SdfHandlerError::TruncatedAtoms(i))?
-                    .parse::<Float>()
-                    .map_err(|e| SdfHandlerError::BadAtom(i, e))?
-                    * ANGSTROM_TO_NM;
+        let (mut atoms, coords, bonds) = if counts.contains("V3000") {
+            v3000::read(buf)?
+        } else {
+            let natoms = int_field(counts, 0, 3)
+                .map_err(|_| SdfHandlerError::BadCounts(counts.clone()))?
+                as usize;
+            let nbonds = int_field(counts, 3, 3)
+                .map_err(|_| SdfHandlerError::BadCounts(counts.clone()))?
+                as usize;
+            if natoms == 0 {
+                return Err(SdfHandlerError::BadCounts(counts.clone()))?;
             }
-            let elem = t.next().ok_or(SdfHandlerError::TruncatedAtoms(i))?;
-            coords.push(Pos::new(coord[0], coord[1], coord[2]));
-            // The SDF atom block carries the explicit element symbol, so resolve the
-            // element directly instead of the name-based heuristic (which mishandles
-            // two-letter symbols like `Cl`/`Br` whose first letter is C/N/O/H/P).
-            let atom = Atom::new()
-                .with_name(elem)
-                .with_resname("MOL")
-                .with_resid(1)
-                .with_chain('A');
-            let z = atomic_number_from_symbol(elem);
-            atoms.push(if z != 0 {
-                atom.with_atomic_number(z)
-                    .with_mass(ELEMENT_MASS[z as usize] as Float)
-            } else {
-                atom.guess() // unrecognised symbol: fall back to name-based guessing
-            });
-        }
 
-        // Bond block: `atom1 atom2 type …`, fixed 3-wide columns, 1-based indices.
-        let mut bonds: Vec<Bond> = Vec::with_capacity(nbonds);
-        for i in 0..nbonds {
-            let line = next_line(buf)?.ok_or(SdfHandlerError::TruncatedBonds(i))?;
-            let a1 = int_field(&line, 0, 3).map_err(|e| SdfHandlerError::BadBond(i, e))?;
-            let a2 = int_field(&line, 3, 3).map_err(|e| SdfHandlerError::BadBond(i, e))?;
-            let ty = int_field(&line, 6, 3).map_err(|e| SdfHandlerError::BadBond(i, e))?;
-            if a1 < 1 || a2 < 1 || a1 as usize > natoms || a2 as usize > natoms {
-                return Err(SdfHandlerError::TruncatedBonds(i))?;
+            // Atom block: `x y z element …` (coords whitespace-separated in practice).
+            let mut atoms: Vec<Atom> = Vec::with_capacity(natoms);
+            let mut coords: Vec<Pos> = Vec::with_capacity(natoms);
+            for i in 0..natoms {
+                let line = next_line(buf)?.ok_or(SdfHandlerError::TruncatedAtoms(i))?;
+                let mut t = line.split_whitespace();
+                let mut coord = [0.0 as Float; 3];
+                for c in coord.iter_mut() {
+                    *c = t
+                        .next()
+                        .ok_or(SdfHandlerError::TruncatedAtoms(i))?
+                        .parse::<Float>()
+                        .map_err(|e| SdfHandlerError::BadAtom(i, e))?
+                        * ANGSTROM_TO_NM;
+                }
+                let elem = t.next().ok_or(SdfHandlerError::TruncatedAtoms(i))?;
+                coords.push(Pos::new(coord[0], coord[1], coord[2]));
+                // The SDF atom block carries the explicit element symbol, so resolve the
+                // element directly instead of the name-based heuristic (which mishandles
+                // two-letter symbols like `Cl`/`Br` whose first letter is C/N/O/H/P).
+                let atom = Atom::new()
+                    .with_name(elem)
+                    .with_resname("MOL")
+                    .with_resid(1)
+                    .with_chain('A');
+                let z = atomic_number_from_symbol(elem);
+                atoms.push(if z != 0 {
+                    atom.with_atomic_number(z)
+                        .with_mass(ELEMENT_MASS[z as usize] as Float)
+                } else {
+                    atom.guess() // unrecognised symbol: fall back to name-based guessing
+                });
             }
-            let order = match ty {
-                2 => BondOrder::Double,
-                3 => BondOrder::Triple,
-                4 => BondOrder::Aromatic,
-                _ => BondOrder::Single, // 1, plus the "query" orders 5–8 → single
-            };
-            bonds.push(Bond::with_order(a1 as usize - 1, a2 as usize - 1, order));
-        }
+
+            // Bond block: `atom1 atom2 type …`, fixed 3-wide columns, 1-based indices.
+            let mut bonds: Vec<Bond> = Vec::with_capacity(nbonds);
+            for i in 0..nbonds {
+                let line = next_line(buf)?.ok_or(SdfHandlerError::TruncatedBonds(i))?;
+                let a1 = int_field(&line, 0, 3).map_err(|e| SdfHandlerError::BadBond(i, e))?;
+                let a2 = int_field(&line, 3, 3).map_err(|e| SdfHandlerError::BadBond(i, e))?;
+                let ty = int_field(&line, 6, 3).map_err(|e| SdfHandlerError::BadBond(i, e))?;
+                if a1 < 1 || a2 < 1 || a1 as usize > natoms || a2 as usize > natoms {
+                    return Err(SdfHandlerError::TruncatedBonds(i))?;
+                }
+                let order = match ty {
+                    2 => BondOrder::Double,
+                    3 => BondOrder::Triple,
+                    4 => BondOrder::Aromatic,
+                    _ => BondOrder::Single, // 1, plus the "query" orders 5–8 → single
+                };
+                bonds.push(Bond::with_order(a1 as usize - 1, a2 as usize - 1, order));
+            }
+
+            (atoms, coords, bonds)
+        };
 
         // Consume the rest of the record: parse `M  CHG` formal-charge properties, skip
         // everything else, stopping after the `$$$$` separator (SDF) or at EOF (.mol).
@@ -271,7 +285,15 @@ impl FileFormatHandler for SdfFileHandler {
         top.bonds = bonds.into_iter().collect();
         top.assign_resindex();
         self.at_least_one_state_read = true;
-        Ok((top, State { coords, time: 0.0, pbox: None, ..Default::default() }))
+        Ok((
+            top,
+            State {
+                coords,
+                time: 0.0,
+                pbox: None,
+                ..Default::default()
+            },
+        ))
     }
 
     fn read_topology(&mut self) -> Result<Topology, FileFormatError> {
@@ -305,10 +327,7 @@ impl FileFormatHandler for SdfFileHandler {
         writeln!(w)?; // title (blank — molar has no per-molecule name here)
         writeln!(w, "  molar")?; // program/timestamp line
         writeln!(w)?; // comment
-        writeln!(
-            w,
-            "{natoms:>3}{nbonds:>3}  0  0  0  0  0  0  0  0999 V2000"
-        )?;
+        writeln!(w, "{natoms:>3}{nbonds:>3}  0  0  0  0  0  0  0  0999 V2000")?;
 
         for (at, pos) in data.iter_atoms_dyn().zip(data.iter_pos_dyn()) {
             let elem = element_symbol(at.get_atomic_number());
@@ -340,7 +359,11 @@ impl FileFormatHandler for SdfFileHandler {
         let charged: Vec<(usize, i32)> = data
             .iter_atoms_dyn()
             .enumerate()
-            .filter_map(|(i, a)| a.get_formal_charge().filter(|&c| c != 0).map(|c| (i + 1, c)))
+            .filter_map(|(i, a)| {
+                a.get_formal_charge()
+                    .filter(|&c| c != 0)
+                    .map(|c| (i + 1, c))
+            })
             .collect();
         for chunk in charged.chunks(8) {
             write!(w, "M  CHG{:>3}", chunk.len())?;
@@ -364,7 +387,7 @@ mod tests {
     use std::io::Cursor;
 
     /// A minimal ethene V2000 molfile (C=C + 4 H), coordinates in Å.
-    const ETHENE: &str = "\
+    pub(super) const ETHENE: &str = "\
 ethene
   test
 
@@ -396,7 +419,10 @@ $$$$
         assert_eq!(top.bonds.len(), 5);
         // First two atoms are carbons; coordinates converted Å → nm.
         assert_eq!(top.atoms.get(0).unwrap().get_atomic_number(), 6);
-        assert!((st.coords[1].x - 0.133).abs() < 1e-5, "C–C along x ≈ 0.133 nm");
+        assert!(
+            (st.coords[1].x - 0.133).abs() < 1e-5,
+            "C–C along x ≈ 0.133 nm"
+        );
         // The C=C bond carries a double order; the C–H bonds are single.
         assert_eq!(
             Bond::from(&top.bonds.get(0).unwrap()),
@@ -412,7 +438,13 @@ $$$$
         // Build a tiny molecule: C=O with two single C–H, then write + re-read.
         let mut top = Topology::default();
         for sym in ["C", "O", "H", "H"] {
-            top.atoms.push(&Atom::new().with_name(sym).with_resname("MOL").with_resid(1).guess());
+            top.atoms.push(
+                &Atom::new()
+                    .with_name(sym)
+                    .with_resname("MOL")
+                    .with_resid(1)
+                    .guess(),
+            );
         }
         top.bonds = [
             Bond::with_order(0, 1, BondOrder::Double),
@@ -450,7 +482,10 @@ $$$$
         assert_eq!(top2.bonds.get(0).unwrap().order(), BondOrder::Double);
         assert_eq!(top2.bonds.get(1).unwrap().order(), BondOrder::Single);
         assert_eq!(top2.atoms.get(1).unwrap().get_atomic_number(), 8); // O survived
-        assert!((st2.coords[1].x - 0.123).abs() < 1e-3, "C–O distance preserved");
+        assert!(
+            (st2.coords[1].x - 0.123).abs() < 1e-3,
+            "C–O distance preserved"
+        );
     }
 
     /// `M  CHG` formal charges are parsed onto the right atoms and survive a write/read round-trip.
@@ -474,20 +509,34 @@ M  CHG  2   1   1   3  -1
 M  END
 $$$$
 ";
-        let mut h = SdfFileHandler::from_source(DynSource(Box::new(Cursor::new(
-            CHG.as_bytes().to_vec(),
-        ))))
-        .unwrap();
+        let mut h =
+            SdfFileHandler::from_source(DynSource(Box::new(Cursor::new(CHG.as_bytes().to_vec()))))
+                .unwrap();
         let (top, _) = h.read().unwrap();
-        assert_eq!(top.atoms.get(0).unwrap().get_formal_charge(), Some(1), "N+ from M CHG");
+        assert_eq!(
+            top.atoms.get(0).unwrap().get_formal_charge(),
+            Some(1),
+            "N+ from M CHG"
+        );
         // Once any atom carries a formal charge the (full-length) column exists, so
         // un-charged atoms read back the backfilled default 0 rather than None.
-        assert_eq!(top.atoms.get(1).unwrap().get_formal_charge(), Some(0), "neutral O");
-        assert_eq!(top.atoms.get(2).unwrap().get_formal_charge(), Some(-1), "O- from M CHG");
+        assert_eq!(
+            top.atoms.get(1).unwrap().get_formal_charge(),
+            Some(0),
+            "neutral O"
+        );
+        assert_eq!(
+            top.atoms.get(2).unwrap().get_formal_charge(),
+            Some(-1),
+            "O- from M CHG"
+        );
         assert_eq!(top.atoms.get(3).unwrap().get_formal_charge(), Some(0));
 
         // Round-trip: write and re-read; formal charges preserved.
-        let st = State { coords: vec![Pos::default(); 4], ..Default::default() };
+        let st = State {
+            coords: vec![Pos::default(); 4],
+            ..Default::default()
+        };
         let sys = System::new(top, st).unwrap();
         let path = std::env::temp_dir().join("molar_sdf_chg_roundtrip.sdf");
         {
@@ -502,7 +551,7 @@ $$$$
     }
 
     #[test]
-    fn rejects_v3000() {
+    fn rejects_malformed_header() {
         let v3000 = "\
 mol
 
