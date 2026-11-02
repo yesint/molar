@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/Amber-MD/AmberClassic",
+  "commit": "76b00b2e9d7dc41ab1ce7c7aa2fe52b3608ec002",
+  "files": {
+    "dat/leap/parm/gaff.dat": {
+      "sha256": "21ce262ab4af254c2f2b4bf95f4413c2a6593c67faa31ffc7108b7dd07a63d09"
+    },
+    "dat/leap/parm/gaff2.dat": {
+      "sha256": "2244b58627a85693776d12a0155a292f72b65b4398a03b87958136ad7460c67f"
+    },
+    "dat/antechamber/PARMCHK.DAT": {
+      "sha256": "5fc9aa69b118b58dfb377817de7ba0c2b08cd2a50542d63c83b70a62c8385a43"
+    },
+    "dat/antechamber/PARM_BLBA_GAFF.DAT": {
+      "sha256": "0657d6565755c1f954cb452a5767678eaeb4aded7c47288bc458348fc92573ce"
+    },
+    "dat/antechamber/PARM_BLBA_GAFF2.DAT": {
+      "sha256": "a3c1e51a38c8c9c2132278c66785df0df8f88d25bf2a9ab34b5c1c87484fb0e3"
+    }
+  }
+}

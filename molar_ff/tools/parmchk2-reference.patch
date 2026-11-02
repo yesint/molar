@@ -1,0 +1,11 @@
+--- a/src/antechamber/parmchk2.c
++++ b/src/antechamber/parmchk2.c
+@@ -6209,7 +6209,7 @@
+ 	bondparmnum2 = bondparmnum;
+ 	angleparmnum2 = angleparmnum;
+ 	torsionparmnum2 = torsionparmnum;
+-	improperparmnum2 = impropernum;
++	improperparmnum2 = improperparmnum;
+ 
+ 	if(iformat <= 3) {
+ /*
