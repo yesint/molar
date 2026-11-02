@@ -114,10 +114,10 @@ fn automatic_corpus() {
     for path in files {
         for ff in [FFType::Gaff, FFType::Gaff2] {
             let sys = System::from_file(&path).unwrap();
-            match BondedModel::gaff(&sys, ff) {
+            match AmberModel::gaff(&sys, ff, NonbondedOptions::default()) {
                 Ok(model) => {
                     count += 1;
-                    for (_, _, r) in model.estimated_terms() {
+                    for (_, _, r) in model.bonded().estimated_terms() {
                         let entry = methods
                             .entry(format!("{:?}", r.method))
                             .or_insert((0, path.clone()));

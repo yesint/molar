@@ -1,4 +1,4 @@
-//! Force-field atom typing, partial charges, and Amber bonded mechanics for MolAR.
+//! Force-field atom typing, partial charges, and Amber mechanics for MolAR.
 //!
 //! This crate assigns GAFF and GAFF2 atom types to a molecule. Typing is
 //! exposed through the [`ApplyFF`] trait, which is blanket-implemented for every MolAR
@@ -27,6 +27,7 @@
 //! [`amber::BondedModel`] assigns bonded parameters automatically and evaluates
 //! Amber bond, angle, proper, and improper energies and analytic forces. Missing
 //! parameters use bundled Amber correspondence rules; unresolved terms are errors.
+//! [`amber::AmberModel`] adds cutoff LJ/Coulomb interactions and an L-BFGS optimizer.
 
 use std::collections::HashMap;
 

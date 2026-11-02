@@ -16,8 +16,8 @@ component-specific scope; it does not replace the MolAR source license.
 | `PARM_BLBA_GAFF2.DAT` | GAFF2 empirical bond and angle constants |
 
 The existing GAFF2 typing definition in MolAR is identical to the definition at
-this upstream revision. The parameter files include nonbonded data, but this API
-only reads bonded sections.
+this upstream revision. The database reads bonded and Lennard-Jones sections. See
+[nonbonded methods](NONBONDED.md) for cutoff mechanics and minimization.
 
 ## Resolution
 

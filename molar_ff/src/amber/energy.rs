@@ -45,7 +45,9 @@ pub enum EvaluationError {
     NonFinite(usize),
     #[error("undefined {kind:?} geometry at local atoms {atoms:?}")]
     Degenerate { kind: TermKind, atoms: Vec<usize> },
-    #[error("bonded evaluation overflowed")]
+    #[error("coincident nonbonded atoms {atoms:?}")]
+    CoincidentNonbonded { atoms: [usize; 2] },
+    #[error("force-field evaluation overflowed")]
     Overflow,
 }
 impl BondedModel {

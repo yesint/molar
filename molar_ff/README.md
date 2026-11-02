@@ -106,11 +106,10 @@ bonds are rejected. Coordinate arrays must use model-local order and be unwrappe
 the evaluator does not apply periodic boundaries. Invalid or undefined geometry
 returns an error.
 
-This module supplies **bonded** energy and forces. It does not yet include Lennard-
-Jones/electrostatic interactions, exclusions/1–4 scaling, a minimizer, or viewer
-integration. It must not be treated as a complete GAFF force field. Improper topology
-is inferred from the GAFF/GAFF2 planar-center flags in `PARMCHK.DAT`; arbitrary custom
-force fields with different improper topology rules are outside this API's scope.
+`BondedModel` remains usable on its own. `AmberModel` adds the nonbonded terms and
+minimizer described below. Improper topology is inferred from the GAFF/GAFF2
+planar-center flags in `PARMCHK.DAT`; arbitrary custom force fields with different
+improper topology rules are outside this API's scope.
 
 Tests compare all four energy components and forces with independent OpenMM
 reference calculations, check finite-difference gradients, and cover missing-term
@@ -120,3 +119,42 @@ errors. A separate coverage audit exercises all 597 molecules in both force fiel
 cargo test -p molar_ff
 cargo test -p molar_ff --test amber_bonded automatic_corpus -- --ignored --nocapture
 ```
+
+## Nonbonded interactions and minimization
+
+`AmberModel::gaff(&source, ff, NonbondedOptions::default())` builds the full cutoff
+model. It reads existing partial charges from atoms; call `ApplyCharges` first if
+you want Espaloma charges. It does not silently replace supplied charges.
+
+- Lennard-Jones radii (`Rmin/2`) and well depths come from the same bundled GAFF
+  tables. Radii add; well depths use the geometric mean. Valid zero-LJ sites are
+  preserved. Missing LJ parameters fail construction with source atom indices.
+- Pairs separated by one or two bonds are excluded. Pairs whose **shortest** graph
+  distance is three bonds have LJ scaled by 1/2 and Coulomb by 1/1.2. These 1–4
+  exceptions are counted once and are not cut off or switched.
+- Ordinary LJ uses the quintic potential switch from 1.0 to 1.2 nm by default.
+  Ordinary Coulomb uses a shifted-force potential, with energy and force zero at
+  1.2 nm. Both distances are configurable through `NonbondedOptions`.
+- A sparse cell list is rebuilt each evaluation. No quadratic pair matrix is
+  allocated, and moved atoms cannot leave a stale neighbor list.
+- Coordinates must be unwrapped. This is a **nonperiodic cutoff approximation**,
+  with no PME, implicit solvent, reaction field, or bulk dispersion correction.
+  It is not equivalent to Amber with a 0.8 nm real-space cutoff plus PME.
+
+```rust,ignore
+use molar_ff::{ApplyCharges, ChargeModel, FFType, amber::*};
+system.apply_charges(ChargeModel::Espaloma)?;
+let model = AmberModel::gaff(&system, FFType::Gaff2, NonbondedOptions::default())?;
+let report = model.minimize(&mut positions_nm, &movable, MinimizeOptions::default())?;
+```
+
+The L-BFGS optimizer uses f64 arithmetic, an atom displacement limit, and an
+Armijo line search. Every accepted step lowers energy. Fixed atoms still exert
+forces but never move. Failed trial evaluations are rejected; forces are not
+silently replaced with zero. `StopReason` distinguishes convergence, the step
+limit, and a stalled line search. The result reports energy and force at the final
+coordinates. The library does not perturb undefined input geometry; callers may
+prepare sketch coordinates before minimizing.
+
+See [nonbonded methods and references](assets/amber/NONBONDED.md) for the equations,
+literature, and independent OpenMM validation procedure.

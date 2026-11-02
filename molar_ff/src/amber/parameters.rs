@@ -77,10 +77,21 @@ pub(crate) enum Value {
     Torsion(Vec<FourierTerm>),
 }
 
+/// Amber atom Lennard-Jones data. Pair Rmin is the sum of radii and pair epsilon
+/// is the geometric mean. Zero epsilon/radius is valid (e.g. GAFF hydroxyl H).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LennardJonesParameter {
+    /// Rmin / 2 in nm, not sigma.
+    pub radius: f64,
+    /// Well depth in kJ/mol.
+    pub epsilon: f64,
+}
+
 /// A read-only parameter database. Built-ins are parsed once and shared between models.
 /// Files and correspondence rules are pinned together in `assets/amber/source.json`.
 #[derive(Clone, Debug)]
 pub struct AmberParameters {
+    pub(crate) nonbonded: BTreeMap<String, (LennardJonesParameter, ParameterOrigin)>,
     pub(crate) entries: BTreeMap<TermKind, Vec<Entry<Value>>>,
     pub(crate) rules: Rules,
     pub(crate) index: BTreeMap<(TermKind, Vec<String>), usize>,
@@ -113,11 +124,12 @@ impl AmberParameters {
         cell.get_or_init(|| Self::from_dat(text, name, ff).expect("validated bundled Amber data"))
     }
 
-    /// Read the bonded sections of an Amber main parameter file. Mass, H-bond and
-    /// nonbonded sections are not energy terms in this bonded-only API.
+    /// Read Amber bonded and Rmin/epsilon nonbonded sections. Mass and legacy
+    /// 10-12 hydrogen-bond sections are not evaluated.
     pub fn from_dat(text: &str, name: &str, ff: FFType) -> Result<Self, ParameterError> {
         let mut result = Self {
             entries: BTreeMap::new(),
+            nonbonded: BTreeMap::new(),
             index: BTreeMap::new(),
             rules: Rules::builtin(ff),
             ff,
@@ -149,7 +161,86 @@ impl AmberParameters {
             };
             result.read_section(lines, name, kind)?;
         }
+        if let Some(start) = text
+            .lines()
+            .position(|l| l.trim_start().starts_with("MOD4"))
+        {
+            let header = text.lines().nth(start).unwrap();
+            if header.split_whitespace().nth(1) != Some("RE") {
+                return Err(error(
+                    name,
+                    start + 1,
+                    "only Amber RE nonbonded parameters are supported",
+                ));
+            }
+            for (i, line) in text.lines().enumerate().skip(start + 1) {
+                if line.trim().is_empty() || line.trim() == "END" {
+                    break;
+                }
+                result.read_nonbonded(line, name, i + 1)?;
+            }
+        }
         Ok(result)
+    }
+
+    /// Direct Lennard-Jones lookup; GAFF tables explicitly list all supported types.
+    /// Unknown types are not assigned guessed van der Waals parameters.
+    pub fn lennard_jones(
+        &self,
+        atom_type: &str,
+    ) -> Option<(LennardJonesParameter, &ParameterOrigin)> {
+        self.nonbonded
+            .get(atom_type)
+            .map(|(p, origin)| (*p, origin))
+    }
+
+    fn read_nonbonded(
+        &mut self,
+        line: &str,
+        name: &str,
+        line_no: usize,
+    ) -> Result<(), ParameterError> {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with(['#', '!']) {
+            return Ok(());
+        }
+        let fields: Vec<_> = line.split_whitespace().collect();
+        let fail = || {
+            error(
+                name,
+                line_no,
+                "invalid or unresolved Lennard-Jones parameter",
+            )
+        };
+        if fields.len() < 3 || line.to_ascii_lowercase().contains("attn") {
+            return Err(fail());
+        }
+        let value = |i: usize| {
+            fields[i]
+                .replace(['D', 'd'], "E")
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .ok_or_else(fail)
+        };
+        let parameter = LennardJonesParameter {
+            radius: value(1)? * 0.1,
+            epsilon: value(2)? * 4.184,
+        };
+        if !parameter.radius.is_finite() || !parameter.epsilon.is_finite() {
+            return Err(fail());
+        }
+        self.nonbonded.insert(
+            fields[0].into(),
+            (
+                parameter,
+                ParameterOrigin {
+                    file: name.into(),
+                    line: line_no,
+                },
+            ),
+        );
+        Ok(())
     }
 
     /// Optional import for external Amber data. Not needed for automatic completion.
@@ -157,16 +248,45 @@ impl AmberParameters {
     pub fn with_frcmod(mut self, text: &str, name: &str) -> Result<Self, ParameterError> {
         let mut sections: BTreeMap<TermKind, Vec<(usize, &str)>> = BTreeMap::new();
         let mut current = None;
+        let mut nonbonded = false;
         for (i, line) in text.lines().enumerate().skip(1) {
             let heading = line.trim();
+            if matches!(
+                heading,
+                "BOND"
+                    | "ANGLE"
+                    | "DIHE"
+                    | "DIHEDRAL"
+                    | "IMPROPER"
+                    | "IMPR"
+                    | "MASS"
+                    | "HBOND"
+                    | "LJEDIT"
+            ) {
+                nonbonded = false;
+            }
+            if heading == "LJEDIT" {
+                return Err(error(
+                    name,
+                    i + 1,
+                    "pair-specific LJEDIT parameters are not supported",
+                ));
+            }
             match heading {
                 "BOND" => current = Some(TermKind::Bond),
                 "ANGLE" => current = Some(TermKind::Angle),
                 "DIHE" | "DIHEDRAL" => current = Some(TermKind::Proper),
                 "IMPROPER" | "IMPR" => current = Some(TermKind::Improper),
-                "MASS" | "NONBON" | "NONB" | "LJEDIT" | "HBOND" => current = None,
+                "NONBON" | "NONB" => {
+                    current = None;
+                    nonbonded = true;
+                }
+                "MASS" | "HBOND" => current = None,
                 "" => (),
                 _ if !heading.starts_with(['#', '!']) => {
+                    if nonbonded {
+                        self.read_nonbonded(line, name, i + 1)?;
+                    }
                     if let Some(kind) = current {
                         sections.entry(kind).or_default().push((i + 1, line));
                     }

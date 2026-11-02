@@ -59,7 +59,7 @@ MolAR is a Cargo workspace (**Rust edition 2024**, MSRV 1.96) with these crates:
 |---|---|
 | `molar` | Core library: SoA atom storage, selections, IO, topology, analysis tasks |
 | `molar_gromacs` | Gromacs TPR support via a runtime-`dlopen`ed plugin (built only when Gromacs env vars are set; no compile-time dependency on Gromacs) |
-| `molar_ff` | Force-field atom typing (GAFF/GAFF2), partial charges (espaloma), and Amber bonded mechanics |
+| `molar_ff` | Force-field atom typing (GAFF/GAFF2), partial charges (espaloma), and Amber mechanics/minimization |
 | `molar_membrane` | Lipid membrane analysis (lipid order, curvature, etc.) |
 | `molar_bin` | CLI utility (`last`, `rearrange`, `solvate`, `tip3to4` commands) |
 | `molar_python` | Python bindings via PyO3/maturin (wheel: `pymolar`) |
