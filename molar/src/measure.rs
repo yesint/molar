@@ -179,7 +179,7 @@ pub trait Measure: PosProvider {
 
         let mut mass = mass_iter.next().unwrap();
         let p0 = pos_iter.next().unwrap();
-        let mut cm = p0.coords;
+        let mut cm = p0.coords * mass;
 
         for (c, m) in zip(pos_iter, mass_iter) {
             let im = b.closest_image(c, p0).coords;
@@ -204,7 +204,7 @@ pub trait Measure: PosProvider {
 
         let mut mass = mass_iter.next().unwrap();
         let p0 = pos_iter.next().unwrap();
-        let mut cm = p0.coords;
+        let mut cm = p0.coords * mass;
 
         for (c, m) in zip(pos_iter, mass_iter) {
             let im = b.closest_image_dims(c, p0, dims).coords;
@@ -767,6 +767,7 @@ pub enum MeasureError {
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;
+    use std::iter::zip;
 
     #[test]
     fn test_get_matching_atoms_by_name() -> anyhow::Result<()>{
@@ -782,6 +783,35 @@ mod tests {
         println!("{names1:?}");
         println!("{names2:?}");
         assert_eq!(names1,names2);
+        Ok(())
+    }
+
+    /// The periodic centres of mass weight the first atom by its mass like every
+    /// other atom (it used to enter with weight 1).
+    #[test]
+    fn test_center_of_mass_pbc_weights_first_atom() -> anyhow::Result<()> {
+        let sys = System::from_file("tests/membr.gro")?;
+        let b = sys.require_box()?.clone();
+        // One POPE (first atom N) and its N-HN1-HN2 triple.
+        for sel_str in ["resname POPE and resid 60", "resname POPE and resid 60 and name N HN1 HN2"] {
+            let sel = sys.select_bound(sel_str)?;
+            let masses: Vec<Float> = sel.iter_masses().collect();
+            assert!(masses[0] > 2.0, "test needs a heavy first atom");
+            let p0 = sel.iter_pos().next().unwrap();
+            let mut expected = Vector3f::zeros();
+            for (p, m) in zip(sel.iter_pos(), &masses) {
+                expected += b.closest_image(p, p0).coords * *m;
+            }
+            let expected = expected / masses.iter().sum::<Float>();
+            let pbc = sel.center_of_mass_pbc()?;
+            let pbc_full = sel.center_of_mass_pbc_dims(PBC_FULL)?;
+            assert!((pbc.coords - expected).norm() < 1e-4, "{sel_str}: {pbc:?} vs {expected:?}");
+            assert!((pbc_full.coords - expected).norm() < 1e-4, "{sel_str}: {pbc_full:?} vs {expected:?}");
+            // Without periodic dimensions it is the plain centre of mass.
+            let plain = sel.center_of_mass()?;
+            let none = sel.center_of_mass_pbc_dims(PBC_NONE)?;
+            assert!((none.coords - plain.coords).norm() < 1e-4, "{sel_str}: {none:?} vs {plain:?}");
+        }
         Ok(())
     }
 }
