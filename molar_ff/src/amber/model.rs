@@ -1,4 +1,4 @@
-use super::{parameters::*, resolve::Resolved};
+use super::parameters::*;
 use crate::{ApplyFF, FFError, FFType};
 use molar::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -154,37 +154,48 @@ impl BondedModel {
                 }
             }
         }
-        let mut cache: BTreeMap<(TermKind, Vec<String>), Option<Resolved>> = BTreeMap::new();
+        // Term kinds have fixed arity. Borrow atom types for cache hits and
+        // materialize owned names only for a new lookup or a diagnostic.
+        let mut cache = BTreeMap::new();
         let mut missing = vec![];
         for (kind, atoms) in requested {
-            let types: Vec<_> = atoms.iter().map(|&i| model.atom_types[i].clone()).collect();
-            let result = cache.entry((kind, types.clone())).or_insert_with(|| {
-                parameters.resolve(kind, &types, policy == ParameterPolicy::Automatic)
+            let mut key = [""; 4];
+            for (slot, &atom) in key.iter_mut().zip(&atoms) {
+                *slot = model.atom_types[atom].as_str();
+            }
+            let types = || {
+                key[..atoms.len()]
+                    .iter()
+                    .map(|&s| s.to_owned())
+                    .collect::<Vec<_>>()
+            };
+            let result = cache.entry((kind, key)).or_insert_with(|| {
+                parameters.resolve(kind, &types(), policy == ParameterPolicy::Automatic)
             });
             let Some(r) = result else {
                 missing.push(MissingParameter {
                     kind,
                     atoms: atoms.iter().map(|&i| model.atom_indices[i]).collect(),
-                    types,
+                    types: types(),
                 });
                 continue;
             };
-            let ordered: Vec<_> = r.order.iter().map(|&i| atoms[i]).collect();
+            let ordered = |i: usize| atoms[r.order[i]];
             let resolution = r.resolution.clone();
             match &r.value {
                 Value::Bond(p) => model.bonds.push(BondedTerm {
-                    atoms: ordered.try_into().unwrap(),
+                    atoms: std::array::from_fn(ordered),
                     parameter: *p,
                     resolution,
                 }),
                 Value::Angle(p) => model.angles.push(BondedTerm {
-                    atoms: ordered.try_into().unwrap(),
+                    atoms: std::array::from_fn(ordered),
                     parameter: *p,
                     resolution,
                 }),
                 Value::Torsion(p) => {
                     let term = BondedTerm {
-                        atoms: ordered.try_into().unwrap(),
+                        atoms: std::array::from_fn(ordered),
                         parameter: p.clone(),
                         resolution,
                     };

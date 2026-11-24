@@ -148,9 +148,20 @@ let model = AmberModel::gaff(&system, FFType::Gaff2, NonbondedOptions::default()
 let report = model.minimize(&mut positions_nm, &movable, MinimizeOptions::default())?;
 ```
 
-The L-BFGS optimizer uses f64 arithmetic, an atom displacement limit, and an
-Armijo line search. Every accepted step lowers energy. Fixed atoms still exert
-forces but never move. Failed trial evaluations are rejected; forces are not
+The L-BFGS optimizer stores its history in movable Cartesian coordinates. It
+uses a diagonal preconditioner based on bond stiffness and a weak Wolfe line
+search. At the atom displacement limit it accepts a step with sufficient Armijo
+decrease. The minimizer caches fixed-atom cells and candidate nonbonded pairs
+within a 0.1 nm skin beyond the cutoff. It checks displacement from the list
+reference at every trial, including trials that follow a rejected step.
+`minimize_observed` provides coordinates and energy after each accepted step.
+The result counts evaluations, neighbor-list builds and skipped curvature updates. Every accepted step lowers energy. Fixed atoms exert forces
+on movable atoms but never move. Bonded terms, ordinary nonbonded pairs and 1–4
+exceptions entirely within the fixed group are not evaluated. Nonbonded neighbour
+searches start only from movable atoms. `evaluate_movable(positions, movable)`
+uses the same exclusion for external conformation searches; `evaluate` retains
+the full-system evaluation. Minimization reports energies with the fixed-group
+constant omitted, so energy differences and movable-atom forces remain unchanged. Failed trial evaluations are rejected; forces are not
 silently replaced with zero. `StopReason` distinguishes convergence, the step
 limit, and a stalled line search. The result reports energy and force at the final
 coordinates. The library does not perturb undefined input geometry; callers may

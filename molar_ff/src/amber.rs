@@ -56,8 +56,8 @@ pub use parameters::{
     ParameterError, ParameterOrigin, Resolution, ResolutionMethod, TermKind,
 };
 
-pub use full::{AmberEnergy, AmberError, AmberEvaluation, AmberModel};
-pub use minimize::{MinimizeError, MinimizeOptions, MinimizeResult, StopReason};
+pub use full::{AmberEnergy, AmberError, AmberEvaluation, AmberModel, AmberScorer};
+pub use minimize::{AmberMinimizer, MinimizeError, MinimizeOptions, MinimizeResult, StopReason};
 pub use nonbonded::{
     COULOMB_CONSTANT, NonbondedAtom, NonbondedEnergy, NonbondedError, NonbondedEvaluation,
     NonbondedException, NonbondedModel, NonbondedOptions,

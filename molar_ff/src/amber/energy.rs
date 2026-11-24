@@ -41,12 +41,16 @@ pub struct BondedEvaluation {
 pub enum EvaluationError {
     #[error("expected {expected} positions, got {actual}")]
     Size { expected: usize, actual: usize },
+    #[error("expected {expected} movable flags, got {actual}")]
+    MaskSize { expected: usize, actual: usize },
     #[error("non-finite coordinate at local atom {0}")]
     NonFinite(usize),
     #[error("undefined {kind:?} geometry at local atoms {atoms:?}")]
     Degenerate { kind: TermKind, atoms: Vec<usize> },
     #[error("coincident nonbonded atoms {atoms:?}")]
     CoincidentNonbonded { atoms: [usize; 2] },
+    #[error("fixed atom {0} moved after the scoring workspace was created")]
+    FixedAtomMoved(usize),
     #[error("force-field evaluation overflowed")]
     Overflow,
 }
@@ -55,6 +59,29 @@ impl BondedModel {
     /// must be in model-local order (see `atom_indices`) and already unwrapped.
     /// Invalid/undefined geometry returns an error, not a partial force array.
     pub fn evaluate(&self, positions: &[V]) -> Result<BondedEvaluation, EvaluationError> {
+        self.evaluate_selected(positions, None)
+    }
+    /// Evaluate only terms containing at least one movable atom. Fixed-only terms
+    /// are skipped before any geometry calculation, including degenerate terms.
+    /// Forces include reactions on fixed atoms from the retained interactions.
+    pub fn evaluate_movable(
+        &self,
+        positions: &[V],
+        movable: &[bool],
+    ) -> Result<BondedEvaluation, EvaluationError> {
+        if movable.len() != self.atom_indices.len() {
+            return Err(EvaluationError::MaskSize {
+                expected: self.atom_indices.len(),
+                actual: movable.len(),
+            });
+        }
+        self.evaluate_selected(positions, Some(movable))
+    }
+    fn evaluate_selected(
+        &self,
+        positions: &[V],
+        movable: Option<&[bool]>,
+    ) -> Result<BondedEvaluation, EvaluationError> {
         if positions.len() != self.atom_indices.len() {
             return Err(EvaluationError::Size {
                 expected: self.atom_indices.len(),
@@ -70,90 +97,18 @@ impl BondedModel {
             energy: BondedEnergy::default(),
             forces: vec![[0.0; 3]; positions.len()],
         };
-        let force = &mut result.forces;
-        for term in &self.bonds {
-            let [a, b] = term.atoms;
-            let d = sub(positions[a], positions[b]);
-            let r = dot(d, d).sqrt();
-            if r < 1e-12 {
-                return Err(degenerate(TermKind::Bond, &term.atoms));
-            }
-            let dr = r - term.parameter.length;
-            result.energy.bonds += term.parameter.k * dr * dr;
-            let f = mul(d, -2.0 * term.parameter.k * dr / r);
-            force[a] = add(force[a], f);
-            force[b] = sub(force[b], f);
-        }
-        for term in &self.angles {
-            let [a, b, c] = term.atoms;
-            let u = sub(positions[a], positions[b]);
-            let v = sub(positions[c], positions[b]);
-            let (uu, vv) = (dot(u, u), dot(v, v));
-            if uu < 1e-24 || vv < 1e-24 {
-                return Err(degenerate(TermKind::Angle, &term.atoms));
-            }
-            let uv = (uu * vv).sqrt();
-            let cosine = (dot(u, v) / uv).clamp(-1.0, 1.0);
-            let sine = dot(cross(u, v), cross(u, v)).sqrt() / uv;
-            let theta = sine.atan2(cosine);
-            let d = theta - term.parameter.angle;
-            result.energy.angles += term.parameter.k * d * d;
-            if sine < 1e-12 {
-                if d.abs() < 1e-10 {
-                    continue;
-                }
-                return Err(degenerate(TermKind::Angle, &term.atoms));
-            }
-            let factor = -2.0 * term.parameter.k * d / sine;
-            let fa = mul(sub(mul(u, cosine / uu), mul(v, 1.0 / uv)), factor);
-            let fc = mul(sub(mul(v, cosine / vv), mul(u, 1.0 / uv)), factor);
-            force[a] = add(force[a], fa);
-            force[c] = add(force[c], fc);
-            force[b] = sub(force[b], add(fa, fc));
-        }
-        for (kind, terms) in [
-            (TermKind::Proper, &self.propers),
-            (TermKind::Improper, &self.impropers),
-        ] {
-            for term in terms {
-                if term.parameter.iter().all(|p| p.k == 0.0) {
-                    continue;
-                }
-                let [a, b, c, d] = term.atoms;
-                let b1 = sub(positions[b], positions[a]);
-                let b2 = sub(positions[c], positions[b]);
-                let b3 = sub(positions[d], positions[c]);
-                let n1 = cross(b1, b2);
-                let n2 = cross(b2, b3);
-                let (n1s, n2s, b2s) = (dot(n1, n1), dot(n2, n2), dot(b2, b2));
-                if n1s < 1e-28 || n2s < 1e-28 || b2s < 1e-24 {
-                    return Err(degenerate(kind, &term.atoms));
-                }
-                let length = b2s.sqrt();
-                let phi = (length * dot(b1, n2)).atan2(dot(n1, n2));
-                let mut e = 0.0;
-                let mut derivative = 0.0;
-                for p in &term.parameter {
-                    let arg = p.periodicity as f64 * phi - p.phase;
-                    e += p.k * (1.0 + arg.cos());
-                    derivative -= p.k * p.periodicity as f64 * arg.sin();
-                }
-                if kind == TermKind::Proper {
-                    result.energy.propers += e;
-                } else {
-                    result.energy.impropers += e;
-                }
-                let g0 = mul(n1, -length / n1s);
-                let g3 = mul(n2, length / n2s);
-                let t1 = dot(b1, b2) / b2s;
-                let t3 = dot(b3, b2) / b2s;
-                let g1 = add(mul(g0, -1.0 - t1), mul(g3, t3));
-                let g2 = add(mul(g0, t1), mul(g3, -1.0 - t3));
-                for (i, g) in [(a, g0), (b, g1), (c, g2), (d, g3)] {
-                    force[i] = sub(force[i], mul(g, derivative));
-                }
-            }
-        }
+        let active = |ids: &[usize]| movable.is_none_or(|m| ids.iter().any(|&i| m[i]));
+        result.energy = evaluate_terms::<true>(
+            positions,
+            &mut result.forces,
+            self.bonds.iter().filter(|t| active(&t.atoms)),
+            self.angles.iter().filter(|t| active(&t.atoms)),
+            self.propers
+                .iter()
+                .map(|t| (TermKind::Proper, t))
+                .chain(self.impropers.iter().map(|t| (TermKind::Improper, t)))
+                .filter(|(_, t)| active(&t.atoms)),
+        )?;
         if !result.energy.total().is_finite()
             || result.forces.iter().flatten().any(|v| !v.is_finite())
         {
@@ -161,6 +116,163 @@ impl BondedModel {
         }
         Ok(result)
     }
+}
+use super::{AngleParameter, BondParameter, BondedTerm, FourierTerm};
+type BondTerm = BondedTerm<2, BondParameter>;
+type AngleTerm = BondedTerm<3, AngleParameter>;
+type TorsionTerm = BondedTerm<4, Vec<FourierTerm>>;
+#[derive(Default)]
+pub(super) struct ActiveBonded<'a> {
+    bonds: Vec<&'a BondTerm>,
+    angles: Vec<&'a AngleTerm>,
+    torsions: Vec<(TermKind, &'a TorsionTerm)>,
+}
+impl<'a> ActiveBonded<'a> {
+    pub(super) fn new(model: &'a BondedModel, movable: &[bool]) -> Self {
+        let mut terms = Self::default();
+        terms.reset(model, movable);
+        terms
+    }
+    pub(super) fn reset(&mut self, model: &'a BondedModel, movable: &[bool]) {
+        let active = |ids: &[usize]| ids.iter().any(|&i| movable[i]);
+        self.bonds.clear();
+        self.bonds
+            .extend(model.bonds.iter().filter(|t| active(&t.atoms)));
+        self.angles.clear();
+        self.angles
+            .extend(model.angles.iter().filter(|t| active(&t.atoms)));
+        self.torsions.clear();
+        self.torsions.extend(
+            model
+                .propers
+                .iter()
+                .map(|t| (TermKind::Proper, t))
+                .chain(model.impropers.iter().map(|t| (TermKind::Improper, t)))
+                .filter(|(_, t)| active(&t.atoms)),
+        );
+    }
+    pub(super) fn evaluate(
+        &self,
+        positions: &[V],
+        force: &mut [V],
+    ) -> Result<BondedEnergy, EvaluationError> {
+        self.evaluate_mode::<true>(positions, force)
+    }
+    pub(super) fn energy(&self, positions: &[V]) -> Result<BondedEnergy, EvaluationError> {
+        self.evaluate_mode::<false>(positions, &mut [])
+    }
+    fn evaluate_mode<const FORCES: bool>(
+        &self,
+        positions: &[V],
+        force: &mut [V],
+    ) -> Result<BondedEnergy, EvaluationError> {
+        evaluate_terms::<FORCES>(
+            positions,
+            force,
+            self.bonds.iter().copied(),
+            self.angles.iter().copied(),
+            self.torsions.iter().copied(),
+        )
+    }
+}
+fn evaluate_terms<'a, const FORCES: bool>(
+    positions: &[V],
+    force: &mut [V],
+    bonds: impl Iterator<Item = &'a BondTerm>,
+    angles: impl Iterator<Item = &'a AngleTerm>,
+    torsions: impl Iterator<Item = (TermKind, &'a TorsionTerm)>,
+) -> Result<BondedEnergy, EvaluationError> {
+    let mut energy = BondedEnergy::default();
+    for term in bonds {
+        let [a, b] = term.atoms;
+        let d = sub(positions[a], positions[b]);
+        let r = dot(d, d).sqrt();
+        if r < 1e-12 {
+            return Err(degenerate(TermKind::Bond, &term.atoms));
+        }
+        let dr = r - term.parameter.length;
+        energy.bonds += term.parameter.k * dr * dr;
+        if !FORCES {
+            continue;
+        }
+        let f = mul(d, -2.0 * term.parameter.k * dr / r);
+        force[a] = add(force[a], f);
+        force[b] = sub(force[b], f);
+    }
+    for term in angles {
+        let [a, b, c] = term.atoms;
+        let u = sub(positions[a], positions[b]);
+        let v = sub(positions[c], positions[b]);
+        let (uu, vv) = (dot(u, u), dot(v, v));
+        if uu < 1e-24 || vv < 1e-24 {
+            return Err(degenerate(TermKind::Angle, &term.atoms));
+        }
+        let uv = (uu * vv).sqrt();
+        let cosine = (dot(u, v) / uv).clamp(-1.0, 1.0);
+        let sine = dot(cross(u, v), cross(u, v)).sqrt() / uv;
+        let theta = sine.atan2(cosine);
+        let d = theta - term.parameter.angle;
+        energy.angles += term.parameter.k * d * d;
+        if sine < 1e-12 {
+            if d.abs() < 1e-10 {
+                continue;
+            }
+            return Err(degenerate(TermKind::Angle, &term.atoms));
+        }
+        if !FORCES {
+            continue;
+        }
+        let factor = -2.0 * term.parameter.k * d / sine;
+        let fa = mul(sub(mul(u, cosine / uu), mul(v, 1.0 / uv)), factor);
+        let fc = mul(sub(mul(v, cosine / vv), mul(u, 1.0 / uv)), factor);
+        force[a] = add(force[a], fa);
+        force[c] = add(force[c], fc);
+        force[b] = sub(force[b], add(fa, fc));
+    }
+    for (kind, term) in torsions {
+        if term.parameter.iter().all(|p| p.k == 0.0) {
+            continue;
+        }
+        let [a, b, c, d] = term.atoms;
+        let b1 = sub(positions[b], positions[a]);
+        let b2 = sub(positions[c], positions[b]);
+        let b3 = sub(positions[d], positions[c]);
+        let n1 = cross(b1, b2);
+        let n2 = cross(b2, b3);
+        let (n1s, n2s, b2s) = (dot(n1, n1), dot(n2, n2), dot(b2, b2));
+        if n1s < 1e-28 || n2s < 1e-28 || b2s < 1e-24 {
+            return Err(degenerate(kind, &term.atoms));
+        }
+        let length = b2s.sqrt();
+        let phi = (length * dot(b1, n2)).atan2(dot(n1, n2));
+        let mut e = 0.0;
+        let mut derivative = 0.0;
+        for p in &term.parameter {
+            let arg = p.periodicity as f64 * phi - p.phase;
+            e += p.k * (1.0 + arg.cos());
+            if FORCES {
+                derivative -= p.k * p.periodicity as f64 * arg.sin();
+            }
+        }
+        if kind == TermKind::Proper {
+            energy.propers += e;
+        } else {
+            energy.impropers += e;
+        }
+        if !FORCES {
+            continue;
+        }
+        let g0 = mul(n1, -length / n1s);
+        let g3 = mul(n2, length / n2s);
+        let t1 = dot(b1, b2) / b2s;
+        let t3 = dot(b3, b2) / b2s;
+        let g1 = add(mul(g0, -1.0 - t1), mul(g3, t3));
+        let g2 = add(mul(g0, t1), mul(g3, -1.0 - t3));
+        for (i, g) in [(a, g0), (b, g1), (c, g2), (d, g3)] {
+            force[i] = sub(force[i], mul(g, derivative));
+        }
+    }
+    Ok(energy)
 }
 fn degenerate(kind: TermKind, atoms: &[usize]) -> EvaluationError {
     EvaluationError::Degenerate {

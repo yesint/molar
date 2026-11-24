@@ -1,5 +1,5 @@
-//! Limited-memory BFGS with an energy-decreasing backtracking line search.
-use super::{AmberEnergy, AmberEvaluation, AmberModel, EvaluationError};
+//! Preconditioned L-BFGS with a displacement-limited Wolfe line search.
+use super::{AmberEnergy, AmberModel, EvaluationError, NonbondedEvaluation};
 use std::collections::VecDeque;
 type V = [f64; 3];
 
@@ -32,6 +32,10 @@ pub enum StopReason {
 #[derive(Clone, Debug)]
 pub struct MinimizeResult {
     pub steps: usize,
+    /// Includes the initial evaluation and rejected line-search trials.
+    pub evaluations: usize,
+    pub neighbor_rebuilds: usize,
+    pub skipped_updates: usize,
     pub initial_energy: AmberEnergy,
     pub final_energy: AmberEnergy,
     pub max_force: f64,
@@ -51,10 +55,12 @@ pub enum MinimizeError {
     #[error(transparent)]
     Evaluation(#[from] EvaluationError),
 }
+#[derive(Default)]
 struct Correction {
     s: Vec<V>,
     y: Vec<V>,
     rho: f64,
+    scale: f64,
 }
 fn dot(a: &[V], b: &[V]) -> f64 {
     a.iter()
@@ -68,14 +74,6 @@ fn norm(v: &V) -> f64 {
 fn max_norm(v: &[V]) -> f64 {
     v.iter().map(norm).fold(0.0, f64::max)
 }
-fn gradient(evaluation: &AmberEvaluation, movable: &[bool]) -> Vec<V> {
-    evaluation
-        .forces
-        .iter()
-        .zip(movable)
-        .map(|(f, &m)| if m { f.map(|v| -v) } else { [0.0; 3] })
-        .collect()
-}
 fn axpy(target: &mut [V], x: &[V], a: f64) {
     for (target, x) in target.iter_mut().zip(x) {
         for i in 0..3 {
@@ -83,9 +81,48 @@ fn axpy(target: &mut [V], x: &[V], a: f64) {
         }
     }
 }
+/// Reusable storage for independent Amber minimizations of one model. Each call
+/// accepts a new coordinate set and movable mask and starts a fresh L-BFGS history.
+pub struct AmberMinimizer<'a> {
+    model: &'a AmberModel,
+    pairs: super::nonbonded::ActivePairs<'a>,
+    bonded: super::energy::ActiveBonded<'a>,
+    scratch: NonbondedEvaluation,
+    buffers: MinimizeBuffers,
+}
+
+#[derive(Default)]
+struct MinimizeBuffers {
+    active: Vec<usize>,
+    trial: Vec<V>,
+    gradient: Vec<V>,
+    next_gradient: Vec<V>,
+    direction: Vec<V>,
+    s: Vec<V>,
+    y: Vec<V>,
+    stiffness: Vec<f64>,
+    diagonal: Vec<f64>,
+    alphas: Vec<f64>,
+    history: VecDeque<Correction>,
+    spare: Vec<Correction>,
+}
+
 impl AmberModel {
-    /// Minimize coordinates in place. Only marked atoms move; all atoms still
-    /// contribute to the energy. Every accepted step passes the Armijo energy
+    /// Allocate reusable storage for a sequence of minimizations.
+    pub fn minimizer(&self) -> AmberMinimizer<'_> {
+        AmberMinimizer {
+            model: self,
+            pairs: super::nonbonded::ActivePairs::empty(self.nonbonded()),
+            bonded: Default::default(),
+            scratch: NonbondedEvaluation {
+                energy: Default::default(),
+                forces: Vec::new(),
+            },
+            buffers: Default::default(),
+        }
+    }
+    /// Minimize coordinates in place. Only marked atoms move. Interactions entirely within the fixed
+    /// group are excluded from evaluation and the reported energies. Every accepted step passes the Armijo energy
     /// decrease test. Failed trial evaluations are rejected, never sanitized to
     /// zero force. The returned force and energy describe the final coordinates.
     pub fn minimize(
@@ -93,6 +130,32 @@ impl AmberModel {
         positions: &mut [V],
         movable: &[bool],
         options: MinimizeOptions,
+    ) -> Result<MinimizeResult, MinimizeError> {
+        self.minimize_observed(positions, movable, options, |_, _, _| {})
+    }
+
+    /// Observe accepted iterates without restarting the minimizer. The callback
+    /// receives the accepted step number, full coordinates and masked energy.
+    pub fn minimize_observed(
+        &self,
+        positions: &mut [V],
+        movable: &[bool],
+        options: MinimizeOptions,
+        accepted_step: impl FnMut(usize, &[V], AmberEnergy),
+    ) -> Result<MinimizeResult, MinimizeError> {
+        self.minimizer()
+            .minimize_observed(positions, movable, options, accepted_step)
+    }
+}
+
+impl AmberMinimizer<'_> {
+    /// Run an independent minimization and observe each accepted step.
+    pub fn minimize_observed(
+        &mut self,
+        positions: &mut [V],
+        movable: &[bool],
+        options: MinimizeOptions,
+        mut accepted_step: impl FnMut(usize, &[V], AmberEnergy),
     ) -> Result<MinimizeResult, MinimizeError> {
         if !options.force_tolerance.is_finite()
             || options.force_tolerance <= 0.0
@@ -109,120 +172,232 @@ impl AmberModel {
                 actual: movable.len(),
             });
         }
-        let mut evaluation = self.evaluate(positions)?;
-        let initial_energy = evaluation.energy;
-        let mut g = gradient(&evaluation, movable);
-        let mut history: VecDeque<Correction> = VecDeque::new();
+        if self.model.atom_indices().len() != positions.len() {
+            return Err(EvaluationError::Size {
+                expected: self.model.atom_indices().len(),
+                actual: positions.len(),
+            }
+            .into());
+        }
+        let MinimizeBuffers {
+            active,
+            trial,
+            gradient: g,
+            next_gradient: next_g,
+            direction,
+            s,
+            y,
+            stiffness,
+            diagonal,
+            alphas,
+            history,
+            spare,
+        } = &mut self.buffers;
+        active.clear();
+        active.extend((0..positions.len()).filter(|&i| movable[i]));
+        trial.clear();
+        trial.extend_from_slice(positions);
+        for buffer in [&mut *g, &mut *next_g, &mut *direction, &mut *s, &mut *y] {
+            buffer.resize(active.len(), [0.; 3]);
+        }
+        alphas.resize(options.history, 0.);
+        spare.extend(history.drain(..));
+        let bonded = &mut self.bonded;
+        let pairs = &mut self.pairs;
+        let scratch = &mut self.scratch;
+        bonded.reset(self.model.bonded(), movable);
+        pairs.reset(positions, movable)?;
+        scratch.forces.resize(positions.len(), [0.; 3]);
+        let mut evaluations = 0;
+        let mut evaluate = |p: &[V], gradient: &mut [V]| -> Result<AmberEnergy, EvaluationError> {
+            evaluations += 1;
+            scratch.forces.fill([0.; 3]);
+            scratch.energy = Default::default();
+            let bonded_energy = bonded.evaluate(p, &mut scratch.forces)?;
+            pairs.evaluate(p, active, scratch)?;
+            let energy = AmberEnergy {
+                bonded: bonded_energy,
+                nonbonded: scratch.energy,
+            };
+            if !energy.total().is_finite()
+                || scratch.forces.iter().flatten().any(|v| !v.is_finite())
+            {
+                return Err(EvaluationError::Overflow);
+            }
+            for (out, &i) in gradient.iter_mut().zip(active.iter()) {
+                *out = scratch.forces[i].map(|f| -f);
+            }
+            Ok(energy)
+        };
+        let initial_energy = evaluate(positions, g)?;
+        let mut energy = initial_energy;
+        // Isotropic per-atom approximation to the bond-stretch Hessian.
+        // Normalize by the mean stiffness, leaving an unbonded system at unit scale.
+        stiffness.clear();
+        stiffness.resize(positions.len(), 0.);
+        for bond in self.model.bonded().bonds() {
+            for i in bond.atoms {
+                if movable[i] {
+                    stiffness[i] += 2. * bond.parameter.k / 3.;
+                }
+            }
+        }
+        let mean = active.iter().map(|&i| stiffness[i]).sum::<f64>() / active.len().max(1) as f64;
+        diagonal.clear();
+        diagonal.extend(active.iter().map(|&i| {
+            if mean > 0. && stiffness[i] > 0. {
+                (mean / stiffness[i]).clamp(0.1, 10.)
+            } else {
+                1.
+            }
+        }));
+        let mut skipped_updates = 0;
         let mut steps = 0;
         let reason = loop {
-            if max_norm(&g) <= options.force_tolerance {
+            if max_norm(g) <= options.force_tolerance {
                 break StopReason::Converged;
             }
             if steps >= options.max_steps {
                 break StopReason::StepLimit;
             }
             // Standard L-BFGS two-loop recursion: H_k * gradient.
-            let mut direction = g.clone();
-            let mut alphas = vec![0.0; history.len()];
+            direction.copy_from_slice(g);
             for (i, pair) in history.iter().enumerate().rev() {
-                let alpha = pair.rho * dot(&pair.s, &direction);
+                let alpha = pair.rho * dot(&pair.s, direction);
                 alphas[i] = alpha;
-                axpy(&mut direction, &pair.y, -alpha);
+                axpy(direction, &pair.y, -alpha);
             }
-            let gamma = history
-                .back()
-                .map_or(1.0, |p| 1.0 / (p.rho * dot(&p.y, &p.y)));
-            for v in &mut direction {
+            let gamma = history.back().map_or(1., |p| p.scale);
+            for (v, weight) in direction.iter_mut().zip(diagonal.iter()) {
                 for x in v {
-                    *x *= gamma;
+                    *x *= gamma * weight;
                 }
             }
             for (i, pair) in history.iter().enumerate() {
-                let beta = pair.rho * dot(&pair.y, &direction);
-                axpy(&mut direction, &pair.s, alphas[i] - beta);
+                let beta = pair.rho * dot(&pair.y, direction);
+                axpy(direction, &pair.s, alphas[i] - beta);
             }
-            for v in &mut direction {
+            for v in direction.iter_mut() {
                 for x in v {
                     *x = -*x;
                 }
             }
-            let mut slope = dot(&g, &direction);
+            let mut slope = dot(g, direction);
             if !slope.is_finite()
                 || slope >= 0.0
                 || direction.iter().flatten().any(|v| !v.is_finite())
             {
-                history.clear();
-                direction = g.iter().map(|v| v.map(|x| -x)).collect();
-                slope = -dot(&g, &g);
+                spare.extend(history.drain(..));
+                for (d, v) in direction.iter_mut().zip(g.iter()) {
+                    *d = v.map(|x| -x);
+                }
+                slope = -dot(g, g);
             }
-            let search = |direction: &[V], slope: f64| {
-                let mut alpha = (options.max_displacement / max_norm(direction)).min(1.0);
+            let mut search = |direction: &[V], slope: f64| {
+                let cap = options.max_displacement / max_norm(direction);
+                let mut alpha = cap.min(1.);
+                let mut lower = 0.;
+                let mut upper = f64::INFINITY;
                 for _ in 0..40 {
-                    let trial: Vec<V> = positions
-                        .iter()
-                        .zip(direction)
-                        .zip(movable)
-                        .map(|((p, d), &m)| {
-                            if m {
-                                std::array::from_fn(|i| p[i] + alpha * d[i])
-                            } else {
-                                *p
-                            }
-                        })
-                        .collect();
-                    if let Ok(value) = self.evaluate(&trial) {
-                        if value.energy.total() < evaluation.energy.total()
-                            && value.energy.total()
-                                <= evaluation.energy.total() + 1e-4 * alpha * slope
+                    let mut changed = false;
+                    for (&i, d) in active.iter().zip(direction.iter()) {
+                        trial[i] = std::array::from_fn(|k| positions[i][k] + alpha * d[k]);
+                        changed |= trial[i] != positions[i];
+                    }
+                    if !changed {
+                        break;
+                    }
+                    if let Ok(value) = evaluate(trial, next_g) {
+                        if value.total() < energy.total()
+                            && value.total() <= energy.total() + 1e-4 * alpha * slope
                         {
-                            return Some((trial, value));
+                            // Accept a capped Armijo step when the curvature condition
+                            // would require exceeding the displacement limit.
+                            if alpha == cap || dot(next_g, direction) >= 0.9 * slope {
+                                return Some(value);
+                            }
+                            lower = alpha;
+                            alpha = if upper.is_finite() {
+                                0.5 * (lower + upper)
+                            } else {
+                                (2. * alpha).min(cap)
+                            };
+                            continue;
                         }
                     }
-                    alpha *= 0.5;
+                    upper = alpha;
+                    alpha = 0.5 * (lower + upper);
                 }
                 None
             };
-            let accepted = search(&direction, slope).or_else(|| {
+            let accepted = search(direction, slope).or_else(|| {
                 // A poor inverse Hessian must not prevent a valid steepest-descent step.
-                history.clear();
-                let steepest: Vec<_> = g.iter().map(|v| v.map(|x| -x)).collect();
-                search(&steepest, -dot(&g, &g))
+                if direction
+                    .iter()
+                    .zip(g.iter())
+                    .all(|(d, g)| (0..3).all(|k| d[k] == -g[k]))
+                {
+                    return None;
+                }
+                spare.extend(history.drain(..));
+                for (d, v) in direction.iter_mut().zip(g.iter()) {
+                    *d = v.map(|x| -x);
+                }
+                search(direction, -dot(g, g))
             });
-            let Some((trial, next)) = accepted else {
+            let Some(next) = accepted else {
                 break StopReason::LineSearchStalled;
             };
-            let next_g = gradient(&next, movable);
-            let s: Vec<V> = trial
-                .iter()
-                .zip(positions.iter())
-                .map(|(a, b)| std::array::from_fn(|i| a[i] - b[i]))
-                .collect();
-            let y: Vec<V> = next_g
-                .iter()
-                .zip(&g)
-                .map(|(a, b)| std::array::from_fn(|i| a[i] - b[i]))
-                .collect();
-            let sy = dot(&s, &y);
-            if sy.is_finite() && sy > 1e-10 * dot(&s, &s).sqrt() * dot(&y, &y).sqrt() && sy > 0.0 {
-                if history.len() == options.history {
-                    history.pop_front();
-                }
-                history.push_back(Correction {
-                    s,
-                    y,
-                    rho: 1.0 / sy,
-                });
+
+            for (slot, &i) in active.iter().enumerate() {
+                s[slot] = std::array::from_fn(|k| trial[i][k] - positions[i][k]);
+                y[slot] = std::array::from_fn(|k| next_g[slot][k] - g[slot][k]);
             }
-            positions.copy_from_slice(&trial);
-            evaluation = next;
-            g = next_g;
+            let sy = dot(s, y);
+            let y_metric: f64 = y
+                .iter()
+                .zip(diagonal.iter())
+                .map(|(v, weight)| weight * v.iter().map(|x| x * x).sum::<f64>())
+                .sum();
+            let scale = sy / y_metric;
+            if scale.is_finite()
+                && scale > 0.
+                && (1. / sy).is_finite()
+                && sy.is_finite()
+                && sy > 1e-10 * dot(s, s).sqrt() * dot(y, y).sqrt()
+                && sy > 0.0
+            {
+                let mut entry = if history.len() == options.history {
+                    history.pop_front().unwrap()
+                } else {
+                    spare.pop().unwrap_or_default()
+                };
+                entry.s.resize(active.len(), [0.; 3]);
+                entry.y.resize(active.len(), [0.; 3]);
+                std::mem::swap(&mut entry.s, s);
+                std::mem::swap(&mut entry.y, y);
+                entry.rho = 1. / sy;
+                entry.scale = scale;
+                history.push_back(entry);
+            } else {
+                skipped_updates += 1;
+            }
+            for &i in active.iter() {
+                positions[i] = trial[i];
+            }
+            energy = next;
+            std::mem::swap(g, next_g);
             steps += 1;
+            accepted_step(steps, positions, energy);
         };
         Ok(MinimizeResult {
             steps,
             initial_energy,
-            final_energy: evaluation.energy,
-            max_force: max_norm(&g),
+            final_energy: energy,
+            evaluations,
+            neighbor_rebuilds: pairs.rebuilds,
+            skipped_updates,
+            max_force: max_norm(g),
             reason,
         })
     }

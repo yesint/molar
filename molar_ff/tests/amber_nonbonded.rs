@@ -205,3 +205,43 @@ fn openmm_nonbonded_reference() {
         }
     }
 }
+
+#[test]
+fn movable_neighbor_search_matches_independent_pair_sum_for_every_mask() {
+    let charges = [0.2, -0.3, 0.1, 0.4];
+    let positions = [[-0.4, 0., 0.], [0., 0.1, 0.], [0.5, 0., 0.], [1.0, 0.2, 0.]];
+    let full = model(&["c3"; 4], &[], &charges, FFType::Gaff2);
+    for bits in 0..16 {
+        let mask: Vec<_> = (0..4).map(|i| bits & (1 << i) != 0).collect();
+        let actual = full.evaluate_movable(&positions, &mask).unwrap();
+        let mut energy = 0.;
+        let mut forces = [[0.; 3]; 4];
+        for i in 0..4 {
+            for j in i + 1..4 {
+                if !mask[i] && !mask[j] {
+                    continue;
+                }
+                let pair = model(&["c3"; 2], &[], &[charges[i], charges[j]], FFType::Gaff2)
+                    .evaluate(&[positions[i], positions[j]])
+                    .unwrap();
+                energy += pair.energy.total();
+                for k in 0..3 {
+                    forces[i][k] += pair.forces[0][k];
+                    forces[j][k] += pair.forces[1][k];
+                }
+            }
+        }
+        assert!(
+            (actual.energy.total() - energy).abs() < 1e-10,
+            "mask {mask:?}"
+        );
+        for i in 0..4 {
+            for k in 0..3 {
+                assert!(
+                    (actual.forces[i][k] - forces[i][k]).abs() < 1e-9,
+                    "mask {mask:?}, atom {i}"
+                );
+            }
+        }
+    }
+}

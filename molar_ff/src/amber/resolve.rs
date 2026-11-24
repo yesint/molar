@@ -145,24 +145,19 @@ impl Rules {
         Some((score, *equivalent))
     }
     fn group_penalty(&self, types: &[String]) -> f64 {
-        let groups: Vec<_> = types
+        let mut groups = types
             .iter()
-            .filter_map(|t| self.atoms.get(t).map(|r| r.group))
-            .collect();
-        if groups.windows(2).any(|w| w[0] != w[1]) {
+            .filter_map(|t| self.atoms.get(t).map(|r| r.group));
+        let first = groups.next();
+        if groups.any(|g| Some(g) != first) {
             self.weight("WEIGHT_GROUP")
         } else {
             0.0
         }
     }
-    fn conjugation_penalty(&self, from: &[String], to: &[String], a: usize, b: usize) -> f64 {
+    fn conjugation_penalty(&self, from: [&str; 2], to: [&str; 2]) -> f64 {
         let group = |t: &str| self.atoms.get(t).map_or(0, |r| r.equivalent_group);
-        let (x, y, u, v) = (
-            group(&from[a]),
-            group(&from[b]),
-            group(&to[a]),
-            group(&to[b]),
-        );
+        let (x, y, u, v) = (group(from[0]), group(from[1]), group(to[0]), group(to[1]));
         if x == 0 && y == 0 {
             return 0.0;
         }
@@ -229,13 +224,13 @@ impl AmberParameters {
             }
             let wildcards = entry.types.iter().filter(|s| s.as_str() == "X").count();
             for order in &permutations {
-                let actual: Vec<_> = order.iter().map(|&i| query[i].clone()).collect();
                 let mut score = 0.0;
                 let mut equivalents = true;
                 let mut changed = false;
                 let mut changes = 0;
                 let mut valid = true;
-                for (pos, (a, b)) in actual.iter().zip(&entry.types).enumerate() {
+                for (pos, (&index, b)) in order.iter().zip(&entry.types).enumerate() {
+                    let a = &query[index];
                     if b == "X" {
                         continue;
                     }
@@ -270,10 +265,16 @@ impl AmberParameters {
                     score += self.rules.group_penalty(&entry.types);
                     match kind {
                         TermKind::Bond => {
-                            score += self.rules.conjugation_penalty(&actual, &entry.types, 0, 1)
+                            score += self.rules.conjugation_penalty(
+                                [&query[order[0]], &query[order[1]]],
+                                [&entry.types[0], &entry.types[1]],
+                            )
                         }
                         TermKind::Proper => {
-                            score += self.rules.conjugation_penalty(&actual, &entry.types, 1, 2)
+                            score += self.rules.conjugation_penalty(
+                                [&query[order[1]], &query[order[2]]],
+                                [&entry.types[1], &entry.types[2]],
+                            )
                         }
                         TermKind::Improper => {
                             score += wildcards as f64 * self.rules.weight("WEIGHT_X")

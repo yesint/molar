@@ -388,47 +388,69 @@ fn num_components(adj: &BondAdjacency) -> usize {
     connected_components(adj).iter().max().map_or(0, |m| m + 1)
 }
 
-/// Smallest ring through bond `(u,v)` (the bond `excl` is the closing edge): BFS the
-/// shortest `u→v` path that doesn't use `excl`.
-fn shortest_cycle(adj: &BondAdjacency, u: usize, v: usize, excl: usize) -> Option<RingData> {
-    let n = adj.n_atoms();
-    let mut prev = vec![usize::MAX; n];
-    let mut prev_bond = vec![usize::MAX; n];
-    let mut visited = vec![false; n];
-    let mut q = VecDeque::from([u]);
-    visited[u] = true;
-    while let Some(x) = q.pop_front() {
-        if x == v {
-            break;
+struct RingSearch {
+    prev: Vec<usize>,
+    prev_bond: Vec<usize>,
+    seen_from_bond: Vec<usize>,
+    queue: VecDeque<usize>,
+}
+
+impl RingSearch {
+    fn new(n: usize) -> Self {
+        Self {
+            prev: vec![0; n],
+            prev_bond: vec![0; n],
+            seen_from_bond: vec![usize::MAX; n],
+            queue: VecDeque::new(),
         }
-        for nb in adj.neighbors(x) {
-            let (y, bi) = (nb.atom(), nb.bond());
-            if bi == excl || visited[y] {
-                continue;
+    }
+    /// Each excluded bond is searched once. Its index marks nodes visited by this BFS.
+    fn shortest_cycle(
+        &mut self,
+        adj: &BondAdjacency,
+        u: usize,
+        v: usize,
+        excl: usize,
+    ) -> Option<RingData> {
+        let Self {
+            prev,
+            prev_bond,
+            seen_from_bond,
+            queue: q,
+        } = self;
+        q.clear();
+        q.push_back(u);
+        seen_from_bond[u] = excl;
+        while let Some(x) = q.pop_front() {
+            if x == v {
+                break;
             }
-            visited[y] = true;
-            prev[y] = x;
-            prev_bond[y] = bi;
-            q.push_back(y);
+            for nb in adj.neighbors(x) {
+                let (y, bi) = (nb.atom(), nb.bond());
+                if bi == excl || seen_from_bond[y] == excl {
+                    continue;
+                }
+                seen_from_bond[y] = excl;
+                prev[y] = x;
+                prev_bond[y] = bi;
+                q.push_back(y);
+            }
         }
-    }
-    if !visited[v] {
-        return None;
-    }
-    let mut atoms = Vec::new();
-    let mut bonds = vec![excl];
-    let mut cur = v;
-    while cur != u {
-        atoms.push(cur);
-        bonds.push(prev_bond[cur]);
-        cur = prev[cur];
-        if cur == usize::MAX {
-            return None; // shouldn't happen once `v` is reached
+        if seen_from_bond[v] != excl {
+            return None;
         }
+        let mut atoms = Vec::new();
+        let mut bonds = vec![excl];
+        let mut cur = v;
+        while cur != u {
+            atoms.push(cur);
+            bonds.push(prev_bond[cur]);
+            cur = prev[cur];
+        }
+        atoms.push(u);
+        atoms.reverse();
+        Some(RingData { atoms, bonds })
     }
-    atoms.push(u);
-    atoms.reverse();
-    Some(RingData { atoms, bonds })
 }
 
 /// Smallest set of smallest rings, via "smallest ring per bond" + GF(2) independence.
@@ -447,12 +469,13 @@ fn sssr(adj: &BondAdjacency) -> Vec<RingData> {
     // Candidates are generated in ascending bond index — the same order the old bond-slice
     // loop used — because `sort_by_key` below is stable and ties among equal-size rings would
     // otherwise resolve differently, yielding a different (still valid) SSSR set.
+    let mut search = RingSearch::new(n);
     let mut cands: Vec<RingData> = Vec::new();
     for (bi, &[u, v]) in adj.bond_endpoints().iter().enumerate() {
         if u == usize::MAX || v == usize::MAX {
             continue; // self-bond or out-of-range: absent from the adjacency
         }
-        if let Some(r) = shortest_cycle(adj, u, v, bi) {
+        if let Some(r) = search.shortest_cycle(adj, u, v, bi) {
             cands.push(r);
         }
     }
