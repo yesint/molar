@@ -1,6 +1,6 @@
 [package]
 name = "molar_ff"
-version.workspace = true
+version = "2.5.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
